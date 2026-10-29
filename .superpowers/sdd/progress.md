@@ -6,8 +6,8 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
 | Task | Status | Committed | Notes |
 |---|---|---|---|
 | T1 scaffolding | done | 00c29a7 | fallback lib-sync strategy; board id `rpipico2` (plan's `pico2` unknown to platform); see findings below |
-| T2 I2S bring-up | code ready | | build SUCCESS (32 kHz sine via `write16(l,r)`); audible 220 Hz acceptance pending user wiring + BOOTSEL flash; see T2 note below |
-| T3 engine integration | code ready | | build SUCCESS (full Elements DSP linked, core1 render + auto-trigger test); audible + Process-time acceptance pending user wiring + BOOTSEL flash; see T3 note below |
+| T2 I2S bring-up | code ready | 3e3fec5 | build SUCCESS (32 kHz sine via `write16(l,r)`); audible 220 Hz acceptance pending user wiring + BOOTSEL flash; see T2 note below |
+| T3 engine integration | code ready | 7140db6 | build SUCCESS (full Elements DSP linked, core1 render + auto-trigger test); audible + Process-time acceptance pending user wiring + BOOTSEL flash; orchestrator fixed Seed() to use a real 3-word array (Scarp's pattern overread the stack) |
 | T4 USB MIDI device | pending | | Adafruit_USBD_MIDI API facts below |
 | T5 USB host MIDI | pending | | needs USB-A socket wired; midi_host.h API facts below (index-based, differs from plan sketch) |
 | T6 hardening + docs | pending | | |
