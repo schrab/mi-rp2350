@@ -5,8 +5,8 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
 
 | Task | Status | Committed | Notes |
 |---|---|---|---|
-| T1 scaffolding | done | | fallback lib-sync strategy; board id `rpipico2` (plan's `pico2` unknown to platform); see findings below |
-| T2 I2S bring-up | pending | | needs PCM5102A wired; I2S API facts below |
+| T1 scaffolding | done | 00c29a7 | fallback lib-sync strategy; board id `rpipico2` (plan's `pico2` unknown to platform); see findings below |
+| T2 I2S bring-up | code ready | | build SUCCESS (32 kHz sine via `write16(l,r)`); audible 220 Hz acceptance pending user wiring + BOOTSEL flash; see T2 note below |
 | T3 engine integration | pending | | |
 | T4 USB MIDI device | pending | | Adafruit_USBD_MIDI API facts below |
 | T5 USB host MIDI | pending | | needs USB-A socket wired; midi_host.h API facts below (index-based, differs from plan sketch) |
@@ -137,6 +137,30 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
       `void tuh_midi_tx_cb(uint8_t idx, uint32_t xferred_bytes);`.
   - Bundled host examples only `Host/Simple/host_device_info.ino` and
     `DualRole/.../serial_host_bridge.ino` (no MIDI host example in the package).
+
+### T2 — I2S bring-up code (2026-10-30)
+
+- `src/main.cpp` replaced with the 32 kHz I2S sine test (plan T2 sketch, adapted):
+  stereo write uses the **verified 2-arg `i2s.write16(s, s)`** (blocking) instead
+  of the plan's dual `write()` fallback; init order per plan/ledger facts:
+  `setBitsPerSample(16)` → `setBuffers(8, 16)` → `setFrequency(32000)` →
+  `begin()` (no-arg form); `begin()` return value printed ("I2S up" / "I2S
+  begin FAILED") for the plan's step-3 debug path. Pins BCLK=GP6 (WS auto on
+  GP7), DOUT=GP8.
+- Kept from T1 scaffold: `#include <Adafruit_TinyUSB.h>` (required — chain+ LDF
+  pulls the TinyUSB lib via this include, else `Serial`/`Adafruit_USBD_CDC`
+  undefined), `<STMLIB.h>`/`<ELEMENTS.h>` includes and the
+  `elements::Dsp::kSampleRate/kSrFactor/kIntervalCorrection` definitions
+  (needed for linking; T3 reuses).
+- `pio run -d elements-rp2350` → **SUCCESS** (10 s): firmware.uf2/elf/bin,
+  RAM 3.1%, Flash 1.7%; LDF graph: I2S @ 2.0 + elements + stmlib +
+  Adafruit TinyUSB. Signatures re-verified against installed I2S.h
+  (`write16(int16_t,int16_t)`, `begin()`, `begin(long)`,
+  `setBuffers(size_t,size_t,int32_t=0)`) — no drift from T1 facts.
+- **NOT uploaded** (udev perms, per T1 findings). Acceptance (audible clean
+  220 Hz, ±1 Hz on tuner) pending: user wires PCM5102A (BCK→GP6, LCK→GP7,
+  DIN→GP8, SCK→GND, XSMT→3V3, VIN→3V3) + flashes `firmware.uf2` via BOOTSEL.
+  If silent: check Serial for "I2S up", then XSMT high, then LCK on GP7.
 
 ### T1 — review fix: -O3 was silently defeated (2026-10-30)
 
