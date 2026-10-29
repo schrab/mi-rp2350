@@ -7,7 +7,7 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
 |---|---|---|---|
 | T1 scaffolding | done | 00c29a7 | fallback lib-sync strategy; board id `rpipico2` (plan's `pico2` unknown to platform); see findings below |
 | T2 I2S bring-up | code ready | | build SUCCESS (32 kHz sine via `write16(l,r)`); audible 220 Hz acceptance pending user wiring + BOOTSEL flash; see T2 note below |
-| T3 engine integration | pending | | |
+| T3 engine integration | code ready | | build SUCCESS (full Elements DSP linked, core1 render + auto-trigger test); audible + Process-time acceptance pending user wiring + BOOTSEL flash; see T3 note below |
 | T4 USB MIDI device | pending | | Adafruit_USBD_MIDI API facts below |
 | T5 USB host MIDI | pending | | needs USB-A socket wired; midi_host.h API facts below (index-based, differs from plan sketch) |
 | T6 hardening + docs | pending | | |
@@ -161,6 +161,58 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   220 Hz, ±1 Hz on tuner) pending: user wires PCM5102A (BCK→GP6, LCK→GP7,
   DIN→GP8, SCK→GND, XSMT→3V3, VIN→3V3) + flashes `firmware.uf2` via BOOTSEL.
   If silent: check Serial for "I2S up", then XSMT high, then LCK on GP7.
+
+### T3 — engine integration code (2026-10-30)
+
+- `src/main.cpp` replaced with the plan-T3 engine sketch (kept from T1/T2: the
+  `elements::Dsp::kSampleRate/kSrFactor/kIntervalCorrection` definitions,
+  `#include <Adafruit_TinyUSB.h>` for Serial CDC linking, I2S pins BCLK=GP6 /
+  DOUT=GP8, and the `i2s.begin()` return print "I2S up" / "I2S begin FAILED").
+- Implemented per plan: static `uint16_t reverb_buffer[32768]` (64 KB),
+  `part.Init(reverb_buffer)` + `Seed(&seed=0x1fff7a10, 3)` (exact proven Scarp
+  pattern) + `set_easter_egg(false)` +
+  `set_resonator_model(RESONATOR_MODEL_STRING)`; default strike/mallet patch
+  (envelope_shape 0.1, strike_level 0.8, geometry 0.25, brightness 0.4,
+  damping 0.7, position 0.3, space 0.4, rest 0/0.5 per plan);
+  `setup1()`/`loop1()` on core 1 gated on `volatile bool audio_ready` set at
+  the end of core 0 `setup()`; `perf_state` (gate/note/strength/modulation)
+  filled from `volatile` shared MIDI vars each block;
+  `part.Process(perf_state, blow_in, strike_in, main_out, aux_out, 16)`;
+  `stmlib::Clip16(int32)` → `i2s.write16(l, r)` blocking pacing;
+  core 0 `loop()` auto-trigger (strike every 1.5 s, gate held 300 ms, note
+  36..47 stepping) + 2 s Serial report of `proc_us_max` vs the 500 µs/block
+  budget (16 samples @ 32 kHz). All shared vars (`shared_*`, `audio_ready`,
+  `proc_us_max`) are `volatile` at file scope in the single main.cpp TU.
+- API verified before compiling: `Part::Process(const PerformanceState&,
+  float* blow_in, float* strike_in, float* main, float* aux, size_t n)` at
+  `ELEMENTS/src/elements/dsp/part.h:59` — plan's call order is correct.
+  `Patch` field names all match `patch.h`. `RESONATOR_MODEL_STRING` at
+  `voice.h:52`. `stmlib::Clip16` at `STMLIB/src/stmlib/dsp/dsp.h:131`.
+- **Adapted (minimal):** added `#include "stmlib/dsp/dsp.h"` — the plan's
+  include set does not pull it in (wrappers include `stmlib/utils/dsp.h`, a
+  different file) and `Clip16` would be undefined. Used the verified
+  `i2s.write16(l, r)` instead of the plan's dual `write()` fallback (same
+  proven T2 path). Init order keeps T2's `setBitsPerSample(16)` →
+  `setBuffers(8, 16)` → `setFrequency(32000)` → no-arg `begin()` with return
+  check, then `audio_ready = true` AFTER `i2s.begin()` so core 1 never renders
+  into an unstarted I2S.
+- Build: `pio run -d elements-rp2350` → **SUCCESS** (10.5 s, only main.cpp
+  recompiled), zero warnings. **RAM 37.3% (195,616 / 524,288 bytes)** — jump
+  from T2's 3.1% is the 64 KB reverb tank + Part/Voice/OminousVoice state;
+  **Flash 11.3% (473,224 / 4,190,208 bytes)** — jump from 1.7% is the full
+  Elements DSP now referenced (T1's elements_all.o was dead-stripped).
+  Artifacts: `.pio/build/elements-rp2350/firmware.uf2` (+ `.elf`/`.bin`/`.bin.signed`).
+- **NOT uploaded** (per plan: user flashes via BOOTSEL, see
+  `elements-rp2350/README.md`).
+- **Expected serial output on the user's hardware check** (115200 baud, USB-C
+  CDC): at boot `I2S up` then `Elements engine up (auto-trigger test)`;
+  thereafter every 2 s exactly one line
+  `max Process: <N> us (budget 500 us)` where <N> is the worst-case
+  `Part::Process` block time (16 samples) since the last report — acceptance
+  is <N> comfortably below 500 and audible struck-string pings stepping up
+  note-by-note every 1.5 s (C2..B2, notes 36..47), reverb tail from space 0.4.
+  If audio is silent but the report prints: check XSMT high, LCK on GP7 (same
+  T2 debug order).
 
 ### T1 — review fix: -O3 was silently defeated (2026-10-30)
 
