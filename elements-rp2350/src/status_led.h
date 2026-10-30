@@ -1,42 +1,49 @@
-// Status LED: one WS2812 on GP22 standing in for the three LEDs of the
-// original Elements module (gate / exciter / resonator).
+// Status LED: one WS2812 on GP22.
 //
-// Mapping: R = exciter, G = resonator, B = gate.
-// The LED is NEVER dark: dim green = running/idle, bright colors when active.
-// This way the user can always confirm the driver is working.
+// Mapping: dark = idle; amber = note gated; the exciter and resonator meters
+// are blended in additively (exciter = turquoise, resonator = amber), so the
+// LED brightens and shifts hue with the DSP activity and follows the original
+// meter release tails. Three green blinks = USB MIDI host controller mounted.
+// Boot: 3 white flashes (self-test), then dark.
 //
 // The WS2812 is driven via PIO2 SM0 (PIO0 = USB host; I2S lands on PIO2 SM1
 // after the SM0 claim in Init()) using the SDK ws2812 PIO program. Each frame
 // is followed by a 1ms wait (~30us shift-out time + >50us WS2812 reset gap)
-// so colors latch reliably. Core 0 is blocked ~2% of the time — negligible
-// for USB MIDI, zero impact on core 1 audio.
+// so colors latch reliably. Core 0 is blocked ~5% of the time (1 ms per
+// 20 ms poll) — negligible for USB MIDI, zero impact on core 1 audio.
 #pragma once
 #include <Arduino.h>
 
 #include "hardware/pio.h"
 #include "hardware/structs/resets.h"  // unreset_block_mask_wait_blocking, RESET_PIO2
 
-#include "ws2812.pio.h"   // pioasm-generated ws2812 PIO program
-#include "elements/resources.h"  // lut_db_led_brightness
+#include "elements/resources.h"       // lut_db_led_brightness
+#include "ws2812.pio.h"               // pioasm-generated ws2812 PIO program
 
 namespace status_led {
 
 constexpr uint8_t kPin = 22;
 static const PIO kPio = pio2;   // pio2 is a macro ((pio_hw_t *)PIO2_BASE) — not constexpr
 constexpr uint kSm = 0;
-constexpr uint8_t kBootColorValue = 40;   // dim blue during setup
-constexpr uint8_t kGateBrightness = 200;
-constexpr uint8_t kModelPulseBrightness = 120;
+// Gate: amber base. Scaled to 180/255 so the meter colors have headroom to
+// shift the hue instead of clipping on amber's already-saturated red.
+constexpr uint8_t kGateAmberR = 255;
+constexpr uint8_t kGateAmberG = 100;
+constexpr uint8_t kGateAmberLevel = 180;
+// Exciter keeps the original Elements LED1 turquoise. The resonator meter is
+// amber (same hue as the gate) instead of the original rose/fuchsia, so it
+// brightens the note color rather than tinting it pink.
+constexpr uint8_t kExciterR = 0;
+constexpr uint8_t kExciterG = 200;
+constexpr uint8_t kExciterB = 160;
+constexpr uint8_t kResonatorR = 255;
+constexpr uint8_t kResonatorG = 100;
+constexpr uint8_t kResonatorB = 0;
+constexpr uint8_t kControllerGreen = 200;
 constexpr uint32_t kPollIntervalMs = 20;
-constexpr uint32_t kBootOkFlashMs = 250;
-constexpr uint32_t kModelShowMs = 1024;
-
-inline uint8_t dbBrightness(float level) {
-  int32_t idx = static_cast<int32_t>(level * 512.0f);
-  if (idx < 0) idx = 0;
-  if (idx > 512) idx = 512;
-  return static_cast<uint8_t>(elements::lut_db_led_brightness[idx]);
-}
+constexpr uint32_t kControllerBlinkOnMs = 150;
+constexpr uint32_t kControllerBlinkOffMs = 150;
+constexpr uint32_t kControllerBlinkCount = 3;
 
 }  // namespace status_led
 
@@ -50,7 +57,7 @@ class StatusLed {
     // allocator (used by I2S) scans PIOs from the highest index down and
     // claims the first unclaimed SM. Without this claim, i2s.begin() takes
     // PIO2 SM0, reconfigures it for I2S and the LED freezes on its last
-    // color (the boot blue) while audio keeps working.
+    // color while audio keeps working.
     pio_sm_claim(status_led::kPio, status_led::kSm);
 
     offset_ = pio_add_program(status_led::kPio, &ws2812_program);
@@ -58,35 +65,38 @@ class StatusLed {
                         status_led::kPin, 800000.0f, false);
 
     boot_error_ = false;
-    boot_ok_ms_ = 0;
-    model_show_until_ = 0;
+    controller_blink_active_ = false;
+    controller_blink_start_ms_ = 0;
     last_poll_ms_ = 0;
 
-    // Sanity flash: 3x bright white — same pattern that worked before.
-    // Confirms driver + PIO2 + wiring all function.
+    // Sanity flash: 3x bright white — confirms driver + PIO2 + wiring.
     for (int i = 0; i < 3; ++i) {
       showColor(120, 120, 120);
       delay(150);
       showColor(0, 0, 0);
       delay(150);
     }
-
-    showColor(0, 0, status_led::kBootColorValue);  // dim blue: booting
+    showColor(0, 0, 0);  // idle: dark
   }
 
   void NotifyBootError() { boot_error_ = true; }
-  void NotifyBootOk() { boot_ok_ms_ = millis(); }
+
+  // USB-A MIDI host controller mounted: 3 green blinks, then resume normal.
+  void NotifyControllerConnected() {
+    controller_blink_start_ms_ = millis();
+    controller_blink_active_ = true;
+  }
 
   // Boot diagnostics: instruction-memory offset of the WS2812 program.
   uint Offset() const { return offset_; }
 
-  void NotifyModelChange(uint8_t model) {
-    model_ = (model > 2) ? model_ : model;
-    model_show_until_ = millis() + status_led::kModelShowMs;
-  }
-
-  // Call every core-0 loop iteration. Blocks ~300us per update for the
+  // Call every core-0 loop iteration. Blocks ~1ms per color update for the
   // WS2812 reset gap — negligible for USB MIDI, zero impact on core 1 audio.
+  //
+  // exciter_level / resonator_level are Part::exciter_level() and
+  // Part::resonator_level() — already scaled by Part and smoothed by the
+  // original per-sample meters, so the LED inherits their ~31 ms / ~62 ms
+  // release tails.
   void Poll(bool gate, float exciter_level, float resonator_level) {
     const uint32_t now = millis();
     if (now - last_poll_ms_ < status_led::kPollIntervalMs) return;
@@ -97,40 +107,67 @@ class StatusLed {
       showColor(blink ? 255 : 0, blink ? 0 : 255, 0);
       return;
     }
-    if (boot_ok_ms_ != 0 && now - boot_ok_ms_ < status_led::kBootOkFlashMs) {
-      showColor(0, 255, 0);
+
+    if (controller_blink_active_) {
+      constexpr uint32_t period =
+          status_led::kControllerBlinkOnMs + status_led::kControllerBlinkOffMs;
+      const uint32_t elapsed = now - controller_blink_start_ms_;
+      if (elapsed / period >= status_led::kControllerBlinkCount) {
+        controller_blink_active_ = false;
+      } else {
+        const bool on = (elapsed % period) < status_led::kControllerBlinkOnMs;
+        showColor(0, on ? status_led::kControllerGreen : 0, 0);
+        return;
+      }
+    }
+
+    const uint8_t exciter = meterBrightness(exciter_level);
+    const uint8_t resonator = meterBrightness(resonator_level);
+
+    // Idle is dark. The meters keep their release tail after the gate drops,
+    // so the LED fades out over the original ~31/62 ms instead of snapping.
+    if (!gate && exciter == 0 && resonator == 0) {
+      showColor(0, 0, 0);
       return;
     }
-    if (now < model_show_until_) {
-      const bool blink = (now & 255) > 128;
-      const uint8_t count = (now >> 8) & 3;
-      const bool pulse = (count <= model_) && blink;
-      const uint8_t v = pulse ? status_led::kModelPulseBrightness : 0;
-      showColor(v, v, v);
-      return;
-    }
-    // Normal mode: NEVER dark.
-    //   Blue = note gated
-    //   Red = exciter active (strike/blow)
-    //   Green = resonator active (sustain)
-    //   Dim green = running, idle
-    if (gate) {
-      showColor(0, 0, status_led::kGateBrightness);
-    } else if (exciter_level > 0.05f) {
-      showColor(200, 0, 0);
-    } else if (resonator_level > 0.05f) {
-      showColor(0, 200, 0);
-    } else {
-      showColor(0, 60, 0);  // dim green = running, idle
-    }
+
+    // Additive blend: gate amber + exciter turquoise + resonator amber.
+    // The gate sets the base amber; the exciter tints it toward cyan and the
+    // resonator simply brightens the amber. Both active washes toward white.
+    const uint16_t gate_level =
+        gate ? status_led::kGateAmberLevel : static_cast<uint16_t>(0);
+    const uint16_t red =
+        gate_level * status_led::kGateAmberR / 255 +
+        exciter * status_led::kExciterR / 255 +
+        resonator * status_led::kResonatorR / 255;
+    const uint16_t green =
+        gate_level * status_led::kGateAmberG / 255 +
+        exciter * status_led::kExciterG / 255 +
+        resonator * status_led::kResonatorG / 255;
+    const uint16_t blue =
+        exciter * status_led::kExciterB / 255 +
+        resonator * status_led::kResonatorB / 255;
+
+    showColor(clamp8(red), clamp8(green), clamp8(blue));
   }
 
  private:
+  // Original Elements UI curve: lut_db_led_brightness[(level * 512)] maps a
+  // 0..1 meter value over ~54 dB to 0..255. Below 1/512 the LED is off.
+  static uint8_t meterBrightness(float level) {
+    if (!(level > 0.0f)) return 0;  // also rejects NaN
+    int32_t index = static_cast<int32_t>(level * 512.0f);
+    if (index > 512) index = 512;
+    return static_cast<uint8_t>(elements::lut_db_led_brightness[index]);
+  }
+
+  static uint8_t clamp8(uint16_t value) {
+    return value > 255 ? 255 : static_cast<uint8_t>(value);
+  }
+
   // Sends one 24-bit GRB frame, then waits for the WS2812 reset gap
   // (>50us line-low so the color latches). 1ms is massive overkill but
-  // guaranteed — this is the same pattern that produced the working boot
-  // flash earlier. Core 0 is blocked ~2% of the time; core 1 audio is
-  // completely unaffected.
+  // guaranteed.
   void showColor(uint8_t r, uint8_t g, uint8_t b) {
     // The PIO program is configured with sm_config_set_out_shift(&c, false,
     // true, 24): shift LEFT, autopull at 24 bits. It therefore transmits the
@@ -145,8 +182,7 @@ class StatusLed {
 
   uint offset_ = 0;
   bool boot_error_ = false;
-  uint32_t boot_ok_ms_ = 0;
-  uint32_t model_show_until_ = 0;
-  uint8_t model_ = 0;
+  bool controller_blink_active_ = false;
+  uint32_t controller_blink_start_ms_ = 0;
   uint32_t last_poll_ms_ = 0;
 };

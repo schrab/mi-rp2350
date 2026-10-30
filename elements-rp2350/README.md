@@ -87,20 +87,32 @@ derived from `space` by the engine and are not mapped;
 
 ## Status LED
 
-One onboard WS2812 on GP22 stands in for the three LEDs of the original
-Elements module:
+One onboard WS2812 on GP22:
 
 | Color | Meaning |
 |---|---|
-| dim green | idle / running |
-| blue | note gated |
-| red | exciter active |
-| green | resonator active |
-| white pulse | CC 28 model change |
+| dark | idle |
+| amber | note gated (base color) |
+| turquoise tint | exciter meter active |
+| brighter amber | resonator meter active |
+| white-ish | both meters active |
+| 3 green blinks | USB-A MIDI controller mounted |
 | red/green blink | boot error (I2S init failed) |
 
-At boot the LED flashes white three times, goes dim blue while the USB host
-and I2S are initialized, then flashes green briefly when I2S comes up.
+The gate, exciter and resonator indicators are additively blended into one
+LED: amber for the gate, turquoise for the exciter (the original Elements
+`LED1` color) and amber for the resonator. The exciter and resonator
+channels use the original `lut_db_led_brightness` curve and the original
+per-sample meter smoothing (~31 ms exciter release, ~62 ms resonator
+release), so the LED follows the same activity and decay tails as the
+hardware. While a note is held the amber base is always visible; the
+exciter shifts the hue toward cyan, the resonator brightens the amber, and
+both together can wash it toward white.
+
+At boot the LED flashes white three times as a self-test, then goes dark.
+Mounting a MIDI controller on the USB-A host port triggers three short green
+blinks; the note/meter color resumes afterwards. The blink has priority over
+the note color, so it is visible even if a note is held.
 
 The LED is driven by PIO2 SM0 using the SDK `ws2812` PIO program. Two details
 matter:

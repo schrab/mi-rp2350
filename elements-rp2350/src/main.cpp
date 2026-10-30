@@ -10,9 +10,11 @@
 // stuck-gate watchdog (30 s), I2S stall counter in the 2 s serial report,
 // USB product name "Elements RP2350". The T3 auto-trigger test is gone
 // (MIDI verified).
-// Status LED: WS2812 on GP22 via PIO2 SM0 — blue while gated, red while the
-// exciter is active, green while the resonator is active, dim green when idle.
-// Blocks core 0 ~2% of the time; no impact on core 1 audio.
+// Status LED: WS2812 on GP22 via PIO2 SM0 — dark when idle, amber while a
+// note is gated, with the exciter (turquoise) and resonator (rose/fuchsia)
+// meters blended in using the original Elements LED colors. 3 green blinks
+// when a USB-A MIDI controller mounts. Blocks core 0 ~5% of the time (1 ms
+// per 20 ms poll); no impact on core 1 audio.
 //
 //
 // Wiring (PCM5102A): BCK -> GP6 (LRCK/WS follows on GP7 automatically),
@@ -77,6 +79,12 @@ volatile float shared_note = 48.0f;
 volatile float shared_modulation = 0.0f;
 volatile float shared_strength = 0.8f;
 volatile bool shared_gate = false;
+// Meter levels for the status LED (core 1 writes after Process, core 0 reads).
+// Part's meters already include the original fast-attack / slow-release
+// smoothing, so the LED follows the same ~31 ms (exciter) / ~62 ms (resonator)
+// decay tails. 32-bit aligned reads are atomic on Cortex-M33.
+volatile float shared_exciter_level = 0.0f;
+volatile float shared_resonator_level = 0.0f;
 // CC 28 hand-off: core 0 stores the requested model (0..2), core 1 applies
 // part.set_resonator_model() between render blocks and resets to -1.
 volatile int8_t pending_resonator_model = -1;
@@ -117,6 +125,7 @@ void tuh_midi_mount_cb(uint8_t idx, const tuh_midi_mount_cb_t *mount_cb_data) {
   }
   if (!known && host_midi_idx_count < kHostMidiMaxIdxs) {
     host_midi_idxs[host_midi_idx_count++] = idx;
+    statusLed.NotifyControllerConnected();  // 3 green blinks
   }
   Serial.printf("Host MIDI mounted idx=%u daddr=%u cables=%u\r\n", idx,
                 mount_cb_data->daddr, mount_cb_data->rx_cable_count);
@@ -209,6 +218,11 @@ void loop1() {
   uint32_t dt = time_us_32() - t0;
   if (dt > proc_us_max) proc_us_max = dt;
 
+  // Publish the metering values after the block is rendered. Poll() on core 0
+  // turns them into LED brightness; they carry the original meter smoothing.
+  shared_exciter_level = part.exciter_level();
+  shared_resonator_level = part.resonator_level();
+
   // The writes pace loop1: one iteration = exactly one 16-word DMA buffer,
   // and buffers free every 500 us (16 frames @ 32 kHz), so the write block
   // normally waits at most ~500 us for the next buffer to free. > 900 us
@@ -235,7 +249,7 @@ void setup() {
   TinyUSBDevice.setProductDescriptor("Elements RP2350");
   Serial.begin(115200);
   initEngine();
-  statusLed.Init();  // dim blue while booting continues
+  statusLed.Init();  // 3 white self-test flashes, then dark
 
   // --- USB host (PIO-USB, rhport 1): MUST init BEFORE i2s.begin() ---
   // PIO-USB hard-claims its config's PIO/SMs (pio_sm_claim panics on a taken
@@ -267,7 +281,6 @@ void setup() {
     statusLed.NotifyBootError();  // PANIC blink pattern
   } else {
     Serial.println("I2S up");
-    statusLed.NotifyBootOk();     // green flash, then normal mode
   }
 
   // Boot diagnostic: confirm I2S did not steal the status LED's PIO2 SM0.
@@ -312,9 +325,10 @@ void loop() {
     midiHandleEventPacket(pkt);
   }
 
-  // Status LED: level colors + gate blue + model-show pulses (never blocks
-  // core 0 — pio_sm_put is skipped if the TX FIFO is full).
-  statusLed.Poll(shared_gate, part.exciter_level(), part.resonator_level());
+  // Status LED: dark when idle, amber while a note is held, exciter/resonator
+  // meters blended in, green blinks on controller mount. Blocks ~1 ms per
+  // update for the WS2812 reset gap.
+  statusLed.Poll(shared_gate, shared_exciter_level, shared_resonator_level);
 
   static uint32_t last_report = 0;
   uint32_t now = millis();

@@ -31,17 +31,12 @@
 
 #include <ELEMENTS.h>
 
-#include "status_led.h"          // WS2812 status LED on GP22
-
 // --- shared MIDI state (core0 writes, core1 reads; DEFINED in main.cpp) ---
 extern volatile float shared_note;
 extern volatile float shared_modulation;
 extern volatile float shared_strength;
 extern volatile bool  shared_gate;
 extern elements::Part part;
-
-// Status LED instance (defined in main.cpp; CC 28 flashes its model number).
-extern StatusLed statusLed;
 
 // Pending resonator-model change (DEFINED in main.cpp): core 0 writes 0..2
 // from CC 28; core 1 applies part.set_resonator_model() at the top of loop1()
@@ -150,7 +145,6 @@ inline void midiControlChange(uint8_t cc, uint8_t val) {
     case 28:
       if (val <= 2) {
         pending_resonator_model = static_cast<int8_t>(val);
-        statusLed.NotifyModelChange(val);  // pulse model number for ~1 s
       }
       break;
     default: break;

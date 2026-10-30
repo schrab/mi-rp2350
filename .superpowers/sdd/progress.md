@@ -523,3 +523,43 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   (Status LED section + boot log legend).
 - Build: `pio run -d elements-rp2350` → SUCCESS; RAM 40.2% / Flash 11.6%;
   `firmware.uf2` flashed by the user via BOOTSEL.
+
+### Status LED — simplified mapping + BOW audit (2026-10-30)
+
+- **User spec:** dark when idle, amber when a note is gated, 3 green blinks
+  when a USB-A MIDI controller mounts.
+- Removed: dim-green idle, red exciter, green resonator, CC 28 white pulse,
+  single green boot-OK flash. Kept: 3 white boot self-test flashes and the
+  boot-error red/green blink.
+- `StatusLed::Poll(bool gate)` now only needs the gate. The controller blink
+  is triggered from `tuh_midi_mount_cb` via `NotifyControllerConnected()` and
+  has priority over the note color. 3 × 150 ms on/off.
+- **Meter blend (follow-up):** the exciter and resonator meters are blended
+  additively into the amber gate color. Gate = amber, exciter = turquoise
+  (original `LED1` on PA8/TIM1_CH1), resonator = amber (user preference;
+  the original `LED2` on PA11/TIM1_CH4 was rose/fuchsia, but the fuchsia
+  tint was rejected). Both meters go through the original
+  `lut_db_led_brightness` 54 dB curve; the gate amber base is 180/255 so the
+  meter channels can shift the hue without clipping.
+  Core 1 publishes `part.exciter_level()` / `part.resonator_level()` as
+  volatile floats after `Process()`; core 0 reads them in `Poll()`.
+- Re-enabled the upstream exciter meter in `voice.inc` (it had been commented
+  out), so `part.exciter_level()` is live again. The LED inherits the original
+  ~31 ms exciter / ~62 ms resonator release tails.
+- **BOW audit:** the BOW path is a verbatim copy of upstream Elements
+  (`pichenettes/eurorack`). `voice.inc`, `exciter.inc`, and `part.inc` diff
+  clean against upstream except for `kSampleRate` → `Dsp::getSr()`, the
+  commented-out exciter meter, and the port's reverb-time/freeze tweaks.
+  - BOW = `EXCITER_MODEL_FLOW` with fixed meta `parameter_ = 0.7`; its
+    contribution is `bow_buffer * envelope * bow_level * 0.125 * accent`.
+    BLOW = granular sample player, contribution `blow_buffer * envelope`
+    with `blow_level` capped at 0.4. At the same level BOW is ~10 dB quieter
+    than BLOW — original behavior, not a port bug.
+  - BOW timbre is a low-pass cutoff multiplied by
+    `0.4 + 0.6 * resonator_brightness`; at timbre 0 the cutoff is 0, so the
+    exciter is nearly silent. Also original.
+  - BOW and BLOW are both noise-based and can sound similar; BOW is a
+    continuous flow, BLOW is granular. Original Elements behaves this way.
+- **Metering artifact:** `voice.inc` comments out the exciter meter, so
+  `part.exciter_level()` is always 0. The old red LED could never light; the
+  new mapping does not depend on the meter.
