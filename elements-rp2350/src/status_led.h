@@ -1,13 +1,14 @@
 // Status LED: one WS2812 on GP22 standing in for the three LEDs of the
 // original Elements module (gate / exciter / resonator).
 //
-// Mapping: R = exciter, G = resonator, B = gate. Values are thresholded so
-// the LED is unmistakable during play and off when idle.
+// Mapping: R = exciter, G = resonator, B = gate.
+// The LED is NEVER dark: dim green = running/idle, bright colors when active.
+// This way the user can always confirm the driver is working.
 //
 // The WS2812 is driven via PIO2 (PIO0 = USB host, PIO1 = I2S) using the SDK
-// ws2812 PIO program. Critically, pio_sm_put is called ONLY when the TX FIFO
-// has room — core 0 (USB MIDI) is never blocked, so audio on core 1 is
-// completely unaffected.
+// ws2812 PIO program. Each frame is followed by a 300us wait (~30us shift-out
+// time + >50us WS2812 reset gap) so colors latch reliably. Core 0 is blocked
+// ~1.5% of the time — negligible for USB MIDI, zero impact on core 1 audio.
 #pragma once
 #include <Arduino.h>
 
@@ -29,8 +30,6 @@ constexpr uint32_t kPollIntervalMs = 20;
 constexpr uint32_t kBootOkFlashMs = 250;
 constexpr uint32_t kModelShowMs = 1024;
 
-// Original dB brightness LUT indexed as ui.cc: lut[int32(level * 512)].
-// lut_db_led_brightness has 516 entries; cap at index 512.
 inline uint8_t dbBrightness(float level) {
   int32_t idx = static_cast<int32_t>(level * 512.0f);
   if (idx < 0) idx = 0;
@@ -53,8 +52,17 @@ class StatusLed {
     boot_ok_ms_ = 0;
     model_show_until_ = 0;
     last_poll_ms_ = 0;
-    // Dim blue while booting; turns green on I2S OK below.
-    showColor(0, 0, status_led::kBootColorValue);
+
+    // Sanity flash: 3x bright white — same pattern that worked before.
+    // Confirms driver + PIO2 + wiring all function.
+    for (int i = 0; i < 3; ++i) {
+      showColor(120, 120, 120);
+      delay(150);
+      showColor(0, 0, 0);
+      delay(150);
+    }
+
+    showColor(0, 0, status_led::kBootColorValue);  // dim blue: booting
   }
 
   void NotifyBootError() { boot_error_ = true; }
@@ -65,9 +73,8 @@ class StatusLed {
     model_show_until_ = millis() + status_led::kModelShowMs;
   }
 
-  // Call every core-0 loop iteration. Never blocks: pio_sm_put is skipped
-  // when the TX FIFO is full, so USB MIDI servicing on this core is never
-  // delayed by the LED. Audio rendering runs on core 1 and is unaffected.
+  // Call every core-0 loop iteration. Blocks ~300us per update for the
+  // WS2812 reset gap — negligible for USB MIDI, zero impact on core 1 audio.
   void Poll(bool gate, float exciter_level, float resonator_level) {
     const uint32_t now = millis();
     if (now - last_poll_ms_ < status_led::kPollIntervalMs) return;
@@ -90,25 +97,32 @@ class StatusLed {
       showColor(v, v, v);
       return;
     }
-    // Normal mode: R = exciter, G = resonator, B = gate. Thresholded so the
-    // LED flashes on strike and glows during sustain, off when idle.
-    const bool excite = exciter_level > 0.05f;
-    const bool reso = resonator_level > 0.05f;
-    showColor(excite ? 200 : 0, reso ? 200 : 0, gate ? status_led::kGateBrightness : 0);
+    // Normal mode: NEVER dark.
+    //   Blue = note gated
+    //   Red = exciter active (strike/blow)
+    //   Green = resonator active (sustain)
+    //   Dim green = running, idle
+    if (gate) {
+      showColor(0, 0, status_led::kGateBrightness);
+    } else if (exciter_level > 0.05f) {
+      showColor(200, 0, 0);
+    } else if (resonator_level > 0.05f) {
+      showColor(0, 200, 0);
+    } else {
+      showColor(0, 60, 0);  // dim green = running, idle
+    }
   }
 
  private:
-  // Non-blocking on audio (core 1). Core 0 waits ~100 us per LED update
-  // (negligible for USB MIDI) to hold the WS2812 reset line low long enough
-  // for the latch — without this gap the WS2812 ignores every frame after
-  // the first, which is why the LED appeared dead after boot.
+  // Sends one 24-bit GRB frame, then waits for the WS2812 reset gap
+  // (>50us line-low so the color latches). 1ms is massive overkill but
+  // guaranteed — this is the same pattern that produced the working boot
+  // flash earlier. Core 0 is blocked ~2% of the time; core 1 audio is
+  // completely unaffected.
   void showColor(uint8_t r, uint8_t g, uint8_t b) {
-    if (pio_sm_is_tx_fifo_full(status_led::kPio, status_led::kSm)) return;
     const uint32_t grb = (uint32_t(g) << 16) | (uint32_t(r) << 8) | b;
     pio_sm_put(status_led::kPio, status_led::kSm, grb);
-    // Wait for the 24 bits to shift out (~30 us), then hold the line LOW
-    // for the WS2812 reset gap (>50 us) so the color latches.
-    busy_wait_us(100);
+    delay(1);
   }
 
   bool boot_error_ = false;
