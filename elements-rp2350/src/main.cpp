@@ -6,9 +6,13 @@
 // the same 4-byte event packets into midiHandleEventPacket().
 // Part::Process() still renders on core 1 at 32 kHz into the PCM5102A via I2S.
 // Task 6 — hardening: last-note-priority note stack, resonator-model CC 28
-// (applied by core 1 between blocks via pending_resonator_model), stuck-gate
-// watchdog (30 s), I2S stall counter in the 2 s serial report, USB product
-// name "Elements RP2350". The T3 auto-trigger test is gone (MIDI verified).
+// (applied by core 1 between render blocks via pending_resonator_model),
+// stuck-gate watchdog (30 s), I2S stall counter in the 2 s serial report,
+// USB product name "Elements RP2350". The T3 auto-trigger test is gone
+// (MIDI verified).
+// Status LED: WS2812 on GP22 via PIO2 — blue while gated, off when idle,
+// flashes during strike/sustain. Never blocks core 0 (USB MIDI).
+//
 //
 // Wiring (PCM5102A): BCK -> GP6 (LRCK/WS follows on GP7 automatically),
 // DIN -> GP8, SCK/MCLK -> GND, XSMT -> 3V3 (unmute), FLT/DEMP/FMT -> GND.
@@ -31,6 +35,7 @@
 #include "elements/dsp/dsp.h"
 #include "elements/dsp/part.h"
 
+#include "status_led.h"          // WS2812 status LED on GP22 (before midi.h)
 #include "midi.h"                // shared parser + extern shared-state decls
 
 // Firmware-side definitions of the elements::Dsp statics. They are declared as
@@ -56,6 +61,9 @@ static uint16_t reverb_buffer[32768];   // 64 KB, verified FxEngine<32768>
 elements::Part part;
 static elements::Patch* patch;
 static elements::PerformanceState perf_state;
+
+// Status LED instance — defined here (midi.h holds only an extern reference).
+StatusLed statusLed;
 
 static float blow_in[kBlockSize];
 static float strike_in[kBlockSize];
@@ -226,6 +234,7 @@ void setup() {
   TinyUSBDevice.setProductDescriptor("Elements RP2350");
   Serial.begin(115200);
   initEngine();
+  statusLed.Init();  // dim blue while booting continues
 
   // --- USB host (PIO-USB, rhport 1): MUST init BEFORE i2s.begin() ---
   // PIO-USB hard-claims its config's PIO/SMs (pio_sm_claim panics on a taken
@@ -253,8 +262,10 @@ void setup() {
   i2s.setFrequency(kSampleRate);
   if (!i2s.begin()) {
     Serial.println("I2S begin FAILED");
+    statusLed.NotifyBootError();  // PANIC blink pattern
   } else {
     Serial.println("I2S up");
+    statusLed.NotifyBootOk();     // green flash, then normal mode
   }
 
   // USB MIDI device: the core already ran TinyUSB_Device_Init(0) before
@@ -291,6 +302,10 @@ void loop() {
   while (usb_midi.readPacket(pkt)) {
     midiHandleEventPacket(pkt);
   }
+
+  // Status LED: level colors + gate blue + model-show pulses (never blocks
+  // core 0 — pio_sm_put is skipped if the TX FIFO is full).
+  statusLed.Poll(shared_gate, part.exciter_level(), part.resonator_level());
 
   static uint32_t last_report = 0;
   uint32_t now = millis();
