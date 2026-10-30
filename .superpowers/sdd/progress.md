@@ -8,8 +8,8 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
 | T1 scaffolding | done | 00c29a7 | fallback lib-sync strategy; board id `rpipico2` (plan's `pico2` unknown to platform); see findings below |
 | T2 I2S bring-up | done | 3e3fec5 | user confirmed audible 220 Hz tone after wiring + BOOTSEL flash (2026-10-30) |
 | T3 engine integration | done | 7140db6 | user confirmed struck-string pings stepping C2-B2 + reverb tail (2026-10-30); Process-time serial report moves to T6 diagnostics; orchestrator fixed Seed() stack overread |
-| T4 USB MIDI device | code ready | bd620a3 | awaits user flash + PC MIDI send check; packet indexing corrected vs plan (4-byte packet); orchestrator-reviewed (parser, extern arrangement, re-enum guard all pass); findings below |
-| T5 USB host MIDI | code ready | bd620a3 | awaits user wiring (USB-A socket) + flash; PIO-USB vendored in lib/ (+LICENSE added at review), f_cpu 250→240 MHz (PIO-USB needs 12 MHz multiple), host must init BEFORE i2s.begin() (PIO0 fully claimed by pio_usb — 3 SMs verified in pio_usb.c — I2S lands on PIO1); findings below |
+| T4 USB MIDI device | done | bd620a3 | user confirmed MIDI works on hardware (2026-10-30, "tested it already all fine"); device enumerates as "Pico 2 MIDI 1" — product descriptor rename queued to T6; packet indexing corrected vs plan (4-byte packet); orchestrator-reviewed; findings below |
+| T5 USB host MIDI | code ready | bd620a3 | user reports "all fine" but explicit host-controller-in-socket confirmation not yet recorded; if not tested: wire USB-A (VBUS→5V, D+→GP14, D-→GP15) and check mount log; PIO-USB vendored in lib/ (+LICENSE added at review), f_cpu 250→240 MHz (PIO-USB needs 12 MHz multiple), host must init BEFORE i2s.begin() (PIO0 fully claimed by pio_usb — 3 SMs verified in pio_usb.c — I2S lands on PIO1); findings below |
 | T6 hardening + docs | pending | | |
 
 ## Investigation findings
