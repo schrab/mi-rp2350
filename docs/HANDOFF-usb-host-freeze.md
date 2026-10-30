@@ -163,6 +163,24 @@ distorting our own driven edges?) or its reply was lost (RX path).
    ~15 s (reset storms wedge fragile chips — documented for the JieLi in
    open-smc-pad `docs/usb-br25.md` item 6, confirmed by observation).
 
+## Final status (end of session)
+
+- **Board freeze: FIXED** (`core1_separate_stack = true`, commit `1587215`).
+- **Pad: healthy** — re-verified enumerating on the laptop after the whole
+  session (`4353:4b4d`, 12 M). It was never bricked.
+- **PIO-USB host vs this pad: incompatible in practice.** With every code
+  variant exhausted (7 builds: both RX vintages, reset on/off, SOF on/off,
+  10 k pull-downs, debounce, watchdog retune) the pad ACKed a SETUP exactly
+  twice in ~40 attempts — both early in the session, at a marginal threshold.
+  Real hosts (the laptop) enumerate it instantly. The pad remains usable with
+  the synth **through the laptop** (pad → laptop → PipeWire → the synth's
+  USB-MIDI device port) — that path works today with no further changes.
+- Options if host-port support for this pad is still wanted later: scope the
+  bit-banged signaling at the pad end; try other controllers (the PIO-USB
+  host does enumerate other devices — upstream examples use keyboards/mice);
+  or move the host to the RP2350's native USB controller (architectural:
+  loses the device port).
+
 ## References
 
 - Pad reverse-engineering (same hardware): https://github.com/fedepaj/open-smc-pad
