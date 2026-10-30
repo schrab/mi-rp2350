@@ -430,7 +430,7 @@ void loop() {
     // loop-side call (core 0) races the SOF alarm ISR (core 1) mid-transaction,
     // blinding the packet exchange. Absence is handled by disconnect detection.
     if (pio_host_connected() && !host_device_mounted) {
-      Serial.println("USB host watchdog: line idle, nothing mounted - forcing re-enumeration");
+      Serial.println("USB host watchdog: connected but nothing mounted - forcing re-enumeration");
       pio_host_force_reconnect();
     }
   }
