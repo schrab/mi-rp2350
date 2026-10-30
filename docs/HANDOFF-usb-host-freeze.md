@@ -1,5 +1,16 @@
 # HANDOFF — PIO-USB host: board freeze on device attach (2026-10-31)
 
+> **RESOLUTION UPDATE (same night):** Suspect 1 **CONFIRMED** — the hard
+> freeze was core 0 overrunning its 4 KB half of the shared dual-core stack
+> at attach. Fix applied on `elements-clone`: `bool core1_separate_stack =
+> true;` in main.cpp (core 1 gets a private 8 KB stack; core 0 gets the full
+> system stack). With it, the attach-time hard freeze is gone (board stays
+> alive through repeated enumeration attempts; serial never stops mid-line).
+> **Still open:** the controllers still never ACK our SETUP (EP0 result 00)
+> — prime suspect is now Suspect 2 (the controllers' USB PHY stays off until
+> they see VBUS; the 5 V wire's delivery has never been measured at the
+> device end). Suspects 3/4 remain valid hardening items.
+
 For the next engineer/model. Read this fully before touching the USB host code.
 Everything below was measured on hardware during one overnight session; the
 symptom is real, reproducible, and **controller-independent**.

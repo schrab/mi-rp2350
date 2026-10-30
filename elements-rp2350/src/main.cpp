@@ -40,6 +40,15 @@
 //   GND  -> GND (shield to GND too).
 #include <Arduino.h>
 #include <I2S.h>
+
+// Give core 1 its own 8 KB stack instead of the default 4 KB/4 KB split with
+// core 0. Core 0's stack peaks at device attach (TinyUSB enumeration +
+// blocking waits + mount callbacks + Serial.printf, with the SOF alarm ISR,
+// the TinyUSB device task and the I2S DMA interrupt nesting on top); it was
+// overrunning the 4 KB half — killing interrupts mid-line, corrupting core
+// 1's stack (noise on the I2S output) and freezing the board. Confirmed
+// 2026-10-31: with the separate stack the attach-time hard freeze is gone.
+bool core1_separate_stack = true;
 #include <Adafruit_TinyUSB.h>
 
 #include "pio_usb.h"             // Pico-PIO-USB (vendored in lib/pio_usb/)
