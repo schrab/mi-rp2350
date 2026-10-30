@@ -254,6 +254,7 @@ const KNOBS = [
   { id:'damping',  cc:25, label:'DAMPING',  variant:'white', def:.7, sec:'right', col:'1', row:3 },
   { id:'position', cc:26, label:'POSITION', variant:'white', def:.3, sec:'right', col:'2', row:3 },
   { id:'space',    cc:27, label:'SPACE',    variant:'white', def:.4, sec:'right', col:'3', row:3 },
+  { id:'mode',     cc:28, label:'MODE',     variant:'white', type:'mode', def:.5, sec:'right', col:'3', row:1 },
 ];
 const controls = new Map();
 
@@ -268,6 +269,8 @@ function send(...b) { if (out) { try { out.send(b); } catch (e) {} } }
 const sendCC = (cc, v) => send(0xB0 | ch, cc, v & 127);
 const bend14 = () => clamp(Math.round(8192 + fineSt * 4096), 0, 16383);
 function sendBend() { const b = bend14(); send(0xE0 | ch, b & 127, (b >> 7) & 127); }
+// CC value: MODE is a 3-way selector (0/1/2), everything else is 0..127.
+const ccVal = c => c.type === 'mode' ? Math.round(c.v * 2) : Math.round(c.v * 127);
 
 function queueSend(c) {
   if (c.cc !== undefined) ccDirty.set(c.id, c);
@@ -276,7 +279,7 @@ function queueSend(c) {
 }
 function flush() {
   flushQueued = false;
-  for (const c of ccDirty.values()) sendCC(c.cc, Math.round(c.v * 127));
+  for (const c of ccDirty.values()) sendCC(c.cc, ccVal(c));
   ccDirty.clear();
   if (bendDirty) { bendDirty = false; sendBend(); }
 }
@@ -296,7 +299,7 @@ function noteOff(id) {
 const getVel = () => +$('#vel').value;
 
 function sendSync() {
-  for (const c of controls.values()) if (c.cc !== undefined) sendCC(c.cc, Math.round(c.v * 127));
+  for (const c of controls.values()) if (c.cc !== undefined) sendCC(c.cc, ccVal(c));
   sendBend();
 }
 function panic() {
@@ -350,6 +353,7 @@ function showTip(c) {
   tipTimer = setTimeout(() => tooltip.style.display = 'none', 900);
 }
 function displayValue(c) {
+  if (c.type === 'mode') return ['MODAL','STRING','STRINGS'][Math.round(c.v * 2)];
   if (c.type === 'coarse') { const s = coarseOf(c); return (s >= 0 ? '+' : '') + s + ' st'; }
   if (c.type === 'fine')   { const t = Math.round(fineOf(c) * 100); return (t >= 0 ? '+' : '') + t + ' \u00A2'; }
   return String(Math.round(c.v * 127));
@@ -358,10 +362,11 @@ const coarseOf = c => Math.round(c.v * 48 - 24);
 const fineOf   = c => c.v * 2 - 1;
 
 function setControl(c, v, show, queue = true) {
+  if (c.type === 'mode') v = [0, 0.5, 1][Math.round(v * 2)];   // snap: MODAL / STRING / STRINGS
   c.v = clamp(v, 0, 1);
   c.el.style.setProperty('--deg', (-135 + c.v * 270) + 'deg');
   c.el.setAttribute('aria-valuenow',
-    c.type === 'coarse' ? coarseOf(c) : c.type === 'fine' ? Math.round(fineOf(c) * 100) : Math.round(c.v * 127));
+    c.type === 'coarse' ? coarseOf(c) : c.type === 'fine' ? Math.round(fineOf(c) * 100) : c.type === 'mode' ? Math.round(c.v * 2) : Math.round(c.v * 127));
   if (c.type === 'coarse') coarseSemi = coarseOf(c);
   if (c.type === 'fine')   fineSt = fineOf(c);
   if (queue) queueSend(c);
