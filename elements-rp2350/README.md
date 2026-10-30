@@ -85,6 +85,34 @@ derived from `space` by the engine and are not mapped;
 `resonator_modulation_frequency` is not mapped (randomized per device by
 `Part::Seed()`).
 
+## Status LED
+
+One onboard WS2812 on GP22 stands in for the three LEDs of the original
+Elements module:
+
+| Color | Meaning |
+|---|---|
+| dim green | idle / running |
+| blue | note gated |
+| red | exciter active |
+| green | resonator active |
+| white pulse | CC 28 model change |
+| red/green blink | boot error (I2S init failed) |
+
+At boot the LED flashes white three times, goes dim blue while the USB host
+and I2S are initialized, then flashes green briefly when I2S comes up.
+
+The LED is driven by PIO2 SM0 using the SDK `ws2812` PIO program. Two details
+matter:
+
+- `statusLed.Init()` calls `pio_sm_claim(pio2, 0)` before `i2s.begin()`.
+  The Arduino `PIOProgram` allocator used by I2S scans PIOs from the highest
+  index down and would otherwise claim PIO2 SM0, reconfigure it for I2S and
+  freeze the LED on its boot color while audio kept running.
+- The 24-bit GRB frame is left-aligned (`<< 8`) because the PIO shifts left
+  with a 24-bit autopull threshold and therefore transmits the top 24 bits of
+  each 32-bit FIFO word.
+
 ## Serial diagnostics (115200 baud)
 
 Every 2 s, one line:
@@ -101,9 +129,12 @@ max Process: 213 us (budget 500 us) | i2s stalls: 0 (+0)
   buffer to free — see Build notes for the threshold rationale); `(+n)` is
   the delta since the previous report. In steady state this stays `0 (+0)`.
 
-Boot log: `I2S up`, `Elements engine up (USB MIDI device + PIO-USB host)`;
-`Host MIDI mounted idx=... daddr=... cables=...` when a controller is plugged
-into the USB-A socket, `Host MIDI unmounted idx=...` on removal.
+Boot log: `I2S up`, `PIO2 SM0 claimed=1 pc=... (ws2812 @...) | SM1 claimed=1
+pc=...`, `Elements engine up (USB MIDI device + PIO-USB host)`; `Host MIDI
+mounted idx=... daddr=... cables=...` when a controller is plugged into the
+USB-A socket, `Host MIDI unmounted idx=...` on removal. The PIO2 line confirms
+the LED's state machine survived I2S initialization: SM0's PC must stay inside
+the 4-instruction WS2812 program.
 
 ## Building
 

@@ -10,8 +10,9 @@
 // stuck-gate watchdog (30 s), I2S stall counter in the 2 s serial report,
 // USB product name "Elements RP2350". The T3 auto-trigger test is gone
 // (MIDI verified).
-// Status LED: WS2812 on GP22 via PIO2 — blue while gated, off when idle,
-// flashes during strike/sustain. Never blocks core 0 (USB MIDI).
+// Status LED: WS2812 on GP22 via PIO2 SM0 — blue while gated, red while the
+// exciter is active, green while the resonator is active, dim green when idle.
+// Blocks core 0 ~2% of the time; no impact on core 1 audio.
 //
 //
 // Wiring (PCM5102A): BCK -> GP6 (LRCK/WS follows on GP7 automatically),
@@ -241,8 +242,9 @@ void setup() {
   // SM) and loads 5 (tx) + 10 (nrzi decoder) + 17 (edge detector/EOP) = all
   // 32 PIO0 instruction slots, plus DMA channel 0 and its own 1 ms SOF alarm
   // pool. If I2S began first and grabbed PIO0, pio_usb would panic at boot.
-  // I2S's PIOProgram instead flexibly allocates a free PIO+SM at begin() and
-  // lands on PIO1 (GP6/7/8 are reachable from any PIO on the RP2350).
+  // I2S's PIOProgram instead flexibly allocates a free PIO+SM at begin().
+  // The status LED claims PIO2 SM0 in statusLed.Init(), so I2S lands on
+  // PIO2 SM1 (GP6/7/8 are reachable from any PIO on the RP2350).
   if (F_CPU % 12000000UL) {
     // Same guard as the bundled DualRole usbh_helper: PIO-USB bit-banging
     // needs a CPU clock that is a multiple of 12 MHz. Build uses 240 MHz.
@@ -267,6 +269,13 @@ void setup() {
     Serial.println("I2S up");
     statusLed.NotifyBootOk();     // green flash, then normal mode
   }
+
+  // Boot diagnostic: confirm I2S did not steal the status LED's PIO2 SM0.
+  // SM0's PC must stay inside the 4-instruction WS2812 program.
+  Serial.printf("PIO2 SM0 claimed=%u pc=%u (ws2812 @%u) | SM1 claimed=%u pc=%u\r\n",
+                (unsigned)pio_sm_is_claimed(pio2, 0), (unsigned)pio_sm_get_pc(pio2, 0),
+                (unsigned)statusLed.Offset(),
+                (unsigned)pio_sm_is_claimed(pio2, 1), (unsigned)pio_sm_get_pc(pio2, 1));
 
   // USB MIDI device: the core already ran TinyUSB_Device_Init(0) before
   // setup() (cores/rp2040/main.cpp), so register the MIDI interface now and

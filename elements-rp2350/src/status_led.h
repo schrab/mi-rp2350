@@ -5,10 +5,11 @@
 // The LED is NEVER dark: dim green = running/idle, bright colors when active.
 // This way the user can always confirm the driver is working.
 //
-// The WS2812 is driven via PIO2 (PIO0 = USB host, PIO1 = I2S) using the SDK
-// ws2812 PIO program. Each frame is followed by a 300us wait (~30us shift-out
-// time + >50us WS2812 reset gap) so colors latch reliably. Core 0 is blocked
-// ~1.5% of the time — negligible for USB MIDI, zero impact on core 1 audio.
+// The WS2812 is driven via PIO2 SM0 (PIO0 = USB host; I2S lands on PIO2 SM1
+// after the SM0 claim in Init()) using the SDK ws2812 PIO program. Each frame
+// is followed by a 1ms wait (~30us shift-out time + >50us WS2812 reset gap)
+// so colors latch reliably. Core 0 is blocked ~2% of the time — negligible
+// for USB MIDI, zero impact on core 1 audio.
 #pragma once
 #include <Arduino.h>
 
@@ -44,8 +45,16 @@ class StatusLed {
   void Init() {
     // PIO2 starts held in reset on RP2350; un-reset before touching it.
     unreset_block_mask_wait_blocking(1u << RESET_PIO2);
-    uint offset = pio_add_program(status_led::kPio, &ws2812_program);
-    ws2812_program_init(status_led::kPio, status_led::kSm, offset,
+
+    // Claim SM0 BEFORE loading/enabling the program. The Arduino PIOProgram
+    // allocator (used by I2S) scans PIOs from the highest index down and
+    // claims the first unclaimed SM. Without this claim, i2s.begin() takes
+    // PIO2 SM0, reconfigures it for I2S and the LED freezes on its last
+    // color (the boot blue) while audio keeps working.
+    pio_sm_claim(status_led::kPio, status_led::kSm);
+
+    offset_ = pio_add_program(status_led::kPio, &ws2812_program);
+    ws2812_program_init(status_led::kPio, status_led::kSm, offset_,
                         status_led::kPin, 800000.0f, false);
 
     boot_error_ = false;
@@ -67,6 +76,9 @@ class StatusLed {
 
   void NotifyBootError() { boot_error_ = true; }
   void NotifyBootOk() { boot_ok_ms_ = millis(); }
+
+  // Boot diagnostics: instruction-memory offset of the WS2812 program.
+  uint Offset() const { return offset_; }
 
   void NotifyModelChange(uint8_t model) {
     model_ = (model > 2) ? model_ : model;
@@ -120,11 +132,18 @@ class StatusLed {
   // flash earlier. Core 0 is blocked ~2% of the time; core 1 audio is
   // completely unaffected.
   void showColor(uint8_t r, uint8_t g, uint8_t b) {
-    const uint32_t grb = (uint32_t(g) << 16) | (uint32_t(r) << 8) | b;
+    // The PIO program is configured with sm_config_set_out_shift(&c, false,
+    // true, 24): shift LEFT, autopull at 24 bits. It therefore transmits the
+    // TOP 24 bits of the FIFO word, so the GRB frame must be left-aligned
+    // (the low 8 bits are discarded). Without the << 8 the LED receives
+    // [0x00, g, r] instead of [g, r, b] — e.g. white becomes violet and
+    // blue-only frames become black.
+    const uint32_t grb = ((uint32_t(g) << 16) | (uint32_t(r) << 8) | b) << 8;
     pio_sm_put(status_led::kPio, status_led::kSm, grb);
     delay(1);
   }
 
+  uint offset_ = 0;
   bool boot_error_ = false;
   uint32_t boot_ok_ms_ = 0;
   uint32_t model_show_until_ = 0;

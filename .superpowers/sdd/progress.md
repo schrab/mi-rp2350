@@ -497,3 +497,29 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
 - Upload note: the core's signing step references `src/private.key` via
   signing.py — build succeeds without the key present; `.bin.signed` is
   generated alongside `.uf2`.
+
+### Status LED — WS2812 PIO fixes (2026-10-30)
+
+- **Symptom:** boot flashed 3x white, then the LED stuck on constant blue
+  and ignored notes/CC; audio and MIDI stayed healthy.
+- **Bug 1 — frame alignment:** `showColor()` packed GRB into the low 24 bits,
+  but `ws2812_program_init()` configures the SM with shift-left + 24-bit
+  autopull, so the PIO transmits the top 24 bits. White became violet and
+  blue-only frames became black. Fixed by left-aligning the word (`<< 8`).
+- **Bug 2 — SM stolen by I2S:** the WS2812 used raw SDK PIO calls and never
+  claimed PIO2 SM0. Arduino's `PIOProgram` allocator (used by I2S) scans
+  PIO2 first and claimed the unclaimed SM0 during `i2s.begin()`, reconfiguring
+  it for I2S and freezing the LED on its last boot color. Fixed with
+  `pio_sm_claim(pio2, 0)` in `StatusLed::Init()` before `pio_add_program()`;
+  I2S now lands on PIO2 SM1.
+- **Boot diagnostic:** `PIO2 SM0 claimed=... pc=... (ws2812 @...) | SM1 ...`
+  after `i2s.begin()` confirms SM0 is still claimed and its PC is inside the
+  WS2812 program.
+- **Hardware confirmation (2026-10-30):** user reports 3 white boot flashes,
+  green idle, blue on notes, audio working. LED mapping: blue = gate,
+  red = exciter, green = resonator, dim green = idle.
+- **Files:** `elements-rp2350/src/status_led.h` (both fixes + `Offset()`),
+  `elements-rp2350/src/main.cpp` (boot diagnostic), `elements-rp2350/README.md`
+  (Status LED section + boot log legend).
+- Build: `pio run -d elements-rp2350` → SUCCESS; RAM 40.2% / Flash 11.6%;
+  `firmware.uf2` flashed by the user via BOOTSEL.
