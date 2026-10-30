@@ -98,11 +98,17 @@ class StatusLed {
   }
 
  private:
-  // Non-blocking: skip if TX FIFO full — core 0 is never stalled.
+  // Non-blocking on audio (core 1). Core 0 waits ~100 us per LED update
+  // (negligible for USB MIDI) to hold the WS2812 reset line low long enough
+  // for the latch — without this gap the WS2812 ignores every frame after
+  // the first, which is why the LED appeared dead after boot.
   void showColor(uint8_t r, uint8_t g, uint8_t b) {
     if (pio_sm_is_tx_fifo_full(status_led::kPio, status_led::kSm)) return;
     const uint32_t grb = (uint32_t(g) << 16) | (uint32_t(r) << 8) | b;
     pio_sm_put(status_led::kPio, status_led::kSm, grb);
+    // Wait for the 24 bits to shift out (~30 us), then hold the line LOW
+    // for the WS2812 reset gap (>50 us) so the color latches.
+    busy_wait_us(100);
   }
 
   bool boot_error_ = false;
