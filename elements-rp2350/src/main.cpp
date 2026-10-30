@@ -15,6 +15,13 @@
 // meters blended in using the original Elements LED colors. 3 green blinks
 // when a USB-A MIDI controller mounts. Blocks core 0 ~5% of the time (1 ms
 // per 20 ms poll); no impact on core 1 audio.
+// USB host re-enumeration watchdog (usb_host_watchdog.c): TinyUSB gives up
+// on enumeration after 3 failed control-transfer attempts and never retries,
+// so a controller that re-attaches while still booting (e.g. powered
+// off/on while the cable stays connected) stayed invisible forever. Every 4 s
+// the watchdog checks the PIO-USB root port: line idle (device electrically
+// present) but nothing mounted -> force root->connected = false so the 1 ms
+// frame loop re-fires the CONNECT event and enumeration restarts.
 //
 //
 // Wiring (PCM5102A): BCK -> GP6 (LRCK/WS follows on GP7 automatically),
@@ -40,6 +47,13 @@
 
 #include "status_led.h"          // WS2812 status LED on GP22 (before midi.h)
 #include "midi.h"                // shared parser + extern shared-state decls
+
+// PIO-USB root-port accessors for the re-enumeration watchdog (C side).
+extern "C" {
+bool pio_host_line_idle(void);
+bool pio_host_connected(void);
+void pio_host_force_reconnect(void);
+}
 
 // Firmware-side definitions of the elements::Dsp statics. They are declared as
 // class statics in ELEMENTS/src/elements/dsp/dsp.h but defined nowhere in the
@@ -115,8 +129,24 @@ Adafruit_USBH_Host USBHost;
 static constexpr uint8_t kHostMidiMaxIdxs = 4;
 static uint8_t host_midi_idxs[kHostMidiMaxIdxs];
 static uint8_t host_midi_idx_count = 0;
+// Device-level mount state (ANY enumerated USB device, MIDI or not). The
+// watchdog only kicks when the line is idle with NOTHING mounted, so a
+// foreign non-MIDI device never triggers re-enumeration spam.
+static volatile bool host_device_mounted = false;
 
 extern "C" {
+// Device-level callbacks (usbh.c weak stubs): fire when the full enumeration
+// of ANY device on the host port completes / when it is removed.
+void tuh_mount_cb(uint8_t daddr) {
+  host_device_mounted = true;
+  Serial.printf("USB device mounted daddr=%u\r\n", daddr);
+}
+
+void tuh_umount_cb(uint8_t daddr) {
+  host_device_mounted = false;
+  Serial.printf("USB device unmounted daddr=%u\r\n", daddr);
+}
+
 // Invoked when a device with a MIDI streaming interface is mounted.
 void tuh_midi_mount_cb(uint8_t idx, const tuh_midi_mount_cb_t *mount_cb_data) {
   bool known = false;
@@ -333,6 +363,22 @@ void loop() {
   static uint32_t last_report = 0;
   uint32_t now = millis();
 
+  // --- USB host re-enumeration watchdog ---
+  // TinyUSB never retries a failed/lost enumeration. If the controller is
+  // electrically present (bus idle) but nothing is mounted — attach edge
+  // missed, or enumeration gave up while the controller was still booting
+  // after a power cycle — force the root port to "disconnected" so the 1 ms
+  // frame loop re-fires the CONNECT event and enumeration restarts. Cheap
+  // when healthy: controller mounted (dev=1) or absent (line=SE0) -> no-op.
+  static uint32_t last_host_watchdog_ms = 0;
+  if (now - last_host_watchdog_ms >= 4000UL) {
+    last_host_watchdog_ms = now;
+    if (pio_host_connected() && pio_host_line_idle() && !host_device_mounted) {
+      Serial.println("USB host watchdog: line idle, nothing mounted - forcing re-enumeration");
+      pio_host_force_reconnect();
+    }
+  }
+
   // --- stuck-gate watchdog (T6, defensive) ---
   // A lost note-off (e.g. controller unplugged mid-note) would leave the
   // voice gated forever. shared_gate can only become true inside
@@ -347,14 +393,20 @@ void loop() {
 
   // One-line diagnostics report (T6): worst render time + I2S stall counter.
   // i2s stalls is cumulative; (+n) is the delta since the previous report.
+  // Host tail: PIO-USB root-port connect flag, raw line-idle flag, device-
+  // level mount state, tracked host MIDI interface count.
   if (now - last_report > 2000) {
     last_report = now;
     static uint32_t last_stall_total = 0;
     const uint32_t stalls = i2s_stall_count;
-    Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u)\r\n",
+    Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | host: conn=%u idle=%u dev=%u midi=%u\r\n",
                   proc_us_max,
                   (unsigned)(1000000UL / kSampleRate * kBlockSize),
-                  stalls, stalls - last_stall_total);
+                  stalls, stalls - last_stall_total,
+                  (unsigned)pio_host_connected(),
+                  (unsigned)pio_host_line_idle(),
+                  (unsigned)host_device_mounted,
+                  (unsigned)host_midi_idx_count);
     last_stall_total = stalls;
     proc_us_max = 0;
   }

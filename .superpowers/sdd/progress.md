@@ -563,3 +563,46 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
 - **Metering artifact:** `voice.inc` comments out the exciter meter, so
   `part.exciter_level()` is always 0. The old red LED could never light; the
   new mapping does not depend on the meter.
+
+### USB host — re-enumeration watchdog (2026-10-30)
+
+- **Symptom:** SMC-PAD mounted once (3 green blinks, notes played); after a
+  power off/on with the cable still attached it was never detected again.
+  Powering the pad on BEFORE plugging the cable always enumerated fine. Not a
+  cable/wiring issue (user reproduced without touching wires; VBUS unconnected
+  — the pad is self-powered, only D+/D-/GND wired).
+- **Diagnosis (parallel serial monitoring on /dev/ttyACM0 alongside MIDI —
+  works fine):** power-off produces a clean disconnect
+  (`Host MIDI unmounted idx=0`); power-on with the cable attached produces
+  ZERO serial output — no mount, no error. TinyUSB gives up on enumeration
+  after 3 failed control-transfer attempts (`usbh.c process_enumeration`,
+  ATTEMPT_COUNT_MAX=3) and never retries; PIO-USB connect detection is
+  edge-based (`!root->connected` + idle line), so once the failed attempt
+  leaves the root port marked connected with nothing mounted, no new CONNECT
+  event can ever fire. Root cause: the pad's USB pull-up appears before its
+  firmware is ready to answer control transfers.
+- **Fix:** `elements-rp2350/src/usb_host_watchdog.c` (NEW) + main.cpp loop
+  poll. C accessors to the PIO-USB root port (`pio_host_line_idle/
+  connected/force_reconnect`) — MUST stay a .c file: `pio_usb_ll.h` declares
+  `pio_usb_root_port` etc. without `extern "C"`, so including it from C++
+  emits mangled references that don't link against the C-compiled library.
+  Every 4 s: if the root-port line is idle (device electrically present) but
+  nothing is mounted → `root->connected = false` → the 1 ms SOF frame loop
+  re-fires the CONNECT interrupt → TinyUSB re-enumerates from scratch.
+- **"Nothing mounted" gating (device-level):** new strong overrides of the
+  weak `tuh_mount_cb`/`tuh_umount_cb` (usbh.c device-level callbacks) keep
+  `host_device_mounted`; the watchdog only kicks when it is false — a foreign
+  non-MIDI device never triggers re-enumeration spam. Safe ordering: a
+  healthy enumeration always completes (< ~1.5 s) before the first 4 s check;
+  a kick during a wedged enumeration hits tuh_task's duplicated-attach branch
+  (abort + restart), healing that case too.
+- **Diagnostics:** 2 s report extended with `| host: conn=%u idle=%u dev=%u
+  midi=%u` (root-port connect flag, line-idle flag, device-mounted, tracked
+  MIDI idx count); device-level `USB device (un)mounted daddr=%u` lines added.
+- **Live verification (2026-10-30, agent flashed via 1200-baud touch + UF2
+  copy):** serial captured a real power cycle healing itself — unmount on
+  power-off, then `USB host watchdog: line idle, nothing mounted - forcing
+  re-enumeration` followed by `Host MIDI mounted idx=0 daddr=1 cables=3`
+  within ~4 s of power-on. The exact previously-stuck scenario now self-heals.
+- Build: `pio run -d elements-rp2350` → SUCCESS. RAM 40.2%, Flash 11.7%
+  (+3 KB vs T6 — watchdog + host device tracking + report tail).
