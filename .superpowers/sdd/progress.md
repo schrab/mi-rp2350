@@ -666,3 +666,41 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   chip rev 3 (forcing the dance breaks reads on this board).
 - Board left on the diag build; pad unplugged; pad verified healthy on a
   laptop (enumerates, 12M FS) after the session.
+
+### USB host — root cause split + final fix set (2026-10-31 night, elements-clone)
+
+- **Board freeze ROOT CAUSE (confirmed on hardware):** core 0 overran its 4 KB
+  half of the default shared dual-core stack at attach (TinyUSB enumeration +
+  blocking waits + mount callbacks + Serial.printf with the SOF alarm ISR,
+  TinyUSB device task and I2S DMA interrupt nesting on top) — killing
+  interrupts mid-line, corrupting core 1's stack (noise on I2S), freezing the
+  board, controller-independently. Fix: `bool core1_separate_stack = true;`
+  (core 1 gets a private 8 KB stack; core 0 the full system stack). Confirmed:
+  board survives repeated enumeration attempts.
+- **SOF ISR moved to core 1** via `alarm_pool_create_with_unused_hardware_alarm`
+  called in setup1 (pools fire callbacks on their creating core); core 0's
+  host init waits for the pool flag, then passes the pool via
+  `pio_cfg.alarm_pool`. Frame loop verified on core 1: `frame=` field in the
+  2 s report advances exactly 1000/s (`pio_usb_host_get_frame_number()`).
+- **CDC port death after soft reboot FIXED:** 500 ms detach/attach window at
+  boot (10 ms was too short for the hub driver to notice; port stayed dead
+  until a physical replug).
+- **Loop-side line-state reads REMOVED** (watchdog + report): the E9
+  workaround inside `pio_usb_bus_get_line_state()` briefly disables the pad
+  input; a core-0 call racing the SOF ISR blinds packet exchange. Line state
+  is read only from the ISR-side frame loop now. Report gained `st=`
+  (folded line state) and `frame=` (SOF counter) fields instead.
+- **10 kΩ pull-downs on D+/D- soldered (user):** D+ now 2.8 V = exact divider
+  value (3.3 × 10/(10+1.5)) — the pad's PHY IS enabled and presenting. But
+  **D- is still held ~3.3 V by the pad itself** (active drive — the JieLi
+  wedge), in silence or with traffic, recovering only on the pad's own power
+  cycle. The pad re-verified healthy on a laptop after the whole session.
+- **Verdict:** the pad (JieLi BR25, stock firmware) is incompatible in
+  practice with the bit-banged PIO-USB host; it enumerates instantly on real
+  hosts. Controllers remain usable **through the laptop** (pad → laptop →
+  PipeWire → the synth's device port). Reviving the host port for this pad
+  needs scope-level measurement at its receiver. Full handoff:
+  `docs/HANDOFF-usb-host-freeze.md` (updated through acf8476 + this commit).
+- Files: `elements-rp2350/src/main.cpp` (alarm pool handshake, replug fix,
+  race removal, frame counter), `elements-rp2350/src/usb_host_watchdog.c`
+  (line-state accessor), `elements-rp2350/README.md` (known-issue note).

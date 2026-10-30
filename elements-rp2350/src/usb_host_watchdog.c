@@ -33,3 +33,9 @@ bool pio_host_connected(void) {
 void pio_host_force_reconnect(void) {
   PIO_USB_ROOT_PORT(0)->connected = false;
 }
+
+// DIAGNOSTIC: the folded line state (0=SE0 1=FS_IDLE 2=LS_IDLE 3=SE1) that
+// the connect detection itself sees.
+uint8_t pio_host_line_state(void) {
+  return (uint8_t)pio_usb_bus_get_line_state(PIO_USB_ROOT_PORT(0));
+}

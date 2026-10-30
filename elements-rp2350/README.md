@@ -41,6 +41,18 @@ Part of the plan in `../docs/superpowers/plans/2026-10-30-elements-rp2350.md`.
 Bus-powered controllers draw from the board's 5 V rail; current-hungry hubs
 need an external VBUS feed.
 
+> **KNOWN ISSUE (2026-10-31):** the host port does not reliably enumerate
+> battery-powered controllers whose PHY waits for VBUS-style activation
+> (verified with the SMC-PAD, JieLi BR25 — it enumerates instantly on a
+> laptop, never ACKs here; a second controller freezes the board the same
+> way). Fix set applied so far: core-1 SOF alarm isolation, separate core-1
+> stack (attach-time freeze root cause), 300 ms connect debounce, 60 s
+> watchdog, no loop-side line reads, 10 kΩ pull-downs on D+/D-. Still
+> wedge-prone; needs scope-level investigation. See
+> `docs/HANDOFF-usb-host-freeze.md`. Until then, use controllers **through
+> the laptop** (controller → laptop → PipeWire → this device's USB-MIDI
+> port), which works today.
+
 ## MIDI
 
 MIDI enters simultaneously from both ports and is merged (same parser):

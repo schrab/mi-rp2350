@@ -68,6 +68,7 @@ extern "C" {
 bool pio_host_line_idle(void);
 bool pio_host_connected(void);
 void pio_host_force_reconnect(void);
+uint8_t pio_host_line_state(void);
 }
 
 // Firmware-side definitions of the elements::Dsp statics. They are declared as
@@ -240,7 +241,20 @@ static void initEngine() {
 }
 
 // ================= core 1: audio =================
+// Alarm pool created on CORE 1 (pools fire callbacks on their creating core):
+// the PIO-USB SOF alarm ISR then runs on core 1, isolated from core 0's I2S
+// DMA and TinyUSB device interrupts. On core 0 the SOF ISR collided with
+// them, missing the 2-7 µs handshake windows — controllers attached but
+// never ACKed (EP0 result 00). Core 0's host init waits for the pool flag.
+static alarm_pool_t* g_host_alarm_pool = nullptr;
+static volatile bool g_host_alarm_pool_ready = false;
+
 void setup1() {
+  // Must run BEFORE the audio_ready wait: core 0's host init (in setup(),
+  // before i2s.begin) consumes this pool.
+  g_host_alarm_pool = alarm_pool_create_with_unused_hardware_alarm(1);
+  g_host_alarm_pool_ready = true;
+
   while (!audio_ready) { delay(1); }
 }
 
@@ -324,8 +338,13 @@ void setup() {
     // needs a CPU clock that is a multiple of 12 MHz. Build uses 240 MHz.
     Serial.println("ERROR: CPU clock not a multiple of 12 MHz - PIO-USB host timing unreliable");
   }
+  // Wait for core 1 to create the core-1 alarm pool (see setup1), then hand
+  // it to PIO-USB: the SOF alarm ISR runs on core 1, isolated from core 0's
+  // I2S DMA and TinyUSB device interrupts.
+  while (!g_host_alarm_pool_ready) { delay(1); }
   pio_usb_configuration_t pio_cfg = PIO_USB_DEFAULT_CONFIG;
   pio_cfg.pin_dp = kPinHostDP;    // D+ = GP14, D- = GP15 (DPDM pinout)
+  pio_cfg.alarm_pool = g_host_alarm_pool;
   if (!USBHost.configure_pio_usb(1, &pio_cfg)) {
     Serial.println("PIO-USB configure FAILED (host driver missing for rhport 1?)");
   }
@@ -361,7 +380,10 @@ void setup() {
   }
   if (TinyUSBDevice.mounted()) {
     TinyUSBDevice.detach();
-    delay(10);
+    // 500 ms (not 10 ms): after a soft reboot the host's hub driver needs a
+    // clearly visible disconnect window or it misses the re-attach entirely
+    // and the CDC port stays dead until a physical replug.
+    delay(500);
     TinyUSBDevice.attach();
   }
 
@@ -403,7 +425,11 @@ void loop() {
   static uint32_t last_host_watchdog_ms = 0;
   if (now - last_host_watchdog_ms >= 4000UL) {
     last_host_watchdog_ms = now;
-    if (pio_host_connected() && pio_host_line_idle() && !host_device_mounted) {
+    // NOTE: deliberately no line-state read here — the E9 workaround inside
+    // pio_usb_bus_get_line_state() briefly disables the pad input, and a
+    // loop-side call (core 0) races the SOF alarm ISR (core 1) mid-transaction,
+    // blinding the packet exchange. Absence is handled by disconnect detection.
+    if (pio_host_connected() && !host_device_mounted) {
       Serial.println("USB host watchdog: line idle, nothing mounted - forcing re-enumeration");
       pio_host_force_reconnect();
     }
@@ -429,14 +455,15 @@ void loop() {
     last_report = now;
     static uint32_t last_stall_total = 0;
     const uint32_t stalls = i2s_stall_count;
-    Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | host: conn=%u idle=%u dev=%u midi=%u\r\n",
+    Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | host: conn=%u st=%u dev=%u midi=%u frame=%u\r\n",
                   proc_us_max,
                   (unsigned)(1000000UL / kSampleRate * kBlockSize),
                   stalls, stalls - last_stall_total,
                   (unsigned)pio_host_connected(),
-                  (unsigned)pio_host_line_idle(),
+                  (unsigned)pio_host_line_state(),
                   (unsigned)host_device_mounted,
-                  (unsigned)host_midi_idx_count);
+                  (unsigned)host_midi_idx_count,
+                  (unsigned)pio_usb_host_get_frame_number());
     last_stall_total = stalls;
     proc_us_max = 0;
   }
