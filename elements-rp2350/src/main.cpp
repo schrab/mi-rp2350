@@ -48,12 +48,30 @@
 #include "status_led.h"          // WS2812 status LED on GP22 (before midi.h)
 #include "midi.h"                // shared parser + extern shared-state decls
 
+#include "pio_usb.h"  // pio_usb_host_set_sof_enable
+
 // PIO-USB root-port accessors for the re-enumeration watchdog (C side).
 extern "C" {
 bool pio_host_line_idle(void);
 bool pio_host_connected(void);
 void pio_host_force_reconnect(void);
+void pio_host_pins(uint8_t* dp, uint8_t* dm);
+uint8_t pio_host_line_state(void);
+uint8_t pio_host_chip_version(void);
+uint32_t pio_host_pad_ctrl(uint8_t pin);
+uint32_t pio_host_gpio_ctrl(uint8_t pin);
+extern volatile uint32_t pio_usb_boot_trace;
+extern volatile uint8_t pio_usb_setup_log[8][8];
+extern volatile uint8_t pio_usb_setup_result[8];
+extern volatile uint8_t pio_usb_setup_idx;
 }
+
+// Boot-stage pad snapshots (printed in the 2 s report; early CDC lines are
+// lost before a serial reader attaches, so these must survive past setup).
+static uint32_t g_pad14_usbhost = 0, g_ctrl14_usbhost = 0;
+static uint8_t g_cfg_ok = 9, g_beg_ok = 9, g_tuh_inited = 9;
+static uint32_t g_pad14_i2s = 0, g_ctrl14_i2s = 0;
+static uint32_t g_pad14_end = 0, g_ctrl14_end = 0;
 
 // Firmware-side definitions of the elements::Dsp statics. They are declared as
 // class statics in ELEMENTS/src/elements/dsp/dsp.h but defined nowhere in the
@@ -139,11 +157,13 @@ extern "C" {
 // of ANY device on the host port completes / when it is removed.
 void tuh_mount_cb(uint8_t daddr) {
   host_device_mounted = true;
+  pio_usb_host_set_sof_enable(true);  // pad configured: keep-alive safe now
   Serial.printf("USB device mounted daddr=%u\r\n", daddr);
 }
 
 void tuh_umount_cb(uint8_t daddr) {
   host_device_mounted = false;
+  pio_usb_host_set_sof_enable(false);  // silence until the next mount
   Serial.printf("USB device unmounted daddr=%u\r\n", daddr);
 }
 
@@ -296,12 +316,17 @@ void setup() {
   }
   pio_usb_configuration_t pio_cfg = PIO_USB_DEFAULT_CONFIG;
   pio_cfg.pin_dp = kPinHostDP;    // D+ = GP14, D- = GP15 (DPDM pinout)
-  if (!USBHost.configure_pio_usb(1, &pio_cfg)) {
+  g_cfg_ok = USBHost.configure_pio_usb(1, &pio_cfg);
+  if (!g_cfg_ok) {
     Serial.println("PIO-USB configure FAILED (host driver missing for rhport 1?)");
   }
-  if (!USBHost.begin(1)) {
+  g_beg_ok = USBHost.begin(1);
+  if (!g_beg_ok) {
     Serial.println("USB host begin FAILED");
   }
+  g_tuh_inited = tuh_inited();
+  g_pad14_usbhost = pio_host_pad_ctrl(14);
+  g_ctrl14_usbhost = pio_host_gpio_ctrl(14);
 
   i2s.setBitsPerSample(16);
   i2s.setBuffers(8, 16);          // 8 buffers x 16 words = 128 stereo frames (~4 ms)
@@ -312,6 +337,8 @@ void setup() {
   } else {
     Serial.println("I2S up");
   }
+  g_pad14_i2s = pio_host_pad_ctrl(14);
+  g_ctrl14_i2s = pio_host_gpio_ctrl(14);
 
   // Boot diagnostic: confirm I2S did not steal the status LED's PIO2 SM0.
   // SM0's PC must stay inside the 4-instruction WS2812 program.
@@ -336,6 +363,8 @@ void setup() {
   }
 
   audio_ready = true;
+  g_pad14_end = pio_host_pad_ctrl(14);
+  g_ctrl14_end = pio_host_gpio_ctrl(14);
   Serial.println("Elements engine up (USB MIDI device + PIO-USB host)");
 }
 
@@ -358,23 +387,41 @@ void loop() {
   // Status LED: dark when idle, amber while a note is held, exciter/resonator
   // meters blended in, green blinks on controller mount. Blocks ~1 ms per
   // update for the WS2812 reset gap.
+  // DIAGNOSTIC: freeze the LED at the enumeration stage if the host hangs.
+  // blue = attached, no request sent yet; magenta = requests sent.
+  {
+    static uint8_t diag_last_idx = 0;
+    if (pio_usb_setup_idx != diag_last_idx) {
+      diag_last_idx = pio_usb_setup_idx;
+      statusLed.ForceColor(255, 0, 255);  // magenta: setup attempted
+    } else if (pio_host_connected() && pio_usb_setup_idx == 0) {
+      statusLed.ForceColor(0, 0, 255);    // blue: attached, pre-setup
+    }
+  }
   statusLed.Poll(shared_gate, shared_exciter_level, shared_resonator_level);
 
   static uint32_t last_report = 0;
   uint32_t now = millis();
 
   // --- USB host re-enumeration watchdog ---
-  // TinyUSB never retries a failed/lost enumeration. If the controller is
-  // electrically present (bus idle) but nothing is mounted — attach edge
-  // missed, or enumeration gave up while the controller was still booting
-  // after a power cycle — force the root port to "disconnected" so the 1 ms
-  // frame loop re-fires the CONNECT event and enumeration restarts. Cheap
-  // when healthy: controller mounted (dev=1) or absent (line=SE0) -> no-op.
+  // TinyUSB never retries a failed/lost enumeration. If the root port is
+  // marked connected but nothing got mounted — attach edge missed, or
+  // enumeration gave up while the controller was still booting after a power
+  // cycle — force the root port to "disconnected" so the 1 ms frame loop
+  // re-fires the CONNECT event and enumeration restarts. Cheap when healthy:
+  // controller mounted (dev=1) or absent (disconnect detection clears
+  // connected) -> no-op. NOTE: deliberately does NOT read the line state
+  // here — the E9 workaround inside pio_usb_bus_get_line_state() briefly
+  // disables the pad input, and a loop-side call can race the SOF interrupt
+  // mid-transaction, silently killing the device's response (root cause of
+  // the 2026-10-30 enumeration failures).
   static uint32_t last_host_watchdog_ms = 0;
-  if (now - last_host_watchdog_ms >= 4000UL) {
+  // 15 s safety net for a missed/failed attach; fires only when the root
+  // port is marked connected but nothing ever mounted, which is rare.
+  if (now - last_host_watchdog_ms >= 15000UL) {
     last_host_watchdog_ms = now;
-    if (pio_host_connected() && pio_host_line_idle() && !host_device_mounted) {
-      Serial.println("USB host watchdog: line idle, nothing mounted - forcing re-enumeration");
+    if (pio_host_connected() && !host_device_mounted) {
+      Serial.println("USB host watchdog: connected but nothing mounted - forcing re-enumeration");
       pio_host_force_reconnect();
     }
   }
@@ -393,18 +440,31 @@ void loop() {
 
   // One-line diagnostics report (T6): worst render time + I2S stall counter.
   // i2s stalls is cumulative; (+n) is the delta since the previous report.
-  // Host tail: PIO-USB root-port connect flag, raw line-idle flag, device-
-  // level mount state, tracked host MIDI interface count.
+  // Host tail: PIO-USB root-port connect flag, device-level mount state,
+  // tracked host MIDI interface count. No line-state reads here (see the
+  // watchdog comment: loop-side pio_usb_bus_get_line_state() calls race the
+  // SOF interrupt and corrupt USB transactions).
   if (now - last_report > 2000) {
     last_report = now;
     static uint32_t last_stall_total = 0;
     const uint32_t stalls = i2s_stall_count;
-    Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | host: conn=%u idle=%u dev=%u midi=%u\r\n",
+    if (pio_usb_setup_idx) {
+      const uint8_t n = pio_usb_setup_idx;
+      char buf[8 * 21];
+      uint32_t o = 0;
+      for (uint8_t k = 0; k < 8; ++k) {
+        const uint8_t *e = (const uint8_t *)pio_usb_setup_log[(uint8_t)(n - 1 - k) & 7];
+        o += (uint32_t)snprintf(buf + o, sizeof(buf) - o, "%02x%02x:%02x%02x%02x%02x%02x:%02x ",
+                                e[0], e[1], e[2], e[3], e[4], e[5], e[6],
+                                pio_usb_setup_result[(uint8_t)(n - 1 - k) & 7]);
+      }
+      Serial.printf("EP0: %s\r\n", buf);
+    }
+    Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | host: conn=%u dev=%u midi=%u\r\n",
                   proc_us_max,
                   (unsigned)(1000000UL / kSampleRate * kBlockSize),
                   stalls, stalls - last_stall_total,
                   (unsigned)pio_host_connected(),
-                  (unsigned)pio_host_line_idle(),
                   (unsigned)host_device_mounted,
                   (unsigned)host_midi_idx_count);
     last_stall_total = stalls;

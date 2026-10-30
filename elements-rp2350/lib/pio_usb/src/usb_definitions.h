@@ -102,6 +102,7 @@ typedef struct struct_root_port_t {
   volatile bool is_fullspeed;
   volatile bool connected;
   volatile bool suspended;
+  volatile uint32_t attach_idle_frames;
   uint8_t mode;
 
   // register interface

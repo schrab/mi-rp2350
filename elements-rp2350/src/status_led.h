@@ -81,6 +81,13 @@ class StatusLed {
 
   void NotifyBootError() { boot_error_ = true; }
 
+  // DIAGNOSTIC: freeze the LED at a fixed color to mark how far the USB
+  // enumeration got before a hang. Overrides everything while set.
+  void ForceColor(uint8_t r, uint8_t g, uint8_t b) {
+    forced_ = true;
+    fr_ = r; fg_ = g; fb_ = b;
+  }
+
   // USB-A MIDI host controller mounted: 3 green blinks, then resume normal.
   void NotifyControllerConnected() {
     controller_blink_start_ms_ = millis();
@@ -101,6 +108,11 @@ class StatusLed {
     const uint32_t now = millis();
     if (now - last_poll_ms_ < status_led::kPollIntervalMs) return;
     last_poll_ms_ = now;
+
+    if (forced_) {
+      showColor(fr_, fg_, fb_);
+      return;
+    }
 
     if (boot_error_) {
       const bool blink = (now & 127) > 64;
@@ -181,6 +193,8 @@ class StatusLed {
   }
 
   uint offset_ = 0;
+  bool forced_ = false;
+  uint8_t fr_ = 0, fg_ = 0, fb_ = 0;
   bool boot_error_ = false;
   bool controller_blink_active_ = false;
   uint32_t controller_blink_start_ms_ = 0;

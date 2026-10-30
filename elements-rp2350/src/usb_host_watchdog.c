@@ -33,3 +33,39 @@ bool pio_host_connected(void) {
 void pio_host_force_reconnect(void) {
   PIO_USB_ROOT_PORT(0)->connected = false;
 }
+
+// DIAGNOSTIC: raw D+/D- pad levels through the same errata-workaround read
+// the host stack uses. A flap with dp collapsing to 0 means the line is
+// physically pulled low (pad / power side); dp staying 1 while the folded
+// line-state flips means the host's read/drive state is at fault.
+#include "hardware/gpio.h"
+#include "hardware/structs/iobank0.h"
+void pio_host_pins(uint8_t* dp, uint8_t* dm) {
+  pio_usb_bus_get_line_state(PIO_USB_ROOT_PORT(0));  // applies IE workaround
+  *dp = gpio_get(PIO_USB_ROOT_PORT(0)->pin_dp) ? 1 : 0;
+  *dm = gpio_get(PIO_USB_ROOT_PORT(0)->pin_dm) ? 1 : 0;
+}
+
+// DIAGNOSTIC: the folded line state (0=SE0 1=FS_IDLE 2=LS_IDLE 3=SE1) the
+// connect detection itself uses. If a present full-speed device reads as
+// LS_IDLE, the host configures low-speed signaling and enumeration can
+// never succeed.
+uint8_t pio_host_chip_version(void) {
+  uint32_t const chip_id = *((io_ro_32*)(SYSINFO_BASE + SYSINFO_CHIP_ID_OFFSET));
+  return (uint8_t)((chip_id & SYSINFO_CHIP_ID_REVISION_BITS) >> SYSINFO_CHIP_ID_REVISION_LSB);
+}
+
+// DIAGNOSTIC: raw pad control (pulls, IE) and GPIO function-select for the
+// host D+/D- pins. PADS bits: IE=bit4, PUE=bit5, PDE=bit6. CTRL FUNCSEL=bits0-4
+// (6 = PIO0). If PDE is 0, the host pulldown was disabled by something.
+uint32_t pio_host_pad_ctrl(uint8_t pin) {
+  return pads_bank0_hw->io[pin];
+}
+
+uint32_t pio_host_gpio_ctrl(uint8_t pin) {
+  return io_bank0_hw->io[pin].ctrl;
+}
+
+uint8_t pio_host_line_state(void) {
+  return (uint8_t)pio_usb_bus_get_line_state(PIO_USB_ROOT_PORT(0));
+}
