@@ -76,11 +76,15 @@ MIDI enters simultaneously from both ports and is merged (same parser):
 | 17 | exciter blow level | 25 | resonator damping |
 | 18 | exciter blow meta (flow) | 26 | resonator position |
 | 19 | exciter blow timbre | 27 | space (reverb) |
-|  |  | 28 | resonator model: 0 modal / 1 string / 2 strings |
+| 29 | ominous voice (easter egg): 0 normal / ≥1 ominous | 28 | resonator model: 0 modal / 1 string / 2 strings |
 
 CC 28 values > 2 are ignored; re-sending a value re-selects that model. The
 change is applied by core 1 between render blocks (pending slot), so it never
-lands inside a running `Process()`. `reverb_diffusion` / `reverb_lp` are
+lands inside a running `Process()`. CC 29 switches to the hidden ominous
+voice live (0 = normal, any nonzero value = ominous — absolute values, not a
+toggle): the dark 2-op FM path replaces the exciter/resonator, the ringing
+voice's tail cuts on switch (no crossfade), and CC 28 has no effect while
+ominous. `reverb_diffusion` / `reverb_lp` are
 derived from `space` by the engine and are not mapped;
 `resonator_modulation_frequency` is not mapped (randomized per device by
 `Part::Seed()`).

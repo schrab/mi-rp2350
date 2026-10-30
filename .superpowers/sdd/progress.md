@@ -606,3 +606,63 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   within ~4 s of power-on. The exact previously-stuck scenario now self-heals.
 - Build: `pio run -d elements-rp2350` → SUCCESS. RAM 40.2%, Flash 11.7%
   (+3 KB vs T6 — watchdog + host device tracking + report tail).
+
+### Ominous mode — CC 29 easter-egg switch (2026-10-30)
+
+- **Runtime switching confirmed safe by code audit:** `easter_egg_` is only
+  branched on per block inside `Process()` (`part.inc:161` voice select,
+  `:211` soft-limit skip, `:232` metering) and `ominous_voice_[i].Init()`
+  runs unconditionally in `Part::Init()` (`part.cc:66`) — both voice sets
+  stay initialized; the flag merely redirects the next block. Boot-only
+  (the original's BOW-at-power-up) is unnecessary. Correction to an earlier
+  chat's claim: `part.inc:211-232` is soft-limit/metering, not a
+  tube-resonator swap — the dark FM character is inside `OminousVoice`
+  (`ominous_voice.cc`, FM/FBFM with `lut_fm_frequency_quantizer`), which
+  reuses the resonator patch fields (damping/brightness/geometry) its own
+  way. This port's `Patch` has no `easter_egg` field (the original
+  persisted the flag in patch storage) — here it is a plain RAM bool, so
+  persistence doesn't exist and boot-only would have meant power-cycling to
+  change modes.
+- **Implementation (T6 pending-slot pattern):** CC 29 ABSOLUTE semantics —
+  0 = normal, 1..127 = ominous, deliberately not a toggle (the panel cannot
+  read synth state, a toggle would desync knob vs engine). Core 0's
+  `midiControlChange` writes `volatile int8_t pending_easter_egg` (0/1, -1
+  idle); core 1's `loop1()` applies `part.set_easter_egg()` at the top,
+  between render blocks, and resets to -1. Switch behavior: the ringing
+  voice's tail cuts (separate voice state, no crossfade), CC 28 is a no-op
+  while ominous, knobs are reinterpreted as FM op amounts. No LED change
+  (kept minimal per user preference).
+- **Panel:** `OMINOUS` knob added to the right section (row 4, under
+  BRIGHTNESS) — snapped 2-state control (NORMAL/OMINOUS), sends 0/1,
+  `def:0` so page-load sync sends CC 29 = 0 (matches firmware default).
+  **Interaction fix (user-reported: knob wouldn't turn back):** the wheel /
+  arrow-key handlers step 1/127, but the 2-state snap is `Math.round(v)` —
+  from v=1 one notch gives 0.992 → rounds back to 1, needing ~64 notches to
+  escape (the 3-way MODE knob had the same defect, ~33 notches). Snapped
+  selectors now step one full position per notch/key (`stepOf()`), and the
+  OMINOUS drag scale is 100 px full travel (vs 200 px) so flipping back is
+  quick. MODE behavior otherwise unchanged.
+- **README:** CC map row filled (`29 ominous / 28 model`) + CC 29 semantics
+  paragraph.
+- Build: `pio run -d elements-rp2350` → SUCCESS; flashed via 1200-baud
+  touch; user audible confirmation of the ominous mode pending.
+
+### USB host — board freeze on controller attach (2026-10-31, UNRESOLVED — handed off)
+
+- **Symptom:** any MIDI controller (SMC-PAD JieLi BR25 + a second controller)
+  attaching to the PIO-USB host port freezes the BOARD (core 0 dead, serial
+  stops, LED frozen; core 1 clocks noise to the I2S) within seconds, at/around
+  the first enumeration SETUPs. EP0 log: GET_DESCRIPTOR sent, result 00 (no
+  device handshake) every attempt. `max Process` creeps 380→520 µs over a
+  session (budget 496) with OMINOUS inactive. **Controller-independent.**
+- Full handoff with variant matrix, hardware facts (chip rev 3 E9 gate, loop-
+  side line-read race, pad's no-VBUS wait state), and the next-steps plan
+  (WDT + scratch-register crash capture): **`docs/HANDOFF-usb-host-freeze.md`**
+- Diagnostic WIP preserved on branch `usb-host-jieli-debug` (pre-rework
+  pio_usb variant, EP0 ring, LED breadcrumbs, debounce).
+- Fixes that SURVIVED review and are kept: no loop-side line-state reads
+  (E9-dance race with the SOF ISR), watchdog backoff (reset storms wedge
+  fragile chips — documented in open-smc-pad usb-br25.md), stock E9 gate for
+  chip rev 3 (forcing the dance breaks reads on this board).
+- Board left on the diag build; pad unplugged; pad verified healthy on a
+  laptop (enumerates, 12M FS) after the session.

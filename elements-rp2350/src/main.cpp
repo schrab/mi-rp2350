@@ -10,6 +10,12 @@
 // stuck-gate watchdog (30 s), I2S stall counter in the 2 s serial report,
 // USB product name "Elements RP2350". The T3 auto-trigger test is gone
 // (MIDI verified).
+// Ominous mode (easter egg): CC 29, 0 = normal / >=1 = ominous, applied by
+// core 1 between render blocks via pending_easter_egg. The dark 2-op FM
+// OminousVoice path is initialized alongside the normal voices in
+// Part::Init() and easter_egg_ is only branched on per block inside
+// Process(), so the mode switches live; the ringing voice's tail cuts on
+// switch (no crossfade), CC 28 is a no-op while ominous.
 // Status LED: WS2812 on GP22 via PIO2 SM0 — dark when idle, amber while a
 // note is gated, with the exciter (turquoise) and resonator (rose/fuchsia)
 // meters blended in using the original Elements LED colors. 3 green blinks
@@ -102,6 +108,9 @@ volatile float shared_resonator_level = 0.0f;
 // CC 28 hand-off: core 0 stores the requested model (0..2), core 1 applies
 // part.set_resonator_model() between render blocks and resets to -1.
 volatile int8_t pending_resonator_model = -1;
+// CC 29 hand-off (ominous mode / easter egg): core 0 stores 0/1, core 1
+// applies part.set_easter_egg() between render blocks and resets to -1.
+volatile int8_t pending_easter_egg = -1;
 
 static volatile bool audio_ready = false;
 
@@ -232,6 +241,18 @@ void loop1() {
   // Part::Process() re-pushes the model into the voice every block
   // (part.cc:181) and Voice only branches on it (voice.cc:212), so nothing
   // else needs to be reset on a model change.
+  // Apply at most one pending easter-egg change (from core 0's CC 29) after
+  // the resonator model, same between-blocks discipline. Runtime switching is
+  // inherently safe: easter_egg_ is only branched on per block inside
+  // Process() (voice select part.inc:161, soft-limit skip :211, metering
+  // :232) and OminousVoice::Init() ran unconditionally in Part::Init(), so
+  // nothing needs re-initializing — the ringing voice's tail simply cuts.
+  int8_t egg = pending_easter_egg;
+  if (egg >= 0) {
+    pending_easter_egg = -1;
+    part.set_easter_egg(egg != 0);
+  }
+
   int8_t m = pending_resonator_model;
   if (m >= 0) {
     pending_resonator_model = -1;

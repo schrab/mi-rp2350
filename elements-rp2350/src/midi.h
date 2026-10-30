@@ -44,6 +44,14 @@ extern elements::Part part;
 // one change is applied per block.
 extern volatile int8_t pending_resonator_model;   // -1 = none, 0..2 = model
 
+// Pending easter-egg (ominous voice) change (DEFINED in main.cpp): core 0
+// writes 0/1 from CC 29 (0 = normal, >=1 = ominous); core 1 applies
+// part.set_easter_egg() at the top of loop1() (strictly between two
+// Process() calls) and resets the slot to -1. Runtime switching is safe:
+// easter_egg_ is only branched on per block inside Part::Process() and the
+// OminousVoice instances are Init()ed alongside the normal ones.
+extern volatile int8_t pending_easter_egg;        // -1 = none, 0/1 = mode
+
 // --- note stack: last-note priority (single TU: main.cpp -> static storage) ---
 struct NoteStack {
   static const uint8_t kMaxNotes = 8;
@@ -146,6 +154,14 @@ inline void midiControlChange(uint8_t cc, uint8_t val) {
       if (val <= 2) {
         pending_resonator_model = static_cast<int8_t>(val);
       }
+      break;
+    // Ominous-voice (easter egg) selector: 0 = normal, 1..127 = ominous.
+    // Absolute values, not a toggle — the panel cannot read the synth state,
+    // so a toggle would desync knob vs engine. Handed to core 1 via
+    // pending_easter_egg (applied between render blocks). While ominous, the
+    // patch fields are reinterpreted as FM op amounts and CC 28 has no effect.
+    case 29:
+      pending_easter_egg = val ? 1 : 0;
       break;
     default: break;
   }
