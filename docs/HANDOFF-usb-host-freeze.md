@@ -163,7 +163,20 @@ distorting our own driven edges?) or its reply was lost (RX path).
    ~15 s (reset storms wedge fragile chips — documented for the JieLi in
    open-smc-pad `docs/usb-br25.md` item 6, confirmed by observation).
 
-## Final status (end of session)
+## Final status (end of session, updated after 10k pull-downs)
+
+- User soldered **10 kΩ pull-downs on D+ and D-** at the board pins. Result:
+  D+ now sits at the expected divider value (**2.8 V** = 3.3 V × 10/(10+1.5) —
+  the pad's PHY IS enabled and presenting), but **D- is still held at ~3.3 V
+  by the pad itself** — an active drive, not a leak (a leak cannot hold 3.3 V
+  through 10 kΩ). That is the JieLi wedge state: the pad's PHY drives D-
+  high (illegal SE1-ish) on our bus within seconds of connecting, in silence
+  or with traffic, and recovers only on its own power cycle.
+- Frame loop on core 1 VERIFIED running: `pio_usb_host_get_frame_number()`
+  advances exactly 1000/s in the report (added `frame=` field).
+- Host line reads say st=0 (SE0) while D+ measures 2.8 V — the read path and
+  the pad's D- drive disagree with the multimeter; scope-level measurement
+  at the pad's receiver is the next step if this is ever revived.
 
 - **Board freeze: FIXED** (`core1_separate_stack = true`, commit `1587215`).
 - **Pad: healthy** — re-verified enumerating on the laptop after the whole
