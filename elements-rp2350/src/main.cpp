@@ -5,8 +5,10 @@
 // polls tuh_midi_packet_read() over the mounted interface indexes and feeds
 // the same 4-byte event packets into midiHandleEventPacket().
 // Part::Process() still renders on core 1 at 32 kHz into the PCM5102A via I2S.
-// The T3 auto-trigger bring-up test stays in loop() behind kAutoTriggerTest
-// (false) until the MIDI path is confirmed on hardware; deleted in T6.
+// Task 6 — hardening: last-note-priority note stack, resonator-model CC 28
+// (applied by core 1 between blocks via pending_resonator_model), stuck-gate
+// watchdog (30 s), I2S stall counter in the 2 s serial report, USB product
+// name "Elements RP2350". The T3 auto-trigger test is gone (MIDI verified).
 //
 // Wiring (PCM5102A): BCK -> GP6 (LRCK/WS follows on GP7 automatically),
 // DIN -> GP8, SCK/MCLK -> GND, XSMT -> 3V3 (unmute), FLT/DEMP/FMT -> GND.
@@ -66,17 +68,20 @@ volatile float shared_note = 48.0f;
 volatile float shared_modulation = 0.0f;
 volatile float shared_strength = 0.8f;
 volatile bool shared_gate = false;
+// CC 28 hand-off: core 0 stores the requested model (0..2), core 1 applies
+// part.set_resonator_model() between render blocks and resets to -1.
+volatile int8_t pending_resonator_model = -1;
 
 static volatile bool audio_ready = false;
 
 // --- perf telemetry (core1 writes, core0 prints) ---
 static volatile uint32_t proc_us_max = 0;
+// Count of render loops whose 16 I2S writes took > 900 us (normal worst case
+// is ~500 us = one 16-frame block @ 32 kHz; see loop1()).
+static volatile uint32_t i2s_stall_count = 0;
 
 // --- USB MIDI device (core 0) ---
 Adafruit_USBD_MIDI usb_midi;
-// T3 bring-up test, disabled until the user confirms MIDI on hardware
-// (plan T6 deletes it).
-static const bool kAutoTriggerTest = false;
 
 // --- USB MIDI host (PIO-USB on rhport 1, core 0) ---
 // Pattern from the bundled DualRole/serial_host_bridge example (device =
@@ -174,6 +179,17 @@ void setup1() {
 }
 
 void loop1() {
+  // Apply at most one pending resonator-model change (from core 0's CC 28).
+  // Doing it here keeps the change strictly between two Process() calls;
+  // Part::Process() re-pushes the model into the voice every block
+  // (part.cc:181) and Voice only branches on it (voice.cc:212), so nothing
+  // else needs to be reset on a model change.
+  int8_t m = pending_resonator_model;
+  if (m >= 0) {
+    pending_resonator_model = -1;
+    part.set_resonator_model(static_cast<elements::ResonatorModel>(m));
+  }
+
   perf_state.gate = shared_gate;
   perf_state.note = shared_note;
   perf_state.strength = shared_strength;
@@ -184,15 +200,30 @@ void loop1() {
   uint32_t dt = time_us_32() - t0;
   if (dt > proc_us_max) proc_us_max = dt;
 
+  // The writes pace loop1: one iteration = exactly one 16-word DMA buffer,
+  // and buffers free every 500 us (16 frames @ 32 kHz), so the write block
+  // normally waits at most ~500 us for the next buffer to free. > 900 us
+  // means no buffer freed for ~2 block periods -> I2S output stalled.
+  uint32_t w0 = time_us_32();
   for (size_t i = 0; i < kBlockSize; ++i) {
     int16_t l = stmlib::Clip16(static_cast<int32_t>(main_out[i] * 32768.0f));
     int16_t r = stmlib::Clip16(static_cast<int32_t>(aux_out[i] * 32768.0f));
     i2s.write16(l, r);   // blocking write, one L/R frame; paces loop at 32 kHz
   }
+  if (time_us_32() - w0 > 900) {
+    ++i2s_stall_count;
+  }
 }
 
 // ================= core 0: control =================
 void setup() {
+  // USB product name (T6): the core's TinyUSB_Device_Init() ran before setup()
+  // with the board default product string ("Pico 2"). setProductDescriptor()
+  // only swaps the string pointer served on GET_DESCRIPTOR(String) requests
+  // (Adafruit_USBD_Device.cpp:133), so setting it here — before the
+  // detach/attach re-enumeration guard further down — makes the host pick up
+  // "Elements RP2350" when it re-reads the descriptors after re-enum.
+  TinyUSBDevice.setProductDescriptor("Elements RP2350");
   Serial.begin(115200);
   initEngine();
 
@@ -264,27 +295,29 @@ void loop() {
   static uint32_t last_report = 0;
   uint32_t now = millis();
 
-  if (kAutoTriggerTest) {
-    // T3 bring-up test: strike every 1.5 s, gate held 300 ms. Kept behind a
-    // compile-time flag until MIDI is confirmed on hardware (removed in T6);
-    // with the flag false the block compiles away entirely.
-    static uint32_t last_trigger = 0;
-    static uint8_t step = 0;
-    if (now - last_trigger > 1500) {
-      last_trigger = now;
-      shared_note = 36.0f + (step++ % 12);
-      shared_strength = 0.9f;
-      shared_gate = true;
-    }
-    if (now - last_trigger > 300) {
-      shared_gate = false;
-    }
+  // --- stuck-gate watchdog (T6, defensive) ---
+  // A lost note-off (e.g. controller unplugged mid-note) would leave the
+  // voice gated forever. shared_gate can only become true inside
+  // midiNoteOn(), which also stamps last_note_event_ms, so
+  // "gate && 30 s since the last note event" means genuinely stuck. Forcing
+  // the gate off ends the incident, so this logs once per incident.
+  if (shared_gate && now - last_note_event_ms > 30000UL) {
+    shared_gate = false;
+    note_stack.clear();
+    Serial.println("WARNING: gate stuck >30s (lost note-off?) - forced off, note stack cleared");
   }
 
-  // Process-time report stays always-on (useful for T6 diagnostics too).
+  // One-line diagnostics report (T6): worst render time + I2S stall counter.
+  // i2s stalls is cumulative; (+n) is the delta since the previous report.
   if (now - last_report > 2000) {
     last_report = now;
-    Serial.printf("max Process: %u us (budget %u us)\n", proc_us_max, (unsigned)(1000000UL / kSampleRate * kBlockSize));
+    static uint32_t last_stall_total = 0;
+    const uint32_t stalls = i2s_stall_count;
+    Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u)\r\n",
+                  proc_us_max,
+                  (unsigned)(1000000UL / kSampleRate * kBlockSize),
+                  stalls, stalls - last_stall_total);
+    last_stall_total = stalls;
     proc_us_max = 0;
   }
 }

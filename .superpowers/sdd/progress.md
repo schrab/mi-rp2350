@@ -10,7 +10,7 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
 | T3 engine integration | done | 7140db6 | user confirmed struck-string pings stepping C2-B2 + reverb tail (2026-10-30); Process-time serial report moves to T6 diagnostics; orchestrator fixed Seed() stack overread |
 | T4 USB MIDI device | done | bd620a3 | user confirmed MIDI works on hardware (2026-10-30, "tested it already all fine"); device enumerates as "Pico 2 MIDI 1" — product descriptor rename queued to T6; packet indexing corrected vs plan (4-byte packet); orchestrator-reviewed; findings below |
 | T5 USB host MIDI | code ready | bd620a3 | user reports "all fine" but explicit host-controller-in-socket confirmation not yet recorded; if not tested: wire USB-A (VBUS→5V, D+→GP14, D-→GP15) and check mount log; PIO-USB vendored in lib/ (+LICENSE added at review), f_cpu 250→240 MHz (PIO-USB needs 12 MHz multiple), host must init BEFORE i2s.begin() (PIO0 fully claimed by pio_usb — 3 SMs verified in pio_usb.c — I2S lands on PIO1); findings below |
-| T6 hardening + docs | pending | | |
+| T6 hardening + docs | code ready | | NOT uploaded — user soak test pending (procedure in findings); note stack + CC 28 model selector + stuck-gate watchdog + I2S stall counter + "Elements RP2350" product descriptor + README rewrite; auto-trigger test deleted; findings below |
 
 ## Investigation findings
 
@@ -382,6 +382,105 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   fully occupied by pio_usb (only PIO1/PIO2 remain for other PIOProgram
   users). (d) Bus-powered controllers draw from the board's 5 V rail —
   current-hungry hubs/devices need external VBUS feed.
+
+### T6 — hardening (2026-10-30)
+
+- **Resonator-model thread-safety VERDICT (evidence-checked, hypothesis
+  overturned):** `Part::set_resonator_model()` is SAFE even mid-Process —
+  it is a pure inline enum store (`part.h:83` → `resonator_model_`, aligned
+  32-bit, atomic on ARMv8-M, same class as the existing `shared_*` floats).
+  `Part::Process()` re-pushes it into the voice EVERY block
+  (`part.cc:181` → `voice_[i].set_resonator_model(...)`), and
+  `Voice::set_resonator_model` is likewise a pure store (`voice.h:78–80`).
+  On a model change nothing is reallocated or cleared and no buffers are
+  touched: `Voice::Process()` merely BRANCHES on `resonator_model_`
+  (`voice.cc:212` modal path vs `voice.cc:223–226` string path) between
+  filter states that are all `Init()`ed once in `Voice::Init()/
+  ResetResonator()`. Worst case of a direct core-0 write would be the new
+  model taking effect at the next block boundary.
+- **Implementation kept the pending-slot pattern anyway (per plan T6):**
+  core 0's CC 28 handler stores 0..2 in `volatile int8_t
+  pending_resonator_model` (extern in midi.h, defined in main.cpp, -1 =
+  none); core 1's `loop1()` applies `part.set_resonator_model()` at the top
+  of the loop, before `Process()`, at most one change per block, and resets
+  to -1. Rationale: keeps the change landing strictly between two blocks
+  regardless of future Part setters, and preserves the core1-renders/
+  core0-controls discipline. Known (accepted) race: a CC arriving inside
+  core 1's few-instruction read→clear window could be dropped — irrelevant
+  for human/DAW CC streams and consistent with at-most-one semantics.
+  CC 28 mapping: 0/1/2 → RESONATOR_MODEL_MODAL/STRING/STRINGS (enum order
+  verified `voice.h:50–54`), >2 ignored, re-send re-selects. The old CC 28 →
+  `resonator_modulation_frequency` mapping is removed (param now unmapped —
+  randomized per device by `Part::Seed()`).
+- **Product-descriptor API:** `TinyUSBDevice.setProductDescriptor(const
+  char*)` — `Adafruit_USBD_Device.h:126`, impl `Adafruit_USBD_Device.cpp:133`
+  just swaps `_desc_str_arr[STRID_PRODUCT]`; the array default is the board's
+  `USB_PRODUCT` ("Pico 2") set in the device constructor (.cpp:203). The
+  string callback resolves the pointer per GET_DESCRIPTOR(String) request,
+  so the rename takes effect at the next descriptor read — called as the
+  FIRST line of setup(), before the detach/attach re-enumeration guard, so
+  the host picks it up on re-enum. (Note: the pre-existing
+  `usb_midi.setStringDescriptor()` only renames the MIDI INTERFACE/port,
+  not the device — kept as the port name.) Confirmation of the visible name
+  is pending the user's next flash (re-enumeration).
+- **Note stack (last-note priority):** replaces `static int16_t base_note`
+  with `struct NoteStack` (static in midi.h; midi.h included ONLY by
+  main.cpp — verified by grep — so internal linkage is safe). Top of stack
+  = newest note = `shared_note`; gate drops only when the stack empties;
+  duplicate note-on moves to top (no dup); stack full (8) drops the oldest;
+  note-off of a non-top note leaves pitch/gate untouched; bend offset is
+  remembered and re-applied over the current top note via `applyNote()`
+  (48.0 base while idle). All handlers still core-0-only (device + host
+  packets both drain in core 0's loop).
+- **Stuck-gate watchdog:** `last_note_event_ms` (static in midi.h) stamped
+  by `midiNoteOn/Off`; core 0's loop forces `shared_gate = false` + clears
+  the stack if gate is true with no note event for > 30 s, logging once per
+  incident ("WARNING: gate stuck >30s ..."). Safe because gate can only
+  become true inside midiNoteOn, which re-stamps the timestamp.
+- **I2S stall counter + threshold rationale:** loop1 writes exactly one
+  16-word DMA buffer per iteration (16 × write16 = 16 frames) and buffers
+  free every 500 µs (16 frames @ 32 kHz), so the write block normally waits
+  at most ~500 µs for the next buffer-free. Threshold 900 µs = expected
+  ~500 µs + 400 µs slack: exceeding it means no buffer freed for ~2 block
+  periods → the I2S output genuinely stalled (DMA/PIO wedged or clock stop).
+  `i2s_stall_count` is cumulative (core 1 writes, core 0 prints) with a
+  per-report delta, in the same single 2 s line as max Process:
+  `max Process: N us (budget 500 us) | i2s stalls: T (+d)`.
+- Removed: the whole `kAutoTriggerTest` block + flag (MIDI confirmed on
+  hardware in T4/T5).
+- Build: `pio run -d elements-rp2350` → **SUCCESS** (10.2 s incremental,
+  zero warnings). RAM 40.2% (210,984 / 524,288 B, +24 B vs T5 — note stack +
+  pending slot), Flash 11.6% (487,344 / 4,190,208 B, +476 B vs T5 — watchdog,
+  stall metering, descriptor call). Artifacts:
+  `.pio/build/elements-rp2350/firmware.uf2`. **NOT uploaded.**
+- **README** (`elements-rp2350/README.md`) rewritten: full PCM5102A +
+  USB-A wiring tables, behavior section (note stack / bend / velocity /
+  watchdog), CC map (CC 28 = model), serial-diagnostics legend, build notes
+  (rpipico2 board id, 240 MHz PIO-USB rationale, sync_pio_libs.sh incl. the
+  -O3 library.json regeneration, PIO-USB-before-I2S init order,
+  -DUSE_TINYUSB/LDF chain+ requirement, Dsp statics), BOOTSEL upload
+  procedure + `pio run -t upload` caveats (udev rule for `2e8a:*`), and the
+  soak-test checklist.
+- **User soak-test procedure (T6 acceptance, ≥ 30 min):**
+  1. BOOTSEL-flash `firmware.uf2` (procedure in README) with the MIDI
+     controller in the USB-A socket and USB-C in the PC.
+  2. Play from the hardware controller for 30+ min: sequenced or jammed
+     notes (include legato intervals and re-pressed held notes), some CC
+     movement, pitch-bend riding.
+  3. Watch serial (115200): `max Process` stable well under 500 µs;
+     `i2s stalls` stays `0 (+0)`; no repeated `Host MIDI mounted/unmounted`
+     without touching the cable (mount flaps = PIO-USB signal/power issue);
+     no audio drops, no crash/hang.
+  4. Confirm the rename: `aseqdump -l` / `lsusb` shows "Elements RP2350"
+     (effective after this flash's re-enumeration — the one open
+     confirmation for item D).
+  5. Confirm CC 28 audibly switches modal/string/strings (0/1/2; a synth
+     pad or DAW lane sending raw bytes `B0 1C 00/01/02` works), and that
+     legato matches the note-stack description (second note while holding
+     the first → pitch follows the newest; release → falls back).
+  6. Optional watchdog check: unplug the controller while holding a note →
+     within 30 s the serial log shows the stuck-gate warning and the voice
+     releases.
 
 ### T1 — review fix: -O3 was silently defeated (2026-10-30)
 
