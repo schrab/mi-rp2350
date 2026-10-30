@@ -8,8 +8,8 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
 | T1 scaffolding | done | 00c29a7 | fallback lib-sync strategy; board id `rpipico2` (plan's `pico2` unknown to platform); see findings below |
 | T2 I2S bring-up | done | 3e3fec5 | user confirmed audible 220 Hz tone after wiring + BOOTSEL flash (2026-10-30) |
 | T3 engine integration | done | 7140db6 | user confirmed struck-string pings stepping C2-B2 + reverb tail (2026-10-30); Process-time serial report moves to T6 diagnostics; orchestrator fixed Seed() stack overread |
-| T4 USB MIDI device | pending | | Adafruit_USBD_MIDI API facts below |
-| T5 USB host MIDI | pending | | needs USB-A socket wired; midi_host.h API facts below (index-based, differs from plan sketch) |
+| T4 USB MIDI device | code ready | | awaits user flash + PC MIDI send check; packet indexing corrected vs plan (4-byte packet); findings below |
+| T5 USB host MIDI | code ready | | awaits user wiring (USB-A socket) + flash; PIO-USB vendored in lib/, f_cpu 250→240 MHz (PIO-USB needs 12 MHz multiple); findings below |
 | T6 hardening + docs | pending | | |
 
 ## Investigation findings
@@ -213,6 +213,175 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   note-by-note every 1.5 s (C2..B2, notes 36..47), reverb tail from space 0.4.
   If audio is silent but the report prints: check XSMT high, LCK on GP7 (same
   T2 debug order).
+
+### T4 — USB MIDI device code (2026-10-30)
+
+- Files: `elements-rp2350/src/midi.h` (NEW: parser + extern shared-state
+  decls), `elements-rp2350/src/main.cpp` (extended).
+- **Packet semantics VERIFIED — plan's parser was WRONG and is corrected:**
+  `Adafruit_USBD_MIDI::readPacket(uint8_t packet[4])`
+  (`src/arduino/midi/Adafruit_USBD_MIDI.h:60` → `tud_midi_packet_read` →
+  `tud_midi_n_packet_read`, "Read an event 4-byte packet") fills the FULL
+  4-byte USB-MIDI event packet:
+  `pkt[0] = (cable<<4) | CIN`, `pkt[1] = MIDI status`, `pkt[2] = data1`,
+  `pkt[3] = data2` (0 for 2-byte messages). Confirmed by the packing side in
+  `src/class/midi/midi_device.c` (status byte lands at buffer[1]). The plan
+  indexed `pkt[0..2]` as `[CIN, d1, d2]` over a 3-byte buffer; implemented
+  parser uses `cin = pkt[0]&0x0F`, `d1 = pkt[2]&0x7F`, `d2 = pkt[3]&0x7F`,
+  cable nibble ignored (1 cable). Note-on with velocity 0 → note-off.
+  Pitch bend: pkt[2]=LSB, pkt[3]=MSB, 14-bit centered 8192 → ±2 semitones
+  around `base_note`. CIN outside 0x8..0xE ignored.
+- **Device init ordering:** the core calls `TinyUSB_Device_Init(0)` in
+  `main()` BEFORE `setup()` (`cores/rp2040/main.cpp:148` →
+  `TinyUSBDevice.begin(0)` → `tusb_init`, pull-up already up), while
+  `usb_midi.begin()` only does `TinyUSBDevice.addInterface()`. Adopted the
+  bundled example `examples/MIDI/midi_test/midi_test.ino` guard: after
+  `usb_midi.begin()`, if `TinyUSBDevice.mounted()` → detach/delay(10)/attach
+  so a host that already configured the CDC-only device re-enumerates and
+  sees the MIDI interface. Product string: "Elements RP2350" (via
+  `setStringDescriptor`). `CFG_TUD_MIDI 1` is default
+  (`tusb_config_rp2040.h:94`). Only the packet API is used (header warns
+  Stream + packet share internal state — do not mix).
+- Arrangement: midi.h declares `extern volatile float shared_note/
+  modulation/strength`, `extern volatile bool shared_gate`,
+  `extern elements::Part part;`; main.cpp holds the definitions (dropped
+  `static` on exactly those five). `static int16_t base_note` stays in
+  midi.h (internal linkage; single TU includes it). CC 28 →
+  `resonator_modulation_frequency` per plan; resonator model selector
+  deferred to T6.
+- loop(): drains `usb_midi.readPacket(pkt[4])` each pass →
+  `midiHandleEventPacket(pkt)`; T3 auto-trigger kept behind
+  `static const bool kAutoTriggerTest = false` (compiles away; deleted in
+  T6); the 2 s `max Process` serial report stays always-on.
+- Build: `pio run -d elements-rp2350` → **SUCCESS**, zero warnings (7.7 s
+  incremental). RAM 37.3% (195,656 / 524,288, +40 B vs T3), Flash 11.3%
+  (475,352 / 4,190,208, +2,128 B vs T3 — MIDI class + CDC already present).
+  Artifacts: `.pio/build/elements-rp2350/firmware.uf2`. **NOT uploaded**
+  (user flashes via BOOTSEL, `elements-rp2350/README.md`).
+- **User test procedure (flash → verify):**
+  1. BOOTSEL-flash `firmware.uf2` (unplug → hold BOOTSEL → plug USB-C →
+     copy the .uf2 to the `RP2350` drive).
+  2. Board enumerates as CDC serial + USB MIDI. Check: `aseqdump -l` (or
+     DAW/Ardour MIDI prefs) shows client "Elements RP2350", port
+     "Elements RP2350 MIDI 1". Serial monitor still works at 115200 and
+     prints `Elements engine up (USB MIDI device)` + the 2 s Process report.
+  3. Send notes from the PC: easiest CLI check is
+     `amidi -l` (find the Elements port) then
+     `amidi -p <port> -S "90 3C 60"` (note on, C4, vel 96) and
+     `amidi -p <port> -S "80 3C 00"` (note off) — expect a struck-string
+     ping at C4 that decays; with a sustained sender (VMPK/DAW held note)
+     the voice rings until note-off. Velocity maps to strength
+     (0.4 + 0.6·vel/127).
+  4. CC checks (any CC sender / DAW lane): 23 geometry, 25 damping,
+     26 position, 27 space (reverb), 11 strength, 1 modulation — all
+     audible on the next strike. Pitch bend wheel → ±2 semitones.
+  5. After confirming MIDI works: set nothing — T6 deletes
+     `kAutoTriggerTest` and the whole block.
+
+### T5 — USB host MIDI code (2026-10-30)
+
+- Files: `elements-rp2350/src/main.cpp` (extended), `elements-rp2350/lib/pio_usb/`
+  (NEW: Pico-PIO-USB v0.7.3 vendored, src only + minimal library.json),
+  `elements-rp2350/platformio.ini` (f_cpu 250→240 MHz + comment).
+- **PIO-USB library was NOT present anywhere in the packages** (`find
+  ~/.platformio/packages -name 'pio_usb.h'` = empty): the port config
+  `tusb_config_rp2040.h:46` only sets `CFG_TUH_RPI_PIO_USB 1` when
+  `__has_include("pio_usb.h")`, else it falls back to MAX3421 host. Without
+  the lib, `USBHost.configure_pio_usb()` compiles but returns false and no
+  PIO host driver exists. Tried `lib_deps = github sekigon-gonnoc/Pico-PIO-USB`
+  first: its `library.properties` `depends=Adafruit TinyUSB Library` made
+  PlatformIO install a duplicate project-level TinyUSB next to the core's
+  force-linked bundled copy (link-failure risk) → **switched to vendoring**
+  `lib/pio_usb/` (clean build: LDF graph = `pio_usb @ 0.7.3` + the one
+  framework-bundled `Adafruit TinyUSB Library`; 3.7.7 per its
+  library.properties; LDF's "3.7.4" display is platform metadata noise).
+  hcd glue compat verified: bundled TinyUSB 3.7.7's `hcd_pio_usb.c` uses
+  `pio_usb_host_init`/`pio_usb_bus_get_line_state`/`endpoint_t`/
+  `root_port_t` fields, all present in 0.7.3.
+- **f_cpu 250 MHz → 240 MHz (mandatory):** the bundled DualRole
+  `usbh_helper.h` hard-errors unless `cpu_hz % 12000000UL == 0` — PIO-USB
+  bit-bangs FS USB (48 MHz PIO clocks via fractional clkdiv,
+  `pio_usb_host.c:87-99`); 250 is not a 12 MHz multiple. 240 MHz = 12·20.
+  I2S sample clock is PLL-derived → audio stays exactly 32 kHz; core-1 DSP
+  headroom drops ~4% only. main.cpp has a runtime guard that Serial-prints
+  an error (no hang) if someone reverts f_cpu.
+- **Init pattern (adapted from `examples/DualRole/CDC/serial_host_bridge`
+  + its `usbh_helper.h`):** `pio_usb_configuration_t pio_cfg =
+  PIO_USB_DEFAULT_CONFIG; pio_cfg.pin_dp = 14;` (DPDM pinout → D- = GP15)
+  → `USBHost.configure_pio_usb(1, &pio_cfg)` → `USBHost.begin(1)`, each
+  return checked with Serial error path; `USBHost.task()` in core 0
+  `loop()` (= `tuh_task_ext(UINT32_MAX, false)`, a non-blocking event-queue
+  drain on the OS-less port). The example runs host init/task on core 1 to
+  spread load ("To run USB SOF interrupt in core1, call this init in
+  core1"); here core 1 renders audio, so the host lives on core 0 — its
+  work is a 1 ms SOF alarm-pool timer ISR (`alarm_pool_create(2, 1)`,
+  alarm 2; the core's device task uses the default pool alarm 3) that
+  bit-bangs transfers, plus the loop-side task(). Device stack keeps
+  working unchanged: the core services `tud_task()` via its own soft-IRQ +
+  alarm (`cores/rp2040/USB.cpp:529`), independent of loop().
+- **PIO/I2S allocation — REAL COLLISION avoided by init order, not by
+  config:** pio_usb hard-claims exact resources (`pio_get_instance(cfg)`
+  + `pio_sm_claim` panics on taken SM; `dma_claim_mask(1<<tx_ch)` for DMA0;
+  no flexible allocator) and loads 5 (tx@0) + 10 (nrzi decoder) + 17 (edge
+  detector = EOP SM) = **all 32 PIO0 instruction slots**. The I2S library
+  has no setPIO() (T1 finding) but its PIOProgram flexibly picks a free
+  PIO+SM+program-space at begin(). Therefore setup() inits the USB host
+  FIRST (virgin PIO0 → claims SMs 0/1/2, fills instruction memory, DMA0,
+  alarm 2) and `i2s.begin()` AFTER → lands on PIO1 (GP6/7/8 reachable from
+  any PIO on RP2350; PIO0 keeps 1 free SM but zero program space, so the
+  allocator skips it). Reversed order = boot panic in pio_sm_claim.
+- **Host MIDI polling (packet API, index-based per T1 findings):**
+  `tuh_midi_mount_cb(uint8_t idx, const tuh_midi_mount_cb_t*)` /
+  `tuh_midi_umount_cb(uint8_t idx)` defined in `extern "C"` (they override
+  weak C syms — nm confirms strong `T` in firmware.elf); mount stores idx
+  in a 4-slot registry (dedup + capacity guard) and prints
+  `Host MIDI mounted idx=%u daddr=%u cables=%u` (cables = rx_cable_count);
+  umount removes it. `pollHostMidi()` iterates tracked idxs,
+  `tuh_midi_mounted(idx)` guard, drains `tuh_midi_packet_read(idx, pkt[4])`
+  in a while loop → same `midiHandleEventPacket()` as the device path
+  (packet layout identical: [cable<<4|CIN, status, d1, d2]). Callbacks fire
+  from USBHost.task() (core 0 loop context) — no concurrency with the
+  poller. Stream API untouched (avoid FIFO-stall semantics).
+- Build: clean rebuild after `pio run -t clean` → **SUCCESS** (52.8 s).
+  RAM 40.2% (210,960 / 524,288 B, +15.3 KB vs T4 — host stacks: hub/HID/
+  CDC/MIDI pools + tuh event queue), Flash 11.6% (486,868 / 4,190,208,
+  +11.5 KB). Linked proof: `pio_usb_host_init`, `sof_timer`,
+  `tuh_midi_packet_read_n`, strong `tuh_midi_mount_cb/umount_cb` in
+  firmware.elf; `hcd_pio_usb.c.o` compiled (native `hcd_rp2040.c.o` is an
+  empty TU via #if guards). Only warnings: upstream pio_usb
+  `usb_crc.h:12` "inline function given attribute noinline" (-O3 cosmetic;
+  attribute wins, left unpatched). **NOT uploaded** (user flashes via
+  BOOTSEL, `elements-rp2350/README.md`).
+- **User test procedure (wire → flash → verify):**
+  1. Wire the USB-A socket: VBUS → 5V pin, D+ → GP14, D- → GP15, GND →
+     GND (shield to GND). VBUS is plain 5 V rail, not GPIO-switched.
+  2. BOOTSEL-flash `firmware.uf2` (procedure in README), USB-C still in
+     the PC.
+  3. Boot serial (115200) should show: `I2S up` (host init runs before
+     I2S but prints nothing on success), then
+     `Elements engine up (USB MIDI device + PIO-USB host)`; no
+     `PIO-USB configure FAILED` / `USB host begin FAILED` / CPU-clock
+     error lines.
+  4. Plug the MIDI controller into the USB-A socket → expect
+     `Host MIDI mounted idx=0 daddr=1 cables=1` within ~2 s.
+  5. Play notes / turn CCs on the controller → same audible behavior as
+     the PC path (notes, velocity→strength, CC map, pitch bend).
+  6. Unplug → `Host MIDI unmounted idx=0`; replug re-mounts.
+  7. Simultaneity check: PC (DAW/amidi to "Elements RP2350") and the
+     controller must both drive the synth; USB-C must still enumerate as
+     CDC serial + USB MIDI device while the controller is attached.
+  8. If the controller doesn't mount: check VBUS 5 V first (most common),
+     then D+/D- not swapped (D+ MUST be GP14, D- GP15), then look for
+     repeated `USB host begin FAILED`/configure errors on serial.
+- Left open / risks: (a) PIO-USB at 240 MHz is the Adafruit-validated path
+  but unproven on THIS board until the user test; watch for mount timeouts
+  or CRC-noise (would show as flaky mount/unmount). (b) The 1 ms SOF alarm
+  ISR bit-bangs bus transfers on core 0 — the device-side CDC/MIDI can
+  jitter by a few hundred µs during host traffic (audio is on core 1 and
+  unaffected). (c) If a future lib needs PIO0 program space, PIO0 is now
+  fully occupied by pio_usb (only PIO1/PIO2 remain for other PIOProgram
+  users). (d) Bus-powered controllers draw from the board's 5 V rail —
+  current-hungry hubs/devices need external VBUS feed.
 
 ### T1 — review fix: -O3 was silently defeated (2026-10-30)
 

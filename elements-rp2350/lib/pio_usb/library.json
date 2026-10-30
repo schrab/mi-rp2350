@@ -1,0 +1,6 @@
+{
+  "name": "pio_usb",
+  "version": "0.7.3",
+  "description": "Pico-PIO-USB v0.7.3, vendored from sekigon-gonnoc/Pico-PIO-USB (src only) for PIO-USB host support with the bundled Adafruit TinyUSB",
+  "license": "MIT"
+}
