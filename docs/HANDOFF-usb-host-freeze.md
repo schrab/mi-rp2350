@@ -6,10 +6,17 @@
 > true;` in main.cpp (core 1 gets a private 8 KB stack; core 0 gets the full
 > system stack). With it, the attach-time hard freeze is gone (board stays
 > alive through repeated enumeration attempts; serial never stops mid-line).
-> **Still open:** the controllers still never ACK our SETUP (EP0 result 00)
-> — prime suspect is now Suspect 2 (the controllers' USB PHY stays off until
-> they see VBUS; the 5 V wire's delivery has never been measured at the
-> device end). Suspects 3/4 remain valid hardening items.
+> **Still open (updated):** the controllers still never ACK our SETUP
+> (EP0 result 00). VBUS delivery VERIFIED 5 V at the device (user-measured),
+> so the wire is exonerated. Current prime suspect: the RP2350 pad leak
+> (E9-family input-enable leak) biasing the lines — the device's real D-
+> measured ~2.7–2.8 V on our board (should be 0 V at FS idle) while D+ was
+> stable; the device decodes nothing with its D- biased mid-high. Cure:
+> **15 kΩ pull-downs from D+ and D- to GND at the board pins** (the
+> documented RP2350 USB-A host fix; swamps the ~µA leak that the internal
+> 50 kΩ pull-down cannot). Software alternative (untested): gate the pad
+> input-enable around each transaction in the vendored pio_usb.
+> Suspects 3/4 remain valid hardening items.
 
 For the next engineer/model. Read this fully before touching the USB host code.
 Everything below was measured on hardware during one overnight session; the
