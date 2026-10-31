@@ -37,6 +37,7 @@
 #include "elements/dsp/exciter.h"
 #include "elements/dsp/multistage_envelope.h"
 #include "elements/dsp/patch.h"
+#include "elements/dsp/ram_code.h"
 #include "elements/dsp/resonator.h"
 #include "elements/dsp/string.h"
 #include "elements/dsp/tube.h"
@@ -59,7 +60,7 @@ class Voice {
   ~Voice() { }
   
   void Init();
-  void Process(
+  ELEMENTS_RAM_CODE(voice_process) void Process(
       const Patch& patch,
       float frequency,
       float strength,

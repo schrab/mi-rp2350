@@ -1,0 +1,38 @@
+--- a/elements/dsp/voice.h
++++ b/elements/dsp/voice.h
+@@ -37,6 +37,7 @@
+ #include "elements/dsp/exciter.h"
+ #include "elements/dsp/multistage_envelope.h"
+ #include "elements/dsp/patch.h"
++#include "elements/dsp/ram_code.h"
+ #include "elements/dsp/resonator.h"
+ #include "elements/dsp/string.h"
+ #include "elements/dsp/tube.h"
+@@ -59,7 +60,7 @@
+   ~Voice() { }
+   
+   void Init();
+-  void Process(
++  ELEMENTS_RAM_CODE(voice_process) void Process(
+       const Patch& patch,
+       float frequency,
+       float strength,
+--- a/elements/dsp/string.inc
++++ b/elements/dsp/string.inc
+@@ -36,6 +36,7 @@
+ #include "stmlib/utils/random.h"
+ 
+ #include "elements/dsp/dsp.h"
++#include "elements/dsp/ram_code.h"
+ #include "elements/resources.h"
+ 
+ namespace elements {
+@@ -71,7 +72,7 @@
+ }
+ 
+ template<bool enable_dispersion>
+-void String::ProcessInternal(
++ELEMENTS_RAM_CODE(string_process_internal) void String::ProcessInternal(
+     const float* in,
+     float* out,
+     float* aux,

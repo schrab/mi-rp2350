@@ -36,6 +36,7 @@
 #include "stmlib/utils/random.h"
 
 #include "elements/dsp/dsp.h"
+#include "elements/dsp/ram_code.h"
 #include "elements/resources.h"
 
 namespace elements {
@@ -71,7 +72,7 @@ void String::Init(bool enable_dispersion) {
 }
 
 template<bool enable_dispersion>
-void String::ProcessInternal(
+ELEMENTS_RAM_CODE(string_process_internal) void String::ProcessInternal(
     const float* in,
     float* out,
     float* aux,
