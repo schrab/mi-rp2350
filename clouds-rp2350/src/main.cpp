@@ -103,6 +103,7 @@ volatile int8_t pending_playback_mode = -1;
 volatile int8_t pending_quality = -1;
 volatile int8_t pending_freeze = -1;
 volatile bool   pending_trigger = false;
+volatile uint32_t note_on_count = 0;
 
 // LED meters (core 1 writes after each block, core 0 reads in statusLed.Poll).
 static volatile float shared_exciter_out = 0.0f;    // input envelope
@@ -287,14 +288,18 @@ void loop1() {
   if (dt > proc_us_max) proc_us_max = dt;
 
   // Meters for the status LED: input envelope (exciter channel) and output
-  // envelope (resonator channel) reuse the Elements LED semantics.
+  // envelope (resonator channel) reuse the Elements LED semantics. Reported
+  // as MAX since the last 2 s report (a sustained tone would otherwise read
+  // 0 at the print instant).
   float in_acc = 0.0f, out_acc = 0.0f;
   for (size_t i = 0; i < kBlockSize; ++i) {
     in_acc += clouds_in[i].l * clouds_in[i].l;
     out_acc += clouds_out[i].l * clouds_out[i].l;
   }
-  shared_exciter_out = sqrtf(in_acc / kBlockSize);
-  shared_resonator_out = sqrtf(out_acc / kBlockSize);
+  float in_rms = sqrtf(in_acc / kBlockSize);
+  float out_rms = sqrtf(out_acc / kBlockSize);
+  if (in_rms > shared_exciter_out) shared_exciter_out = in_rms;
+  if (out_rms > shared_resonator_out) shared_resonator_out = out_rms;
 
   // The writes pace loop1: one iteration = one 32-frame DMA block, blocks
   // free every 1000 us; > 1800 us means no buffer freed for ~2 block
@@ -415,11 +420,14 @@ void loop() {
     last_report = now;
     static uint32_t last_stall_total = 0;
     const uint32_t stalls = i2s_stall_count;
-    Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | stft: win=%u fwd=%u mod=%u inv=%u | host: conn=%u st=%u dev=%u midi=%u frame=%u\r\n",
+    Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | stft: win=%u fwd=%u mod=%u inv=%u | in=%u out=%u notes=%u | host: conn=%u st=%u dev=%u midi=%u frame=%u\r\n",
                   proc_us_max,
                   (unsigned)(1000000UL * kBlockSize / kSampleRate),
                   stalls, stalls - last_stall_total,
                   dbg_window_us, dbg_fft_fwd_us, dbg_modifier_us, dbg_fft_inv_us,
+                  (unsigned)(shared_exciter_out * 1000.0f),
+                  (unsigned)(shared_resonator_out * 1000.0f),
+                  note_on_count,
                   (unsigned)pio_host_connected(),
                   (unsigned)pio_host_line_state(),
                   (unsigned)host_device_mounted,
@@ -427,5 +435,7 @@ void loop() {
                   (unsigned)pio_usb_host_get_frame_number());
     last_stall_total = stalls;
     proc_us_max = 0;
+    shared_exciter_out = 0.0f;      // max-since-report meters (see loop1)
+    shared_resonator_out = 0.0f;
   }
 }

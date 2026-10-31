@@ -46,6 +46,11 @@ extern volatile float shared_stereo_spread;
 extern volatile float shared_feedback;
 extern volatile float shared_reverb;
 
+// MIDI delivery counter (DEFINED in main.cpp): incremented per note-on,
+// printed in the 2 s report — separates "MIDI reached the firmware" from
+// "the DSP made sound".
+extern volatile uint32_t note_on_count;
+
 // Pending parameter changes (DEFINED in main.cpp): core 0 writes, core 1
 // applies at the top of loop1() (strictly between two Process() calls) and
 // resets the slot to -1 / false.
@@ -111,6 +116,7 @@ inline void midiNoteOn(uint8_t note, uint8_t vel) {
   applyNote();
   shared_gate = true;
   pending_trigger = true;         // Clouds TRIGGER input pulses on every note-on
+  ++note_on_count;
   last_note_event_ms = millis();
 }
 

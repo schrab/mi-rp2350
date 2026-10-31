@@ -861,3 +861,15 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
 - **Open:** stretch 1156 µs (1.16×) — LoadCorrelator runs every block in
   stretch mode (Prepare → ws_player_.LoadCorrelator); profiling TBD.
   Spectral ear check pending user.
+- **MIDI delivery instrumentation added** (per-user report "heard only two"):
+  `note_on_count` (firmware-side note-on counter) + max-since-report in/out
+  RMS meters in the 2 s report. Findings: sparse playback (1 note/1.5 s via
+  aplaymidi → kernel seq port 24:0) delivers 8/8 with audio on every pluck
+  (IN 110-169 / OUT 51-99 — the exciter→granulator→I2S chain works per note);
+  the dense multi-CC sweep file lost events host-side (2 of 10 note-ons,
+  aseqdump tap on the kernel port invalid for input monitoring — it reads the
+  device's OUTPUT side). Delivery loss is a host PipeWire/seq quirk, NOT the
+  firmware: earlier sweeps delivered fully through the same path. User should
+  test spectral from their own sender (CC 23=3 + keys + CC 65 freeze).
+- **Open:** stretch 1.16×; spectral ear-check by user; remove STFT
+  instrumentation (stft.cc dbg + report fields) after acceptance.
