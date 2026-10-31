@@ -37,7 +37,8 @@ using namespace std;
 using namespace stmlib;
 
 // scipy.signal.remez(101, [0, 0.3 / 8, 0.495 / 8, 0.5], [1, 0]);
-const float kDownsamplingFilter[] = {
+// Read 3232x per block by the FIR downsamplers — SRAM, not XIP flash.
+ELEMENTS_RAM_CODE(k_downsampling_filter) const float kDownsamplingFilter[] = {
   -0.001859272945f,  0.001184937535f,  0.001212413444f,  0.001369688661f,
    0.001555406705f,  0.001685761819f,  0.001692922383f,  0.001526182555f,
    0.001157229282f,  0.000582212588f, -0.000172916131f, -0.001054896973f,

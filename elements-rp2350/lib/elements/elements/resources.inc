@@ -31,6 +31,7 @@
 
 
 #include "elements/resources.h"
+#include "elements/dsp/ram_code.h"
 
 namespace elements {
 
@@ -172,7 +173,10 @@ const int16_t* lookup_table_int16_table[] = {
 };
 
 
-const float lut_sine[] = {
+// lut_sine is read ~2000x per 32 kHz block by the OMINOUS FM path (and by the
+// spatializer) — keep it out of the XIP flash cache or the misses eat the
+// audio budget (see ELEMENTS_RAM_CODE in dsp/ram_code.h).
+ELEMENTS_RAM_CODE(lut_sine) const float lut_sine[] = {
    0.000000000e+00,  1.533980186e-03,  3.067956763e-03,  4.601926120e-03,
    6.135884649e-03,  7.669828740e-03,  9.203754782e-03,  1.073765917e-02,
    1.227153829e-02,  1.380538853e-02,  1.533920628e-02,  1.687298795e-02,

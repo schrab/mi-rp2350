@@ -1,0 +1,34 @@
+--- a/elements/resources.inc
++++ b/elements/resources.inc
+@@ -31,6 +31,7 @@
+ 
+ 
+ #include "elements/resources.h"
++#include "elements/dsp/ram_code.h"
+ 
+ namespace elements {
+ 
+@@ -172,7 +173,10 @@
+ };
+ 
+ 
+-const float lut_sine[] = {
++// lut_sine is read ~2000x per 32 kHz block by the OMINOUS FM path (and by the
++// spatializer) — keep it out of the XIP flash cache or the misses eat the
++// audio budget (see ELEMENTS_RAM_CODE in dsp/ram_code.h).
++ELEMENTS_RAM_CODE(lut_sine) const float lut_sine[] = {
+    0.000000000e+00,  1.533980186e-03,  3.067956763e-03,  4.601926120e-03,
+    6.135884649e-03,  7.669828740e-03,  9.203754782e-03,  1.073765917e-02,
+    1.227153829e-02,  1.380538853e-02,  1.533920628e-02,  1.687298795e-02,
+--- a/elements/dsp/ominous_voice.inc
++++ b/elements/dsp/ominous_voice.inc
+@@ -37,7 +37,8 @@
+ using namespace stmlib;
+ 
+ // scipy.signal.remez(101, [0, 0.3 / 8, 0.495 / 8, 0.5], [1, 0]);
+-const float kDownsamplingFilter[] = {
++// Read 3232x per block by the FIR downsamplers — SRAM, not XIP flash.
++ELEMENTS_RAM_CODE(k_downsampling_filter) const float kDownsamplingFilter[] = {
+   -0.001859272945f,  0.001184937535f,  0.001212413444f,  0.001369688661f,
+    0.001555406705f,  0.001685761819f,  0.001692922383f,  0.001526182555f,
+    0.001157229282f,  0.000582212588f, -0.000172916131f, -0.001054896973f,
