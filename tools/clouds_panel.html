@@ -540,7 +540,12 @@ refreshQualityLeds();
 const trig = document.createElement('button');
 trig.id = 'trig';
 trig.setAttribute('aria-label', 'trigger pulse');
+trig.textContent = '\u26A1';               // ⚡
 $('#trim').appendChild(trig);
+const trigLabel = document.createElement('div');
+trigLabel.className = 'trimlabel';
+trigLabel.textContent = 'TRIG';
+$('#trim').appendChild(trigLabel);
 trig.title = 'trigger pulse (CC 66)';
 trig.addEventListener('pointerdown', e => { e.preventDefault(); sendCC(66, 127); });
 trig.addEventListener('pointerup', () => sendCC(66, 0));
