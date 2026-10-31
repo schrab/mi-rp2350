@@ -755,3 +755,24 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   for minutes); a retry two minutes later worked first-try (MSC in 2 s). If a
   touch ever hangs: retry before suspecting hardware; "no sound" during a
   flash window is just the board sitting in BOOTSEL.
+
+### Main voice path to SRAM — normal mode 113-122 µs (2026-10-31, 9ba6cbe)
+
+- Same treatment for the main (non-ominous) path: `Voice::Process` (6 KB,
+  carries the exciters + modal resonator inlined) and
+  `String::ProcessInternal<true/false>` (3.5 KB, both template
+  instantiations share one `.time_critical` section — same-flags weak copies
+  link fine; the earlier section-type conflict only bites mixed
+  inline/COMDAT vs plain). Patch: `tools/patches/elements/elements-main-voice-ram.patch`.
+  RAM 47.3% (+9.5 KB). **Measured on hardware: normal mode 260-284 →
+  113-122 µs** (originally 380-478 + creep) — 23% of budget, stalls 0.
+  The XIP-creep vector for normal mode is gone.
+- **Flash-path findings (2026-10-31):** the 1200-bps touch became erratic
+  (worked 2×, then: no reboot / straight-to-firmware reboot / BOOTSEL
+  appeared and auto-ejected back to firmware within ~10 s when nobody wrote
+  to it). `pio run -t upload` DID trigger BOOTSEL but died with Error 249
+  (picotool USB node root:root — udev rule not installed; needs user sudo).
+  **Button-BOOTSEL is the reliable path**: drive appears and STAYS; udisks
+  mount + cp + sync flashed instantly. Board now runs 9ba6cbe.
+- OMINOUS on 9ba6cbe: pending user retest (chain: Part/OminousVoice/FmOsc/
+  Spatializer/Reverb + sine + FIR tables all SRAM now).
