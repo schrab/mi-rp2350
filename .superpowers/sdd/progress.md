@@ -950,3 +950,22 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   header-level `extern "C"`-style initialized global in a header included
   by two TUs double-defines (use declarations in headers, definitions in
   .cc).
+
+### PORTING-HIGHLIGHTS doc written for RINGS/PLAITS sessions (2026-11-01)
+
+- **`docs/PORTING-HIGHLIGHTS.md`** — the distillation of the Elements +
+  Clouds porting experience, written so a fresh session can implement RINGS
+  then PLAITS without re-learning: project template (copy clouds-rp2350),
+  sync-script modes (inc vs cc + wrapper deletion), settings.cc-style
+  srcFilter excludes, the XIP/SRAM law (ram_code macro, unique tokens,
+  pragma-no-op under -ffunction-sections, header-globals double-definition,
+  nm verification), the original-firmware call-contract lesson
+  (Prepare()-every-block), block/rate facts per module, I2S bank sizing
+  (burst vs sustained), the profiling pattern (time_us_32 probes → per-mode
+  measurement → time-budget drains), MIDI/panel/test-exciter patterns, the
+  flash procedure, and **RINGS/PLAITS prep sections** (verified against the
+  sources: RINGS = mode cc + settings.cc exclude + Dsp::setSr already
+  present + kMaxBlockSize 32 + ~55-60 KB RAM; PLAITS = mode cc + 16 engines
+  + hard-wired 48 kHz + 24-sample blocks + BufferAllocator-based
+  Voice::Init + 10.5k-line resources.cc).
+- AGENTS.md doc map points at it ("START HERE for new module ports").

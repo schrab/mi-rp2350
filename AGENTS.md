@@ -22,6 +22,7 @@ consumes copies, not the originals.
 |---|---|
 | [`docs/superpowers/plans/2026-10-30-elements-rp2350.md`](docs/superpowers/plans/2026-10-30-elements-rp2350.md) | The SDD plan: tasks T1–T6, wiring, acceptance criteria |
 | [`.superpowers/sdd/progress.md`](.superpowers/sdd/progress.md) | **The ledger** — task status, commit hashes, and the authoritative investigation findings (build quirks, TinyUSB API facts, LED bugs, BOW audit). Read this before debugging anything |
+| [`docs/PORTING-HIGHLIGHTS.md`](docs/PORTING-HIGHLIGHTS.md) | **START HERE for new module ports** — distilled Elements+Clouds porting experience: SRAM/XIP law, build rules, profiling pattern, RINGS/PLAITS prep, acceptance checklist |
 | [`elements-rp2350/README.md`](elements-rp2350/README.md) | Firmware-facing docs: wiring tables, MIDI behavior + CC map, status-LED legend, serial diagnostics format, build/upload procedures, soak-test checklist |
 | [`README.md`](README.md) | Upstream repo context (Arduino MI ports, engine status per chip) |
 | [`tools/elements_panel.html`](tools/elements_panel.html) | Browser Web-MIDI control panel for the device port |
