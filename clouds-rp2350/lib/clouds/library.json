@@ -1,0 +1,8 @@
+{
+  "name": "clouds",
+  "version": "0.0.0",
+  "build": {
+    "srcFilter": ["+<*>", "-<clouds/settings.cc>"],
+    "flags": ["-O3"]
+  }
+}

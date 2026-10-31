@@ -776,3 +776,33 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   mount + cp + sync flashed instantly. Board now runs 9ba6cbe.
 - OMINOUS on 9ba6cbe: pending user retest (chain: Part/OminousVoice/FmOsc/
   Spatializer/Reverb + sine + FIR tables all SRAM now).
+
+### clouds-rp2350 — Clouds port started (2026-10-31, plan: docs/superpowers/plans/2026-10-31-clouds-rp2350.md)
+
+- **C1 DONE:** `tools/sync_pio_libs.sh` generalized to a per-project form
+  (`sync_project <dir> "SRC:dst[:mode]"`); mode `cc` = keep `.cc` files (the
+  CLOUDS wrapper `clouds_all.cpp` #includes them, so the wrapper is deleted
+  on sync instead) + generated `library.json` gets a `srcFilter` excluding
+  `clouds/settings.cc` (STM32-flash preset persistence, unportable as-is,
+  unused by the processor). Elements lib verified byte-identical after the
+  rewrite. `clouds-rp2350/` scaffolding mirrors elements-rp2350 (same wiring,
+  vendored pio_usb, status_led.h + ws2812 + host watchdog reused; status_led.h
+  decoupled from elements resources via `src/led_brightness_lut.h` — the
+  exact 513-entry curve, verified count).
+- **C2/C3 code complete:** GranularProcessor + 128/64 KB buffer split
+  (stereo 16-bit = small buffer both channels = 1.02 s @ 32 kHz, same as the
+  F405 original), `set_sample_rate(32000)`, 32-sample blocks (budget 1000 µs),
+  test exciter (burst pluck / gated tone; CC 11 = 0 = chaining input slot),
+  full CC map (14-24 panel knobs, 65 freeze, 66 trigger) with pending-slot
+  between-block application, USB device + PIO-USB host MIDI, LED meters.
+- **C4 DONE:** `tools/patches/clouds/clouds-ram-hot.patch` — clouds-local
+  `ram_code.h` (`CLOUDS_RAM_CODE(token)`), ALL resource LUTs + hot code in
+  SRAM: GranularProcessor::Process/ProcessGranular, Granular/Looping/WSOLA
+  Play templates, Correlator::EvaluateNextCandidate, Diffuser/Reverb/
+  PitchShifter, STFT::Process/Buffer, PhaseVocoder, FrameTransformation.
+  nm-verified at 0x2000xxxx; WSOLA/looping Play bodies inlined into the
+  SRAM-resident ProcessGranular. RAM 60.1% (315 KB incl. 192 KB sample
+  memory + ~68 KB moved code/LUTs), flash 4.4%. Round-trip from upstream +
+  patch reproduces the build.
+- **Pending C5:** flash (button-BOOTSEL), user ear check (grains/freeze/mode
+  switching), 30 min soak, ledger update with measured max Process.
