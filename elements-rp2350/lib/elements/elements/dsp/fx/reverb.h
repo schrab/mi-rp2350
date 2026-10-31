@@ -32,6 +32,7 @@
 #include "stmlib/stmlib.h"
 
 #include "elements/dsp/fx/fx_engine.h"
+#include "elements/dsp/ram_code.h"
 
 namespace elements {
 
@@ -48,7 +49,7 @@ class Reverb {
     diffusion_ = 0.625f;
   }
   
-  void Process(float* left, float* right, size_t size) {
+  ELEMENTS_RAM_CODE(reverb_process) void Process(float* left, float* right, size_t size) {
     // This is the Griesinger topology described in the Dattorro paper
     // (4 AP diffusers on the input, then a loop of 2x 2AP+1Delay).
     // Modulation is applied in the loop of the first diffuser AP for additional

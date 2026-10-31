@@ -37,6 +37,7 @@
 #include "stmlib/dsp/filter.h"
 
 #include "elements/dsp/dsp.h"
+#include "elements/dsp/ram_code.h"
 #include "elements/dsp/multistage_envelope.h"
 #include "elements/dsp/patch.h"
 #include "elements/resources.h"
@@ -97,12 +98,12 @@ class Spatializer {
       angle_ += 1.0f;
     }
   }
-  
+
   inline void set_distance(float distance) {
     distance_ = distance;
   }
 
-  void Process(float* source, float* center, float* sides, size_t size);
+  ELEMENTS_RAM_CODE(spatializer_process) void Process(float* source, float* center, float* sides, size_t size);
 
  private:
   float behind_[kMaxBlockSize];
@@ -126,7 +127,7 @@ class FmOscillator {
     previous_sample_ = 0.0f;
   }
 
-  void Process(float frequency,
+  ELEMENTS_RAM_CODE(fm_oscillator_process) void Process(float frequency,
       float ratio,
       float feedback_amount,
       float target_fm_amount,
@@ -174,7 +175,7 @@ class OminousVoice {
   ~OminousVoice() { }
   
   void Init();
-  void Process(
+  ELEMENTS_RAM_CODE(ominous_voice_process) void Process(
       const Patch& patch,
       float frequency,
       float strength,

@@ -704,3 +704,44 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
 - Files: `elements-rp2350/src/main.cpp` (alarm pool handshake, replug fix,
   race removal, frame counter), `elements-rp2350/src/usb_host_watchdog.c`
   (line-state accessor), `elements-rp2350/README.md` (known-issue note).
+
+### OMINOUS core-1 overload — hot DSP path moved to SRAM (2026-10-31)
+
+- **Symptom:** with CC 29 ominous active, `max Process` ~1.1 ms vs the 496 µs
+  budget (16 samples @ 32 kHz); the I2S write then blocks, buffers starve and
+  audio comes out warped (reported as "wrong pitch"). Normal mode measured
+  380-478 µs — also far above what a 240 MHz M33 with hard float should need.
+- **Analysis:** kNumVoices = 1, so the cost is ONE OminousVoice (2× 8×
+  oversampled FM: 256 kHz FmOscillator + IIR + 101-tap FIR, ~6 KB of code) +
+  Part mixdown + reverb. Disassembly showed properly -O3 hard-float loops
+  (~42 instr/sample in FmOscillator) — the math is fine. Every hot function
+  lived in flash (0x1000xxxx) and executed through the XIP cache; QSPI line
+  misses (~200+ cycles each) under the DSP + LUT working set explain the 3-4×
+  gap. PIO-USB already worked around this exact problem internally (its
+  bit-banged functions are `.time_critical`/SRAM-resident).
+- **Fix:** pico-sdk mechanism — functions placed in `.time_critical.*`
+  sections land in SRAM (inside `.data`, copied from flash at boot by crt0).
+  New `lib/elements/elements/dsp/ram_code.h` defines `ELEMENTS_RAM_CODE(token)`
+  (per-function section names — one shared name collides at link time between
+  inline/COMDAT and plain copies: "section type conflict"). Marked (on their
+  declarations in the headers): `OminousVoice::Process` (carries the inlined
+  Upsample/FIR/IIR), `FmOscillator::Process`, `Spatializer::Process`,
+  `Part::Process`, `Reverb::Process`. All verified at 0x2000xxxx in the ELF.
+  Zero math changes — sound-neutral. RAM 42.2% (+10 KB), flash 11.7%.
+- **Build system hardening (regression found during this work):** the
+  committed `lib/elements` contained a hand edit vs the upstream submodule
+  (`voice.inc` exciter meter kept active for the status LED) that the sync
+  script would have silently reverted. Both port-specific deltas are now
+  maintained as `tools/patches/elements/*.patch`
+  (`elements-ram-hot.patch`, `elements-keep-exciter-meter.patch`) applied by
+  `tools/sync_pio_libs.sh` with `--fuzz=0` (conflicts abort loudly).
+  Round-trip verified: sync → build reproduces byte-identical addresses.
+  Trap recorded: a second stdin redirect (`</dev/null`) after `< "$p"` made
+  patch read EMPTY input, succeed with exit 0 and apply nothing — always
+  verify "applied" against the file content.
+- **Pending hardware acceptance (user):** flash
+  `elements-rp2350/.pio/build/elements-rp2350/firmware.uf2`, switch CC 29 to
+  OMINOUS, read `max Process` in the 2 s report. Expected ~1.1 ms → roughly
+  300-450 µs (analysis estimate; XIP stall share is the unknown). If normal
+  mode's 380-478 µs also drops, the same treatment extends to
+  `Voice::Process`/resonators next.

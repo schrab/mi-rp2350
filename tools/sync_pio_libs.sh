@@ -31,6 +31,17 @@ for pair in "STMLIB:stmlib" "ELEMENTS:elements"; do
   cp -R "$REPO_ROOT/$src/src/." "elements-rp2350/lib/$dst/"
   find "elements-rp2350/lib/$dst" -name '*.cc' -type f -delete
 
+  # Re-apply this port's patches on top of the fresh upstream copy (see
+  # tools/patches/<lib>/*.patch). Strict: any conflict aborts loudly —
+  # regenerate the patch instead of hand-editing lib/.
+  for p in "$REPO_ROOT/tools/patches/$dst"/*.patch; do
+    if [ -e "$p" ]; then
+      patch --forward --fuzz=0 -p1 -d "elements-rp2350/lib/$dst" < "$p" \
+        || { echo "error: $p no longer applies to $dst — regenerate it" >&2; exit 1; }
+      echo "applied $(basename "$p") to elements-rp2350/lib/$dst"
+    fi
+  done
+
   # The earlephilhower core appends -Os after the project's build flags
   # (framework-arduinopico/tools/platformio-build.py), silently defeating any
   # project-level -O3 by last-wins. Library build flags are appended AFTER the

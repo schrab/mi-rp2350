@@ -34,6 +34,7 @@
 #include "elements/dsp/fx/reverb.h"
 #include "elements/dsp/ominous_voice.h"
 #include "elements/dsp/patch.h"
+#include "elements/dsp/ram_code.h"
 #include "elements/dsp/voice.h"
 
 namespace elements {
@@ -56,7 +57,7 @@ class Part {
   
   void Init(uint16_t* reverb_buffer);
   
-  void Process(
+  ELEMENTS_RAM_CODE(part_process) void Process(
       const PerformanceState& performance_state,
       float* blow_in, // blue
       float* strike_in,
