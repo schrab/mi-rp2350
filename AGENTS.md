@@ -25,6 +25,7 @@ consumes copies, not the originals.
 | [`elements-rp2350/README.md`](elements-rp2350/README.md) | Firmware-facing docs: wiring tables, MIDI behavior + CC map, status-LED legend, serial diagnostics format, build/upload procedures, soak-test checklist |
 | [`README.md`](README.md) | Upstream repo context (Arduino MI ports, engine status per chip) |
 | [`tools/elements_panel.html`](tools/elements_panel.html) | Browser Web-MIDI control panel for the device port |
+| [`tools/clouds_panel.html`](tools/clouds_panel.html) | Browser Web-MIDI control panel for the Clouds port (modes, quality, freeze, trigger; jacks omitted) |
 | [`tools/sync_pio_libs.sh`](tools/sync_pio_libs.sh) | Regenerates `elements-rp2350/lib/` from upstream sources (STMLIB, ELEMENTS) and re-applies `tools/patches/elements/*.patch` — run after submodule updates |
 | [`tools/syx2array.py`](tools/syx2array.py) | SysEx → C array converter |
 

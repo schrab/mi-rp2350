@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<!--
+  Clouds RP2350 — web control panel (single file, no dependencies).
+
+  Open in Chrome/Chromium/Edge (file:// works). Uses Web MIDI to talk to the
+  synth (enumerates as "Clouds RP2350 MIDI 1"). Defaults match the firmware's
+  setup() seed; "Send panel" (also automatic on connect) pushes all CCs so the
+  synth matches the panel.
+
+  CC map = clouds-rp2350/src/midi.h:
+    14 POSITION  15 SIZE   16 PITCH   17 DENSITY  18 TEXTURE  19 BLEND
+    20 STEREO SPREAD  21 FEEDBACK  22 REVERB
+    23 PLAYBACK MODE (0 granular / 1 stretch / 2 looping delay / 3 spectral)
+    24 QUALITY (0 16-bit stereo / 1 16-bit mono / 2 8-bit stereo / 3 8-bit mono)
+    65 FREEZE (level: >=64 on)   66 TRIGGER (pulse)
+    13 EXCITER SOURCE (0 burst pluck / >=0.5 gated tone)
+     1 EXCITER TONE   11 EXCITER LEVEL (the IN GAIN knob)
+  Layout mirrors the original panel (jacks omitted). The four teal buttons —
+  pictograms on the hardware — are the QUALITY selector here. PITCH knob is
+  the granular pitch parameter; computer-keyboard notes feed the test exciter
+  and pulse TRIGGER (COARSE/FINE transposition helpers from the Elements
+  panel are kept: COARSE transposes, FINE = pitch bend).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clouds — texture synthesizer panel</title>
+<style>
+  :root {
+    --panel: #d8d7d4;
+    --panel-edge: #c4c3bf;
+    --ink: #3d3d3d;
+    --red: #e6295e;
+    --cyan: #17a3bd;
+    --yellow: #f2d21f;
+    --knob-s: 86px;
+    --knob-b: 138px;
+    --knob-t: 64px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: #26272b;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    -webkit-user-select: none; user-select: none;
+  }
+
+  /* ---------- toolbar ---------- */
+  #bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; background: #1d1e21; color: #cfcfcf;
+    font-size: 13px; border-bottom: 1px solid #101114;
+  }
+  #bar button, #bar select {
+    background: #33343a; color: #e4e4e4; border: 1px solid #4a4b52;
+    border-radius: 4px; padding: 5px 10px; font: inherit; cursor: pointer;
+  }
+  #bar button:hover { background: #3f4047; }
+  #bar select { cursor: default; }
+  #bar label { display: flex; align-items: center; gap: 5px; color: #9a9a9f; }
+  #dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #55565e; box-shadow: 0 0 0 2px #2a2b30 inset;
+  }
+  #dot.ok { background: #3ecf6a; box-shadow: 0 0 8px #3ecf6a88; }
+  #dot.err { background: #e05252; }
+  #status { color: #9a9a9f; }
+
+  #wrap { width: 1080px; max-width: 98vw; margin: 22px auto 40px; }
+
+  /* ---------- panel ---------- */
+  #panel {
+    position: relative;
+    background: linear-gradient(#dcdcda, #d4d3d0);
+    border: 1px solid var(--panel-edge);
+    border-radius: 6px;
+    box-shadow: 0 18px 45px rgba(0,0,0,.5);
+    padding: 52px 40px 42px;
+  }
+  .screw {
+    position: absolute; width: 15px; height: 15px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #e4e4e1, #a8a8a4 70%, #8e8e8a);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.35), 0 1px 1px rgba(255,255,255,.5);
+  }
+  .screw::before, .screw::after {
+    content: ""; position: absolute; background: #85858a; border-radius: 1px;
+  }
+  .screw::before { left: 50%; top: 2px; bottom: 2px; width: 2px; margin-left: -1px; transform: rotate(45deg); }
+  .screw::after  { top: 50%; left: 2px; right: 2px; height: 2px; margin-top: -1px; transform: rotate(45deg); }
+  .screw.tl { top: 12px; left: 12px; }   .screw.tr { top: 12px; right: 12px; }
+  .screw.bl { bottom: 12px; left: 12px; }.screw.br { bottom: 12px; right: 12px; }
+
+  #ptitle {
+    position: absolute; top: 16px; right: 46px;
+    font-size: 23px; font-weight: 300; color: #55565a; letter-spacing: .5px;
+  }
+
+  /* ---------- header: freeze + modes + quality + trimmers + trig ---------- */
+  #header {
+    display: flex; align-items: flex-start; gap: 18px;
+    margin-bottom: 34px;
+  }
+  #freezeCell { display: flex; align-items: center; gap: 14px; margin-right: 6px; margin-top: 26px; }
+  #freeze {
+    width: 74px; height: 74px; border-radius: 50%;
+    border: 0; cursor: pointer; padding: 0; position: relative; outline: none;
+    background:
+      radial-gradient(circle at 50% 42%, rgba(255,255,255,.12), rgba(0,0,0,0) 55%),
+      repeating-conic-gradient(#303034 0deg 5deg, #131316 5deg 10deg);
+    box-shadow: 0 7px 14px rgba(0,0,0,.38), inset 0 2px 3px rgba(255,255,255,.16);
+  }
+  #freeze span {
+    position: absolute; inset: 14%; border-radius: 50%;
+    background: radial-gradient(circle at 36% 30%, #2c2c30, #1c1c20 60%);
+    box-shadow: inset 0 -3px 6px rgba(0,0,0,.5);
+    transition: background .1s;
+  }
+  #freeze.on span {
+    background: radial-gradient(circle at 36% 30%, #fff29e, #f2d21f 55%, #d3b30d);
+    box-shadow: 0 0 16px #f2d21f88, inset 0 -3px 6px rgba(0,0,0,.18);
+  }
+  #freeze:active { transform: scale(.97); }
+  #freezeCell .label { font-size: 16px; }
+
+  .modecol { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .modebtn, .qualbtn, #trig {
+    width: 46px; height: 46px; border-radius: 9px; border: 0; cursor: pointer;
+    font: 700 15px/1 "Helvetica Neue", Helvetica, Arial, sans-serif; color: #fff;
+    outline: none;
+    box-shadow: 0 3px 6px rgba(0,0,0,.3), inset 0 1px 2px rgba(255,255,255,.35),
+                inset 0 -2px 4px rgba(0,0,0,.25);
+  }
+  .modebtn { background: radial-gradient(circle at 36% 30%, #ff5d87, #e6295e 60%, #bd1c4b); }
+  .modebtn:active { transform: scale(.96); }
+  .qualbtn { background: radial-gradient(circle at 36% 30%, #43c6dc, #17a3bd 60%, #0e7f96); font-size: 12px; }
+  .qualbtn:active { transform: scale(.96); }
+  #trig {
+    background: radial-gradient(circle at 36% 30%, #ff80a6, #e6295e 60%, #bd1c4b);
+    border-radius: 50%;
+  }
+  #trig:active { transform: scale(.95); }
+  .led {
+    width: 13px; height: 13px; border-radius: 50%;
+    background: radial-gradient(circle at 36% 30%, #fdf3b0, #e8cf4a 60%, #c9b232);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.25);
+  }
+  .led.teal {
+    background: radial-gradient(circle at 36% 30%, #b8ecf5, #58c6d8 60%, #2e9cb0);
+  }
+  .led.lit { box-shadow: 0 0 10px 2px currentColor, inset 0 1px 2px rgba(0,0,0,.15); }
+  .led.yellowlit { background: radial-gradient(circle at 36% 30%, #fff29e, #f2d21f 60%); color: #f2d21f; }
+  .led.teallit { background: radial-gradient(circle at 36% 30%, #d9f7fc, #58c6d8 60%); color: #58c6d8; }
+
+  .trimcell { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-left: 4px; }
+  .trimlabel { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: #6a6b6f; }
+
+  /* ---------- knobs ---------- */
+  .knob { position: relative; cursor: ns-resize; touch-action: none; outline: none; }
+  .knob.small { width: var(--knob-s); height: var(--knob-s); }
+  .knob.big   { width: var(--knob-b); height: var(--knob-b); }
+  .knob.trim  { width: var(--knob-t); height: var(--knob-t); }
+  .knob:focus-visible { border-radius: 50%; box-shadow: 0 0 0 3px #f2d21f66; }
+  .rot { position: absolute; inset: 0; transform: rotate(var(--deg, 0deg)); }
+  .ring {
+    position: absolute; inset: 0; border-radius: 50%;
+    background:
+      radial-gradient(circle at 50% 42%, rgba(255,255,255,.14), rgba(0,0,0,0) 55%),
+      repeating-conic-gradient(#303034 0deg 3.6deg, #131316 3.6deg 7.2deg);
+    box-shadow:
+      0 7px 14px rgba(0,0,0,.38),
+      inset 0 2px 3px rgba(255,255,255,.16),
+      inset 0 -3px 6px rgba(0,0,0,.5);
+  }
+  .cap {
+    position: absolute; border-radius: 50%;
+    box-shadow: 0 3px 6px rgba(0,0,0,.45), inset 0 -4px 8px rgba(0,0,0,.18), inset 0 2px 3px rgba(255,255,255,.65);
+  }
+  .knob.small .cap { inset: 21%; }
+  .knob.big   .cap { inset: 18%; }
+  .knob.trim  .cap { inset: 20%; }
+  .cap.white { background: radial-gradient(circle at 36% 30%, #ffffff, #ececea 55%, #dbdbd8); }
+  .cap.red   { background: radial-gradient(circle at 36% 30%, #ff5d87, #e6295e 55%, #bd1c4b); }
+  .cap.cyan  { background: radial-gradient(circle at 36% 30%, #43c6dc, #17a3bd 55%, #0e7f96); }
+  .notch {
+    position: absolute; top: 5.5%; left: 50%; width: 11%; height: 15%;
+    margin-left: -5.5%; border-radius: 3px;
+    box-shadow: 0 1px 1px rgba(0,0,0,.35);
+  }
+  .notch.white { background: #f2f2f0; border: 1px solid rgba(0,0,0,.14); }
+  .notch.red   { background: #ffb3c8; }
+  .notch.cyan  { background: #9fe3ef; }
+
+  /* ---------- knob rows ---------- */
+  #bigrow, #smallrow { display: grid; }
+  #bigrow   { grid-template-columns: repeat(3, 1fr); margin-bottom: 34px; }
+  #smallrow { grid-template-columns: repeat(5, 1fr); }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 9px; }
+
+  .label { font-size: 15px; font-weight: 700; letter-spacing: 1.5px; color: var(--ink); }
+  .pill {
+    color: #fff; padding: 2px 12px; border-radius: 3px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.25);
+  }
+  .pill.red { background: var(--red); }
+  .pill.cyan { background: var(--cyan); }
+  .cctag { font-size: 9px; letter-spacing: .5px; color: #9b9a95; margin-top: -4px; }
+
+  /* ---------- footer rules (panel bottom, jacks omitted) ---------- */
+  #footer { margin-top: 38px; }
+  #footer .rule1 { height: 6px; background: #c9c8c4; border-radius: 3px; }
+  #footer .rule2 { height: 2px; background: #c9c8c4; margin-top: 22px; }
+
+  /* ---------- transport bar ---------- */
+  #kbbar {
+    display: flex; align-items: center; gap: 14px;
+    margin-top: 18px; padding: 9px 14px;
+    background: #1d1e21; color: #cfcfcf; font-size: 13px;
+    border: 1px solid #101114; border-radius: 6px; flex-wrap: wrap;
+  }
+  #kbbar button {
+    background: #33343a; color: #e4e4e4; border: 1px solid #4a4b52;
+    border-radius: 4px; padding: 4px 10px; font: inherit; cursor: pointer;
+  }
+  #srcbtn.on { color: #f2d21f; border-color: #f2d21f88; }
+  #octName { min-width: 34px; text-align: center; color: #f2d21f; font-weight: 700; }
+  #kbbar label { display: flex; align-items: center; gap: 7px; color: #9a9a9f; }
+  #help { margin-left: auto; color: #7d7e85; font-size: 12px; }
+
+  /* ---------- tooltip ---------- */
+  #tooltip {
+    position: fixed; display: none; z-index: 10; pointer-events: none;
+    background: #1d1e21; color: #f2f2f2; font-size: 12px; font-weight: 700;
+    padding: 3px 9px; border-radius: 4px; border: 1px solid #4a4b52;
+    transform: translate(-50%, -130%);
+  }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <button id="connect">Connect MIDI</button>
+  <select id="ports" title="MIDI output port"></select>
+  <label>Ch <select id="chan"></select></label>
+  <button id="sync" title="Send all panel CCs to the synth">Send panel</button>
+  <button id="panic" title="All notes off">Panic</button>
+  <span id="dot"></span><span id="status">not connected</span>
+</div>
+
+<div id="wrap">
+  <div id="panel">
+    <div class="screw tl"></div><div class="screw tr"></div>
+    <div class="screw bl"></div><div class="screw br"></div>
+    <div id="ptitle">texture synthesizer</div>
+
+    <div id="header">
+      <div id="freezeCell">
+        <button id="freeze" aria-label="Freeze"><span></span></button>
+        <div class="label">FREEZE</div>
+      </div>
+      <!-- mode + quality columns are built by script into #modes -->
+      <div id="modes" style="display:flex; gap:16px;"></div>
+      <div style="flex:1"></div>
+      <!-- trimmers + trig are built by script into #trim -->
+      <div id="trim" style="display:flex; gap:10px; margin-top:18px;"></div>
+    </div>
+
+    <div id="bigrow"></div>
+    <div id="smallrow"></div>
+
+    <div id="footer"><div class="rule1"></div><div class="rule2"></div></div>
+  </div>
+
+  <div id="kbbar">
+    <button id="octDown">Oct&minus;</button>
+    <span id="octName">C3</span>
+    <button id="octUp">Oct+</button>
+    <label>VEL <input id="vel" type="range" min="1" max="127" value="100"></label>
+    <button id="srcbtn" title="Exciter source: burst pluck / gated tone (CC 13)">SRC: BURST</button>
+    <span id="help">Z S X D C V G B H N J M , &mdash; lower &nbsp;&middot;&nbsp; Q 2 W 3 E R 5 T 6 Y 7 U &mdash; upper &nbsp;&middot;&nbsp; &uarr;/&darr; octave &nbsp;&middot;&nbsp; Space = FREEZE &nbsp;&middot;&nbsp; Shift-drag = fine</span>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+/* ================= knob definitions (CC map from clouds-rp2350/src/midi.h) ================= */
+const KNOBS = [
+  // big row — the three main granular parameters
+  { id:'position', cc:14, label:'POSITION', variant:'red',   pill:'red',   big:1, def:.35, sec:'#bigrow' },
+  { id:'size',     cc:15, label:'SIZE',     variant:'cyan',  pill:'cyan',  big:1, def:.5,  sec:'#bigrow' },
+  { id:'pitch',    cc:16, label:'PITCH',    variant:'white',               big:1, def:.5,  sec:'#bigrow' },
+  // small row — input + texture shaping + blend
+  { id:'ingain',   cc:11, label:'IN GAIN',  variant:'red',   pill:'red',   def:.8,  sec:'#smallrow' },
+  { id:'density',  cc:17, label:'DENSITY',  variant:'red',   pill:'red',   def:.75, sec:'#smallrow' },
+  { id:'texture',  cc:18, label:'TEXTURE',  variant:'cyan',  pill:'cyan',  def:.5,  sec:'#smallrow' },
+  { id:'blend',    cc:19, label:'BLEND',    variant:'white',               def:.8,  sec:'#smallrow' },
+  { id:'spread',   cc:20, label:'SPREAD',   variant:'white',               def:.5,  sec:'#smallrow' },
+  // header trimmers
+  { id:'tone',     cc:1,  label:'TONE',     variant:'white', trim:1, def:.5,  sec:'#trim' },
+  { id:'feedback', cc:21, label:'FEEDBACK', variant:'white', trim:1, def:0,   sec:'#trim' },
+  { id:'reverb',   cc:22, label:'REVERB',   variant:'white', trim:1, def:.3,  sec:'#trim' },
+];
+const controls = new Map();
+
+/* ================= MIDI ================= */
+let access = null, out = null, ch = 0;
+const voices = new Map();          // voiceId -> sent midi note
+let coarseSemi = 0, fineSt = 0, lastNote = 48;
+let freezeOn = false;
+let bendDirty = false, flushQueued = false;
+const ccDirty = new Map();
+
+function send(...b) { if (out) { try { out.send(b); } catch (e) {} } }
+const sendCC = (cc, v) => send(0xB0 | ch, cc, v & 127);
+const bend14 = () => clamp(Math.round(8192 + fineSt * 4096), 0, 16383);
+function sendBend() { const b = bend14(); send(0xE0 | ch, b & 127, (b >> 7) & 127); }
+const ccVal = c => Math.round(c.v * 127);
+
+function queueSend(c) {
+  if (c.cc !== undefined) ccDirty.set(c.id, c);
+  if (c.type === 'fine') bendDirty = true;
+  if (!flushQueued) { flushQueued = true; setTimeout(flush, 5); }  // timer, not rAF: must fire in background tabs
+}
+function flush() {
+  flushQueued = false;
+  for (const c of ccDirty.values()) sendCC(c.cc, ccVal(c));
+  ccDirty.clear();
+  if (bendDirty) { bendDirty = false; sendBend(); }
+}
+
+function noteOn(id, note, vel) {
+  const n = clamp(note + coarseSemi, 0, 127);
+  voices.set(id, n);
+  send(0x90 | ch, n, vel);
+  lastNote = note;
+}
+function noteOff(id) {
+  const n = voices.get(id);
+  if (n === undefined) return;
+  voices.delete(id);
+  if (![...voices.values()].includes(n)) send(0x80 | ch, n, 64);
+}
+const getVel = () => +$('#vel').value;
+
+function sendSync() {
+  for (const c of controls.values()) if (c.cc !== undefined) sendCC(c.cc, ccVal(c));
+  sendCC(23, selMode);            // playback mode
+  sendCC(24, selQuality);         // quality
+  sendCC(65, freezeOn ? 127 : 0); // freeze (level semantics)
+  sendBend();
+}
+function panic() {
+  for (let c = 0; c < 16; c++) send(0xB0 | c, 123, 0);   // firmware ignores channel nibble
+  voices.clear();
+}
+
+function setStatus(text, cls) { $('#status').textContent = text; $('#dot').className = cls || ''; }
+
+function refreshPorts() {
+  const sel = $('#ports');
+  const prev = sel.value;
+  sel.innerHTML = '';
+  const outs = access ? [...access.outputs.values()] : [];
+  for (const p of outs) {
+    const o = document.createElement('option');
+    o.value = p.id; o.textContent = p.name;
+    sel.appendChild(o);
+  }
+  if (!outs.length) { out = null; setStatus('no MIDI outputs', 'err'); return; }
+  const prevStill = outs.some(p => p.id === prev);
+  const auto = outs.find(p => /pico|clouds|elements/i.test(p.name));
+  sel.value = prevStill ? prev : (auto ? auto.id : outs[0].id);
+  const changed = !out || out.id !== sel.value;
+  out = access.outputs.get(sel.value);
+  if (changed) { sendSync(); setStatus(`\u2192 ${out.name} (ch ${ch + 1})`, 'ok'); }
+}
+
+async function connectMidi() {
+  if (!navigator.requestMIDIAccess) {
+    setStatus('Web MIDI unsupported \u2014 use Chrome/Chromium/Edge', 'err');
+    return;
+  }
+  try { access = await navigator.requestMIDIAccess({ sysex: false }); }
+  catch (e) { setStatus('MIDI access denied (' + e.name + ')', 'err'); return; }
+  access.onstatechange = refreshPorts;
+  refreshPorts();
+}
+
+/* ================= knob widget ================= */
+const tooltip = $('#tooltip');
+let tipTimer = 0;
+
+function showTip(c) {
+  const r = c.el.getBoundingClientRect();
+  tooltip.textContent = displayValue(c);
+  tooltip.style.left = (r.left + r.width / 2) + 'px';
+  tooltip.style.top = r.top + 'px';
+  tooltip.style.display = 'block';
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(() => tooltip.style.display = 'none', 900);
+}
+function displayValue(c) {
+  return String(Math.round(c.v * 127));
+}
+
+function setControl(c, v, show, queue = true) {
+  c.v = clamp(v, 0, 1);
+  c.el.style.setProperty('--deg', (-135 + c.v * 270) + 'deg');
+  c.el.setAttribute('aria-valuenow', Math.round(c.v * 127));
+  if (queue) queueSend(c);
+  if (show) showTip(c);
+}
+
+function makeKnob(c) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  $(c.sec).appendChild(cell);
+
+  const el = document.createElement('div');
+  el.className = 'knob ' + (c.big ? 'big' : c.trim ? 'trim' : 'small');
+  el.tabIndex = 0;
+  el.setAttribute('role', 'slider');
+  el.setAttribute('aria-label', c.label);
+  el.setAttribute('aria-valuemin', 0);
+  el.setAttribute('aria-valuemax', 127);
+  el.innerHTML = `<div class="ring"></div><div class="cap ${c.variant}"></div>` +
+                 `<div class="rot"><div class="notch ${c.variant}"></div></div>`;
+  cell.appendChild(el);
+
+  const lab = document.createElement('div');
+  lab.className = 'label' + (c.pill ? ' pill ' + c.pill : '');
+  lab.textContent = c.label;
+  cell.appendChild(lab);
+
+  const tag = document.createElement('div');
+  tag.className = 'cctag';
+  tag.textContent = c.cc !== undefined ? 'CC ' + c.cc : '';
+  cell.appendChild(tag);
+
+  c.el = el;
+  c.v = c.def;
+  controls.set(c.id, c);
+  setControl(c, c.def, false, false);
+
+  let startY = 0, startV = 0, dragging = false;
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    dragging = true; startY = e.clientY; startV = c.v;
+    showTip(c);
+  });
+  el.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const px = e.shiftKey ? 800 : 200;
+    setControl(c, startV + (startY - e.clientY) / px, true);
+  });
+  const end = () => dragging = false;
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+  el.addEventListener('dblclick', () => setControl(c, c.def, true));
+  el.addEventListener('wheel', e => {
+    e.preventDefault();
+    const d = (e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? 1 / 1270 : 1 / 127);
+    setControl(c, c.v + d, true);
+  }, { passive: false });
+  el.addEventListener('keydown', e => {
+    const fine = e.shiftKey ? 1 / 1270 : 1 / 127;
+    let d = 0;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') d = fine;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') d = -fine;
+    if (d) { e.preventDefault(); setControl(c, c.v + d, true); }
+  });
+}
+
+for (const c of KNOBS) makeKnob(c);
+
+/* ================= header: freeze / modes / quality / trig ================= */
+let selMode = 0, selQuality = 0;
+const MODE_GLYPHS = ['\u221E', '\u25CB', '\u29C9', '\u2733'];   // ∞ ◯ ⧉ ✳
+const MODE_NAMES  = ['granular', 'looping delay', 'stack (spectral alt)', 'spectral'];
+const QUAL_NAMES  = ['16-bit stereo', '16-bit mono', '8-bit stereo', '8-bit mono'];
+const QUAL_TAGS   = ['16\u00B7S', '16\u00B7M', '8\u00B7S', '8\u00B7M'];
+
+const freezeBtn = $('#freeze');
+const setFreeze = on => {
+  freezeOn = !!on;
+  freezeBtn.classList.toggle('on', freezeOn);
+  sendCC(65, freezeOn ? 127 : 0);
+};
+freezeBtn.addEventListener('click', () => setFreeze(!freezeOn));
+
+const modeHost = $('#modes');
+const modeLeds = [], qualLeds = [];
+for (let i = 0; i < 4; ++i) {
+  const col = document.createElement('div');
+  col.className = 'modecol';
+
+  const mb = document.createElement('button');
+  mb.className = 'modebtn'; mb.textContent = MODE_GLYPHS[i];
+  mb.title = 'playback mode: ' + MODE_NAMES[i] + ' (CC 23 = ' + i + ')';
+  mb.setAttribute('aria-label', MODE_NAMES[i]);
+  mb.addEventListener('click', () => { selMode = i; sendCC(23, i); refreshModeLeds(); });
+  col.appendChild(mb);
+
+  const ml = document.createElement('div');
+  ml.className = 'led'; ml.dataset.idx = i;
+  modeLeds.push(ml);
+  col.appendChild(ml);
+
+  const qb = document.createElement('button');
+  qb.className = 'qualbtn'; qb.textContent = QUAL_TAGS[i];
+  qb.title = 'quality: ' + QUAL_NAMES[i] + ' (CC 24 = ' + i + ')';
+  qb.setAttribute('aria-label', QUAL_NAMES[i]);
+  qb.addEventListener('click', () => { selQuality = i; sendCC(24, i); refreshQualityLeds(); });
+  col.appendChild(qb);
+
+  const ql = document.createElement('div');
+  ql.className = 'led teal'; ql.dataset.idx = i;
+  qualLeds.push(ql);
+  col.appendChild(ql);
+
+  modeHost.appendChild(col);
+}
+function refreshModeLeds() {
+  modeLeds.forEach((l, i) => l.classList.toggle('yellowlit', i === selMode));
+}
+function refreshQualityLeds() {
+  qualLeds.forEach((l, i) => l.classList.toggle('teallit', i === selQuality));
+}
+refreshModeLeds();
+refreshQualityLeds();
+
+/* TRIG — momentary pulse (CC 66) */
+const trig = document.createElement('button');
+trig.id = 'trig';
+trig.setAttribute('aria-label', 'trigger pulse');
+$('#trim').appendChild(trig);
+trig.title = 'trigger pulse (CC 66)';
+trig.addEventListener('pointerdown', e => { e.preventDefault(); sendCC(66, 127); });
+trig.addEventListener('pointerup', () => sendCC(66, 0));
+trig.addEventListener('pointercancel', () => sendCC(66, 0));
+
+/* ================= keyboard ================= */
+const KEYMAP = {
+  z:0, s:1, x:2, d:3, c:4, v:5, g:6, b:7, h:8, n:9, j:10, m:11,
+  ',':12, l:13, '.':14, ';':15, '/':16,
+  q:12, '2':13, w:14, '3':15, e:16, r:17, '5':18, t:19, '6':20,
+  y:21, '7':22, u:23, i:24, '9':25, o:26, '0':27, p:28,
+};
+let oct = 3;                       // Z key = C3 = MIDI 48 (firmware default)
+const baseNote = () => 12 * (oct + 1);
+const setOct = d => { oct = clamp(oct + d, 0, 7); $('#octName').textContent = 'C' + oct; };
+$('#octDown').addEventListener('click', () => setOct(-1));
+$('#octUp').addEventListener('click', () => setOct(1));
+
+/* exciter source toggle (CC 13) */
+let srcTone = false;
+$('#srcbtn').addEventListener('click', () => {
+  srcTone = !srcTone;
+  $('#srcbtn').textContent = srcTone ? 'SRC: TONE' : 'SRC: BURST';
+  $('#srcbtn').classList.toggle('on', srcTone);
+  sendCC(13, srcTone ? 127 : 0);
+});
+
+/* computer keyboard */
+window.addEventListener('keydown', e => {
+  if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  if (t instanceof HTMLSelectElement || t instanceof HTMLInputElement) return;
+  if (e.key === 'ArrowUp') { e.preventDefault(); setOct(1); return; }
+  if (e.key === 'ArrowDown') { e.preventDefault(); setOct(-1); return; }
+  if (e.key === ' ') { e.preventDefault(); setFreeze(!freezeOn); return; }
+  if (e.key === 'Enter') { e.preventDefault(); sendCC(66, 127); setTimeout(() => sendCC(66, 0), 60); return; }
+  const k = e.key.toLowerCase();
+  if (k in KEYMAP) { e.preventDefault(); if (!voices.has('k:' + k)) noteOn('k:' + k, baseNote() + KEYMAP[k], getVel()); }
+});
+window.addEventListener('keyup', e => {
+  const k = e.key.toLowerCase();
+  if (k in KEYMAP) noteOff('k:' + k);
+});
+window.addEventListener('blur', () => {
+  for (const id of [...voices.keys()]) if (id.startsWith('k:')) noteOff(id);
+});
+
+/* ================= toolbar wiring ================= */
+$('#connect').addEventListener('click', connectMidi);
+$('#sync').addEventListener('click', () => { sendSync(); setStatus(out ? `\u2192 ${out.name} (ch ${ch + 1})` : 'not connected', out ? 'ok' : ''); });
+$('#panic').addEventListener('click', panic);
+$('#ports').addEventListener('change', () => { out = access ? access.outputs.get($('#ports').value) : null; sendSync(); if (out) setStatus(`\u2192 ${out.name} (ch ${ch + 1})`, 'ok'); });
+const chanSel = $('#chan');
+for (let i = 1; i <= 16; i++) {
+  const o = document.createElement('option');
+  o.value = i - 1; o.textContent = i;
+  chanSel.appendChild(o);
+}
+chanSel.addEventListener('change', () => { ch = +chanSel.value; if (out) setStatus(`\u2192 ${out.name} (ch ${ch + 1})`, 'ok'); });
+
+/* try to grab MIDI access right away (Chrome shows its permission prompt) */
+connectMidi();
+</script>
+</body>
+</html>

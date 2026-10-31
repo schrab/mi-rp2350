@@ -929,3 +929,24 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   + ~68 KB SRAM-resident code/LUTs + 56 KB CMSIS tables), flash 7.3%.
 - Commits: af49e79, 7d9567b, 5ebbda9, c8dac92, f9a0019, (instrumentation
   strip + this entry). README known-issues section cleared.
+
+### Clouds web panel (tools/clouds_panel.html) — 2026-11-01
+
+- Mirrors the original Clouds panel layout (jacks omitted per user): FREEZE
+  button (CC 65 latched, yellow glow), 4 mode buttons (∞ ◯ ⧉ ✳ → CC 23
+  0-3) with yellow LEDs, 4 teal buttons repurposed as the QUALITY selector
+  (CC 24 0-3: 16S/16M/8S/8M) with teal LEDs, trimmers FEEDBACK (CC 21) +
+  REVERB (CC 22), TRIG momentary (CC 66) in the pencil slot; big knobs
+  POSITION/SIZE/PITCH (CC 14/15/16), small row IN GAIN (CC 11) / DENSITY
+  (17) / TEXTURE (18) / BLEND (19) / SPREAD (20). Keyboard = exciter notes
+  (same map as the Elements panel), Space = freeze toggle, Enter = trig,
+  SRC button toggles exciter burst/tone (CC 13). Architecture copied from
+  elements_panel.html (same knob widget/MIDI layer).
+- **Headless byte-dump validation (chromium --headless=new + stubbed Web
+  MIDI):** 22 messages; mode/quality/freeze/note-on-C3/note-off/trig all
+  byte-exact; connect-sync sends defaults matching the firmware seed
+  (CC 14 = 44 = 0.35). Gotcha for future tests: `#pragma`-style DOM
+  attribute checks can race --virtual-time-budget (retry the dump); a
+  header-level `extern "C"`-style initialized global in a header included
+  by two TUs double-defines (use declarations in headers, definitions in
+  .cc).
