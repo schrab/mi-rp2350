@@ -204,34 +204,6 @@
      typedef E::Reserve<2047, E::Reserve<2047> > Memory;
      E::DelayLine<Memory, 0> left;
      E::DelayLine<Memory, 1> right;
---- a/clouds/dsp/pvoc/stft.cc
-+++ b/clouds/dsp/pvoc/stft.cc
-@@ -31,6 +31,7 @@
- #include <algorithm>
- 
- #include "clouds/dsp/pvoc/frame_transformation.h"
-+#include "clouds/dsp/ram_code.h"
- #include "stmlib/dsp/dsp.h"
- 
- namespace clouds {
-@@ -87,7 +88,7 @@
-   done_ = 0;
- }
- 
--void STFT::Process(
-+CLOUDS_RAM_CODE(stft_process) void STFT::Process(
-     const Parameters& parameters,
-     const float* input,
-     float* output,
-@@ -117,7 +118,7 @@
-   }
- }
- 
--void STFT::Buffer() {
-+CLOUDS_RAM_CODE(stft_buffer) void STFT::Buffer() {
-   if (ready_ == done_) {
-     return;
-   }
 --- a/clouds/dsp/pvoc/frame_transformation.cc
 +++ b/clouds/dsp/pvoc/frame_transformation.cc
 @@ -36,6 +36,7 @@
