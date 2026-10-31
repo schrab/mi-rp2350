@@ -52,12 +52,6 @@ void pio_host_force_reconnect(void);
 uint8_t pio_host_line_state(void);
 }
 
-// STFT per-stage debug timings (defined in lib/clouds .../pvoc/stft.cc).
-extern "C" volatile uint32_t dbg_window_us;
-extern "C" volatile uint32_t dbg_fft_fwd_us;
-extern "C" volatile uint32_t dbg_modifier_us;
-extern "C" volatile uint32_t dbg_fft_inv_us;
-
 static const uint32_t kSampleRate = 32000;
 static const size_t kBlockSize = clouds::kMaxBlockSize;   // 32 samples = 1 ms
 
@@ -427,11 +421,10 @@ void loop() {
     last_report = now;
     static uint32_t last_stall_total = 0;
     const uint32_t stalls = i2s_stall_count;
-    Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | stft: win=%u fwd=%u mod=%u inv=%u | in=%u out=%u notes=%u | host: conn=%u st=%u dev=%u midi=%u frame=%u\r\n",
+    Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u | host: conn=%u st=%u dev=%u midi=%u frame=%u\r\n",
                   proc_us_max,
                   (unsigned)(1000000UL * kBlockSize / kSampleRate),
                   stalls, stalls - last_stall_total,
-                  dbg_window_us, dbg_fft_fwd_us, dbg_modifier_us, dbg_fft_inv_us,
                   (unsigned)(shared_exciter_out * 1000.0f),
                   (unsigned)(shared_resonator_out * 1000.0f),
                   note_on_count,
