@@ -87,6 +87,15 @@ Flash: hold **BOOTSEL** while plugging USB-C (the reliable path — the
 After submodule updates: `tools/sync_pio_libs.sh` (regenerates both projects'
 libs and re-applies the patches; conflicts abort loudly).
 
+## Known issues
+
+- **Stretch mode (CC 23 = 1) overruns the audio budget** (1156-1159 µs vs
+  1000 µs, sustained — audible glitches). Suspect: `LoadCorrelator()` runs
+  every block in that mode. Granular, looping delay and spectral are within
+  budget (spectral renders its 4096-pt STFT frame in one ~13.5 ms burst every
+  32 blocks, absorbed by the 16 ms DMA bank — `setBuffers(32, 16)` is
+  REQUIRED for spectral). Details and profiling in the ledger.
+
 ## Status LED
 
 Same behavior as Elements: dark idle, amber while the exciter is gated,
