@@ -806,3 +806,26 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   patch reproduces the build.
 - **Pending C5:** flash (button-BOOTSEL), user ear check (grains/freeze/mode
   switching), 30 min soak, ledger update with measured max Process.
+
+- **C5 progress (2026-10-31):** flashed via the touch procedure (works; the
+  only race is udisks probing after the node appears — retry
+  `udisksctl mount` for a few seconds). **User ear-confirmed granular mode**
+  (plucks + tones played by the agent over the device MIDI port via
+  aplaymidi/aseq port 24:0). **CRITICAL FIX found by mode sweep:** the port's
+  `GranularProcessor::Process()` early-returns SILENT whenever
+  `previous_playback_mode_ != playback_mode_`, and only `Prepare()` updates
+  that — the original firmware calls `Prepare()` EVERY block; calling it once
+  in setup() latched the processor silent+cheap (4 µs) after the first mode
+  change. Fixed: `Prepare()` every block in loop1. Also fixed the report
+  budget print (992 → 1000 µs, integer-division order).
+- **Per-mode steady `max Process` (all-SRAM build, measured with timestamped
+  serial + isolated mode sequences):** granular 238-260 µs ✓; looping delay
+  181-260 µs ✓; **stretch 1156-1159 µs = 1.16× budget (overruns every
+  block)**; **spectral ~14,390 µs = 14.4× budget**. Spectral cause: the pvoc
+  STFT uses stmlib's ShyFFT (≈7 ms per 4096-pt transform, 2 per block); the
+  fast path (`USE_ARM_FFT` → CMSIS `arm_rfft_fast`) is commented out upstream
+  and CMSIS-DSP is not in the repo — known poetaster-port limitation. Stretch
+  cause not yet localized (correlator search per block is the suspect).
+- **Open decisions:** (a) stretch: profile/optimize (needs one instrumented
+  build); (b) spectral: vendor CMSIS-DSP rfft_fast subset + `-DUSE_ARM_FFT`,
+  or clamp the mode CC to 0-2 and document spectral as unavailable.

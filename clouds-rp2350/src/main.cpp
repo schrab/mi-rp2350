@@ -272,6 +272,10 @@ void loop1() {
   }
 
   uint32_t t0 = time_us_32();
+  // Prepare() MUST run every block (original firmware contract): it applies
+  // mode/quality changes and updates previous_playback_mode_; without it the
+  // processor latches into its silent "mode mismatch" early-return forever.
+  processor.Prepare();
   processor.Process(clouds_in, clouds_out, kBlockSize);
   uint32_t dt = time_us_32() - t0;
   if (dt > proc_us_max) proc_us_max = dt;
@@ -403,7 +407,7 @@ void loop() {
     const uint32_t stalls = i2s_stall_count;
     Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | host: conn=%u st=%u dev=%u midi=%u frame=%u\r\n",
                   proc_us_max,
-                  (unsigned)(1000000UL / kSampleRate * kBlockSize),
+                  (unsigned)(1000000UL * kBlockSize / kSampleRate),
                   stalls, stalls - last_stall_total,
                   (unsigned)pio_host_connected(),
                   (unsigned)pio_host_line_state(),
