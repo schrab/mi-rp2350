@@ -108,7 +108,7 @@ class WSOLASamplePlayer {
       windows_[1].MarkAsRegenerated();
       ScheduleAlignedWindow(buffer, &windows_[0]);
     }
-    
+
     while (size--) {
       // Sum the two windows.
       std::fill(&out[0], &out[kMaxNumChannels], 0);

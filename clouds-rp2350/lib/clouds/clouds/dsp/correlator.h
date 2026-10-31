@@ -34,6 +34,7 @@
 #include "stmlib/stmlib.h"
 
 #include "clouds/dsp/ram_code.h"
+#include "pico/time.h"                  // time_us_32 (EvaluateSomeCandidates budget)
 
 namespace clouds {
   
@@ -51,10 +52,20 @@ class Correlator {
   }
 
   inline void EvaluateSomeCandidates() {
+    // RP2350 port: time-budget the drain instead of the original fixed
+    // candidate count ((size_ >> 2) + 16 ≈ 1056 candidates ≈ 2.6 ms — over
+    // the 1 ms block budget). The search now completes over several blocks
+    // (~250 µs each); best_match() returns the partial best until then, and
+    // the 16 ms I2S bank absorbs LoadCorrelator's per-grain setup burst.
+    const uint32_t t0 = time_us_32();
     size_t num_candidates = (size_ >> 2) + 16;
     while (num_candidates) {
       EvaluateNextCandidate();
       --num_candidates;
+      if ((num_candidates & 0x0f) == 0 &&
+          time_us_32() - t0 > 150) {
+        break;
+      }
     }
   }
 

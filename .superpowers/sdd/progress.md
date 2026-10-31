@@ -901,3 +901,31 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   DMA bank (setBuffers(32,16) — REQUIRED for spectral, see profiling above).
 - Commits this task: b43b104, 9c8a03c, af49e79, 7d9567b, 5ebbda9, c8dac92,
   f9a0019, (this commit). Board runs the final clean build.
+
+### Stretch mode FIXED — Clouds port fully accepted (2026-10-31)
+
+- **WSOLA profiling** (instrumented play/overlap/sched/loadcorr/evalsome):
+  the audio render is only ~50 µs/block — the cost was the **correlation
+  search**: `EvaluateSomeCandidates()` drained a FIXED count of
+  `(size_>>2)+16 ≈ 1056` candidates per block (up to 2575 µs) and
+  `LoadCorrelator` bursts 1339 µs per grain (sign-bit extraction of up to
+  12k samples). OverlapAdd per sample: 6-7 µs.
+- **Fix:** time-budget the search drain at **150 µs/block** (checked every
+  16 candidates; the search completes over ~30 blocks, well inside a grain's
+  128 ms lifetime; `best_match()` returns the partial best meanwhile — the
+  16 ms I2S bank absorbs LoadCorrelator's per-grain burst). Verified:
+  stretch steady 880-964 µs (mode-change block 1743 µs, one-off,
+  bank-absorbed), zero stalls. **USER EAR-CONFIRMED all four modes: "all
+  sounds ok"** (stretch plucks + pitch-swept stretched tone).
+- **Instrumentation stripped** (wsola/granular probes + report fields;
+  the in/out/notes meters kept — permanent diagnostics). Both clouds patches
+  regenerated from the clean lib (disjoint file sets: ram-hot = everything
+  except stft.*, cmsis-fft = stft.*), round-trip verified, final build
+  flashed + sanity-checked (stretch 964 µs on the final binary).
+- **FINAL per-mode numbers (all-SRAM build, 32-sample blocks @ 32 kHz):
+  granular ~240 µs, looping 181-260 µs, stretch 880-964 µs, spectral
+  13.5 ms burst every 32 blocks (~560 µs amortized, bank-absorbed) — all
+  within the 1000 µs budget.** RAM 71.0% (372 KB incl. 192 KB sample memory
+  + ~68 KB SRAM-resident code/LUTs + 56 KB CMSIS tables), flash 7.3%.
+- Commits: af49e79, 7d9567b, 5ebbda9, c8dac92, f9a0019, (instrumentation
+  strip + this entry). README known-issues section cleared.

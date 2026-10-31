@@ -89,12 +89,9 @@ libs and re-applies the patches; conflicts abort loudly).
 
 ## Known issues
 
-- **Stretch mode (CC 23 = 1) overruns the audio budget** (1156-1159 µs vs
-  1000 µs, sustained — audible glitches). Suspect: `LoadCorrelator()` runs
-  every block in that mode. Granular, looping delay and spectral are within
-  budget (spectral renders its 4096-pt STFT frame in one ~13.5 ms burst every
-  32 blocks, absorbed by the 16 ms DMA bank — `setBuffers(32, 16)` is
-  REQUIRED for spectral). Details and profiling in the ledger.
+- None open. (Stretch mode previously overran the budget at 1156 µs; fixed by
+  time-budgeting the WSOLA correlation search at 150 µs/block — see the
+  ledger's stretch-profiling section.)
 
 ## Status LED
 
