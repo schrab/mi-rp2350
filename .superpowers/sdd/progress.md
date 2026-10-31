@@ -881,3 +881,23 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   tone+freeze+position sweep → looping → stretch). Serial confirmed every
   segment (notes counter 9/9, IN/OUT meters live, zero stalls). Spectral
   spikes 11.6-13.2 ms absorbed by the 16 ms bank.
+
+### Clouds port CLOSED — accepted (2026-10-31)
+
+- **User acceptance: "all that i hear as fine"** — granular, looping, spectral
+  (tone + freeze + position sweep) confirmed on the pitched-pluck exciter;
+  stretch plucks delivered but the mode still overruns (below). The final
+  clean build (instrumentation stripped, patches regenerated
+  `clouds-cmsis-fft.patch`, round-trip verified) flashed and sanity-checked
+  (3 plucks, counters/meters live).
+- **Report format (final):** `max Process | i2s stalls | in= out= notes= | host: ...`
+  — in/out = max-since-report RMS (per-mille), notes = firmware note-on count.
+- **KNOWN ISSUE (open): stretch mode 1156-1159 µs = 1.16× the 1000 µs block
+  budget** — sustained overrun, audible glitches. Suspect: Prepare() runs
+  `ws_player_.LoadCorrelator()` EVERY block in stretch mode (4096-sample
+  copy + search setup) + the correlator search. Needs the same
+  instrumentation treatment as spectral. Spectral by contrast is fine:
+  13.5 ms burst every 32 blocks, amortized ~560 µs, absorbed by the 16 ms
+  DMA bank (setBuffers(32,16) — REQUIRED for spectral, see profiling above).
+- Commits this task: b43b104, 9c8a03c, af49e79, 7d9567b, 5ebbda9, c8dac92,
+  f9a0019, (this commit). Board runs the final clean build.
