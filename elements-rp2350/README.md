@@ -151,7 +151,12 @@ max Process: 213 us (budget 500 us) | i2s stalls: 0 (+0)
 
 - `max Process` — worst `Part::Process` block time (16 samples) since the
   last report; budget = 500 us (one block @ 32 kHz). Must stay comfortably
-  below it.
+  below it. Measured on hardware (2026-10-31): ~260-270 us in normal mode.
+  OMINOUS (CC 29) is heavier — its 2-op FM chain renders at 8x oversampling —
+  and was the target of the SRAM placement work (see Build notes): ~1.1 ms
+  originally, 524-660 us with the hot code in SRAM, further reduced once the
+  sine/FIR tables followed. If OMINOUS still exceeds ~500 us, treat it as a
+  regression and check the ledger before touching the DSP.
 - `i2s stalls` — cumulative count of render loops whose 16 I2S writes took
   > 900 us (normally the write block waits at most ~500 us for the next DMA
   buffer to free — see Build notes for the threshold rationale); `(+n)` is
@@ -195,6 +200,16 @@ Artifacts: `.pio/build/elements-rp2350/firmware.uf2` (+ `.elf` / `.bin`).
   ```sh
   tools/sync_pio_libs.sh
   ```
+- **Port patches (`tools/patches/elements/*.patch`):** deltas this port
+  carries on top of the upstream sources are re-applied by the sync script
+  after every copy (strict `--fuzz=0`; a conflict aborts the sync loudly).
+  Current patches: `elements-ram-hot.patch` (hot DSP functions + `lut_sine`
+  and the OMINOUS FIR coefficients placed in SRAM via `.time_critical`
+  sections — see `lib/elements/elements/dsp/ram_code.h`; flash-XIP cache
+  misses on the per-sample path cost more than the whole DSP budget) and
+  `elements-keep-exciter-meter.patch` (keeps `Voice::Process`'s exciter
+  meter running — it drives the status LED). **Never hand-edit `lib/`**: add
+  the change as a patch file, or the next sync silently reverts it.
 - **PIO-USB init order (do not reorder setup()):** PIO-USB hard-claims PIO0
   (all 32 instruction slots + 3 SMs), DMA channel 0 and an alarm-pool slot;
   `pio_sm_claim` panics on a taken SM. The USB host must be initialized
@@ -232,6 +247,11 @@ no system install needed). Caveats verified 2026-10-30:
   NOT reboot to BOOTSEL -> upload fails. Flash once via BOOTSEL; after our
   own firmware runs, reboot-to-BOOTSEL (1200 bps touch / double reset) works
   and `pio run -t upload` should succeed from then on.
+- A 1200 bps touch can wedge: once (2026-10-31) no `RP2350` drive appeared
+  and the CDC stayed silent for minutes. Retrying the touch two minutes
+  later worked first-try. If this happens: just retry (and expect no audio
+  while the board sits in BOOTSEL — that is normal for the whole flash
+  window); only suspect hardware after repeated failures.
 - picotool needs raw USB write access; without a udev rule the device node is
   `root:root` and upload fails (Error 249). Optional fix:
   `/etc/udev/rules.d/99-picotool.rules` containing
