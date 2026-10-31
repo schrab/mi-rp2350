@@ -829,3 +829,35 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
 - **Open decisions:** (a) stretch: profile/optimize (needs one instrumented
   build); (b) spectral: vendor CMSIS-DSP rfft_fast subset + `-DUSE_ARM_FFT`,
   or clamp the mode CC to 0-2 and document spectral as unavailable.
+
+### Spectral profiling + CMSIS-DSP vendor (2026-10-31, after 9c8a03c)
+
+- **Stage-level profiling of spectral mode** (instrumented STFT::Buffer, per
+  stage max µs, printed in the report): win 277 / fwd-FFT 2113 / modifier
+  2121-2429 / inverse 4477-4907 per channel-frame; ×2 channels = the 13-13.5 ms
+  spike. NOT flash-bound: the whole FFT path (functions + 4096 twiddle/coef
+  tables + bitrev table, ~56 KB) verified at 0x2000xxxx and the numbers
+  barely moved — it is real compute: a 4096-pt transform pair every
+  1024 samples (hop = fft/4), i.e. one 13.4 ms burst every 32 blocks
+  (~560 µs/block amortized).
+- **CMSIS-DSP v1.14.4 subset vendored** to `clouds-rp2350/lib/cmsis_dsp/`
+  (rfft_fast + cfft + radix8 + bitreversal2.c + const structs + common
+  tables; `library.json` = -O3 + -DARM_MATH_CM33). stft.h
+  `USE_ARM_FFT` enabled (→ tools/patches/clouds/clouds-cmsis-fft.patch).
+  First attempts: `#pragma GCC section text` is a NO-OP under PlatformIO's
+  -ffunction-sections — per-function
+  `__attribute__((section(".time_critical.cmsis")))` required (functions) +
+  selective table attributes (twiddleCoef_4096, twiddleCoef_rfft_4096,
+  armBitRevIndexTable4096 — ONLY the 4096 tables; the init switch references
+  all lengths, gc keeps ~100 KB of unused tables in flash).
+- **I2S DMA bank deepened** 8→32 buffers (4→16 ms): the 13.5 ms spectral
+  frame burst exceeds the old 4 ms bank (underrun glitch every 32 ms =
+  user-reported "distorted"); with 16 ms the burst is absorbed (bank drains
+  13.5, refills 0.8 ms/block over the following 31 blocks). Avg still
+  ~560 µs/block < 1000. Granular/looping unchanged.
+- **Instrumentation still in the tree** (stft stage timings in the report +
+  `pico/time.h` include in stft.cc): keep until spectral is ear-confirmed,
+  then remove (stft.cc delta must go into the clouds patch file).
+- **Open:** stretch 1156 µs (1.16×) — LoadCorrelator runs every block in
+  stretch mode (Prepare → ws_player_.LoadCorrelator); profiling TBD.
+  Spectral ear check pending user.

@@ -31,7 +31,10 @@
 
 #include "stmlib/stmlib.h"
 
-// #define USE_ARM_FFT
+// RP2350 port: CMSIS-DSP rfft_fast replaces ShyFFT — ShyFFT needs ~7 ms per
+// 4096-pt transform (2 per STFT frame = 14.4 ms, 14x the 1 ms block budget);
+// the CMSIS fast real FFT brings the spike under the I2S buffer depth.
+#define USE_ARM_FFT
 
 #ifdef USE_ARM_FFT
   #include <arm_math.h>

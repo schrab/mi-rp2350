@@ -34,6 +34,14 @@
 #include "clouds/dsp/ram_code.h"
 #include "stmlib/dsp/dsp.h"
 
+// Debug instrumentation (RP2350 port): per-stage max timings of STFT::Buffer,
+// printed by main.cpp's 2 s report. REMOVE after spectral profiling is done.
+#include "pico/time.h"                  // time_us_32 (static inline in SDK 2.x)
+extern "C" volatile uint32_t dbg_window_us = 0;
+extern "C" volatile uint32_t dbg_fft_fwd_us = 0;
+extern "C" volatile uint32_t dbg_modifier_us = 0;
+extern "C" volatile uint32_t dbg_fft_inv_us = 0;
+
 namespace clouds {
 
 using namespace std;
@@ -122,7 +130,11 @@ CLOUDS_RAM_CODE(stft_buffer) void STFT::Buffer() {
   if (ready_ == done_) {
     return;
   }
-  
+
+  // Debug instrumentation (RP2350 port): per-stage max timings, printed by
+  // main.cpp's 2 s report. REMOVE after spectral profiling is done.
+  uint32_t dbg_t0 = time_us_32();
+
   // Copy block to FFT buffer and apply window.
   size_t source_ptr = process_ptr_;
   const float* w = window_;
@@ -134,7 +146,9 @@ CLOUDS_RAM_CODE(stft_buffer) void STFT::Buffer() {
     }
     w += window_stride_;
   }
-  
+  { uint32_t t = time_us_32() - dbg_t0; if (t > dbg_window_us) dbg_window_us = t; }
+
+  uint32_t dbg_t1 = time_us_32();
   // Compute FFT. fft_in is lost.
 #ifdef USE_ARM_FFT
   arm_rfft_fast_f32(fft_, fft_in_, fft_out_, 0);
@@ -151,13 +165,18 @@ CLOUDS_RAM_CODE(stft_buffer) void STFT::Buffer() {
     fft_->Direct(fft_in_, fft_out_);
   }
 #endif  // USE_ARM_FFT
+  { uint32_t t = time_us_32() - dbg_t1; if (t > dbg_fft_fwd_us) dbg_fft_fwd_us = t; }
+
+  uint32_t dbg_t2 = time_us_32();
   // Process in the frequency domain.
   if (modifier_ != NULL && parameters_ != NULL) {
     modifier_->Process(*parameters_, &fft_out_[0], &ifft_in_[0]);
   } else {
     copy(&fft_out_[0], &fft_out_[fft_size_], &ifft_in_[0]);
   }
-  
+  { uint32_t t = time_us_32() - dbg_t2; if (t > dbg_modifier_us) dbg_modifier_us = t; }
+
+  uint32_t dbg_t3 = time_us_32();
   // Compute IFFT. ifft_in is lost.
 #ifdef USE_ARM_FFT
   // Re-arrange data.
@@ -206,6 +225,7 @@ CLOUDS_RAM_CODE(stft_buffer) void STFT::Buffer() {
   if (process_ptr_ >= buffer_size_) {
     process_ptr_ -= buffer_size_;
   }
+  { uint32_t t = time_us_32() - dbg_t2; if (t > dbg_fft_inv_us) dbg_fft_inv_us = t; }
 }
 
 }  // namespace clouds

@@ -52,6 +52,12 @@ void pio_host_force_reconnect(void);
 uint8_t pio_host_line_state(void);
 }
 
+// STFT per-stage debug timings (defined in lib/clouds .../pvoc/stft.cc).
+extern "C" volatile uint32_t dbg_window_us;
+extern "C" volatile uint32_t dbg_fft_fwd_us;
+extern "C" volatile uint32_t dbg_modifier_us;
+extern "C" volatile uint32_t dbg_fft_inv_us;
+
 static const uint32_t kSampleRate = 32000;
 static const size_t kBlockSize = clouds::kMaxBlockSize;   // 32 samples = 1 ms
 
@@ -338,7 +344,11 @@ void setup() {
   }
 
   i2s.setBitsPerSample(16);
-  i2s.setBuffers(8, 16);          // 8 buffers x 16 words = 128 stereo frames (~4 ms)
+  // 32 buffers x 16 words = 512 stereo frames (16 ms): spectral mode renders
+  // its whole 4096-pt STFT frame in one ~13 ms spike every 32 blocks
+  // (amortized ~560 us/block — sustainable), so the DMA bank must absorb the
+  // spike instead of the per-block budget. See the ledger for the profiling.
+  i2s.setBuffers(32, 16);
   i2s.setFrequency(kSampleRate);
   if (!i2s.begin()) {
     Serial.println("I2S begin FAILED");
@@ -405,10 +415,11 @@ void loop() {
     last_report = now;
     static uint32_t last_stall_total = 0;
     const uint32_t stalls = i2s_stall_count;
-    Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | host: conn=%u st=%u dev=%u midi=%u frame=%u\r\n",
+    Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | stft: win=%u fwd=%u mod=%u inv=%u | host: conn=%u st=%u dev=%u midi=%u frame=%u\r\n",
                   proc_us_max,
                   (unsigned)(1000000UL * kBlockSize / kSampleRate),
                   stalls, stalls - last_stall_total,
+                  dbg_window_us, dbg_fft_fwd_us, dbg_modifier_us, dbg_fft_inv_us,
                   (unsigned)pio_host_connected(),
                   (unsigned)pio_host_line_state(),
                   (unsigned)host_device_mounted,
