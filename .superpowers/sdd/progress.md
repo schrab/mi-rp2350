@@ -873,3 +873,11 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   test spectral from their own sender (CC 23=3 + keys + CC 65 freeze).
 - **Open:** stretch 1.16×; spectral ear-check by user; remove STFT
   instrumentation (stft.cc dbg + report fields) after acceptance.
+- **Raw-MIDI test player** (bypasses the flaky seq bridge): python writes
+  timed raw bytes to /dev/snd/midiC2D0 directly — 100% delivery where
+  aplaymidi/PipeWire dropped events. **Exciter upgraded to a pitched pluck**
+  (decaying sine at the note + noise attack) so granulation of NOTES is
+  audible; full acceptance sweep played raw (granular plucks → spectral
+  tone+freeze+position sweep → looping → stretch). Serial confirmed every
+  segment (notes counter 9/9, IN/OUT meters live, zero stalls). Spectral
+  spikes 11.6-13.2 ms absorbed by the 16 ms bank.

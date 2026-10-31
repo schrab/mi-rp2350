@@ -188,11 +188,14 @@ void setup1() {
 }
 
 // --- test exciter (standalone input source for the granular processor) ---
-// Burst mode: every note-on fires a decaying filtered-noise pluck (~0.8 s).
+// Burst mode: every note-on fires a pitched pluck — a decaying sine at the
+// note's pitch with a short filtered-noise attack (~0.8 s tail). Makes the
+// granulation of NOTES audible (pitch/freeze judgments) instead of noise.
 // Tone mode: a sine at the held note's pitch for as long as the gate is on
 // (continuous material for freeze/texture exploration). Level 0 mutes the
 // exciter entirely (the input slot for future multi-module chaining).
 static float burst_env = 0.0f;
+static float burst_phase = 0.0f;
 static float tone_phase = 0.0f;
 static float noise_lp_state = 0.0f;
 static uint32_t rng_state = 0x1fff7a10;
@@ -202,14 +205,17 @@ static inline float ExciterSample(float note_hz) {
   if (level <= 0.0f) return 0.0f;
   float s;
   if (shared_exciter_mode < 0.5f) {
-    // Burst pluck: white noise through a one-pole whose cutoff tracks the
-    // note (higher notes = brighter pluck), exponential decay ~0.8 s.
+    // Pitched pluck: sine at the note + a noise attack transient, exp decay.
+    const float inc = note_hz / kSampleRate;
+    burst_phase += inc;
+    if (burst_phase >= 1.0f) burst_phase -= 1.0f;
     rng_state = rng_state * 1664525u + 1013904223u;
     const float noise = static_cast<float>(static_cast<int32_t>(rng_state) >> 9) /
                         4194304.0f;   // ±1.0
     const float cutoff = 0.003f + 0.12f * shared_exciter_tone;
     noise_lp_state += cutoff * (noise - noise_lp_state);
-    s = noise_lp_state * burst_env * 0.9f;
+    const float tone = sinf(2.0f * 3.14159265f * burst_phase);
+    s = (tone * 0.7f + noise_lp_state * 0.3f) * burst_env * 0.8f;
     burst_env *= 0.99985f;            // ~0.8 s tail at 32 kHz
   } else {
     // Gated tone: sine at the held note (continuous grain material).
@@ -268,6 +274,7 @@ void loop1() {
   const float note_hz = 440.0f * powf(2.0f, (shared_note - 69.0f) / 12.0f);
   if (shared_gate && !previous_gate) {
     burst_env = 1.0f;
+    burst_phase = 0.0f;
   }
   previous_gate = shared_gate;
 
