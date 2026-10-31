@@ -745,3 +745,13 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   300-450 µs (analysis estimate; XIP stall share is the unknown). If normal
   mode's 380-478 µs also drops, the same treatment extends to
   `Voice::Process`/resonators next.
+
+- **Measured (hardware, 2026-10-31):** `b35c03a` (code in SRAM): OMINOUS
+  524-660 µs — 2× better than 1.1 ms, still over budget, i2s stalls 0 (the
+  4 ms buffer bank absorbs it, but sustained overrun would starve within
+  ~30 s). `d2ea825` (+ lut_sine 16.4 KB and kDownsamplingFilter in SRAM):
+  normal mode 260-269 µs stable. OMINOUS retest on d2ea825 pending user.
+- Flash note: one 1200-baud touch attempt wedged (no BOOTSEL MSC, CDC silent
+  for minutes); a retry two minutes later worked first-try (MSC in 2 s). If a
+  touch ever hangs: retry before suspecting hardware; "no sound" during a
+  flash window is just the board sitting in BOOTSEL.
