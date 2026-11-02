@@ -89,17 +89,48 @@
        const AudioBuffer<resolution>* buffer,
        const Parameters& parameters,
        float* out,
+@@ -107,7 +108,7 @@
+       windows_[1].MarkAsRegenerated();
+       ScheduleAlignedWindow(buffer, &windows_[0]);
+     }
+-    
++
+     while (size--) {
+       // Sum the two windows.
+       std::fill(&out[0], &out[kMaxNumChannels], 0);
 --- a/clouds/dsp/correlator.h
 +++ b/clouds/dsp/correlator.h
-@@ -33,6 +33,8 @@
+@@ -33,6 +33,9 @@
  
  #include "stmlib/stmlib.h"
  
 +#include "clouds/dsp/ram_code.h"
++#include "pico/time.h"                  // time_us_32 (EvaluateSomeCandidates budget)
 +
  namespace clouds {
    
  class Correlator {
+@@ -49,10 +52,20 @@
+   }
+ 
+   inline void EvaluateSomeCandidates() {
++    // RP2350 port: time-budget the drain instead of the original fixed
++    // candidate count ((size_ >> 2) + 16 ≈ 1056 candidates ≈ 2.6 ms — over
++    // the 1 ms block budget). The search now completes over several blocks
++    // (~250 µs each); best_match() returns the partial best until then, and
++    // the 16 ms I2S bank absorbs LoadCorrelator's per-grain setup burst.
++    const uint32_t t0 = time_us_32();
+     size_t num_candidates = (size_ >> 2) + 16;
+     while (num_candidates) {
+       EvaluateNextCandidate();
+       --num_candidates;
++      if ((num_candidates & 0x0f) == 0 &&
++          time_us_32() - t0 > 150) {
++        break;
++      }
+     }
+   }
+ 
 --- a/clouds/dsp/correlator.cc
 +++ b/clouds/dsp/correlator.cc
 @@ -42,7 +42,7 @@
