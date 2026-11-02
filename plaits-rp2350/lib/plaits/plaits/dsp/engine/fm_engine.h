@@ -1,0 +1,101 @@
+// Copyright 2016 Emilie Gillet.
+//
+// Author: Emilie Gillet (emilie.o.gillet@gmail.com)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+// 
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+// 
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+// 
+// See http://creativecommons.org/licenses/MIT/ for more information.
+//
+// -----------------------------------------------------------------------------
+//
+// Classic 2-op FM, as found in Braids, Rings and Elements.
+//
+// OUT: FM carrier. AUX: sub-oscillator (half frequency, PM'd by the carrier).
+// alt firmware, stereo mode: the carrier is panned to 0.4 and the sub to 0.6 -
+// a gentle octave-spread kept near centre.
+
+#ifndef PLAITS_DSP_ENGINE_FM_ENGINE_H_
+#define PLAITS_DSP_ENGINE_FM_ENGINE_H_
+
+#include "plaits/dsp/engine/engine.h"
+#include "plaits/dsp/engine/twist_tuning.h"
+
+namespace plaits {
+  
+class FMEngine : public Engine {
+ public:
+  // NARROW by default since 2026-10: TWIST detunes the modulator +/-1
+  // semitone around the HARMONICS ratio instead of +/-12, chosen by ear
+  // (fm_engine.cc). The build-wide PLAITS_BUILD_TWIST_TUNING_RANGE no longer
+  // applies to this engine; set_twist_tuning() still overrides per instance.
+  FMEngine() : twist_tuning_(TWIST_TUNING_NARROW) { }
+  ~FMEngine() { }
+
+  // Which TWIST span this INSTANCE uses. Registration runs before Voice::Init
+  // (voice.cc calls PLAITS_REGISTER_ENGINES and only then Init on each
+  // registered engine), and neither Init() nor Reset() touches this, so a
+  // generated config can register the same engine class more than once and
+  // give each copy a different span.
+  void set_twist_tuning(TwistTuning mode) { twist_tuning_ = mode; }
+  
+  virtual void Init(stmlib::BufferAllocator* allocator);
+  virtual void Reset();
+  virtual void LoadUserData(const uint8_t* user_data) { }
+  virtual void Render(const EngineParameters& parameters,
+      float* out,
+      float* aux,
+      size_t size,
+      bool* already_enveloped);
+  virtual bool stereo_capable() const { return PLAITS_STEREO_TWO_OP_FM; }
+#if PLAITS_BUILD_ENABLE_SYNC_INPUT
+  virtual bool hard_sync_capable() const { return true; }
+#endif
+  virtual bool linear_tzfm_capable() const { return true; }
+  virtual bool fast_fm_capable() const { return true; }
+
+ private:
+  template<bool process_hard_sync>
+  void RenderInternal(
+      const EngineParameters& parameters,
+      float* out,
+      float* aux,
+      size_t size,
+      bool* already_enveloped);
+
+  uint32_t carrier_phase_;
+  uint32_t modulator_phase_;
+  uint32_t sub_phase_;
+  
+  float previous_carrier_frequency_;
+  float previous_modulator_frequency_;
+  float previous_amount_;
+  float previous_feedback_;
+  float previous_sample_;
+  
+  float sub_fir_;
+  float carrier_fir_;
+  
+  TwistTuning twist_tuning_;
+
+  DISALLOW_COPY_AND_ASSIGN(FMEngine);
+};
+
+}  // namespace plaits
+
+#endif  // PLAITS_DSP_ENGINE_FM_ENGINE_H_

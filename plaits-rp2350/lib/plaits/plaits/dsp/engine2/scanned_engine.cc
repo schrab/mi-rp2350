@@ -1,0 +1,288 @@
+// Copyright 2026 Lyle Mills.
+// SPDX-License-Identifier: MIT
+//
+// Scanned synthesis engine.
+
+#include "plaits/dsp/engine2/scanned_engine.h"
+
+#include <algorithm>
+#include <cmath>
+
+#include "plaits/build_config.h"
+#include "plaits/dsp/oscillator/sine_oscillator.h"
+#include "stmlib/dsp/units.h"
+#include "stmlib/utils/random.h"
+
+namespace plaits {
+
+using namespace std;
+using namespace stmlib;
+
+void ScannedEngine::Init(BufferAllocator* allocator) {
+  Reset();
+}
+
+void ScannedEngine::Reset() {
+  fill(&position_[0], &position_[kScannedMasses], 0.0f);
+  fill(&velocity_[0], &velocity_[kScannedMasses], 0.0f);
+  scan_phase_ = 0.0f;
+  physics_phase_ = 0.0f;
+  reset_pending_ = true;
+  // No knob is ever negative, so the first Step() computes the masses.
+  mass_inharmonicity_ = mass_structure_ = -1.0f;
+}
+
+void ScannedEngine::Excite(float position, float width, float amount) {
+  const float centre = position * static_cast<float>(kScannedMasses);
+  const float half_inverse_width = 0.5f / width;
+
+  // Only masses closer than `width` to the centre (around the ring) are
+  // struck; the rest would add zero. Visit a window that covers them --
+  // [floor(centre) - reach, floor(centre) + reach + 1] -- split at the ring
+  // end into at most two runs, visited in ascending index order so the mean
+  // sums the same terms in the same order as a pass over every mass.
+  const int reach = static_cast<int>(width) + 1;
+  const int first = static_cast<int>(
+      centre + static_cast<float>(kScannedMasses)) - kScannedMasses - reach;
+  const int end = first + 2 * reach + 2;
+  int run_begin[2] = { 0, 0 };
+  int run_end[2] = { kScannedMasses, 0 };
+  if (end - first < kScannedMasses) {
+    if (first < 0) {
+      run_end[0] = end;
+      run_begin[1] = first + kScannedMasses;
+      run_end[1] = kScannedMasses;
+    } else if (end > kScannedMasses) {
+      run_end[0] = end - kScannedMasses;
+      run_begin[1] = first;
+      run_end[1] = kScannedMasses;
+    } else {
+      run_begin[0] = first;
+      run_end[0] = end;
+    }
+  }
+
+  float mean = 0.0f;
+  for (int run = 0; run < 2; ++run) {
+    for (int i = run_begin[run]; i < run_end[run]; ++i) {
+      float distance = fabsf(static_cast<float>(i) - centre);
+      distance = min(distance, static_cast<float>(kScannedMasses) - distance);
+      if (distance < width) {
+        const float pulse = 0.5f + 0.5f * Sine(
+            0.25f + distance * half_inverse_width);
+        velocity_[i] += pulse * amount;
+        mean += pulse * amount;
+      }
+    }
+  }
+  mean /= static_cast<float>(kScannedMasses);
+  for (int i = 0; i < kScannedMasses; ++i) {
+    velocity_[i] -= mean;
+  }
+}
+
+void ScannedEngine::Step(
+    float inharmonicity,
+    float structure,
+    float damping,
+    float nonlinearity,
+    bool driven,
+    int drive_index) {
+  if (inharmonicity != mass_inharmonicity_ || structure != mass_structure_) {
+    for (int i = 0; i < kScannedMasses; ++i) {
+      // A uniform circular network is translationally symmetric, so moving
+      // the excitation point only changes phase. This fixed irregular mass
+      // profile breaks that symmetry and gives TIMBRE a meaningful spectral
+      // effect.
+      const float mass_profile = static_cast<float>((i * 13) & 31) / 31.0f;
+      const float mass = 1.0f + inharmonicity * 0.45f * (i & 1) + \
+          structure * (0.25f + 1.35f * mass_profile);
+      inverse_mass_[i] = 1.0f / mass;
+    }
+    mass_inharmonicity_ = inharmonicity;
+    mass_structure_ = structure;
+  }
+
+  // The five neighbours of each mass slide through registers, so each
+  // iteration loads one position instead of five (plus four wrapped index
+  // computations). The arithmetic and its order are unchanged.
+  const float biharmonic_amount = 0.018f * inharmonicity;
+  const float nonlinear_amount = nonlinearity * 0.12f;
+  const int mask = kScannedMasses - 1;
+  float l2 = position_[kScannedMasses - 2];
+  float l1 = position_[kScannedMasses - 1];
+  float here = position_[0];
+  float r1 = position_[1];
+  float acceleration[kScannedMasses];
+  float acceleration_mean = 0.0f;
+  for (int i = 0; i < kScannedMasses; ++i) {
+    const float r2 = position_[(i + 2) & mask];
+    const float laplacian = l1 + r1 - 2.0f * here;
+    const float biharmonic = l2 - 4.0f * l1 + 6.0f * here - 4.0f * r1 + r2;
+    float a = (0.22f * laplacian - biharmonic_amount * biharmonic) * \
+        inverse_mass_[i];
+    a -= nonlinear_amount * here * fabsf(here);
+    acceleration[i] = a;
+    acceleration_mean += a;
+    l2 = l1;
+    l1 = here;
+    here = r1;
+    r1 = r2;
+  }
+  if (driven) {
+    const float drive = \
+        (Random::GetFloat() - 0.5f) * (0.002f + 0.004f * nonlinearity);
+    acceleration[drive_index] += drive;
+    acceleration_mean += drive;
+  }
+  acceleration_mean /= static_cast<float>(kScannedMasses);
+
+  float position_mean = 0.0f;
+  float velocity_mean = 0.0f;
+  for (int i = 0; i < kScannedMasses; ++i) {
+    velocity_[i] = (velocity_[i] + acceleration[i] - acceleration_mean) * \
+        damping;
+    position_[i] += velocity_[i];
+    position_mean += position_[i];
+    velocity_mean += velocity_[i];
+  }
+  position_mean /= static_cast<float>(kScannedMasses);
+  velocity_mean /= static_cast<float>(kScannedMasses);
+
+  float peak = 0.0f;
+  for (int i = 0; i < kScannedMasses; ++i) {
+    position_[i] -= position_mean;
+    velocity_[i] -= velocity_mean;
+    peak = max(peak, fabsf(position_[i]));
+  }
+  if (peak > 1.0f) {
+    const float gain = 1.0f / peak;
+    for (int i = 0; i < kScannedMasses; ++i) {
+      position_[i] *= gain;
+      velocity_[i] *= gain;
+    }
+  }
+}
+
+// One virtual pickup: the interpolated readout blended toward its own spatial
+// derivative by TIMBRE, then sine-wavefolded by MORPH. Stereo mode reads a
+// second pickup on the same string, a quarter of the scan span away.
+float ScannedEngine::ReadPickup(
+    float phase,
+    float timbre,
+    float fold_amount,
+    float* derivative) const {
+  // The pickup and its two neighbours for the spatial derivative sit exactly
+  // one mass apart (a phase step of 1 / kScannedMasses is one index), so all
+  // three interpolations share this index and fractional part: four adjacent
+  // masses and one float-to-int conversion instead of three separately
+  // interpolated reads at phase and phase +- 1 / kScannedMasses (as this did
+  // until 2026-09-28). Identical to them except when a neighbour wraps around
+  // the string end, where the old "+ 1.0f" phase wrap rounded the fraction
+  // differently.
+  const float index = phase * static_cast<float>(kScannedMasses);
+  const int integral = static_cast<int>(index);
+  const float fractional = index - static_cast<float>(integral);
+  const int mask = kScannedMasses - 1;
+  const float before = position_[(integral - 1) & mask];
+  const float here = position_[integral];
+  const float next = position_[(integral + 1) & mask];
+  const float after = position_[(integral + 2) & mask];
+  const float sample = here + (next - here) * fractional;
+  const float left = before + (here - before) * fractional;
+  const float right = next + (after - next) * fractional;
+  *derivative = right - left;
+  const float gradient = *derivative * 2.25f;
+  const float scanned = sample + (gradient - sample) * timbre;
+  // Sine() requires a non-negative phase. The offset is safely larger than
+  // the maximum negative excursion of the normalized scanned waveform.
+  const float folded = Sine(
+      16.0f + scanned * (0.25f + 1.25f * fold_amount));
+  return scanned + (folded - scanned) * fold_amount;
+}
+
+void ScannedEngine::Render(
+    const EngineParameters& parameters,
+    float* out,
+    float* aux,
+    size_t size,
+    bool* already_enveloped) {
+  const float structure = parameters.timbre * parameters.timbre;
+  // HARMONICS originally derived much of its audible range from moving the
+  // excitation between a broad strike and a narrow, bright impulse. Keep that
+  // role separate from TIMBRE's mass profile and scan-path transformations.
+  const float strike_width = 1.25f + 5.0f * (1.0f - parameters.harmonics);
+  if (reset_pending_ || (parameters.trigger & TRIGGER_RISING_EDGE)) {
+    Excite(parameters.timbre, strike_width, 0.3f + 0.5f * parameters.accent);
+    reset_pending_ = false;
+  }
+
+  const float base_frequency = min(0.24f, NoteToFrequency(parameters.note));
+  const float physics_rate = 20.0f * SemitonesToRatio(parameters.macro * 72.0f) / \
+      kCorrectedSampleRate;
+  const float damping = 0.99985f - 0.065f * parameters.morph * \
+      parameters.morph;
+  const float nonlinearity = parameters.morph * parameters.morph;
+  const bool driven = parameters.trigger & TRIGGER_UNPATCHED;
+  int drive_index = static_cast<int>(
+      parameters.timbre * static_cast<float>(kScannedMasses));
+  if (drive_index >= kScannedMasses) {
+    drive_index = kScannedMasses - 1;
+  }
+
+  for (size_t i = 0; i < size; ++i) {
+    physics_phase_ += physics_rate;
+    while (physics_phase_ >= 1.0f) {
+      physics_phase_ -= 1.0f;
+      Step(
+          parameters.harmonics,
+          structure,
+          damping,
+          nonlinearity,
+          driven,
+          drive_index);
+    }
+
+    float frequency = base_frequency;
+#if PLAITS_BUILD_FREQUENCY_OFFSET_FM
+    if (parameters.frequency_offset) {
+      frequency += parameters.frequency_offset[i];
+      CONSTRAIN(frequency, PLAITS_BUILD_EXTENDED_TZFM ? -0.24f : 0.0f, 0.24f);
+    }
+#endif
+    scan_phase_ += frequency;
+    scan_phase_ = TzfmWrap(scan_phase_);
+    // Phase distortion of the scan path makes TIMBRE audible even between
+    // excitations, while remaining continuous at the waveform boundary.
+    float warped_phase = scan_phase_ + 0.22f * structure * Sine(scan_phase_);
+    if (warped_phase < 0.0f) {
+      warped_phase += 1.0f;
+    } else if (warped_phase >= 1.0f) {
+      warped_phase -= 1.0f;
+    }
+    // MORPH now travels from the raw scan into a clearly audible nonlinear
+    // regime. The squared mapping leaves the lower half useful for traditional
+    // damping changes, then introduces up to 1.5 cycles of sine wavefolding.
+    const float fold_amount = parameters.morph * parameters.morph;
+    float derivative;
+    const float shaped = ReadPickup(
+        warped_phase, parameters.timbre, fold_amount, &derivative);
+    out[i] = shaped * 0.8f;
+    if ((PLAITS_STEREO_SCANNED && parameters.stereo)) {
+      // OUT/AUX become L/R: a second pickup a quarter of the scan span away
+      // reads the same string through the identical readout and wavefolder.
+      // The physics is shared; only this readout is extra.
+      float pickup_phase = warped_phase + 0.25f;
+      if (pickup_phase >= 1.0f) {
+        pickup_phase -= 1.0f;
+      }
+      float unused_derivative;
+      aux[i] = 0.8f * ReadPickup(
+          pickup_phase, parameters.timbre, fold_amount, &unused_derivative);
+    } else {
+      aux[i] = derivative * 2.0f;
+    }
+  }
+}
+
+}  // namespace plaits

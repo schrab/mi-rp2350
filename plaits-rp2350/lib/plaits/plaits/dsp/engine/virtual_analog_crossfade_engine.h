@@ -1,0 +1,91 @@
+// Copyright 2016 Emilie Gillet.
+// Copyright 2026 Rubato Audio.
+//
+// Author: Emilie Gillet (emilie.o.gillet@gmail.com)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
+// See http://creativecommons.org/licenses/MIT/ for more information.
+//
+// -----------------------------------------------------------------------------
+//
+// Emilie Gillet's original VA_VARIANT 1, made independently selectable.
+//
+// MORPH changes the common variable waveform. TIMBRE moves from a detuned pair
+// through the dry primary to progressively harder synchronization. The Plaits
+// Palette fourth macro scales interval detuning from unison to twice the
+// original range, with 0.5 exactly reproducing the original implementation.
+
+#ifndef PLAITS_DSP_ENGINE_VIRTUAL_ANALOG_CROSSFADE_ENGINE_H_
+#define PLAITS_DSP_ENGINE_VIRTUAL_ANALOG_CROSSFADE_ENGINE_H_
+
+#include "plaits/dsp/engine/engine.h"
+#include "plaits/dsp/engine/twist_tuning.h"
+#include "plaits/dsp/oscillator/variable_shape_oscillator.h"
+
+namespace plaits {
+
+class VirtualAnalogCrossfadeEngine : public Engine {
+ public:
+  VirtualAnalogCrossfadeEngine() : twist_tuning_(kDefaultTwistTuning) { }
+  ~VirtualAnalogCrossfadeEngine() { }
+
+  // Which TWIST span this INSTANCE uses. Registration runs before Voice::Init
+  // (voice.cc calls PLAITS_REGISTER_ENGINES and only then Init on each
+  // registered engine), and neither Init() nor Reset() touches this, so a
+  // generated config can register the same engine class more than once and
+  // give each copy a different span.
+  void set_twist_tuning(TwistTuning mode) { twist_tuning_ = mode; }
+
+  virtual void Init(stmlib::BufferAllocator* allocator);
+  virtual void Reset();
+  virtual void LoadUserData(const uint8_t* user_data) { }
+  virtual void Render(const EngineParameters& parameters,
+      float* out,
+      float* aux,
+      size_t size,
+      bool* already_enveloped);
+  virtual bool stereo_capable() const {
+    return PLAITS_STEREO_VIRTUAL_ANALOG_CROSSFADE;
+  }
+#if PLAITS_BUILD_ENABLE_SYNC_INPUT
+  virtual bool hard_sync_capable() const { return true; }
+#endif
+  virtual bool linear_tzfm_capable() const { return true; }
+  virtual bool fast_fm_capable() const { return true; }
+
+ private:
+  float ComputeDetuning(float detune) const;
+
+  VariableShapeOscillator primary_;
+  VariableShapeOscillator auxiliary_;
+  VariableShapeOscillator sync_;
+
+  float auxiliary_amount_;
+  float xmod_amount_;
+  float* temp_buffer_;
+
+  TwistTuning twist_tuning_;
+
+  DISALLOW_COPY_AND_ASSIGN(VirtualAnalogCrossfadeEngine);
+};
+
+}  // namespace plaits
+
+#endif  // PLAITS_DSP_ENGINE_VIRTUAL_ANALOG_CROSSFADE_ENGINE_H_

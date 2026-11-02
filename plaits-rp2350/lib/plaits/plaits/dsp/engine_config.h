@@ -1,0 +1,404 @@
+// plaits-rp2350 port registry: all 98 Plaits-Lab catalog engines, registry
+// order = alt_firmwares/plaits_lab_catalog/catalog.json order 0..97 (the
+// fork's own id order). Derived from the catalog's source.className / source.member
+// / source.header / postProcessing fields and the macro format of
+// generate_engine_config.py + stock_engine_config.h.
+//
+// Port deltas vs a generated recipe config:
+//   * 98 slots (build_config.h ceiling raised; voice.cc mask shifts widened
+//     to 1ULL — see tools/patches/plaits/02/04).
+//   * kSpeechEngineMask / kChiptuneEngineMask (and the speech-family masks)
+//     are uint64_t: they are indexed by slot with 1ULL << engine_index and
+//     slots reach 97.
+//   * PLAITS_HAS_USER_DATA_BANK defaults to 1 (the three dx7-bank SixOpEngine
+//     slots read fm_patches_table[0/1/2] = syx_bank_0/1/2 in resources.cc; a
+//     build that overrides it with -D wins).
+//   * SixOpEngine is declared ONCE and registered three times (catalog slots
+//     22/23/24 = dx7-bank-a/b/c), exactly as stock_engine_config.h does.
+//   * No PLAITS_RANDOMIZER_PROFILES / PLAITS_ENGINE_RANDOMIZER_PROFILE_INDICES:
+//     voice.cc then uses its stock single-profile default.
+#ifndef PLAITS_DSP_ENGINE_CONFIG_H_
+#define PLAITS_DSP_ENGINE_CONFIG_H_
+
+// These feature gates must precede the engine includes: engine.h uses them to
+// erase the optional frequency-offset interface from ordinary builds. Guarded:
+// voice.h includes engine.h (which carries the same #ifndef fallbacks) before
+// this file, and a -D from the build system must win.
+#ifndef PLAITS_BUILD_LINEAR_TZFM
+#define PLAITS_BUILD_LINEAR_TZFM 0
+#endif
+#ifndef PLAITS_BUILD_FAST_FM
+#define PLAITS_BUILD_FAST_FM 0
+#endif
+#ifndef PLAITS_BUILD_ENABLE_SYNC_INPUT
+#define PLAITS_BUILD_ENABLE_SYNC_INPUT 0
+#endif
+#define PLAITS_HAS_TERRAIN_BANK 0
+#define PLAITS_WAVE_TERRAIN_FACTORY_MASK 0xff
+#define PLAITS_HAS_WAVETABLE_BANK 0
+#define PLAITS_WAVETABLE_FACTORY_MASK 0x07
+#define PLAITS_HAS_CUSTOM_WAVE_LINES 0
+
+#include "plaits/resources.h"
+#include "plaits/user_data_region.h"
+
+// Catalog order 0..97. (plaits/dsp/engine/... for the 16 stock engine files,
+// plaits/dsp/engine2/... for the rest, engine/ again for virtual_analog_variant.)
+#include "plaits/dsp/engine/virtual_analog_engine.h"
+#include "plaits/dsp/engine/virtual_analog_dual_engine.h"
+#include "plaits/dsp/engine/virtual_analog_crossfade_engine.h"
+#include "plaits/dsp/engine/waveshaping_engine.h"
+#include "plaits/dsp/engine/fm_engine.h"
+#include "plaits/dsp/engine/grain_engine.h"
+#include "plaits/dsp/engine/additive_engine.h"
+#include "plaits/dsp/engine/wavetable_engine.h"
+#include "plaits/dsp/engine/chord_engine.h"
+#include "plaits/dsp/engine/speech_engine.h"
+#include "plaits/dsp/engine2/formant_speech_engine.h"
+#include "plaits/dsp/engine2/lpc_speech_engine.h"
+#include "plaits/dsp/engine/swarm_engine.h"
+#include "plaits/dsp/engine/noise_engine.h"
+#include "plaits/dsp/engine/particle_engine.h"
+#include "plaits/dsp/engine/string_engine.h"
+#include "plaits/dsp/engine/modal_engine.h"
+#include "plaits/dsp/engine/bass_drum_engine.h"
+#include "plaits/dsp/engine/snare_drum_engine.h"
+#include "plaits/dsp/engine/hi_hat_engine.h"
+#include "plaits/dsp/engine2/virtual_analog_vcf_engine.h"
+#include "plaits/dsp/engine2/phase_distortion_engine.h"
+#include "plaits/dsp/engine2/six_op_engine.h"
+#include "plaits/dsp/engine2/wave_terrain_engine.h"
+#include "plaits/dsp/engine2/string_machine_engine.h"
+#include "plaits/dsp/engine2/chiptune_engine.h"
+#include "plaits/dsp/engine2/natural_speech_engine.h"
+#include "plaits/dsp/engine2/glisson_engine.h"
+#include "plaits/dsp/engine2/gendy_engine.h"
+#include "plaits/dsp/engine2/scanned_engine.h"
+#include "plaits/dsp/engine2/pulsar_engine.h"
+#include "plaits/dsp/engine2/loopback_engine.h"
+#include "plaits/dsp/engine2/lockstep_engine.h"
+#include "plaits/dsp/engine2/tapfield_engine.h"
+#include "plaits/dsp/engine2/phase_weave_engine.h"
+#include "plaits/dsp/engine2/sideband_engine.h"
+#include "plaits/dsp/engine2/attractor_engine.h"
+#include "plaits/dsp/engine2/undertow_engine.h"
+#include "plaits/dsp/engine2/reed_pipe_engine.h"
+#include "plaits/dsp/engine2/phase_flock_engine.h"
+#include "plaits/dsp/engine2/rulefield_engine.h"
+#include "plaits/dsp/engine2/spectral_spiral_engine.h"
+#include "plaits/dsp/engine2/z_filter_engine.h"
+#include "plaits/dsp/engine2/toy_engine.h"
+#include "plaits/dsp/engine2/csaw_engine.h"
+#include "plaits/dsp/engine2/ring_mod_engine.h"
+#include "plaits/dsp/engine2/fold_engine.h"
+#include "plaits/dsp/engine2/buzz_engine.h"
+#include "plaits/dsp/engine2/dual_sync_engine.h"
+#include "plaits/dsp/engine2/granular_cloud_engine.h"
+#include "plaits/dsp/engine2/morph_engine.h"
+#include "plaits/dsp/engine2/noise_bank_engine.h"
+#include "plaits/dsp/engine2/particle_burst_engine.h"
+#include "plaits/dsp/engine2/saw_square_engine.h"
+#include "plaits/dsp/engine2/saw_swarm_engine.h"
+#include "plaits/dsp/engine2/vowel_engine.h"
+#include "plaits/dsp/engine2/harmonics_engine.h"
+#include "plaits/dsp/engine2/vosim_engine.h"
+#include "plaits/dsp/engine2/plucked_engine.h"
+#include "plaits/dsp/engine2/blown_engine.h"
+#include "plaits/dsp/engine2/struck_bell_engine.h"
+#include "plaits/dsp/engine2/struck_drum_engine.h"
+#include "plaits/dsp/engine2/kick_engine.h"
+#include "plaits/dsp/engine2/snare_engine.h"
+#include "plaits/dsp/engine2/cymbal_engine.h"
+#include "plaits/dsp/engine2/wave_scan_engine.h"
+#include "plaits/dsp/engine2/wave_paraphonic_engine.h"
+#include "plaits/dsp/engine2/fluted_engine.h"
+#include "plaits/dsp/engine2/question_mark_engine.h"
+#include "plaits/dsp/engine/virtual_analog_variant_engine.h"
+#include "plaits/dsp/engine2/bowed_engine.h"
+#include "plaits/dsp/engine2/sub_oscillator_engine.h"
+#include "plaits/dsp/engine2/digital_modulation_engine.h"
+#include "plaits/dsp/engine2/saw_comb_engine.h"
+#include "plaits/dsp/engine2/vowel_fof_engine.h"
+#include "plaits/dsp/engine2/raw_fm_engine.h"
+#include "plaits/dsp/engine2/triple_engine.h"
+#include "plaits/dsp/engine2/bytebeat_engine.h"
+#include "plaits/dsp/engine2/diatonic_chord_engine.h"
+#include "plaits/dsp/engine2/scale_stack_engine.h"
+#include "plaits/dsp/engine2/wavetable_chord_engine.h"
+#include "plaits/dsp/engine2/wavetable_scale_stack_engine.h"
+#include "plaits/dsp/engine2/shakers_engine.h"
+#include "plaits/dsp/engine2/brass_engine.h"
+#include "plaits/dsp/engine2/helix_engine.h"
+#include "plaits/dsp/engine2/skins_engine.h"
+#include "plaits/dsp/engine2/circuit_zaps_engine.h"
+#include "plaits/dsp/engine2/metalwork_engine.h"
+#include "plaits/dsp/engine2/clap_engine.h"
+#include "plaits/dsp/engine2/analog_percussion_engine.h"
+#include "plaits/dsp/engine2/freshets_formant_engine.h"
+#include "plaits/dsp/engine2/bubbletime_engine.h"
+#include "plaits/dsp/engine2/zxphase48k_engine.h"
+#include "plaits/dsp/engine2/zxpulse48k_engine.h"
+#include "plaits/dsp/engine2/acid_engine.h"
+#include "plaits/dsp/engine2/chords_supersaw_engine.h"
+
+// The plaits-rp2350 platformio.ini also passes -DPLAITS_ENGINE_COUNT=98; the
+// guard keeps a command-line definition authoritative.
+#ifndef PLAITS_ENGINE_COUNT
+#define PLAITS_ENGINE_COUNT 98
+#endif
+
+#define PLAITS_HAS_SPEECH_ENGINE 1
+#define PLAITS_HAS_LPC_WORDS_ENGINE 1
+#define PLAITS_HAS_NATURAL_SPEECH_ENGINE 1
+#define PLAITS_NATURAL_SPEECH_ENGINE_MEMBER natural_speech_engine_
+#define PLAITS_HAS_CHIPTUNE_ENGINE 1
+#ifndef PLAITS_HAS_USER_DATA_BANK
+#define PLAITS_HAS_USER_DATA_BANK 1
+#endif
+#define PLAITS_HAS_USER_DATA_BANK_OVERRIDE 0
+#define PLAITS_HAS_CUSTOM_MODEL_DATA 0
+
+// One member per catalog engine class; SixOpEngine appears once and is
+// registered three times (dx7-bank-a/b/c below).
+#define PLAITS_ENGINE_MEMBERS \
+  VirtualAnalogEngine virtual_analog_engine_; \
+  VirtualAnalogDualEngine virtual_analog_dual_engine_; \
+  VirtualAnalogCrossfadeEngine virtual_analog_crossfade_engine_; \
+  WaveshapingEngine waveshaping_engine_; \
+  FMEngine fm_engine_; \
+  GrainEngine grain_engine_; \
+  AdditiveEngine additive_engine_; \
+  WavetableEngine wavetable_engine_; \
+  ChordEngine chord_engine_; \
+  SpeechEngine speech_engine_; \
+  FormantSpeechEngine formant_speech_engine_; \
+  LPCSpeechEngine lpc_speech_engine_; \
+  SwarmEngine swarm_engine_; \
+  NoiseEngine noise_engine_; \
+  ParticleEngine particle_engine_; \
+  StringEngine string_engine_; \
+  ModalEngine modal_engine_; \
+  BassDrumEngine bass_drum_engine_; \
+  SnareDrumEngine snare_drum_engine_; \
+  HiHatEngine hi_hat_engine_; \
+  VirtualAnalogVCFEngine virtual_analog_vcf_engine_; \
+  PhaseDistortionEngine phase_distortion_engine_; \
+  SixOpEngine six_op_engine_; \
+  WaveTerrainEngine wave_terrain_engine_; \
+  StringMachineEngine string_machine_engine_; \
+  ChiptuneEngine chiptune_engine_; \
+  NaturalSpeechEngine natural_speech_engine_; \
+  GlissonEngine glisson_engine_; \
+  GendyEngine gendy_engine_; \
+  ScannedEngine scanned_engine_; \
+  PulsarEngine pulsar_engine_; \
+  LoopbackEngine loopback_engine_; \
+  LockstepEngine lockstep_engine_; \
+  TapfieldEngine tapfield_engine_; \
+  PhaseWeaveEngine phase_weave_engine_; \
+  SidebandEngine sideband_engine_; \
+  AttractorEngine attractor_engine_; \
+  UndertowEngine undertow_engine_; \
+  ReedPipeEngine reed_pipe_engine_; \
+  PhaseFlockEngine phase_flock_engine_; \
+  RulefieldEngine rulefield_engine_; \
+  SpectralSpiralEngine spectral_spiral_engine_; \
+  ZFilterEngine z_filter_engine_; \
+  ToyEngine toy_engine_; \
+  CSawEngine csaw_engine_; \
+  RingModEngine ring_mod_engine_; \
+  FoldEngine fold_engine_; \
+  BuzzEngine buzz_engine_; \
+  DualSyncEngine dual_sync_engine_; \
+  GranularCloudEngine granular_cloud_engine_; \
+  MorphEngine morph_engine_; \
+  NoiseBankEngine noise_bank_engine_; \
+  ParticleBurstEngine particle_burst_engine_; \
+  SawSquareEngine saw_square_engine_; \
+  SawSwarmEngine saw_swarm_engine_; \
+  VowelEngine vowel_engine_; \
+  HarmonicsEngine harmonics_engine_; \
+  VosimEngine vosim_engine_; \
+  PluckedEngine plucked_engine_; \
+  BlownEngine blown_engine_; \
+  StruckBellEngine struck_bell_engine_; \
+  StruckDrumEngine struck_drum_engine_; \
+  KickEngine kick_engine_; \
+  SnareEngine snare_engine_; \
+  CymbalEngine cymbal_engine_; \
+  WaveScanEngine wave_scan_engine_; \
+  WaveParaphonicEngine wave_paraphonic_engine_; \
+  FlutedEngine fluted_engine_; \
+  QuestionMarkEngine question_mark_engine_; \
+  VirtualAnalogVariantEngine virtual_analog_variant_engine_; \
+  BowedEngine bowed_engine_; \
+  SubOscillatorEngine sub_oscillator_engine_; \
+  DigitalModulationEngine digital_modulation_engine_; \
+  SawCombEngine saw_comb_engine_; \
+  VowelFofEngine vowel_fof_engine_; \
+  RawFmEngine raw_fm_engine_; \
+  TripleEngine triple_engine_; \
+  BytebeatEngine bytebeat_engine_; \
+  DiatonicChordEngine diatonic_chord_engine_; \
+  ScaleStackEngine scale_stack_engine_; \
+  WavetableChordEngine wavetable_chord_engine_; \
+  WavetableScaleStackEngine wavetable_scale_stack_engine_; \
+  ShakersEngine shakers_engine_; \
+  BrassEngine brass_engine_; \
+  HelixEngine helix_engine_; \
+  SkinsEngine skins_engine_; \
+  CircuitZapsEngine circuit_zaps_engine_; \
+  MetalworkEngine metalwork_engine_; \
+  ClapEngine clap_engine_; \
+  AnalogPercussionEngine analog_percussion_engine_; \
+  FreshetsFormantEngine freshets_formant_engine_; \
+  BubbleTimeEngine bubbletime_engine_; \
+  ZxPhase48kEngine zxphase48k_engine_; \
+  ZxPulse48kEngine zxpulse48k_engine_; \
+  AcidEngine acid_engine_; \
+  ChordsSupersawEngine chords_supersaw_engine_;
+
+// RegisterInstance(engine, already_enveloped, out_gain, aux_gain): the gains
+// are the catalog's postProcessing values (negative = limiter).
+#define PLAITS_REGISTER_ENGINES(registry) do { \
+  (registry).RegisterInstance(&virtual_analog_engine_, false, 0.8f, 0.8f); \
+  (registry).RegisterInstance(&virtual_analog_dual_engine_, false, 0.436f, 0.436f); \
+  (registry).RegisterInstance(&virtual_analog_crossfade_engine_, false, 0.35f, 0.35f); \
+  (registry).RegisterInstance(&waveshaping_engine_, false, 0.7f, 0.6f); \
+  (registry).RegisterInstance(&fm_engine_, false, 0.6f, 0.6f); \
+  (registry).RegisterInstance(&grain_engine_, false, 0.7f, 0.6f); \
+  (registry).RegisterInstance(&additive_engine_, false, 0.8f, 0.8f); \
+  (registry).RegisterInstance(&wavetable_engine_, false, 0.6f, 0.6f); \
+  (registry).RegisterInstance(&chord_engine_, false, 0.8f, 0.8f); \
+  (registry).RegisterInstance(&speech_engine_, false, -0.7f, 0.8f); \
+  (registry).RegisterInstance(&formant_speech_engine_, false, -0.84f, 0.96f); \
+  (registry).RegisterInstance(&lpc_speech_engine_, false, -0.7f, 0.8f); \
+  (registry).RegisterInstance(&swarm_engine_, false, -3.0f, 1.0f); \
+  (registry).RegisterInstance(&noise_engine_, false, -1.0f, -1.0f); \
+  (registry).RegisterInstance(&particle_engine_, false, -2.0f, 1.0f); \
+  (registry).RegisterInstance(&string_engine_, true, -1.0f, 0.8f); \
+  (registry).RegisterInstance(&modal_engine_, true, -1.0f, 0.8f); \
+  (registry).RegisterInstance(&bass_drum_engine_, true, 0.8f, 0.8f); \
+  (registry).RegisterInstance(&snare_drum_engine_, true, 0.8f, 0.8f); \
+  (registry).RegisterInstance(&hi_hat_engine_, true, 0.8f, 0.8f); \
+  (registry).RegisterInstance(&virtual_analog_vcf_engine_, false, 1.0f, 1.0f); \
+  (registry).RegisterInstance(&phase_distortion_engine_, false, 0.7f, 0.7f); \
+  (registry).RegisterInstance(&six_op_engine_, true, 1.0f, 1.0f); \
+  (registry).RegisterInstance(&six_op_engine_, true, 1.0f, 1.0f); \
+  (registry).RegisterInstance(&six_op_engine_, true, 1.0f, 1.0f); \
+  (registry).RegisterInstance(&wave_terrain_engine_, false, 0.7f, 0.7f); \
+  (registry).RegisterInstance(&string_machine_engine_, false, 0.8f, 0.8f); \
+  (registry).RegisterInstance(&chiptune_engine_, false, 0.5f, 0.5f); \
+  (registry).RegisterInstance(&natural_speech_engine_, false, 1.425f, 1.425f); \
+  (registry).RegisterInstance(&glisson_engine_, false, 1.311f, 1.311f); \
+  (registry).RegisterInstance(&gendy_engine_, false, 0.95f, 0.95f); \
+  (registry).RegisterInstance(&scanned_engine_, false, -1.0f, -1.0f); \
+  (registry).RegisterInstance(&pulsar_engine_, false, 1.104f, 1.104f); \
+  (registry).RegisterInstance(&loopback_engine_, false, 0.53f, 0.53f); \
+  (registry).RegisterInstance(&lockstep_engine_, false, 0.364f, 0.364f); \
+  (registry).RegisterInstance(&tapfield_engine_, false, 0.8f, 0.8f); \
+  (registry).RegisterInstance(&phase_weave_engine_, false, 0.93f, 0.93f); \
+  (registry).RegisterInstance(&sideband_engine_, false, 0.511f, 0.511f); \
+  (registry).RegisterInstance(&attractor_engine_, false, 1.113f, 1.113f); \
+  (registry).RegisterInstance(&undertow_engine_, false, 1.246f, 1.246f); \
+  (registry).RegisterInstance(&reed_pipe_engine_, false, 1.129f, 1.129f); \
+  (registry).RegisterInstance(&phase_flock_engine_, false, 0.467f, 0.467f); \
+  (registry).RegisterInstance(&rulefield_engine_, false, 1.0f, 1.0f); \
+  (registry).RegisterInstance(&spectral_spiral_engine_, false, 0.891f, 0.891f); \
+  (registry).RegisterInstance(&z_filter_engine_, false, 1.059f, 1.059f); \
+  (registry).RegisterInstance(&toy_engine_, false, -0.56f, -0.56f); \
+  (registry).RegisterInstance(&csaw_engine_, false, 0.493f, 0.493f); \
+  (registry).RegisterInstance(&ring_mod_engine_, false, -1.5f, -1.5f); \
+  (registry).RegisterInstance(&fold_engine_, false, -0.512f, -0.512f); \
+  (registry).RegisterInstance(&buzz_engine_, false, 0.591f, 0.591f); \
+  (registry).RegisterInstance(&dual_sync_engine_, false, -0.618f, -0.618f); \
+  (registry).RegisterInstance(&granular_cloud_engine_, false, 1.103f, 0.689f); \
+  (registry).RegisterInstance(&morph_engine_, false, -0.375f, -0.375f); \
+  (registry).RegisterInstance(&noise_bank_engine_, false, 0.704f, 0.704f); \
+  (registry).RegisterInstance(&particle_burst_engine_, false, 1.0f, 1.0f); \
+  (registry).RegisterInstance(&saw_square_engine_, false, 1.029f, 1.029f); \
+  (registry).RegisterInstance(&saw_swarm_engine_, false, -1.201f, -1.201f); \
+  (registry).RegisterInstance(&vowel_engine_, false, -0.877f, -1.566f); \
+  (registry).RegisterInstance(&harmonics_engine_, false, 0.8f, 0.8f); \
+  (registry).RegisterInstance(&vosim_engine_, false, -0.694f, -0.694f); \
+  (registry).RegisterInstance(&plucked_engine_, false, 1.537f, 1.537f); \
+  (registry).RegisterInstance(&blown_engine_, false, -2.23f, -2.23f); \
+  (registry).RegisterInstance(&struck_bell_engine_, true, 1.325f, 1.325f); \
+  (registry).RegisterInstance(&struck_drum_engine_, true, 1.243f, 1.243f); \
+  (registry).RegisterInstance(&kick_engine_, true, 1.0f, 0.8f); \
+  (registry).RegisterInstance(&snare_engine_, true, 1.0f, 1.0f); \
+  (registry).RegisterInstance(&cymbal_engine_, false, 1.206f, 1.206f); \
+  (registry).RegisterInstance(&wave_scan_engine_, false, -0.614f, -0.614f); \
+  (registry).RegisterInstance(&wave_paraphonic_engine_, false, 1.278f, 1.278f); \
+  (registry).RegisterInstance(&fluted_engine_, false, -0.8f, -0.8f); \
+  (registry).RegisterInstance(&question_mark_engine_, false, -1.327f, -1.327f); \
+  (registry).RegisterInstance(&virtual_analog_variant_engine_, false, 0.337f, 0.337f); \
+  (registry).RegisterInstance(&bowed_engine_, false, -2.993f, -2.993f); \
+  (registry).RegisterInstance(&sub_oscillator_engine_, false, -0.593f, -0.593f); \
+  (registry).RegisterInstance(&digital_modulation_engine_, false, -0.768f, -0.698f); \
+  (registry).RegisterInstance(&saw_comb_engine_, false, -0.547f, -0.547f); \
+  (registry).RegisterInstance(&vowel_fof_engine_, false, -3.045f, -3.045f); \
+  (registry).RegisterInstance(&raw_fm_engine_, false, -0.45f, -0.45f); \
+  (registry).RegisterInstance(&triple_engine_, false, -0.774f, -0.774f); \
+  (registry).RegisterInstance(&bytebeat_engine_, false, -0.653f, -0.653f); \
+  (registry).RegisterInstance(&diatonic_chord_engine_, false, -1.213f, -1.213f); \
+  (registry).RegisterInstance(&scale_stack_engine_, false, -1.148f, -1.148f); \
+  (registry).RegisterInstance(&wavetable_chord_engine_, false, -0.65f, -0.65f); \
+  (registry).RegisterInstance(&wavetable_scale_stack_engine_, false, -0.6f, -0.6f); \
+  (registry).RegisterInstance(&shakers_engine_, true, 1.0f, 1.0f); \
+  (registry).RegisterInstance(&brass_engine_, false, -2.087f, 1.67f); \
+  (registry).RegisterInstance(&helix_engine_, false, 0.8f, 0.8f); \
+  (registry).RegisterInstance(&skins_engine_, true, 1.438f, 1.438f); \
+  (registry).RegisterInstance(&circuit_zaps_engine_, true, 0.88f, 0.88f); \
+  (registry).RegisterInstance(&metalwork_engine_, true, 2.545f, 2.545f); \
+  (registry).RegisterInstance(&clap_engine_, true, 1.062f, 1.062f); \
+  (registry).RegisterInstance(&analog_percussion_engine_, true, 1.013f, 1.013f); \
+  (registry).RegisterInstance(&freshets_formant_engine_, false, 1.4f, 0.856f); \
+  (registry).RegisterInstance(&bubbletime_engine_, false, 0.8f, 1.0f); \
+  (registry).RegisterInstance(&zxphase48k_engine_, false, 0.8f, 0.8f); \
+  (registry).RegisterInstance(&zxpulse48k_engine_, false, 1.824f, 1.824f); \
+  (registry).RegisterInstance(&acid_engine_, false, 0.631f, 0.631f); \
+  (registry).RegisterInstance(&chords_supersaw_engine_, false, 0.983f, 0.983f); \
+} while (0)
+
+namespace plaits {
+
+// FM user-data bank per engine slot: the catalog maps dx7-bank-a/b/c (slots
+// 22/23/24) to banks 0/1/2; every other slot has none. voice.cc resolves a
+// bank index to fm_patches_table[bank] = syx_bank_0/1/2 in resources.cc.
+#if PLAITS_HAS_USER_DATA_BANK
+static const int8_t kEngineUserDataBank[PLAITS_ENGINE_COUNT] = {
+  // slots 0..21: no FM bank
+  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+  // slots 22..24: dx7-bank-a/b/c -> banks 0/1/2
+  0, 1, 2,
+  // slots 25..97: no FM bank (73 entries)
+  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+  -1, -1, -1, -1
+};
+#endif  // PLAITS_HAS_USER_DATA_BANK
+
+// Speech-family/chiptune behavior masks. Slot-indexed bitfields, widened to
+// uint64_t for the 98-slot catalog (stock builds fit in uint32_t):
+//   speech           slot  9 -> 0x0000000000000200ULL
+//   lpc-words        slot 11 -> 0x0000000000000800ULL
+//   natural-speech   slot 28 -> 0x0000000010000000ULL
+//   chiptune         slot 27 -> 0x0000000008000000ULL
+#if PLAITS_HAS_SPEECH_ENGINE
+static const uint64_t kSpeechEngineMask = 0x0000000000000200ULL;
+#endif
+#if PLAITS_HAS_NATURAL_SPEECH_ENGINE
+static const uint64_t kNaturalSpeechEngineMask = 0x0000000010000000ULL;
+#endif
+#if PLAITS_HAS_LPC_WORDS_ENGINE
+static const uint64_t kLPCWordsEngineMask = 0x0000000000000800ULL;
+#endif
+#if PLAITS_HAS_CHIPTUNE_ENGINE
+static const uint64_t kChiptuneEngineMask = 0x0000000008000000ULL;
+#endif
+
+}  // namespace plaits
+
+#endif  // PLAITS_DSP_ENGINE_CONFIG_H_

@@ -1,0 +1,243 @@
+// Copyright 2026 Lyle Mills.
+// SPDX-License-Identifier: MIT
+//
+// Glisson/granular chirp synthesis engine.
+
+#include "plaits/dsp/engine2/glisson_engine.h"
+
+#include <algorithm>
+
+#include "plaits/build_config.h"
+#include "plaits/dsp/oscillator/sine_oscillator.h"
+#include "stmlib/dsp/units.h"
+#include "stmlib/utils/random.h"
+
+namespace plaits {
+
+using namespace std;
+using namespace stmlib;
+
+namespace {
+
+// Keep chirps below the least useful top octave. This intentionally uses a
+// cheap clamp: the engine calls it twice per grain per sample on a 72 MHz MCU.
+float LimitFrequency(float frequency) {
+  return min(0.22f, frequency);
+}
+
+}  // namespace
+
+void GlissonEngine::Init(BufferAllocator* allocator) {
+  Reset();
+}
+
+void GlissonEngine::Reset() {
+  for (int i = 0; i < kNumGlissonGrains; ++i) {
+    grain_[i].phase = 0.0f;
+    grain_[i].aux_phase = 0.0f;
+    grain_[i].envelope_phase = 1.0f;
+    grain_[i].envelope_increment = 0.001f;
+    grain_[i].start_ratio = 1.0f;
+    grain_[i].end_ratio = 1.0f;
+    StereoPanGains(
+        0.5f, &grain_[i].start_gain_left, &grain_[i].start_gain_right);
+    grain_[i].end_gain_left = grain_[i].start_gain_left;
+    grain_[i].end_gain_right = grain_[i].start_gain_right;
+  }
+  num_grains_ = 0;
+  reset_pending_ = true;
+}
+
+void GlissonEngine::StartGrain(
+    Grain* grain,
+    float scatter,
+    float direction,
+    float duration,
+    float delay,
+    bool stereo) {
+  const float random_pitch = 2.0f * Random::GetFloat() - 1.0f;
+  const float centre = random_pitch * scatter;
+  const float excursion = direction * (3.0f + 0.65f * scatter);
+
+  grain->start_ratio = SemitonesToRatio(centre - 0.5f * excursion);
+  grain->end_ratio = SemitonesToRatio(centre + 0.5f * excursion);
+  grain->envelope_phase = -delay;
+  grain->envelope_increment = 1.0f / duration;
+
+  // Drawn only in stereo, so that the mono render consumes an unchanged
+  // random sequence.
+  if (stereo) {
+    // Independent, arcsine-distributed endpoints: uniform draws average too
+    // close to the centre to read as wide, and a mirrored trajectory would
+    // cross the centre exactly when the parabolic grain envelope peaks.
+    const float start_pan = 0.5f - \
+        0.5f * Sine(0.25f + 0.5f * Random::GetFloat());
+    const float end_pan = 0.5f - \
+        0.5f * Sine(0.25f + 0.5f * Random::GetFloat());
+    StereoPanGains(
+        start_pan, &grain->start_gain_left, &grain->start_gain_right);
+    StereoPanGains(
+        end_pan, &grain->end_gain_left, &grain->end_gain_right);
+  }
+}
+
+// The mono render. Each grain runs on a local copy, written back after its
+// samples: as a member reached through `g`, every store to `out`/`aux` could
+// alias its phases, so they were reloaded and stored every sample. When the
+// voice discards AUX (render_aux false) the reverse-chirp oscillator that
+// only feeds AUX is skipped; its phase pauses, which nothing can hear.
+template<bool render_aux>
+void GlissonEngine::RenderMono(
+    const EngineParameters& parameters,
+    int num_grains,
+    float f0,
+    float scatter,
+    float direction,
+    float duration,
+    float gain,
+    float* out,
+    float* aux,
+    size_t size) {
+  const float macro = parameters.macro;
+  for (int i = 0; i < num_grains; ++i) {
+    Grain grain = grain_[i];
+    Grain* g = &grain;
+    for (size_t j = 0; j < size; ++j) {
+      g->envelope_phase += g->envelope_increment;
+      if (g->envelope_phase >= 1.0f) {
+        StartGrain(g, scatter, direction, duration, 0.0f, false);
+      }
+      if (g->envelope_phase < 0.0f) {
+        continue;
+      }
+
+      float t = g->envelope_phase;
+      // The fourth macro also bends the trajectory: short grains are nearly
+      // linear, long grains linger at their endpoints.
+      const float curved = t * t * (3.0f - 2.0f * t);
+      t += (curved - t) * macro;
+      const float ratio = g->start_ratio + \
+          (g->end_ratio - g->start_ratio) * t;
+      const float reverse_ratio = render_aux ? g->end_ratio + \
+          (g->start_ratio - g->end_ratio) * t : 0.0f;
+
+      float fundamental = f0;
+#if PLAITS_BUILD_FREQUENCY_OFFSET_FM
+      if (parameters.frequency_offset) {
+        fundamental += parameters.frequency_offset[j];
+        fundamental = PLAITS_BUILD_EXTENDED_TZFM ? TzfmLimit(fundamental, 0.49f) : max(0.0f, fundamental);
+      }
+#endif
+      g->phase += (PLAITS_BUILD_EXTENDED_TZFM && fundamental < 0.0f
+          ? -LimitFrequency(-fundamental * ratio) : LimitFrequency(fundamental * ratio));
+      g->phase = TzfmWrap(g->phase);
+      if (render_aux) {
+        g->aux_phase += PLAITS_BUILD_EXTENDED_TZFM
+            ? TzfmLimit(fundamental * reverse_ratio, 0.22f)
+            : LimitFrequency(fundamental * reverse_ratio);
+        g->aux_phase = TzfmWrap(g->aux_phase);
+      }
+
+      // A parabolic grain window avoids a third interpolated sine lookup
+      // for every grain and sample. The remaining oscillator phases are
+      // already wrapped, so the cheaper no-wrap lookup is safe.
+      const float envelope = 4.0f * g->envelope_phase * \
+          (1.0f - g->envelope_phase);
+      out[j] += SineNoWrap(g->phase) * envelope * gain;
+      if (render_aux) {
+        aux[j] += SineNoWrap(g->aux_phase) * envelope * gain;
+      }
+    }
+    grain_[i] = grain;
+  }
+}
+
+void GlissonEngine::Render(
+    const EngineParameters& parameters,
+    float* out,
+    float* aux,
+    size_t size,
+    bool* already_enveloped) {
+  fill(&out[0], &out[size], 0.0f);
+  fill(&aux[0], &aux[size], 0.0f);
+
+  const float f0 = NoteToFrequency(parameters.note);
+  const float scatter = 2.0f + 34.0f * parameters.harmonics * \
+      parameters.harmonics;
+  const float direction = 2.0f * parameters.morph - 1.0f;
+  const float duration_seconds = 0.012f * SemitonesToRatio(
+      parameters.macro * 60.0f);
+  const float duration = duration_seconds * kCorrectedSampleRate;
+  const int num_grains = 1 + static_cast<int>(
+      parameters.timbre * static_cast<float>(kNumGlissonGrains - 1) + 0.5f);
+
+  if (reset_pending_ || (parameters.trigger & TRIGGER_RISING_EDGE)) {
+    for (int i = 0; i < kNumGlissonGrains; ++i) {
+      StartGrain(
+          &grain_[i],
+          scatter,
+          direction,
+          duration,
+          static_cast<float>(i) / static_cast<float>(num_grains),
+          (PLAITS_STEREO_GLISSON && parameters.stereo));
+    }
+    reset_pending_ = false;
+  } else if (num_grains > num_grains_) {
+    for (int i = num_grains_; i < num_grains; ++i) {
+      StartGrain(
+          &grain_[i], scatter, direction, duration, 0.0f, (PLAITS_STEREO_GLISSON && parameters.stereo));
+    }
+  }
+  num_grains_ = num_grains;
+
+  const float gain = 0.72f / static_cast<float>(num_grains);
+  if ((PLAITS_STEREO_GLISSON && parameters.stereo)) {
+    for (int i = 0; i < num_grains; ++i) {
+      Grain* g = &grain_[i];
+      for (size_t j = 0; j < size; ++j) {
+        g->envelope_phase += g->envelope_increment;
+        if (g->envelope_phase >= 1.0f) {
+          StartGrain(g, scatter, direction, duration, 0.0f, true);
+        }
+        if (g->envelope_phase < 0.0f) {
+          continue;
+        }
+
+        float t = g->envelope_phase;
+        const float curved = t * t * (3.0f - 2.0f * t);
+        t += (curved - t) * parameters.macro;
+        const float ratio = g->start_ratio + \
+            (g->end_ratio - g->start_ratio) * t;
+
+        float fundamental = f0;
+#if PLAITS_BUILD_FREQUENCY_OFFSET_FM
+        if (parameters.frequency_offset) {
+          fundamental += parameters.frequency_offset[j];
+          fundamental = PLAITS_BUILD_EXTENDED_TZFM ? TzfmLimit(fundamental, 0.49f) : max(0.0f, fundamental);
+        }
+#endif
+        g->phase += (PLAITS_BUILD_EXTENDED_TZFM && fundamental < 0.0f
+            ? -LimitFrequency(-fundamental * ratio) : LimitFrequency(fundamental * ratio));
+        g->phase = TzfmWrap(g->phase);
+
+        const float envelope = 4.0f * g->envelope_phase * \
+            (1.0f - g->envelope_phase);
+        const float sample = SineNoWrap(g->phase) * envelope * gain;
+        // Only the forward chirp is rendered, panned along its trajectory
+        // with the same bent t as the pitch glide.
+        out[j] += sample * (g->start_gain_left + \
+            (g->end_gain_left - g->start_gain_left) * t);
+        aux[j] += sample * (g->start_gain_right + \
+            (g->end_gain_right - g->start_gain_right) * t);
+      }
+    }
+  } else if (parameters.aux_discarded) {
+    RenderMono<false>(parameters, num_grains, f0, scatter, direction,
+        duration, gain, out, aux, size);
+  } else {
+    RenderMono<true>(parameters, num_grains, f0, scatter, direction,
+        duration, gain, out, aux, size);
+  }
+}
+
+}  // namespace plaits

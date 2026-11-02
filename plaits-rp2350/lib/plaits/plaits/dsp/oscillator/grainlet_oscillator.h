@@ -1,0 +1,381 @@
+// Copyright 2016 Emilie Gillet.
+//
+// Author: Emilie Gillet (emilie.o.gillet@gmail.com)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+// 
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+// 
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+// 
+// See http://creativecommons.org/licenses/MIT/ for more information.
+//
+// -----------------------------------------------------------------------------
+//
+// A phase-distortd single cycle sine * another continuously running sine,
+// the whole thing synced to a main oscillator.
+
+#ifndef PLAITS_DSP_OSCILLATOR_GRAINLET_OSCILLATOR_H_
+#define PLAITS_DSP_OSCILLATOR_GRAINLET_OSCILLATOR_H_
+
+#include "stmlib/dsp/dsp.h"
+#include "plaits/dsp/extended_tzfm.h"
+#include "stmlib/dsp/parameter_interpolator.h"
+#include "stmlib/dsp/polyblep.h"
+
+#include "plaits/dsp/oscillator/oscillator.h"
+#include "plaits/dsp/oscillator/sine_oscillator.h"
+
+namespace plaits {
+
+class GrainletOscillator {
+ public:
+  GrainletOscillator() { }
+  ~GrainletOscillator() { }
+
+  void Init() {
+    carrier_phase_ = 0.0f;
+    formant_phase_ = 0.0f;
+    next_sample_ = 0.0f;
+  
+    carrier_frequency_ = 0.0f;
+    formant_frequency_ = 0.0f;
+    carrier_shape_ = 0.0f;
+    carrier_bleed_ = 0.0f;
+  }
+  
+  void Render(
+      float carrier_frequency,
+      float formant_frequency,
+      float carrier_shape,
+      float carrier_bleed,
+      float* out,
+      size_t size) {
+    RenderInternal<false>(
+        carrier_frequency,
+        formant_frequency,
+        carrier_shape,
+        carrier_bleed,
+        out,
+        size,
+        0,
+        NULL);
+  }
+
+  void Render(
+      float carrier_frequency,
+      float formant_frequency,
+      float carrier_shape,
+      float carrier_bleed,
+      float* out,
+      size_t size,
+      uint32_t hard_sync) {
+    if (hard_sync) {
+      RenderInternal<true>(
+          carrier_frequency,
+          formant_frequency,
+          carrier_shape,
+          carrier_bleed,
+          out,
+          size,
+          hard_sync,
+          NULL);
+    } else {
+      RenderInternal<false>(
+          carrier_frequency,
+          formant_frequency,
+          carrier_shape,
+          carrier_bleed,
+          out,
+          size,
+          0,
+          NULL);
+    }
+  }
+
+  // Fast exponential FM changes only the played carrier. The formant remains
+  // on its TIMBRE-derived absolute frequency, matching this model's normal
+  // pitch-CV behavior.
+  void Render(
+      float carrier_frequency,
+      float formant_frequency,
+      float carrier_shape,
+      float carrier_bleed,
+      float* out,
+      size_t size,
+      uint32_t hard_sync,
+      const float* carrier_frequency_offset) {
+    if (hard_sync) {
+      RenderInternal<true>(
+          carrier_frequency,
+          formant_frequency,
+          carrier_shape,
+          carrier_bleed,
+          out,
+          size,
+          hard_sync,
+          carrier_frequency_offset);
+    } else {
+      RenderInternal<false>(
+          carrier_frequency,
+          formant_frequency,
+          carrier_shape,
+          carrier_bleed,
+          out,
+          size,
+          0,
+          carrier_frequency_offset);
+    }
+  }
+
+ private:
+  template<bool process_hard_sync>
+  void RenderInternal(
+      float carrier_frequency,
+      float formant_frequency,
+      float carrier_shape,
+      float carrier_bleed,
+      float* out,
+      size_t size,
+      uint32_t hard_sync,
+      const float* carrier_frequency_offset) {
+    if (carrier_frequency >= kMaxFrequency * 0.5f) {
+      carrier_frequency = kMaxFrequency * 0.5f;
+    }
+    if (formant_frequency >= kMaxFrequency) {
+      formant_frequency = kMaxFrequency;
+    }
+    
+    stmlib::ParameterInterpolator carrier_frequency_modulation(
+        &carrier_frequency_,
+        carrier_frequency,
+        size);
+    stmlib::ParameterInterpolator formant_frequency_modulation(
+        &formant_frequency_,
+        formant_frequency,
+        size);
+    stmlib::ParameterInterpolator carrier_shape_modulation(
+        &carrier_shape_,
+        carrier_shape,
+        size);
+    stmlib::ParameterInterpolator carrier_bleed_modulation(
+        &carrier_bleed_,
+        carrier_bleed,
+        size);
+
+    float next_sample = next_sample_;
+
+    // Grainlet() divides by (1 + bleed) and Carrier() by its breakpoint on
+    // every call: 14-cycle divides that stall the FPU. Both depend only on
+    // the shape and bleed, which rarely move, so the per-sample reads below
+    // use reciprocals recomputed only when those values change. (The rare
+    // reset path keeps the original divides.) A reciprocal multiply differs
+    // from the division by at most an ulp.
+    GrainletCoefficients c = { -1.0f, -1.0f, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+
+    // The phases run in locals, written back after the block: as members,
+    // every store to `out` could alias them.
+    float carrier_phase = carrier_phase_;
+    float formant_phase = formant_phase_;
+
+    while (size--) {
+      bool reset = false;
+      float reset_time = 0.0f;
+
+      float this_sample = next_sample;
+      next_sample = 0.0f;
+    
+      float f0 = carrier_frequency_modulation.Next();
+      float f1 = formant_frequency_modulation.Next();
+      if (carrier_frequency_offset) {
+        f0 += *carrier_frequency_offset++;
+        CONSTRAIN(f0, PLAITS_BUILD_EXTENDED_TZFM ? -kMaxFrequency * 0.5f : 1.0e-7f, kMaxFrequency * 0.5f);
+        if (PLAITS_BUILD_EXTENDED_TZFM && f0 < 0.0f) f1 = -f1;
+      }
+
+      if (process_hard_sync) {
+        if (hard_sync & 1) {
+          // The formant oscillator is natively reset by every carrier cycle;
+          // resetting both phases preserves that relationship for an external
+          // master edge. Leave the pending BLEP sample intact.
+          carrier_phase = 0.0f;
+          formant_phase = 0.0f;
+        }
+        hard_sync >>= 1;
+      }
+    
+      carrier_phase += f0;
+      reset = carrier_phase >= 1.0f || (PLAITS_BUILD_EXTENDED_TZFM && carrier_phase < 0.0f);
+      
+      if (reset) {
+        const bool reverse = PLAITS_BUILD_EXTENDED_TZFM && f0 < 0.0f;
+        carrier_phase += reverse ? 1.0f : -1.0f;
+        reset_time = (carrier_phase - (reverse ? 1.0f : 0.0f)) / f0;
+        float before = Grainlet(
+            reverse ? 0.0f : 1.0f,
+            formant_phase + (1.0f - reset_time) * f1,
+            carrier_shape_modulation.subsample(1.0f - reset_time),
+            carrier_bleed_modulation.subsample(1.0f - reset_time));
+
+        float after = Grainlet(
+            reverse ? 1.0f : 0.0f,
+            0.0f,
+            carrier_shape_modulation.subsample(1.0f),
+            carrier_bleed_modulation.subsample(1.0f));
+
+        float discontinuity = after - before;
+        this_sample += discontinuity * stmlib::ThisBlepSample(reset_time);
+        next_sample += discontinuity * stmlib::NextBlepSample(reset_time);
+        formant_phase = reset_time * f1;
+        if (PLAITS_BUILD_EXTENDED_TZFM) formant_phase = TzfmWrap(formant_phase);
+      } else {
+        formant_phase += f1;
+        if (PLAITS_BUILD_EXTENDED_TZFM && formant_phase < 0.0f) formant_phase += 1.0f;
+        if (formant_phase >= 1.0f) {
+          formant_phase -= 1.0f;
+        }
+      }
+      
+      const float shape = carrier_shape_modulation.Next();
+      const float bleed = carrier_bleed_modulation.Next();
+      c.Update(shape, bleed);
+      next_sample += Grainlet(carrier_phase, formant_phase, c);
+      *out++ = this_sample;
+    }
+
+    carrier_phase_ = carrier_phase;
+    formant_phase_ = formant_phase;
+    next_sample_ = next_sample;
+  }
+
+  struct GrainletCoefficients {
+    float shape;
+    float bleed;
+    int shape_integral;
+    float t;
+    float breakpoint;
+    float rise;
+    float fall;
+    float bleed_normalization;
+
+    inline void Update(float new_shape, float new_bleed) {
+      if (new_shape != shape) {
+        shape = new_shape;
+        float scaled = new_shape * 3.0f;
+        MAKE_INTEGRAL_FRACTIONAL(scaled);
+        shape_integral = scaled_integral;
+        t = 1.0f - scaled_fractional;
+        if (shape_integral == 1) {
+          breakpoint = 0.001f + 0.499f * t * t * t;
+          rise = 0.5f / breakpoint;
+          fall = 0.5f / (1.0f - breakpoint);
+        }
+      }
+      if (new_bleed != bleed) {
+        bleed = new_bleed;
+        bleed_normalization = 1.0f / (1.0f + new_bleed);
+      }
+    }
+  };
+
+  // Carrier() with the shape's decomposition and reciprocals precomputed.
+  inline float Carrier(float phase, const GrainletCoefficients& c) {
+    float t = c.t;
+    if (c.shape_integral == 0) {
+      phase = phase * (1.0f + t * t * t * 15.0f);
+      if (phase >= 1.0f) {
+        phase = 1.0f;
+      }
+      phase += 0.75f;
+    } else if (c.shape_integral == 1) {
+      if (phase < c.breakpoint) {
+        phase *= c.rise;
+      } else {
+        phase = 0.5f + (phase - c.breakpoint) * c.fall;
+      }
+      phase += 0.75f;
+    } else {
+      t = 1.0f - t;
+      phase = 0.25f + phase * (0.5f + t * t * t * 14.5f);
+      if (phase >= 0.75f) phase = 0.75f;
+    }
+    return (Sine(phase) + 1.0f) * 0.25f;
+  }
+
+  inline float Grainlet(
+      float carrier_phase,
+      float formant_phase,
+      const GrainletCoefficients& c) {
+    float carrier = Carrier(carrier_phase, c);
+    float formant = Sine(PLAITS_BUILD_EXTENDED_TZFM && formant_phase < 0.0f
+        ? TzfmWrap(formant_phase) : formant_phase);
+    return carrier * (formant + c.bleed) * c.bleed_normalization;
+  }
+
+  inline float Carrier(float phase, float shape) {
+    shape *= 3.0f;
+    MAKE_INTEGRAL_FRACTIONAL(shape);
+    float t = 1.0f - shape_fractional;
+    
+    if (shape_integral == 0) {
+      phase = phase * (1.0f + t * t * t * 15.0f);
+      if (phase >= 1.0f) {
+        phase = 1.0f;
+      }
+      phase += 0.75f;
+    } else if (shape_integral == 1) {
+      float breakpoint = 0.001f + 0.499f * t * t * t;
+      if (phase < breakpoint) {
+        phase *= (0.5f / breakpoint);
+      } else {
+        phase = 0.5f + (phase - breakpoint) * 0.5f / (1.0f - breakpoint);
+      }
+      phase += 0.75f;
+    } else {
+      t = 1.0f - t;
+      phase = 0.25f + phase * (0.5f + t * t * t * 14.5f);
+      if (phase >= 0.75f) phase = 0.75f;
+    }
+    return (Sine(phase) + 1.0f) * 0.25f;
+  }
+
+  inline float Grainlet(
+      float carrier_phase,
+      float formant_phase,
+      float shape,
+      float bleed) {
+    float carrier = Carrier(carrier_phase, shape);
+    float formant = Sine(PLAITS_BUILD_EXTENDED_TZFM && formant_phase < 0.0f
+        ? TzfmWrap(formant_phase) : formant_phase);
+    return carrier * (formant + bleed) / (1.0f + bleed);
+  }
+
+  // Oscillator state.
+  float carrier_phase_;
+  float formant_phase_;
+  float next_sample_;
+
+  // For interpolation of parameters.
+  float carrier_frequency_;
+  float formant_frequency_;
+  float carrier_shape_;
+  float carrier_bleed_;
+  
+  DISALLOW_COPY_AND_ASSIGN(GrainletOscillator);
+};
+  
+}  // namespace plaits
+
+#endif  // PLAITS_DSP_OSCILLATOR_GRAINLET_OSCILLATOR_H_

@@ -1,0 +1,111 @@
+diff -ruN a/plaits/dsp/voice.cc b/plaits/dsp/voice.cc
+--- a/plaits/dsp/voice.cc	2026-11-02 23:19:32.557643514 +0700
++++ b/plaits/dsp/voice.cc	2026-11-02 23:29:10.642000216 +0700
+@@ -228,15 +228,15 @@
+   bool auto_preserves_level = pp_s.already_enveloped;
+ #if PLAITS_HAS_SPEECH_ENGINE
+   auto_preserves_level = auto_preserves_level || \
+-      (kSpeechEngineMask & (1u << engine_index));
++      (kSpeechEngineMask & (1ULL << engine_index));
+ #endif
+ #if PLAITS_HAS_LPC_WORDS_ENGINE
+   auto_preserves_level = auto_preserves_level || \
+-      (kLPCWordsEngineMask & (1u << engine_index));
++      (kLPCWordsEngineMask & (1ULL << engine_index));
+ #endif
+ #if PLAITS_HAS_CHIPTUNE_ENGINE
+   auto_preserves_level = auto_preserves_level || \
+-      (kChiptuneEngineMask & (1u << engine_index));
++      (kChiptuneEngineMask & (1ULL << engine_index));
+ #endif
+ 
+   bool level_patched = modulations.level_patched;
+@@ -247,7 +247,7 @@
+ #if PLAITS_BUILD_ENABLE_ONE_KNOB_ENVELOPE && \
+     defined(PLAITS_RESONATOR_ENVELOPE_ENGINE_MASK)
+       one_knob_envelope_mode &&
+-      (PLAITS_RESONATOR_ENVELOPE_ENGINE_MASK & (1u << engine_index));
++      (PLAITS_RESONATOR_ENVELOPE_ENGINE_MASK & (1ULL << engine_index));
+ #else
+       false;
+ #endif
+@@ -389,7 +389,7 @@
+     size_t data_length = 0;
+ #if PLAITS_HAS_TERRAIN_BANK
+     const bool uses_terrain_bank =
+-        (kWaveTerrainEngineMask & (1u << engine_index)) != 0;
++        (kWaveTerrainEngineMask & (1ULL << engine_index)) != 0;
+     if (uses_terrain_bank) {
+       // Every placement of Wave Terrain reads the same ordered HARMONICS bank.
+       // A zero length distinguishes this tiny descriptor from a 4 KB legacy
+@@ -398,7 +398,7 @@
+     } else
+ #endif  // PLAITS_HAS_TERRAIN_BANK
+ #if PLAITS_HAS_WAVETABLE_BANK
+-    if ((kWavetableEngineMask & (1u << engine_index)) != 0) {
++    if ((kWavetableEngineMask & (1ULL << engine_index)) != 0) {
+       // Every Wavetable placement reads the same ordered HARMONICS bank. As
+       // with Wave Terrain, zero length marks this as a generated descriptor,
+       // not a legacy 4 KB TIMBRE-transfer payload.
+@@ -614,7 +614,7 @@
+   float internal_envelope_amplitude = 1.0f;
+   float internal_envelope_amplitude_timbre = 1.0f;
+ #if PLAITS_HAS_SPEECH_ENGINE
+-  if (kSpeechEngineMask & (1u << engine_index)) {
++  if (kSpeechEngineMask & (1ULL << engine_index)) {
+     internal_envelope_amplitude = 2.0f - p.harmonics * 6.0f;
+     CONSTRAIN(internal_envelope_amplitude, 0.0f, 1.0f);
+     speech_engine_.set_prosody_amount(
+@@ -626,7 +626,7 @@
+   }
+ #endif
+ #if PLAITS_HAS_LPC_WORDS_ENGINE
+-  if (kLPCWordsEngineMask & (1u << engine_index)) {
++  if (kLPCWordsEngineMask & (1ULL << engine_index)) {
+     // Match stock Speech's word-bank region: the FM attenuverter controls the
+     // recorded pitch contour when TRIG is patched and FM is not. Suppress the
+     // ordinary trigger-driven pitch envelope so this remains a single-purpose
+@@ -638,7 +638,7 @@
+   }
+ #endif
+ #if PLAITS_HAS_NATURAL_SPEECH_ENGINE
+-  if (kNaturalSpeechEngineMask & (1u << engine_index)) {
++  if (kNaturalSpeechEngineMask & (1ULL << engine_index)) {
+     // Same two gestures stock Speech uses, for the same reasons: with TRIG
+     // patched and the matching CV jack free, the FM attenuverter sets how
+     // much of the recorded pitch contour is replayed and the MORPH
+@@ -658,7 +658,7 @@
+   }
+ #endif
+ #if PLAITS_HAS_CHIPTUNE_ENGINE
+-  if (kChiptuneEngineMask & (1u << engine_index)) {
++  if (kChiptuneEngineMask & (1ULL << engine_index)) {
+     if (modulations.trigger_patched && !modulations.timbre_patched) {
+       // Disable internal envelope on TIMBRE, and enable the envelope generator
+       // built into the chiptune engine.
+@@ -672,14 +672,14 @@
+ 
+   const bool preserve_chiptune_timbre =
+ #if PLAITS_HAS_CHIPTUNE_ENGINE
+-      (kChiptuneEngineMask & (1u << engine_index)) &&
++      (kChiptuneEngineMask & (1ULL << engine_index)) &&
+       modulations.trigger_patched && !modulations.timbre_patched;
+ #else
+       false;
+ #endif
+   const bool preserve_speech_morph =
+ #if PLAITS_HAS_SPEECH_ENGINE
+-      (kSpeechEngineMask & (1u << engine_index)) &&
++      (kSpeechEngineMask & (1ULL << engine_index)) &&
+       modulations.trigger_patched && !modulations.morph_patched;
+ #else
+       false;
+@@ -796,7 +796,7 @@
+ #else
+       (level_input_controls_articulation || velocity_response) &&
+ #endif
+-      (kChiptuneEngineMask & (1u << engine_index))) {
++      (kChiptuneEngineMask & (1ULL << engine_index))) {
+     const float chiptune_level = p.accent;
+     for (size_t i = 0; i < size; ++i) {
+       out_buffer_[i] *= chiptune_level;
