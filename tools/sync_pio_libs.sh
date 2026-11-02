@@ -28,20 +28,55 @@ REPO_ROOT="$(pwd -P)"
 sync_project() {
   local proj=$1; shift
   for pair in "$@"; do
-    # Pair spec: "SRC:dst[:mode]" — mode "inc" (default) = .cc files are
+    # Pair spec: "SRC:dst[:mode[:nest]]" — mode "inc" (default) = .cc files are
     # duplicated as .inc, so the .cc copies are deleted; mode "cc" = the
-    # wrapper includes the .cc files directly, so they are KEPT.
+    # wrapper includes the .cc files directly, so they are KEPT. The source is
+    # "$src/src" (poetaster Arduino layout) when present, else the directory
+    # itself (pichenettes eurorack layout, e.g. EURORACK-STEREO/plaits). An
+    # optional "nest" copies into lib/$dst/$nest so module-prefix includes
+    # ("plaits/dsp/…") resolve against the lib root.
     src=$(echo "$pair" | cut -d: -f1)
     dst=$(echo "$pair" | cut -d: -f2)
     mode=$(echo "$pair" | cut -d: -f3)
+    nest=$(echo "$pair" | cut -d: -f4)
     mode=${mode:-inc}
-    if [ ! -d "$REPO_ROOT/$src/src" ]; then
-      echo "error: $REPO_ROOT/$src/src not found — is the submodule checked out?" >&2
+    if [ -d "$REPO_ROOT/$src/src" ]; then
+      srcdata="$REPO_ROOT/$src/src"
+    elif [ -d "$REPO_ROOT/$src" ]; then
+      srcdata="$REPO_ROOT/$src"
+    else
+      echo "error: $REPO_ROOT/$src not found — is the submodule checked out?" >&2
       exit 1
     fi
     rm -rf "$REPO_ROOT/$proj/lib/$dst"
     mkdir -p "$REPO_ROOT/$proj/lib/$dst"
-    cp -R "$REPO_ROOT/$src/src/." "$REPO_ROOT/$proj/lib/$dst/"
+    if [ -n "$nest" ]; then
+      mkdir -p "$REPO_ROOT/$proj/lib/$dst/$nest"
+      cp -R "$srcdata/." "$REPO_ROOT/$proj/lib/$dst/$nest/"
+    else
+      cp -R "$srcdata/." "$REPO_ROOT/$proj/lib/$dst/"
+    fi
+
+    # Plaits-Lab fork: prune everything a Voice-only port never compiles
+    # (firmware/UI/test/drivers/bootloader/tools/alt-firmware diagnostic
+    # headers). Keeps lib/ reviewable and the PlatformIO TU set predictable;
+    # build_config.h, section_marks.h, resources.* and user_data.* stay
+    # (user_data.h is neutralized by a port patch).
+    if [ "$dst" = "plaits" ]; then
+      pr="$REPO_ROOT/$proj/lib/$dst/${nest:-}"
+      rm -rf "$pr/bootloader" "$pr/drivers" "$pr/test" "$pr/tools" \
+             "$pr/hardware_design" "$pr/resources"
+      rm -f "$pr/plaits.cc" "$pr/ui.cc" "$pr/ui.h" "$pr/ui_poll.cc" \
+            "$pr/settings.cc" "$pr/settings.h" "$pr/user_data_receiver.cc" \
+            "$pr/user_data_receiver.h" "$pr/makefile" "$pr/makeflash.sh"
+      rm -f "$pr"/*.md
+      for h in "$pr"/*.h; do
+        case "$(basename "$h")" in
+          build_config.h|section_marks.h|resources.h|user_data.h|user_data_region.h) ;;
+          *) rm -f "$h" ;;
+        esac
+      done
+    fi
     if [ "$mode" = "inc" ]; then
       find "$REPO_ROOT/$proj/lib/$dst" -name '*.cc' -type f -delete
     else
@@ -69,7 +104,7 @@ sync_project() {
     # persistence (page_storage.h uses FLASH_ErasePage et al.) — unportable as
     # is, unused by the processor: excluded from the build.
     local srcfilter=""
-    if [ "$mode" != "inc" ]; then
+    if [ "$dst" = "clouds" ]; then
       srcfilter=$'\n    "srcFilter": ["+<*>", "-<clouds/settings.cc>"],'
     fi
     cat > "$REPO_ROOT/$proj/lib/$dst/library.json" <<EOF
@@ -84,7 +119,7 @@ EOF
 
     incs=$(find "$REPO_ROOT/$proj/lib/$dst" -name '*.inc' -type f | wc -l)
     ccs=$(find "$REPO_ROOT/$proj/lib/$dst" -name '*.cc' -type f | wc -l)
-    echo "synced $src/src -> $proj/lib/$dst ($incs .inc kept, $ccs .cc remaining)"
+    echo "synced ${srcdata#"$REPO_ROOT"/} -> $proj/lib/$dst ($incs .inc kept, $ccs .cc remaining)"
     if [ "$mode" = "inc" ] && [ "$ccs" -ne 0 ]; then
       echo "error: .cc files remain in $proj/lib/$dst" >&2
       exit 1
@@ -94,5 +129,6 @@ EOF
 
 sync_project elements-rp2350 "STMLIB:stmlib" "ELEMENTS:elements"
 sync_project clouds-rp2350  "STMLIB:stmlib" "CLOUDS:clouds:cc"
+sync_project plaits-rp2350  "STMLIB:stmlib" "EURORACK-STEREO/plaits:plaits:cc:plaits"
 
 echo "done. Submodules untouched."
