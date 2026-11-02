@@ -1011,3 +1011,53 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   particle, modal(+voice), string(+voice), chord, chiptune, six_op, scanned)
   + selective LUT SRAM + per-engine CPU sweep; T4 web panel; T5 hardware
   acceptance + soak (user).
+
+### Plaits RP2350 — T3/T4/T5a/T5b done (2026-11-03)
+
+- **T3 SRAM placement** (`f391da0`): patches 05/06/07 — `ram_code.h` +
+  **73 `.time_critical` tokens** (Voice::Render path, all stock engine1
+  Renders, fork-hot-list engine2 bodies, support DSP incl. `fm::Voice<6>`) +
+  **14 per-sample LUTs (100.8 KB: wav_integrated_waves ×3, wave-scan kWaves
+  32 KB, kBuzzZones, lut_sine/fold, freshets formant shapes)**. Tiered:
+  marking ALL ~96 engine bodies measured RAM 76.3% (over the 75% ceiling) →
+  ~66 small engine2 bodies stay in flash by design (working set < XIP cache;
+  promotion = one-line token if the sweep flags one). **RAM 17.3% → 69.3%
+  (363 KB), 0 marked symbols left in flash (nm-verified).** GCC quirk found:
+  section attrs on out-of-line member-template definitions (string.cc) are
+  silently ignored — attribute goes on the in-class template declaration.
+- **T4 panel** (`b2b6ddf`): `tools/plaits_panel.html` — 98-engine dropdown
+  (id+origin), stereo/subosc AUX selector (CC 24), ±1 attenuverter tooltips,
+  computer-keyboard notes; headless byte-validated 31/31 exact.
+- **T5a flash**: 1200-bps touch first-try; board re-enumerates as
+  "Plaits RP2350" (seq client 24:0).
+- **T5b per-engine CPU sweep (98/98 engines, notes + CC 23 via
+  `aplaymidi`, 2 s reports over serial): `i2s stalls: 0 (+0)` throughout.**
+  Every report over 500 µs (speech 463, lpc-speech 641, dx7-a/b/c 499/419/472,
+  vosim 686) was proven by a 12 s dwell (6 report windows/engine) to be a
+  **ONE-BLOCK engine-change spike** (change block = Reset + LoadUserData +
+  cold caches); sustained: speech 25 µs, lpc-speech 25 µs, dx7 67-69 µs,
+  vosim 100-115 µs. Sustained worst ≈ 268 µs (54% of budget). The 16 ms I2S
+  bank absorbs every change spike (same pattern as clouds' 1743 µs
+  mode-change). **No SRAM promotions needed.**
+- **Sweep `out=0` anomaly (LPG-routed engines) — not a firmware bug.** The
+  first sweep's reports showed out=0 for the non-self-enveloping engines;
+  temporary probes (`08-plaits-debug.patch`, since REMOVED, never committed)
+  proved the whole chain correct on hardware: `cl=945 → lg=804 → fo=7876`,
+  meters live, releases clean. Attributed to the earlier mid-iteration
+  binary; **clean rebuild from committed patches (`rm -rf .pio` + sync +
+  build) verified sound on hardware** (engines 0/7 through real engine
+  changes, fresh-boot note counter from 0). Lesson recorded: acceptance
+  builds must come from a clean .pio of the committed state.
+- **Usage note:** LPG-routed synth engines need LEVEL (CC 25; boot default
+  0.8, panel sends 0.8 on connect). Self-enveloped engines (drums, speech,
+  strings, chiptune) sound from note-ons alone (velocity → TRIG pulse,
+  accent path).
+- **Test-tooling notes:** aplaymidi + serial capture works (sparse events
+  safe through the seq layer); SMF gotchas — a bare "gap" delta with no
+  following event is INVALID MIDI (merge gaps into the next event's delta),
+  aplaymidi requires the EOT meta, 1 ms/tick = PPQ 960 + tempo 960000.
+  rawmidi `/dev/snd/midiC2D0` open can wedge kernel-side after
+  flash/re-enum (EBUSY with no fd holder) — the seq path sidesteps it.
+- **Board state:** running the final clean build (`93 s`, RAM 69.3%, flash
+  15.1%), eng 0/7 verified sounding, zero stalls. **Next: user ear check
+  across engine groups + 30 min soak.**
