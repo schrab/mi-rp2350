@@ -22,3 +22,6 @@
 [submodule "marvelousMI"]
 	path = marvelousMI
 	url = git@github.com:poetaster/marvelousMI.git
+[submodule "EURORACK-STEREO"]
+	path = EURORACK-STEREO
+	url = https://github.com/lylepmills/eurorack.git
