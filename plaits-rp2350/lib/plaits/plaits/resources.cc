@@ -32,6 +32,8 @@
 
 #include "plaits/resources.h"
 
+#include "plaits/dsp/ram_code.h"
+
 namespace plaits {
 
 const uint8_t syx_bank_0[] = {
@@ -3120,7 +3122,7 @@ const uint8_t* fm_patches_table[] = {
   syx_bank_2,
 };
 
-const float lut_sine[] = {
+PLAITS_RAM_CODE(lut_sine) const float lut_sine[] = {
    0.000000000e+00,  1.227153829e-02,  2.454122852e-02,  3.680722294e-02,
    4.906767433e-02,  6.132073630e-02,  7.356456360e-02,  8.579731234e-02,
    9.801714033e-02,  1.102222073e-01,  1.224106752e-01,  1.345807085e-01,
@@ -3318,7 +3320,7 @@ const float lut_fm_frequency_quantizer[] = {
    3.525000000e+01,  3.600000000e+01,  3.600000000e+01,  3.600000000e+01,
    3.600000000e+01,  3.600000000e+01,
 };
-const float lut_fold[] = {
+PLAITS_RAM_CODE(lut_fold) const float lut_fold[] = {
   -9.980545825e-01, -9.970653772e-01, -9.960649692e-01, -9.950532582e-01,
   -9.940301939e-01, -9.929957802e-01, -9.919500809e-01, -9.908932239e-01,
   -9.898254054e-01, -9.887468930e-01, -9.876580288e-01, -9.865592310e-01,
@@ -3449,7 +3451,7 @@ const float lut_fold[] = {
    9.940301939e-01,  9.950532582e-01,  9.960649692e-01,  9.970653772e-01,
    9.980545825e-01,  9.990327291e-01,  1.000000000e+00,  1.000000000e+00,
 };
-const float lut_fold_2[] = {
+PLAITS_RAM_CODE(lut_fold_2) const float lut_fold_2[] = {
    1.000000000e+00,  9.992967758e-01,  9.985815484e-01,  9.978540078e-01,
    9.971138332e-01,  9.963606927e-01,  9.955942426e-01,  9.948141269e-01,
    9.940199768e-01,  9.932114103e-01,  9.923880310e-01,  9.915494283e-01,
@@ -3681,7 +3683,7 @@ const float* lookup_table_table[] = {
   lut_4x_downsampler_fir,
 };
 
-const int16_t lut_ws_inverse_tan[] = {
+PLAITS_RAM_CODE(lut_ws_inverse_tan) const int16_t lut_ws_inverse_tan[] = {
   -32767, -26872, -24921, -23661,
   -22748, -22047, -21486, -21026,
   -20640, -20310, -20025, -19775,
@@ -3748,7 +3750,7 @@ const int16_t lut_ws_inverse_tan[] = {
    22748,  23661,  24921,  26872,
    32767,
 };
-const int16_t lut_ws_inverse_sin[] = {
+PLAITS_RAM_CODE(lut_ws_inverse_sin) const int16_t lut_ws_inverse_sin[] = {
   -32767, -30921, -30153, -29561,
   -29060, -28617, -28215, -27843,
   -27496, -27169, -26858, -26561,
@@ -3815,7 +3817,7 @@ const int16_t lut_ws_inverse_sin[] = {
    29060,  29561,  30153,  30921,
    32767,
 };
-const int16_t lut_ws_linear[] = {
+PLAITS_RAM_CODE(lut_ws_linear) const int16_t lut_ws_linear[] = {
   -32767, -32511, -32255, -31999,
   -31743, -31487, -31231, -30975,
   -30719, -30463, -30207, -29951,
@@ -3882,7 +3884,7 @@ const int16_t lut_ws_linear[] = {
    31743,  31999,  32255,  32511,
    32767,
 };
-const int16_t lut_ws_bump[] = {
+PLAITS_RAM_CODE(lut_ws_bump) const int16_t lut_ws_bump[] = {
        0,    -36,   -150,   -348,
     -636,  -1017,  -1496,  -2074,
    -2752,  -3528,  -4401,  -5366,
@@ -4032,7 +4034,7 @@ const int16_t* lookup_table_i16_table[] = {
 const int32_t* lookup_table_i32_table[] = {
 };
 
-const int8_t lut_lpc_excitation_pulse[] = {
+PLAITS_RAM_CODE(lut_lpc_excitation_pulse) const int8_t lut_lpc_excitation_pulse[] = {
        0,      0,      0,      0,
        1,      1,      1,      2,
        3,      3,      4,      5,
@@ -4200,7 +4202,7 @@ const int8_t* lookup_table_i8_table[] = {
   lut_lpc_excitation_pulse,
 };
 
-const int16_t wav_integrated_waves_1[] = {
+PLAITS_RAM_CODE(wav_integrated_waves_1) const int16_t wav_integrated_waves_1[] = {
   -20556, -20706, -20806, -20857,
   -20857, -20806, -20706, -20556,
   -20356, -20107, -19810, -19465,
@@ -6314,7 +6316,7 @@ const int16_t wav_integrated_waves_1[] = {
       14,   -233,   -723,  -1484,
    -2455,  -3479,  -4342,  -4836,
 };
-const int16_t wav_integrated_waves_2[] = {
+PLAITS_RAM_CODE(wav_integrated_waves_2) const int16_t wav_integrated_waves_2[] = {
   -24465, -24934, -25303, -25650,
   -25650, -25303, -24934, -24465,
   -23963, -23391, -22788, -22130,
@@ -8428,7 +8430,7 @@ const int16_t wav_integrated_waves_2[] = {
    -1649,  -1649,  -1649,  -1650,
    -1892,  -1892,  -1892,  -1892,
 };
-const int16_t wav_integrated_waves_3[] = {
+PLAITS_RAM_CODE(wav_integrated_waves_3) const int16_t wav_integrated_waves_3[] = {
   -11705, -12211, -12571, -12800,
   -12800, -12571, -12211, -11705,
   -11057, -10270,  -9392,  -8442,

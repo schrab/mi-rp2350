@@ -1,0 +1,108 @@
+diff -ruN a/plaits/dsp/engine/engine.h b/plaits/dsp/engine/engine.h
+--- a/plaits/dsp/engine/engine.h	2026-11-02 23:42:48.648103772 +0700
++++ b/plaits/dsp/engine/engine.h	2026-11-03 00:50:14.660376261 +0700
+@@ -31,6 +31,10 @@
+ 
+ #include "plaits/dsp/dsp.h"
+ #include "plaits/dsp/extended_tzfm.h"
++// SRAM-placement marker (RP2350 port): every engine TU compiles per-sample
++// Render paths that must land in .time_critical.* sections. Included here so
++// all engine headers and their .cc files see the macro.
++#include "plaits/dsp/ram_code.h"
+ 
+ #include "stmlib/dsp/dsp.h"
+ #include "stmlib/dsp/units.h"
+diff -ruN a/plaits/dsp/oscillator/square_oscillator.h b/plaits/dsp/oscillator/square_oscillator.h
+--- a/plaits/dsp/oscillator/square_oscillator.h	2026-11-02 23:42:48.657389487 +0700
++++ b/plaits/dsp/oscillator/square_oscillator.h	2026-11-03 00:50:14.626375769 +0700
+@@ -5,6 +5,7 @@
+ 
+ #include "stmlib/dsp/dsp.h"
+ 
++#include "plaits/dsp/ram_code.h"
+ #include "plaits/resources.h"
+ 
+ namespace plaits {
+@@ -29,9 +30,9 @@
+   // pressure spilled `step` to the stack and reloaded it every sample, and
+   // -funroll-loops added an eight-way entry dispatch for a 12-sample block.
+ #if defined(__clang__)
+-  __attribute__((noinline)) void Render(
++  PLAITS_RAM_CODE(subosc_square_render) __attribute__((noinline)) void Render(
+ #else
+-  __attribute__((noinline, optimize("no-unroll-loops"))) void Render(
++  PLAITS_RAM_CODE(subosc_square_render) __attribute__((noinline, optimize("no-unroll-loops"))) void Render(
+ #endif
+       float frequency, float* out, size_t size) {
+     if (size == 0) {
+diff -ruN a/plaits/dsp/ram_code.h b/plaits/dsp/ram_code.h
+--- a/plaits/dsp/ram_code.h	1970-01-01 08:00:00.000000000 +0800
++++ b/plaits/dsp/ram_code.h	2026-11-03 00:49:29.855729754 +0700
+@@ -0,0 +1,23 @@
++// Copyright 2026 Plaits RP2350 port.
++//
++// Marker for per-sample hot paths (RP2350 port). Mirrors the clouds/elements
++// ram_code.h: .time_critical.* sections are mapped to SRAM by the
++// Arduino-pico linker script (inside .data, copied from flash at boot), so
++// marked functions/data execute without XIP flash cache stalls — those stalls
++// cost more than the entire 500 us audio block budget. No-op on every other
++// platform.
++//
++// Usage: PLAITS_RAM_CODE(unique_token) void Foo::Render(...) { ... }
++// Each function needs its own token: shared section names collide at link
++// time between inline/COMDAT and plain copies (section type conflict). Two
++// same-flags weak copies (e.g. template instantiations) MAY share one token.
++#ifndef PLAITS_DSP_RAM_CODE_H_
++#define PLAITS_DSP_RAM_CODE_H_
++
++#if defined(ARDUINO_ARCH_RP2040)
++#define PLAITS_RAM_CODE(token) __attribute__((section(".time_critical." #token)))
++#else
++#define PLAITS_RAM_CODE(token)
++#endif
++
++#endif  // PLAITS_DSP_RAM_CODE_H_
+diff -ruN a/plaits/dsp/voice.h b/plaits/dsp/voice.h
+--- a/plaits/dsp/voice.h	2026-11-02 23:42:48.658156729 +0700
++++ b/plaits/dsp/voice.h	2026-11-03 00:49:56.380112039 +0700
+@@ -31,6 +31,7 @@
+ 
+ #include "stmlib/stmlib.h"
+ 
++#include "plaits/dsp/ram_code.h"
+ #include "stmlib/dsp/dsp.h"
+ #include "stmlib/dsp/filter.h"
+ #include "stmlib/dsp/limiter.h"
+@@ -81,9 +82,9 @@
+   // overhead and cost ~500 B of flash across the gated, bypassed and limited
+   // variants.
+ #if defined(__clang__)
+-  __attribute__((noinline)) void Process(
++  PLAITS_RAM_CODE(voice_post_process) __attribute__((noinline)) void Process(
+ #else
+-  __attribute__((noinline, optimize("no-unroll-loops"))) void Process(
++  PLAITS_RAM_CODE(voice_post_process) __attribute__((noinline, optimize("no-unroll-loops"))) void Process(
+ #endif
+       float gain,
+       bool bypass_lpg,
+@@ -137,9 +138,9 @@
+   // Not unrolled: the peak follower is a sample-to-sample dependent chain, so
+   // unrolling only costs flash (540 B vs ~150 B).
+ #if defined(__clang__)
+-  __attribute__((noinline)) void LimitStereoInPlace(
++  PLAITS_RAM_CODE(voice_post_limit_stereo) __attribute__((noinline)) void LimitStereoInPlace(
+ #else
+-  __attribute__((noinline, optimize("no-unroll-loops"))) void LimitStereoInPlace(
++  PLAITS_RAM_CODE(voice_post_limit_stereo) __attribute__((noinline, optimize("no-unroll-loops"))) void LimitStereoInPlace(
+ #endif
+       float pre_gain, float* left, float* right, size_t size) {
+     float peak = limiter_peak_;
+@@ -335,7 +336,7 @@
+   void ReloadUserData() {
+     reload_user_data_ = true;
+   }
+-  void Render(
++  PLAITS_RAM_CODE(voice_render) void Render(
+       const Patch& patch,
+       const Modulations& modulations,
+       Frame* frames,

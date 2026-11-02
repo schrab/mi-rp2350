@@ -36,6 +36,7 @@
 #include "stmlib/utils/random.h"
 
 #include "plaits/dsp/dsp.h"
+#include "plaits/dsp/ram_code.h"
 #include "plaits/resources.h"
 
 namespace plaits {
@@ -63,7 +64,7 @@ void String::Reset() {
   src_phase_ = 0.0f;
 }
 
-void String::Process(
+PLAITS_RAM_CODE(string_process) void String::Process(
     float f0,
     float non_linearity_amount,
     float brightness,
@@ -81,7 +82,7 @@ void String::Process(
 }
 
 template<StringNonLinearity non_linearity>
-void String::ProcessInternal(
+PLAITS_RAM_CODE(string_process_internal) void String::ProcessInternal(
     float f0,
     float non_linearity_amount,
     float brightness,

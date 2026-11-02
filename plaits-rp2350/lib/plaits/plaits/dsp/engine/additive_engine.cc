@@ -134,7 +134,7 @@ const int organ_harmonics[8] = {
   0, 1, 2, 3, 5, 7, 9, 11
 };
 
-void AdditiveEngine::Render(
+PLAITS_RAM_CODE(additive_render) void AdditiveEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

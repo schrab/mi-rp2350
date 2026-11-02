@@ -32,6 +32,8 @@
 
 #include "plaits/dsp/physical_modelling/modal_voice.h"
 
+#include "plaits/dsp/ram_code.h"
+
 #include <algorithm>
 
 #include "stmlib/dsp/units.h"
@@ -49,7 +51,7 @@ void ModalVoice::Init() {
   resonator_.Init(0.015f, kMaxNumModes);
 }
 
-void ModalVoice::Render(
+PLAITS_RAM_CODE(modal_voice_render) void ModalVoice::Render(
     bool sustain,
     bool trigger,
     float accent,
@@ -98,7 +100,7 @@ void ModalVoice::Render(
   resonator_.Process(f0, structure, brightness, damping, temp, out, size);
 }
 
-void ModalVoice::RenderStereo(
+PLAITS_RAM_CODE(modal_voice_render_stereo) void ModalVoice::RenderStereo(
     bool sustain,
     bool trigger,
     float accent,

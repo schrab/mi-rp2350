@@ -82,7 +82,7 @@ void FreshetsFormantEngine::Reset() {
   lp_2_r_ = 0.0f;
 }
 
-void FreshetsFormantEngine::Render(
+PLAITS_RAM_CODE(freshets_formant_render) void FreshetsFormantEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

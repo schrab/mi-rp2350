@@ -31,6 +31,7 @@
 
 #include "stmlib/stmlib.h"
 
+#include "plaits/dsp/ram_code.h"
 #include "plaits/dsp/fm/algorithms.h"
 #include "plaits/dsp/fm/dx_units.h"
 #include "plaits/dsp/fm/envelope.h"
@@ -179,7 +180,7 @@ class Voice {
     Render(parameters, buffers, size);
   }
 
-  inline void Render(
+  PLAITS_RAM_CODE(fm_voice_render) inline void Render(
       const Parameters& parameters,
       float* buffers[4],
       size_t size) {

@@ -134,7 +134,7 @@ inline const int16_t* const* ChordWaveLine() {
 }
 #endif
 
-void ChordEngine::Render(
+PLAITS_RAM_CODE(chord_render) void ChordEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

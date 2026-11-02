@@ -38,6 +38,7 @@
 
 #include "plaits/dsp/copyable_svf.h"
 #include "plaits/dsp/local_random.h"
+#include "plaits/dsp/ram_code.h"
 #include "plaits/dsp/physical_modelling/delay_line.h"
 
 namespace plaits {
@@ -66,8 +67,12 @@ class String {
       size_t size);
 
  private:
+  // The section attribute must sit on this in-class declaration: GCC drops
+  // section attributes placed on the out-of-line .cc definition of a member
+  // template (the instantiations then land in .text and are reached from
+  // SRAM String::Process through veneers into XIP flash).
   template<StringNonLinearity non_linearity>
-  void ProcessInternal(
+  PLAITS_RAM_CODE(string_process_internal) void ProcessInternal(
       float f0,
       float non_linearity_amount,
       float brightness,

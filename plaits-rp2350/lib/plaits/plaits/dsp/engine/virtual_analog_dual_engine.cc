@@ -77,7 +77,7 @@ float VirtualAnalogDualEngine::ComputeDetuning(float detune) const {
   return (a + (b - a) * Squash(Squash(detune_fractional))) * sign;
 }
 
-void VirtualAnalogDualEngine::Render(
+PLAITS_RAM_CODE(va_dual_render) void VirtualAnalogDualEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

@@ -269,7 +269,7 @@ inline float WavetableEngine::ReadCell(
   return InterpolateWaveHermite(phase_samples, 0, phase_fractional);
 }
 
-void WavetableEngine::Render(
+PLAITS_RAM_CODE(wavetable_render) void WavetableEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

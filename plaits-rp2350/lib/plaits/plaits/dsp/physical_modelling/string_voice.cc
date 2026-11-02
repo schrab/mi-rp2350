@@ -28,6 +28,8 @@
 
 #include "plaits/dsp/physical_modelling/string_voice.h"
 
+#include "plaits/dsp/ram_code.h"
+
 #include <algorithm>
 
 #include "stmlib/dsp/units.h"
@@ -50,7 +52,7 @@ void StringVoice::Reset() {
   string_.Reset();
 }
 
-void StringVoice::Render(
+PLAITS_RAM_CODE(string_voice_render) void StringVoice::Render(
     bool sustain,
     bool trigger,
     float accent,

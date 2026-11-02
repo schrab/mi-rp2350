@@ -1,0 +1,699 @@
+diff -ruN a/plaits/dsp/drums/analog_snare_drum.h b/plaits/dsp/drums/analog_snare_drum.h
+--- a/plaits/dsp/drums/analog_snare_drum.h	2026-11-03 01:25:21.920469292 +0700
++++ b/plaits/dsp/drums/analog_snare_drum.h	2026-11-03 00:59:48.896893472 +0700
+@@ -38,6 +38,7 @@
+ #include "stmlib/utils/random.h"
+ 
+ #include "plaits/dsp/dsp.h"
++#include "plaits/dsp/ram_code.h"
+ #include "plaits/dsp/oscillator/sine_oscillator.h"
+ 
+ namespace plaits {
+@@ -64,7 +65,7 @@
+     noise_filter_.Init();
+   }
+   
+-  void Render(
++  PLAITS_RAM_CODE(analog_snare_render) void Render(
+       bool sustain,
+       bool trigger,
+       float accent,
+diff -ruN a/plaits/dsp/drums/synthetic_snare_drum.h b/plaits/dsp/drums/synthetic_snare_drum.h
+--- a/plaits/dsp/drums/synthetic_snare_drum.h	2026-11-03 01:25:21.922362343 +0700
++++ b/plaits/dsp/drums/synthetic_snare_drum.h	2026-11-03 00:59:48.945894211 +0700
+@@ -40,6 +40,7 @@
+ #include "stmlib/dsp/units.h"
+ 
+ #include "plaits/dsp/dsp.h"
++#include "plaits/dsp/ram_code.h"
+ 
+ namespace plaits {
+ 
+@@ -67,7 +68,7 @@
+     return 2.0f * triangle / (1.0f + fabsf(triangle));
+   }
+   
+-  void Render(
++  PLAITS_RAM_CODE(synthetic_snare_render) void Render(
+       bool sustain,
+       bool trigger,
+       float accent,
+diff -ruN a/plaits/dsp/engine/additive_engine.cc b/plaits/dsp/engine/additive_engine.cc
+--- a/plaits/dsp/engine/additive_engine.cc	2026-11-03 01:25:21.857639202 +0700
++++ b/plaits/dsp/engine/additive_engine.cc	2026-11-03 00:52:40.620505564 +0700
+@@ -134,7 +134,7 @@
+   0, 1, 2, 3, 5, 7, 9, 11
+ };
+ 
+-void AdditiveEngine::Render(
++PLAITS_RAM_CODE(additive_render) void AdditiveEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/bass_drum_engine.cc b/plaits/dsp/engine/bass_drum_engine.cc
+--- a/plaits/dsp/engine/bass_drum_engine.cc	2026-11-03 01:25:21.860134484 +0700
++++ b/plaits/dsp/engine/bass_drum_engine.cc	2026-11-03 00:52:40.655506078 +0700
+@@ -52,7 +52,7 @@
+   
+ }
+ 
+-void BassDrumEngine::Render(
++PLAITS_RAM_CODE(bass_drum_render) void BassDrumEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/chord_engine.cc b/plaits/dsp/engine/chord_engine.cc
+--- a/plaits/dsp/engine/chord_engine.cc	2026-11-03 01:25:21.862663941 +0700
++++ b/plaits/dsp/engine/chord_engine.cc	2026-11-03 00:52:40.685506519 +0700
+@@ -134,7 +134,7 @@
+ }
+ #endif
+ 
+-void ChordEngine::Render(
++PLAITS_RAM_CODE(chord_render) void ChordEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/fm_engine.cc b/plaits/dsp/engine/fm_engine.cc
+--- a/plaits/dsp/engine/fm_engine.cc	2026-11-03 01:25:21.864456308 +0700
++++ b/plaits/dsp/engine/fm_engine.cc	2026-11-03 00:52:40.714506945 +0700
+@@ -60,7 +60,7 @@
+   
+ }
+ 
+-void FMEngine::Render(
++PLAITS_RAM_CODE(fm_render) void FMEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/grain_engine.cc b/plaits/dsp/engine/grain_engine.cc
+--- a/plaits/dsp/engine/grain_engine.cc	2026-11-03 01:25:21.865920232 +0700
++++ b/plaits/dsp/engine/grain_engine.cc	2026-11-03 00:52:40.741507342 +0700
+@@ -61,7 +61,7 @@
+   
+ }
+ 
+-void GrainEngine::Render(
++PLAITS_RAM_CODE(grain_render) void GrainEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/hi_hat_engine.cc b/plaits/dsp/engine/hi_hat_engine.cc
+--- a/plaits/dsp/engine/hi_hat_engine.cc	2026-11-03 01:25:21.867244122 +0700
++++ b/plaits/dsp/engine/hi_hat_engine.cc	2026-11-03 00:52:40.776507856 +0700
+@@ -52,7 +52,7 @@
+   
+ }
+ 
+-void HiHatEngine::Render(
++PLAITS_RAM_CODE(hi_hat_render) void HiHatEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/modal_engine.cc b/plaits/dsp/engine/modal_engine.cc
+--- a/plaits/dsp/engine/modal_engine.cc	2026-11-03 01:25:21.868627301 +0700
++++ b/plaits/dsp/engine/modal_engine.cc	2026-11-03 00:53:00.971804907 +0700
+@@ -53,7 +53,7 @@
+   voice_.Init();
+ }
+ 
+-void ModalEngine::Render(
++PLAITS_RAM_CODE(modal_render) void ModalEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/noise_engine.cc b/plaits/dsp/engine/noise_engine.cc
+--- a/plaits/dsp/engine/noise_engine.cc	2026-11-03 01:25:21.869939805 +0700
++++ b/plaits/dsp/engine/noise_engine.cc	2026-11-03 00:53:01.033805820 +0700
+@@ -61,7 +61,7 @@
+   
+ }
+ 
+-void NoiseEngine::Render(
++PLAITS_RAM_CODE(noise_render) void NoiseEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/particle_engine.cc b/plaits/dsp/engine/particle_engine.cc
+--- a/plaits/dsp/engine/particle_engine.cc	2026-11-03 01:25:21.871225342 +0700
++++ b/plaits/dsp/engine/particle_engine.cc	2026-11-03 00:53:01.092806689 +0700
+@@ -86,7 +86,7 @@
+ // that the diffuser receives the particles at their mono level.
+ const float kStereoToMonoGain = 0.7708f;
+ 
+-void ParticleEngine::Render(
++PLAITS_RAM_CODE(particle_render) void ParticleEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/snare_drum_engine.cc b/plaits/dsp/engine/snare_drum_engine.cc
+--- a/plaits/dsp/engine/snare_drum_engine.cc	2026-11-03 01:25:21.872442341 +0700
++++ b/plaits/dsp/engine/snare_drum_engine.cc	2026-11-03 00:53:01.156807631 +0700
+@@ -54,7 +54,7 @@
+   
+ }
+ 
+-void SnareDrumEngine::Render(
++PLAITS_RAM_CODE(snare_drum_render) void SnareDrumEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/speech_engine.cc b/plaits/dsp/engine/speech_engine.cc
+--- a/plaits/dsp/engine/speech_engine.cc	2026-11-03 01:25:21.873798084 +0700
++++ b/plaits/dsp/engine/speech_engine.cc	2026-11-03 00:53:01.254809074 +0700
+@@ -70,7 +70,7 @@
+   post_filter_ = 0.0f;
+ }
+ 
+-void SpeechEngine::Render(
++PLAITS_RAM_CODE(speech_render) void SpeechEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/string_engine.cc b/plaits/dsp/engine/string_engine.cc
+--- a/plaits/dsp/engine/string_engine.cc	2026-11-03 01:25:21.875841084 +0700
++++ b/plaits/dsp/engine/string_engine.cc	2026-11-03 00:53:01.293809648 +0700
+@@ -68,7 +68,7 @@
+   0.387298346f, 0.707106769f, 0.921954453f
+ };
+ 
+-void StringEngine::Render(
++PLAITS_RAM_CODE(string_render) void StringEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/swarm_engine.cc b/plaits/dsp/engine/swarm_engine.cc
+--- a/plaits/dsp/engine/swarm_engine.cc	2026-11-03 01:25:21.878402977 +0700
++++ b/plaits/dsp/engine/swarm_engine.cc	2026-11-03 00:53:24.379149856 +0700
+@@ -66,7 +66,7 @@
+   0.0f, 0.1f, 0.25f, 0.5f, 0.5f, 0.75f, 0.9f, 1.0f
+ };
+ 
+-void SwarmEngine::Render(
++PLAITS_RAM_CODE(swarm_render) void SwarmEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/virtual_analog_crossfade_engine.cc b/plaits/dsp/engine/virtual_analog_crossfade_engine.cc
+--- a/plaits/dsp/engine/virtual_analog_crossfade_engine.cc	2026-11-03 01:25:21.880673586 +0700
++++ b/plaits/dsp/engine/virtual_analog_crossfade_engine.cc	2026-11-03 00:53:24.402150196 +0700
+@@ -85,7 +85,7 @@
+   return (a + (b - a) * Squash(Squash(detune_fractional))) * sign;
+ }
+ 
+-void VirtualAnalogCrossfadeEngine::Render(
++PLAITS_RAM_CODE(va_crossfade_render) void VirtualAnalogCrossfadeEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/virtual_analog_dual_engine.cc b/plaits/dsp/engine/virtual_analog_dual_engine.cc
+--- a/plaits/dsp/engine/virtual_analog_dual_engine.cc	2026-11-03 01:25:21.882984348 +0700
++++ b/plaits/dsp/engine/virtual_analog_dual_engine.cc	2026-11-03 00:53:24.428150579 +0700
+@@ -77,7 +77,7 @@
+   return (a + (b - a) * Squash(Squash(detune_fractional))) * sign;
+ }
+ 
+-void VirtualAnalogDualEngine::Render(
++PLAITS_RAM_CODE(va_dual_render) void VirtualAnalogDualEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/virtual_analog_engine.cc b/plaits/dsp/engine/virtual_analog_engine.cc
+--- a/plaits/dsp/engine/virtual_analog_engine.cc	2026-11-03 01:25:21.884766124 +0700
++++ b/plaits/dsp/engine/virtual_analog_engine.cc	2026-11-03 00:53:24.452150933 +0700
+@@ -82,7 +82,7 @@
+   return (a + (b - a) * Squash(Squash(detune_fractional))) * sign;
+ }
+ 
+-void VirtualAnalogEngine::Render(
++PLAITS_RAM_CODE(va_render) void VirtualAnalogEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/virtual_analog_variant_engine.cc b/plaits/dsp/engine/virtual_analog_variant_engine.cc
+--- a/plaits/dsp/engine/virtual_analog_variant_engine.cc	2026-11-03 01:25:21.886265184 +0700
++++ b/plaits/dsp/engine/virtual_analog_variant_engine.cc	2026-11-03 00:53:24.478151317 +0700
+@@ -84,7 +84,7 @@
+   return (a + (b - a) * Squash(Squash(detune_fractional))) * sign;
+ }
+ 
+-void VirtualAnalogVariantEngine::Render(
++PLAITS_RAM_CODE(va_variant_render) void VirtualAnalogVariantEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/waveshaping_engine.cc b/plaits/dsp/engine/waveshaping_engine.cc
+--- a/plaits/dsp/engine/waveshaping_engine.cc	2026-11-03 01:25:21.887841009 +0700
++++ b/plaits/dsp/engine/waveshaping_engine.cc	2026-11-03 00:53:24.501151656 +0700
+@@ -69,7 +69,7 @@
+   return max_amount * max_amount * max_amount;
+ }
+ 
+-void WaveshapingEngine::Render(
++PLAITS_RAM_CODE(waveshaping_render) void WaveshapingEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/wavetable_engine.cc b/plaits/dsp/engine/wavetable_engine.cc
+--- a/plaits/dsp/engine/wavetable_engine.cc	2026-11-03 01:25:21.889407151 +0700
++++ b/plaits/dsp/engine/wavetable_engine.cc	2026-11-03 00:53:24.528152054 +0700
+@@ -269,7 +269,7 @@
+   return InterpolateWaveHermite(phase_samples, 0, phase_fractional);
+ }
+ 
+-void WavetableEngine::Render(
++PLAITS_RAM_CODE(wavetable_render) void WavetableEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine2/acid_engine.cc b/plaits/dsp/engine2/acid_engine.cc
+--- a/plaits/dsp/engine2/acid_engine.cc	2026-11-03 01:25:21.890870498 +0700
++++ b/plaits/dsp/engine2/acid_engine.cc	2026-11-03 00:53:51.045543649 +0700
+@@ -147,7 +147,7 @@
+   prev_main_scale_ = kMainScale;
+ }
+ 
+-void AcidEngine::Render(
++PLAITS_RAM_CODE(acid_render) void AcidEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine2/analog_percussion_engine.cc b/plaits/dsp/engine2/analog_percussion_engine.cc
+--- a/plaits/dsp/engine2/analog_percussion_engine.cc	2026-11-03 01:25:21.892653011 +0700
++++ b/plaits/dsp/engine2/analog_percussion_engine.cc	2026-11-03 00:53:51.069544004 +0700
+@@ -69,7 +69,7 @@
+   sustain_gain_ = 0.0f;
+ }
+ 
+-void AnalogPercussionEngine::Render(
++PLAITS_RAM_CODE(analog_percussion_render) void AnalogPercussionEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine2/bubbletime_engine.cc b/plaits/dsp/engine2/bubbletime_engine.cc
+--- a/plaits/dsp/engine2/bubbletime_engine.cc	2026-11-03 01:25:21.895327161 +0700
++++ b/plaits/dsp/engine2/bubbletime_engine.cc	2026-11-03 00:53:51.237546487 +0700
+@@ -277,7 +277,7 @@
+   return samples;
+ }
+ 
+-void BubbleTimeEngine::Render(
++PLAITS_RAM_CODE(bubbletime_render) void BubbleTimeEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine2/freshets_formant_engine.cc b/plaits/dsp/engine2/freshets_formant_engine.cc
+--- a/plaits/dsp/engine2/freshets_formant_engine.cc	2026-11-03 01:25:21.896971417 +0700
++++ b/plaits/dsp/engine2/freshets_formant_engine.cc	2026-11-03 00:54:33.588173584 +0700
+@@ -82,7 +82,7 @@
+   lp_2_r_ = 0.0f;
+ }
+ 
+-void FreshetsFormantEngine::Render(
++PLAITS_RAM_CODE(freshets_formant_render) void FreshetsFormantEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine2/noise_bank_engine.cc b/plaits/dsp/engine2/noise_bank_engine.cc
+--- a/plaits/dsp/engine2/noise_bank_engine.cc	2026-11-03 01:25:21.898454861 +0700
++++ b/plaits/dsp/engine2/noise_bank_engine.cc	2026-11-03 00:55:15.171791190 +0700
+@@ -279,7 +279,7 @@
+   decimator_write_ = 0;
+ }
+ 
+-void NoiseBankEngine::Render(
++PLAITS_RAM_CODE(noise_bank_render) void NoiseBankEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine2/scanned_engine.cc b/plaits/dsp/engine2/scanned_engine.cc
+--- a/plaits/dsp/engine2/scanned_engine.cc	2026-11-03 01:25:21.899969597 +0700
++++ b/plaits/dsp/engine2/scanned_engine.cc	2026-11-03 00:56:31.616930914 +0700
+@@ -81,7 +81,7 @@
+   }
+ }
+ 
+-void ScannedEngine::Step(
++PLAITS_RAM_CODE(scanned_step) void ScannedEngine::Step(
+     float inharmonicity,
+     float structure,
+     float damping,
+@@ -167,7 +167,7 @@
+ // One virtual pickup: the interpolated readout blended toward its own spatial
+ // derivative by TIMBRE, then sine-wavefolded by MORPH. Stereo mode reads a
+ // second pickup on the same string, a quarter of the scan span away.
+-float ScannedEngine::ReadPickup(
++PLAITS_RAM_CODE(scanned_read_pickup) float ScannedEngine::ReadPickup(
+     float phase,
+     float timbre,
+     float fold_amount,
+@@ -201,7 +201,7 @@
+   return scanned + (folded - scanned) * fold_amount;
+ }
+ 
+-void ScannedEngine::Render(
++PLAITS_RAM_CODE(scanned_render) void ScannedEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine2/shakers_engine.cc b/plaits/dsp/engine2/shakers_engine.cc
+--- a/plaits/dsp/engine2/shakers_engine.cc	2026-11-03 01:25:21.901491584 +0700
++++ b/plaits/dsp/engine2/shakers_engine.cc	2026-11-03 00:56:31.642931302 +0700
+@@ -245,7 +245,7 @@
+   eq_x2_ = 0.0f;
+ }
+ 
+-void ShakersEngine::Render(
++PLAITS_RAM_CODE(shakers_render) void ShakersEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine2/six_op_engine.cc b/plaits/dsp/engine2/six_op_engine.cc
+--- a/plaits/dsp/engine2/six_op_engine.cc	2026-11-03 01:25:21.902852511 +0700
++++ b/plaits/dsp/engine2/six_op_engine.cc	2026-11-03 00:58:26.740656446 +0700
+@@ -93,11 +93,11 @@
+ // in each hot path, but inlining the same transfer function into all three mono
+ // loops costs several kilobytes of flash. Keep one shared copy;
+ // the call overhead is tiny beside the floating-point divide inside SoftClip.
+-static float __attribute__((noinline)) SixOpSoftClip(float sample) {
++PLAITS_RAM_CODE(six_op_soft_clip) static float __attribute__((noinline)) SixOpSoftClip(float sample) {
+   return SoftClip(sample);
+ }
+ 
+-void SixOpEngine::RenderMonoOutput(
++PLAITS_RAM_CODE(six_op_render_mono) void SixOpEngine::RenderMonoOutput(
+     float gain,
+     float macro,
+     float* out,
+@@ -191,7 +191,7 @@
+   }
+ }
+ 
+-void SixOpEngine::Render(
++PLAITS_RAM_CODE(six_op_render) void SixOpEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine2/zxphase48k_engine.cc b/plaits/dsp/engine2/zxphase48k_engine.cc
+--- a/plaits/dsp/engine2/zxphase48k_engine.cc	2026-11-03 01:25:21.904314256 +0700
++++ b/plaits/dsp/engine2/zxphase48k_engine.cc	2026-11-03 00:57:59.417246017 +0700
+@@ -54,7 +54,7 @@
+   sweep_count_ = 0;
+ }
+ 
+-void ZxPhase48kEngine::Render(
++PLAITS_RAM_CODE(zxphase48k_render) void ZxPhase48kEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine2/zxpulse48k_engine.cc b/plaits/dsp/engine2/zxpulse48k_engine.cc
+--- a/plaits/dsp/engine2/zxpulse48k_engine.cc	2026-11-03 01:25:21.905881116 +0700
++++ b/plaits/dsp/engine2/zxpulse48k_engine.cc	2026-11-03 00:57:59.443246407 +0700
+@@ -58,7 +58,7 @@
+   }
+ }
+ 
+-void ZxPulse48kEngine::Render(
++PLAITS_RAM_CODE(zxpulse48k_render) void ZxPulse48kEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/fm/operator.h b/plaits/dsp/fm/operator.h
+--- a/plaits/dsp/fm/operator.h	2026-11-03 01:25:21.924205052 +0700
++++ b/plaits/dsp/fm/operator.h	2026-11-03 01:01:16.083210489 +0700
+@@ -31,6 +31,7 @@
+ 
+ #include <algorithm>
+ 
++#include "plaits/dsp/ram_code.h"
+ #include "plaits/dsp/oscillator/sine_oscillator.h"
+ #include "plaits/dsp/extended_tzfm.h"
+ 
+@@ -67,7 +68,7 @@
+     size_t size);
+ 
+ template<int n, int modulation_source, bool additive>
+-void RenderOperators(
++PLAITS_RAM_CODE(fm_render_operators) void RenderOperators(
+     Operator* ops,
+     const float* f,
+     const float* a,
+diff -ruN a/plaits/dsp/fm/voice.h b/plaits/dsp/fm/voice.h
+--- a/plaits/dsp/fm/voice.h	2026-11-03 01:25:21.926565159 +0700
++++ b/plaits/dsp/fm/voice.h	2026-11-03 01:01:16.060210141 +0700
+@@ -31,6 +31,7 @@
+ 
+ #include "stmlib/stmlib.h"
+ 
++#include "plaits/dsp/ram_code.h"
+ #include "plaits/dsp/fm/algorithms.h"
+ #include "plaits/dsp/fm/dx_units.h"
+ #include "plaits/dsp/fm/envelope.h"
+@@ -179,7 +180,7 @@
+     Render(parameters, buffers, size);
+   }
+ 
+-  inline void Render(
++  PLAITS_RAM_CODE(fm_voice_render) inline void Render(
+       const Parameters& parameters,
+       float* buffers[4],
+       size_t size) {
+diff -ruN a/plaits/dsp/oscillator/grainlet_oscillator.h b/plaits/dsp/oscillator/grainlet_oscillator.h
+--- a/plaits/dsp/oscillator/grainlet_oscillator.h	2026-11-03 01:25:21.928207151 +0700
++++ b/plaits/dsp/oscillator/grainlet_oscillator.h	2026-11-03 01:00:58.344942217 +0700
+@@ -36,6 +36,7 @@
+ #include "stmlib/dsp/polyblep.h"
+ 
+ #include "plaits/dsp/oscillator/oscillator.h"
++#include "plaits/dsp/ram_code.h"
+ #include "plaits/dsp/oscillator/sine_oscillator.h"
+ 
+ namespace plaits {
+@@ -142,7 +143,7 @@
+ 
+  private:
+   template<bool process_hard_sync>
+-  void RenderInternal(
++  PLAITS_RAM_CODE(grainlet_render_internal) void RenderInternal(
+       float carrier_frequency,
+       float formant_frequency,
+       float carrier_shape,
+diff -ruN a/plaits/dsp/physical_modelling/modal_voice.cc b/plaits/dsp/physical_modelling/modal_voice.cc
+--- a/plaits/dsp/physical_modelling/modal_voice.cc	2026-11-03 01:25:21.907314530 +0700
++++ b/plaits/dsp/physical_modelling/modal_voice.cc	2026-11-03 00:59:08.951291484 +0700
+@@ -32,6 +32,8 @@
+ 
+ #include "plaits/dsp/physical_modelling/modal_voice.h"
+ 
++#include "plaits/dsp/ram_code.h"
++
+ #include <algorithm>
+ 
+ #include "stmlib/dsp/units.h"
+@@ -49,7 +51,7 @@
+   resonator_.Init(0.015f, kMaxNumModes);
+ }
+ 
+-void ModalVoice::Render(
++PLAITS_RAM_CODE(modal_voice_render) void ModalVoice::Render(
+     bool sustain,
+     bool trigger,
+     float accent,
+@@ -98,7 +100,7 @@
+   resonator_.Process(f0, structure, brightness, damping, temp, out, size);
+ }
+ 
+-void ModalVoice::RenderStereo(
++PLAITS_RAM_CODE(modal_voice_render_stereo) void ModalVoice::RenderStereo(
+     bool sustain,
+     bool trigger,
+     float accent,
+diff -ruN a/plaits/dsp/physical_modelling/resonator.cc b/plaits/dsp/physical_modelling/resonator.cc
+--- a/plaits/dsp/physical_modelling/resonator.cc	2026-11-03 01:25:21.909001438 +0700
++++ b/plaits/dsp/physical_modelling/resonator.cc	2026-11-03 00:59:09.005292297 +0700
+@@ -80,7 +80,7 @@
+   return f[0] >= 0.499f && f[1] >= 0.499f && f[2] >= 0.499f && f[3] >= 0.499f;
+ }
+ 
+-void Resonator::Process(
++PLAITS_RAM_CODE(resonator_process) void Resonator::Process(
+     float f0,
+     float structure,
+     float brightness,
+@@ -145,7 +145,7 @@
+   }
+ }
+ 
+-void Resonator::ProcessStereo(
++PLAITS_RAM_CODE(resonator_process_stereo) void Resonator::ProcessStereo(
+     float f0,
+     float structure,
+     float brightness,
+diff -ruN a/plaits/dsp/physical_modelling/string.cc b/plaits/dsp/physical_modelling/string.cc
+--- a/plaits/dsp/physical_modelling/string.cc	2026-11-03 01:25:21.910983085 +0700
++++ b/plaits/dsp/physical_modelling/string.cc	2026-11-03 00:59:08.929291153 +0700
+@@ -36,6 +36,7 @@
+ #include "stmlib/utils/random.h"
+ 
+ #include "plaits/dsp/dsp.h"
++#include "plaits/dsp/ram_code.h"
+ #include "plaits/resources.h"
+ 
+ namespace plaits {
+@@ -63,7 +64,7 @@
+   src_phase_ = 0.0f;
+ }
+ 
+-void String::Process(
++PLAITS_RAM_CODE(string_process) void String::Process(
+     float f0,
+     float non_linearity_amount,
+     float brightness,
+@@ -81,7 +82,7 @@
+ }
+ 
+ template<StringNonLinearity non_linearity>
+-void String::ProcessInternal(
++PLAITS_RAM_CODE(string_process_internal) void String::ProcessInternal(
+     float f0,
+     float non_linearity_amount,
+     float brightness,
+diff -ruN a/plaits/dsp/physical_modelling/string.h b/plaits/dsp/physical_modelling/string.h
+--- a/plaits/dsp/physical_modelling/string.h	2026-11-02 23:42:48.657834866 +0700
++++ b/plaits/dsp/physical_modelling/string.h	2026-11-03 01:24:15.433583654 +0700
+@@ -38,6 +38,7 @@
+ 
+ #include "plaits/dsp/copyable_svf.h"
+ #include "plaits/dsp/local_random.h"
++#include "plaits/dsp/ram_code.h"
+ #include "plaits/dsp/physical_modelling/delay_line.h"
+ 
+ namespace plaits {
+@@ -66,8 +67,12 @@
+       size_t size);
+ 
+  private:
++  // The section attribute must sit on this in-class declaration: GCC drops
++  // section attributes placed on the out-of-line .cc definition of a member
++  // template (the instantiations then land in .text and are reached from
++  // SRAM String::Process through veneers into XIP flash).
+   template<StringNonLinearity non_linearity>
+-  void ProcessInternal(
++  PLAITS_RAM_CODE(string_process_internal) void ProcessInternal(
+       float f0,
+       float non_linearity_amount,
+       float brightness,
+diff -ruN a/plaits/dsp/physical_modelling/string_voice.cc b/plaits/dsp/physical_modelling/string_voice.cc
+--- a/plaits/dsp/physical_modelling/string_voice.cc	2026-11-03 01:25:21.912840979 +0700
++++ b/plaits/dsp/physical_modelling/string_voice.cc	2026-11-03 00:58:54.570074996 +0700
+@@ -28,6 +28,8 @@
+ 
+ #include "plaits/dsp/physical_modelling/string_voice.h"
+ 
++#include "plaits/dsp/ram_code.h"
++
+ #include <algorithm>
+ 
+ #include "stmlib/dsp/units.h"
+@@ -50,7 +52,7 @@
+   string_.Reset();
+ }
+ 
+-void StringVoice::Render(
++PLAITS_RAM_CODE(string_voice_render) void StringVoice::Render(
+     bool sustain,
+     bool trigger,
+     float accent,
+diff -ruN a/plaits/dsp/speech/lpc_speech_synth.cc b/plaits/dsp/speech/lpc_speech_synth.cc
+--- a/plaits/dsp/speech/lpc_speech_synth.cc	2026-11-03 01:25:21.914343497 +0700
++++ b/plaits/dsp/speech/lpc_speech_synth.cc	2026-11-03 00:59:28.478585644 +0700
+@@ -28,6 +28,8 @@
+ 
+ #include "plaits/dsp/speech/lpc_speech_synth.h"
+ 
++#include "plaits/dsp/ram_code.h"
++
+ #include <algorithm>
+ 
+ #include "stmlib/utils/random.h"
+@@ -55,7 +57,7 @@
+   fill(&s_[0], &s_[kLPCOrder + 1], 0);
+ }
+ 
+-void LPCSpeechSynth::Render(
++PLAITS_RAM_CODE(lpc_speech_synth_render) void LPCSpeechSynth::Render(
+     float prosody_amount,
+     float pitch_shift,
+     float* excitation,
+@@ -162,7 +164,7 @@
+   next_sample_ = next_sample;
+ }
+ 
+-void LPCSpeechSynth::PlayFrame(const Frame& f1, const Frame& f2, float blend) {
++PLAITS_RAM_CODE(lpc_speech_play_frame) void LPCSpeechSynth::PlayFrame(const Frame& f1, const Frame& f2, float blend) {
+   float frequency_1 = f1.period == 0
+       ? frequency_
+       : 1.0f / static_cast<float>(f1.period);
+diff -ruN a/plaits/dsp/speech/lpc_speech_synth_controller.cc b/plaits/dsp/speech/lpc_speech_synth_controller.cc
+--- a/plaits/dsp/speech/lpc_speech_synth_controller.cc	2026-11-03 01:25:21.915815015 +0700
++++ b/plaits/dsp/speech/lpc_speech_synth_controller.cc	2026-11-03 00:59:28.530586428 +0700
+@@ -28,6 +28,8 @@
+ 
+ #include "plaits/dsp/speech/lpc_speech_synth_controller.h"
+ 
++#include "plaits/dsp/ram_code.h"
++
+ #include <algorithm>
+ 
+ #include "stmlib/dsp/units.h"
+@@ -292,7 +294,7 @@
+   synth_.Init();
+ }
+ 
+-void LPCSpeechSynthController::Render(
++PLAITS_RAM_CODE(lpc_speech_controller_render) void LPCSpeechSynthController::Render(
+     bool free_running,
+     bool trigger,
+     int bank,
+diff -ruN a/plaits/dsp/speech/naive_speech_synth.cc b/plaits/dsp/speech/naive_speech_synth.cc
+--- a/plaits/dsp/speech/naive_speech_synth.cc	2026-11-03 01:25:21.917260020 +0700
++++ b/plaits/dsp/speech/naive_speech_synth.cc	2026-11-03 00:59:28.584587242 +0700
+@@ -29,6 +29,8 @@
+ 
+ #include "plaits/dsp/speech/naive_speech_synth.h"
+ 
++#include "plaits/dsp/ram_code.h"
++
+ #include <algorithm>
+ 
+ #include "stmlib/dsp/dsp.h"
+@@ -95,7 +97,7 @@
+   pulse_coloration_.set_f_q<FREQUENCY_DIRTY>(800.0f / kSampleRate, 0.5f);
+ }
+ 
+-void NaiveSpeechSynth::Render(
++PLAITS_RAM_CODE(naive_speech_render) void NaiveSpeechSynth::Render(
+     bool click,
+     float frequency,
+     float phoneme,
+diff -ruN a/plaits/dsp/speech/sam_speech_synth.cc b/plaits/dsp/speech/sam_speech_synth.cc
+--- a/plaits/dsp/speech/sam_speech_synth.cc	2026-11-03 01:25:21.918755322 +0700
++++ b/plaits/dsp/speech/sam_speech_synth.cc	2026-11-03 00:59:28.637588041 +0700
+@@ -28,6 +28,8 @@
+ 
+ #include "plaits/dsp/speech/sam_speech_synth.h"
+ 
++#include "plaits/dsp/ram_code.h"
++
+ #include <algorithm>
+ 
+ #include "stmlib/dsp/dsp.h"
+@@ -111,7 +113,7 @@
+   }
+ }
+ 
+-void SAMSpeechSynth::Render(
++PLAITS_RAM_CODE(sam_speech_render) void SAMSpeechSynth::Render(
+     bool consonant,
+     float frequency,
+     float vowel,

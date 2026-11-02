@@ -245,7 +245,7 @@ void ShakersEngine::SetInstrument(int instrument) {
   eq_x2_ = 0.0f;
 }
 
-void ShakersEngine::Render(
+PLAITS_RAM_CODE(shakers_render) void ShakersEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

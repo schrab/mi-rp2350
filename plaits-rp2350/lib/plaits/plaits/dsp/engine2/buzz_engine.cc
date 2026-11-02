@@ -40,7 +40,7 @@ namespace {
 // SPEC R12 -- table reads are the cheapest thing measured on this hardware,
 // evaluating that ratio in the inner loop is not -- argues the same way it
 // did for fold's shaper curves.
-const int16_t kBuzzZones[kBuzzNumZones][257] = {
+PLAITS_RAM_CODE(k_buzz_zones) const int16_t kBuzzZones[kBuzzNumZones][257] = {
   // Zone 0.
   {
       -142,   -146,   -143,   -139,   -129,   -125,   -122,   -125,
@@ -647,7 +647,7 @@ void BuzzEngine::Reset() {
   osc1_decimator_ = 0.0f;
 }
 
-void BuzzEngine::Render(
+PLAITS_RAM_CODE(buzz_render) void BuzzEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

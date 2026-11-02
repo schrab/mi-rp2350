@@ -79,7 +79,7 @@ void ChiptuneEngine::Reset() {
   chords_.Reset();
 }
 
-void ChiptuneEngine::Render(
+PLAITS_RAM_CODE(chiptune_render) void ChiptuneEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

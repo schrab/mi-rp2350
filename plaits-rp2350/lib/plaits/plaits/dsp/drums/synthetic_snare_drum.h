@@ -40,6 +40,7 @@
 #include "stmlib/dsp/units.h"
 
 #include "plaits/dsp/dsp.h"
+#include "plaits/dsp/ram_code.h"
 
 namespace plaits {
 
@@ -67,7 +68,7 @@ class SyntheticSnareDrum {
     return 2.0f * triangle / (1.0f + fabsf(triangle));
   }
   
-  void Render(
+  PLAITS_RAM_CODE(synthetic_snare_render) void Render(
       bool sustain,
       bool trigger,
       float accent,

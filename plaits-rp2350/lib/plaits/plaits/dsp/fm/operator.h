@@ -31,6 +31,7 @@
 
 #include <algorithm>
 
+#include "plaits/dsp/ram_code.h"
 #include "plaits/dsp/oscillator/sine_oscillator.h"
 #include "plaits/dsp/extended_tzfm.h"
 
@@ -67,7 +68,7 @@ typedef void (*RenderFn)(
     size_t size);
 
 template<int n, int modulation_source, bool additive>
-void RenderOperators(
+PLAITS_RAM_CODE(fm_render_operators) void RenderOperators(
     Operator* ops,
     const float* f,
     const float* a,

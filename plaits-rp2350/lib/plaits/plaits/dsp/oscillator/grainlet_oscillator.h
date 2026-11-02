@@ -36,6 +36,7 @@
 #include "stmlib/dsp/polyblep.h"
 
 #include "plaits/dsp/oscillator/oscillator.h"
+#include "plaits/dsp/ram_code.h"
 #include "plaits/dsp/oscillator/sine_oscillator.h"
 
 namespace plaits {
@@ -142,7 +143,7 @@ class GrainletOscillator {
 
  private:
   template<bool process_hard_sync>
-  void RenderInternal(
+  PLAITS_RAM_CODE(grainlet_render_internal) void RenderInternal(
       float carrier_frequency,
       float formant_frequency,
       float carrier_shape,

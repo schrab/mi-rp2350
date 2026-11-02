@@ -20,6 +20,7 @@
 
 #include "plaits/dsp/engine2/freshets_formant_shapes.h"
 
+#include "plaits/dsp/ram_code.h"
 #include "plaits/resources.h"
 
 namespace plaits {
@@ -28,7 +29,7 @@ namespace {
 
 // sin: (1 - cos(pi * x)) / 2, at the same 128-step resolution as the shared
 // tables so all five curves crossfade against each other on equal terms.
-const int16_t kFormantShapeSin[] = {
+PLAITS_RAM_CODE(k_formant_shape_sin) const int16_t kFormantShapeSin[] = {
   0,5,20,44,79,123,177,241,315,398,491,
   593,705,827,958,1098,1247,1406,1573,1749,1935,2128,
   2331,2542,2761,2989,3224,3468,3719,3978,4244,4518,4799,

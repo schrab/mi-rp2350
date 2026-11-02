@@ -5,6 +5,7 @@
 
 #include "stmlib/dsp/dsp.h"
 
+#include "plaits/dsp/ram_code.h"
 #include "plaits/resources.h"
 
 namespace plaits {
@@ -29,9 +30,9 @@ class SquareOscillator {
   // pressure spilled `step` to the stack and reloaded it every sample, and
   // -funroll-loops added an eight-way entry dispatch for a 12-sample block.
 #if defined(__clang__)
-  __attribute__((noinline)) void Render(
+  PLAITS_RAM_CODE(subosc_square_render) __attribute__((noinline)) void Render(
 #else
-  __attribute__((noinline, optimize("no-unroll-loops"))) void Render(
+  PLAITS_RAM_CODE(subosc_square_render) __attribute__((noinline, optimize("no-unroll-loops"))) void Render(
 #endif
       float frequency, float* out, size_t size) {
     if (size == 0) {

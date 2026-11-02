@@ -68,7 +68,7 @@ const float string_pan_right[kNumStrings] = {
   0.387298346f, 0.707106769f, 0.921954453f
 };
 
-void StringEngine::Render(
+PLAITS_RAM_CODE(string_render) void StringEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

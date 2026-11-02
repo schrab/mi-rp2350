@@ -28,6 +28,8 @@
 
 #include "plaits/dsp/speech/lpc_speech_synth.h"
 
+#include "plaits/dsp/ram_code.h"
+
 #include <algorithm>
 
 #include "stmlib/utils/random.h"
@@ -55,7 +57,7 @@ void LPCSpeechSynth::Init() {
   fill(&s_[0], &s_[kLPCOrder + 1], 0);
 }
 
-void LPCSpeechSynth::Render(
+PLAITS_RAM_CODE(lpc_speech_synth_render) void LPCSpeechSynth::Render(
     float prosody_amount,
     float pitch_shift,
     float* excitation,
@@ -162,7 +164,7 @@ void LPCSpeechSynth::Render(
   next_sample_ = next_sample;
 }
 
-void LPCSpeechSynth::PlayFrame(const Frame& f1, const Frame& f2, float blend) {
+PLAITS_RAM_CODE(lpc_speech_play_frame) void LPCSpeechSynth::PlayFrame(const Frame& f1, const Frame& f2, float blend) {
   float frequency_1 = f1.period == 0
       ? frequency_
       : 1.0f / static_cast<float>(f1.period);

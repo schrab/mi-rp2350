@@ -60,7 +60,7 @@ void FMEngine::Reset() {
   
 }
 
-void FMEngine::Render(
+PLAITS_RAM_CODE(fm_render) void FMEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

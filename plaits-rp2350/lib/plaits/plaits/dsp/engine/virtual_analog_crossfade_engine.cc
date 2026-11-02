@@ -85,7 +85,7 @@ float VirtualAnalogCrossfadeEngine::ComputeDetuning(float detune) const {
   return (a + (b - a) * Squash(Squash(detune_fractional))) * sign;
 }
 
-void VirtualAnalogCrossfadeEngine::Render(
+PLAITS_RAM_CODE(va_crossfade_render) void VirtualAnalogCrossfadeEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

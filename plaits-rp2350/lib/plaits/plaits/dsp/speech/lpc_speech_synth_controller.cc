@@ -28,6 +28,8 @@
 
 #include "plaits/dsp/speech/lpc_speech_synth_controller.h"
 
+#include "plaits/dsp/ram_code.h"
+
 #include <algorithm>
 
 #include "stmlib/dsp/units.h"
@@ -292,7 +294,7 @@ void LPCSpeechSynthController::Init(LPCSpeechSynthWordBank* word_bank) {
   synth_.Init();
 }
 
-void LPCSpeechSynthController::Render(
+PLAITS_RAM_CODE(lpc_speech_controller_render) void LPCSpeechSynthController::Render(
     bool free_running,
     bool trigger,
     int bank,

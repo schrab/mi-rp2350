@@ -69,7 +69,7 @@ float Tame(float f0, float harmonics, float order) {
   return max_amount * max_amount * max_amount;
 }
 
-void WaveshapingEngine::Render(
+PLAITS_RAM_CODE(waveshaping_render) void WaveshapingEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

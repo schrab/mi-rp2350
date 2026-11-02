@@ -31,6 +31,7 @@
 
 #include "stmlib/stmlib.h"
 
+#include "plaits/dsp/ram_code.h"
 #include "stmlib/dsp/dsp.h"
 #include "stmlib/dsp/filter.h"
 #include "stmlib/dsp/limiter.h"
@@ -81,9 +82,9 @@ class ChannelPostProcessor {
   // overhead and cost ~500 B of flash across the gated, bypassed and limited
   // variants.
 #if defined(__clang__)
-  __attribute__((noinline)) void Process(
+  PLAITS_RAM_CODE(voice_post_process) __attribute__((noinline)) void Process(
 #else
-  __attribute__((noinline, optimize("no-unroll-loops"))) void Process(
+  PLAITS_RAM_CODE(voice_post_process) __attribute__((noinline, optimize("no-unroll-loops"))) void Process(
 #endif
       float gain,
       bool bypass_lpg,
@@ -137,9 +138,9 @@ class ChannelPostProcessor {
   // Not unrolled: the peak follower is a sample-to-sample dependent chain, so
   // unrolling only costs flash (540 B vs ~150 B).
 #if defined(__clang__)
-  __attribute__((noinline)) void LimitStereoInPlace(
+  PLAITS_RAM_CODE(voice_post_limit_stereo) __attribute__((noinline)) void LimitStereoInPlace(
 #else
-  __attribute__((noinline, optimize("no-unroll-loops"))) void LimitStereoInPlace(
+  PLAITS_RAM_CODE(voice_post_limit_stereo) __attribute__((noinline, optimize("no-unroll-loops"))) void LimitStereoInPlace(
 #endif
       float pre_gain, float* left, float* right, size_t size) {
     float peak = limiter_peak_;
@@ -335,7 +336,7 @@ class Voice {
   void ReloadUserData() {
     reload_user_data_ = true;
   }
-  void Render(
+  PLAITS_RAM_CODE(voice_render) void Render(
       const Patch& patch,
       const Modulations& modulations,
       Frame* frames,

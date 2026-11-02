@@ -61,7 +61,7 @@ void GrainEngine::Reset() {
   
 }
 
-void GrainEngine::Render(
+PLAITS_RAM_CODE(grain_render) void GrainEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

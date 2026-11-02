@@ -31,6 +31,10 @@
 
 #include "plaits/dsp/dsp.h"
 #include "plaits/dsp/extended_tzfm.h"
+// SRAM-placement marker (RP2350 port): every engine TU compiles per-sample
+// Render paths that must land in .time_critical.* sections. Included here so
+// all engine headers and their .cc files see the macro.
+#include "plaits/dsp/ram_code.h"
 
 #include "stmlib/dsp/dsp.h"
 #include "stmlib/dsp/units.h"
