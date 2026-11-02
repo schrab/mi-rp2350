@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<!--
+  Plaits RP2350 — web control panel (single file, no dependencies).
+
+  Open in Chrome/Chromium/Edge (file:// works). Uses Web MIDI to talk to the
+  synth (enumerates as "Plaits RP2350 MIDI 1"). Defaults match the firmware's
+  setup() seed; "Send panel" (also automatic on connect) pushes all CCs so the
+  synth matches the panel.
+
+  CC map = plaits-rp2350/src/midi.h:
+    14 TIMBRE   15 MORPH   16 HARMONICS   17 MACRO/TWIST (CC 64 = engine-stock
+       neutral; routed as the fork's fourth synthesis macro via MODEL CV)
+    18 LPG COLOUR   19 DECAY
+    20 FM AMOUNT       (+-1, CC 64 = off)
+    21 TIMBRE MOD AMT  (+-1, CC 64 = off)
+    22 MORPH MOD AMT   (+-1, CC 64 = off)
+    23 ENGINE  (raw value = engine index 0-97 into the Plaits-Lab catalog
+                registry, alt_firmwares/plaits_lab_catalog/catalog.json)
+    24 AUX OUT (raw 0 = AUX MODEL / 1 = STEREO / 2 = SUBOSC)
+    25 LEVEL   (accent + LPG level; held notes sustain, note-off releases
+                with DECAY)
+
+  Layout: big TIMBRE/MORPH/HARMONICS/MACRO knobs, ENGINE dropdown (all 98
+  catalog engines with origin tag MI / Rubato / Community), AUX OUT selector,
+  small LPG/DECAY/attenuverter/LEVEL row. No on-screen piano keys: the
+  COMPUTER keyboard plays notes (same key map as the clouds/elements panels),
+  note-ons pulse TRIG with velocity as the pulse voltage inside the firmware.
+  No freeze/trig buttons — the Plaits CC map has no such targets.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plaits RP2350 — macro-oscillator panel</title>
+<script>
+/* Headless byte-dump validation hook: with ?panel_test in the URL, stub
+   navigator.requestMIDIAccess with a virtual "Plaits RP2350" port that records
+   every send() as hex lines (window.__SENT__). The driver at the end of the
+   page drives the panel and dumps the transcript into <pre id="testdump">;
+   run chromium --headless=new --dump-dom "...plaits_panel.html?panel_test=1". */
+if (/[?&]panel_test/.test(location.search)) {
+  window.__PANEL_TEST__ = true;
+  window.__SENT__ = [];
+  const virtualOut = {
+    id: 'virtual-plaits',
+    name: 'Plaits RP2350 (virtual)',
+    state: 'connected',
+    send(bytes) { window.__SENT__.push(Array.from(bytes)); },
+  };
+  navigator.requestMIDIAccess = async () => ({
+    inputs: new Map(),
+    outputs: new Map([['virtual-plaits', virtualOut]]),
+    onstatechange: null,
+  });
+}
+</script>
+<style>
+  :root {
+    --panel: #d8d7d4;
+    --panel-edge: #c4c3bf;
+    --ink: #3d3d3d;
+    --yellow: #f2d21f;
+    --knob-s: 86px;
+    --knob-b: 138px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: #26272b;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    -webkit-user-select: none; user-select: none;
+  }
+
+  /* ---------- toolbar ---------- */
+  #bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; background: #1d1e21; color: #cfcfcf;
+    font-size: 13px; border-bottom: 1px solid #101114;
+  }
+  #bar button, #bar select {
+    background: #33343a; color: #e4e4e4; border: 1px solid #4a4b52;
+    border-radius: 4px; padding: 5px 10px; font: inherit; cursor: pointer;
+  }
+  #bar button:hover { background: #3f4047; }
+  #bar select { cursor: default; }
+  #bar label { display: flex; align-items: center; gap: 5px; color: #9a9a9f; }
+  #dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #55565e; box-shadow: 0 0 0 2px #2a2b30 inset;
+  }
+  #dot.ok { background: #3ecf6a; box-shadow: 0 0 8px #3ecf6a88; }
+  #dot.err { background: #e05252; }
+  #status { color: #9a9a9f; }
+
+  #wrap { width: 1080px; max-width: 98vw; margin: 22px auto 40px; }
+
+  /* ---------- panel ---------- */
+  #panel {
+    position: relative;
+    background: linear-gradient(#dcdcda, #d4d3d0);
+    border: 1px solid var(--panel-edge);
+    border-radius: 6px;
+    box-shadow: 0 18px 45px rgba(0,0,0,.5);
+    padding: 52px 40px 42px;
+  }
+  .screw {
+    position: absolute; width: 15px; height: 15px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #e4e4e1, #a8a8a4 70%, #8e8e8a);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.35), 0 1px 1px rgba(255,255,255,.5);
+  }
+  .screw::before, .screw::after {
+    content: ""; position: absolute; background: #85858a; border-radius: 1px;
+  }
+  .screw::before { left: 50%; top: 2px; bottom: 2px; width: 2px; margin-left: -1px; transform: rotate(45deg); }
+  .screw::after  { top: 50%; left: 2px; right: 2px; height: 2px; margin-top: -1px; transform: rotate(45deg); }
+  .screw.tl { top: 12px; left: 12px; }   .screw.tr { top: 12px; right: 12px; }
+  .screw.bl { bottom: 12px; left: 12px; }.screw.br { bottom: 12px; right: 12px; }
+
+  #ptitle {
+    position: absolute; top: 16px; right: 46px;
+    font-size: 23px; font-weight: 300; color: #55565a; letter-spacing: .5px;
+  }
+
+  /* ---------- knobs ---------- */
+  .knob { position: relative; cursor: ns-resize; touch-action: none; outline: none; }
+  .knob.small { width: var(--knob-s); height: var(--knob-s); }
+  .knob.big   { width: var(--knob-b); height: var(--knob-b); }
+  .knob:focus-visible { border-radius: 50%; box-shadow: 0 0 0 3px #f2d21f66; }
+  .rot { position: absolute; inset: 0; transform: rotate(var(--deg, 0deg)); }
+  .ring {
+    position: absolute; inset: 0; border-radius: 50%;
+    background:
+      radial-gradient(circle at 50% 42%, rgba(255,255,255,.14), rgba(0,0,0,0) 55%),
+      repeating-conic-gradient(#303034 0deg 3.6deg, #131316 3.6deg 7.2deg);
+    box-shadow:
+      0 7px 14px rgba(0,0,0,.38),
+      inset 0 2px 3px rgba(255,255,255,.16),
+      inset 0 -3px 6px rgba(0,0,0,.5);
+  }
+  .cap {
+    position: absolute; border-radius: 50%;
+    box-shadow: 0 3px 6px rgba(0,0,0,.45), inset 0 -4px 8px rgba(0,0,0,.18), inset 0 2px 3px rgba(255,255,255,.65);
+  }
+  .knob.small .cap { inset: 21%; }
+  .knob.big   .cap { inset: 18%; }
+  .cap.white { background: radial-gradient(circle at 36% 30%, #ffffff, #ececea 55%, #dbdbd8); }
+  .notch {
+    position: absolute; top: 5.5%; left: 50%; width: 11%; height: 15%;
+    margin-left: -5.5%; border-radius: 3px;
+    box-shadow: 0 1px 1px rgba(0,0,0,.35);
+  }
+  .notch.white { background: #f2f2f0; border: 1px solid rgba(0,0,0,.14); }
+
+  /* ---------- knob rows ---------- */
+  #bigrow, #smallrow { display: grid; }
+  #bigrow   { grid-template-columns: repeat(4, 1fr); margin-bottom: 34px; }
+  #smallrow { grid-template-columns: repeat(6, 1fr); }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 9px; }
+
+  .label { font-size: 15px; font-weight: 700; letter-spacing: 1.5px; color: var(--ink); }
+  .cctag { font-size: 9px; letter-spacing: .5px; color: #9b9a95; margin-top: -4px; }
+
+  /* ---------- engine selector + aux out (CC 23 / CC 24) ---------- */
+  #midrow {
+    display: flex; align-items: flex-start; gap: 30px;
+    margin-bottom: 34px;
+  }
+  .engcell { flex: 1; }
+  #engine {
+    width: 100%; max-width: 460px;
+    font: 13px/1.25 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    padding: 8px 9px; color: var(--ink);
+    background: #c9c8c4; border: 1px solid #b3b2ae; border-radius: 4px;
+    outline: none;
+  }
+  #engine:focus-visible { box-shadow: 0 0 0 3px #f2d21f66; }
+  #engineTag { font-size: 11px; letter-spacing: .5px; color: #6a6b6f; margin-top: 6px; }
+  #aux { display: flex; gap: 8px; margin-top: 2px; }
+  .auxbtn {
+    background: #c9c8c4; color: var(--ink); border: 1px solid #b3b2ae;
+    border-radius: 4px; padding: 9px 13px; cursor: pointer; outline: none;
+    font: 700 12px/1 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    letter-spacing: 1px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.18);
+  }
+  .auxbtn:active { transform: scale(.97); }
+  .auxbtn.on { background: var(--ink); color: #f2f2f0; border-color: #2c2c2e; }
+
+  /* ---------- footer rules (panel bottom, jacks omitted) ---------- */
+  #footer { margin-top: 38px; }
+  #footer .rule1 { height: 6px; background: #c9c8c4; border-radius: 3px; }
+  #footer .rule2 { height: 2px; background: #c9c8c4; margin-top: 22px; }
+
+  /* ---------- keyboard bar ---------- */
+  #kbbar {
+    display: flex; align-items: center; gap: 14px;
+    margin-top: 18px; padding: 9px 14px;
+    background: #1d1e21; color: #cfcfcf; font-size: 13px;
+    border: 1px solid #101114; border-radius: 6px; flex-wrap: wrap;
+  }
+  #kbbar button {
+    background: #33343a; color: #e4e4e4; border: 1px solid #4a4b52;
+    border-radius: 4px; padding: 4px 10px; font: inherit; cursor: pointer;
+  }
+  #octName { min-width: 34px; text-align: center; color: #f2d21f; font-weight: 700; }
+  #kbbar label { display: flex; align-items: center; gap: 7px; color: #9a9a9f; }
+  #help { margin-left: auto; color: #7d7e85; font-size: 12px; }
+
+  /* ---------- tooltip ---------- */
+  #tooltip {
+    position: fixed; display: none; z-index: 10; pointer-events: none;
+    background: #1d1e21; color: #f2f2f2; font-size: 12px; font-weight: 700;
+    padding: 3px 9px; border-radius: 4px; border: 1px solid #4a4b52;
+    transform: translate(-50%, -130%);
+  }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <button id="connect">Connect MIDI</button>
+  <select id="ports" title="MIDI output port"></select>
+  <label>Ch <select id="chan"></select></label>
+  <button id="sync" title="Send all panel CCs to the synth">Send panel</button>
+  <button id="panic" title="All notes off (CC 123 + note-offs for panel-held notes)">Panic</button>
+  <span id="dot"></span><span id="status">not connected</span>
+</div>
+
+<div id="wrap">
+  <div id="panel">
+    <div class="screw tl"></div><div class="screw tr"></div>
+    <div class="screw bl"></div><div class="screw br"></div>
+    <div id="ptitle">Plaits RP2350</div>
+
+    <div id="bigrow"></div>
+
+    <!-- engine selector (CC 23) + aux out (CC 24), built by script -->
+    <div id="midrow">
+      <div class="cell engcell">
+        <label class="label" for="engine">ENGINE</label>
+        <select id="engine" aria-label="engine"></select>
+        <div id="engineTag"></div>
+      </div>
+      <div class="cell">
+        <div class="label">AUX OUT</div>
+        <div id="aux" role="radiogroup" aria-label="aux output option">
+          <button class="auxbtn" data-aux="0">AUX MODEL</button>
+          <button class="auxbtn" data-aux="1">STEREO</button>
+          <button class="auxbtn" data-aux="2">SUBOSC</button>
+        </div>
+        <div class="cctag">CC 24</div>
+      </div>
+    </div>
+
+    <div id="smallrow"></div>
+
+    <div id="footer"><div class="rule1"></div><div class="rule2"></div></div>
+  </div>
+
+  <div id="kbbar">
+    <button id="octDown">Oct&minus;</button>
+    <span id="octName">C3</span>
+    <button id="octUp">Oct+</button>
+    <label>VEL <input id="vel" type="range" min="1" max="127" value="100"></label>
+    <span id="help">Z S X D C V G B H N J M , &mdash; lower &nbsp;&middot;&nbsp; Q 2 W 3 E R 5 T 6 Y 7 U &mdash; upper &nbsp;&middot;&nbsp; &uarr;/&darr; octave &nbsp;&middot;&nbsp; Shift-drag = fine</span>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+/* ================= knob definitions (CC map from plaits-rp2350/src/midi.h) ================= */
+const KNOBS = [
+  // big row — the four synthesis macros
+  { id:'timbre',    cc:14, label:'TIMBRE',    variant:'white', big:1, def:.5,     sec:'#bigrow' },
+  { id:'morph',     cc:15, label:'MORPH',     variant:'white', big:1, def:.5,     sec:'#bigrow' },
+  { id:'harmonics', cc:16, label:'HARMONICS', variant:'white', big:1, def:.5,     sec:'#bigrow' },
+  { id:'macro',     cc:17, label:'MACRO / TWIST', variant:'white', big:1, def:64/127, sec:'#bigrow',
+    tag:'CC 17 · 64 = engine-stock neutral' },
+  // small row — LPG + attenuverters + level
+  { id:'lpg',   cc:18, label:'LPG COLOUR',    variant:'white', def:.5, sec:'#smallrow' },
+  { id:'decay', cc:19, label:'DECAY',         variant:'white', def:.5, sec:'#smallrow' },
+  { id:'fm',    cc:20, label:'FM AMOUNT',     variant:'white', def:.5, bipolar:1, sec:'#smallrow', tag:'CC 20 ±1 · 64 = off' },
+  { id:'tmod',  cc:21, label:'TIMBRE MOD AMT',variant:'white', def:.5, bipolar:1, sec:'#smallrow', tag:'CC 21 ±1 · 64 = off' },
+  { id:'mmod',  cc:22, label:'MORPH MOD AMT', variant:'white', def:.5, bipolar:1, sec:'#smallrow', tag:'CC 22 ±1 · 64 = off' },
+  { id:'level', cc:25, label:'LEVEL',         variant:'white', def:.8, sec:'#smallrow' },
+];
+const controls = new Map();
+
+/* ================= engine catalog (CC 23 = index 0-97) =================
+   id / display name / origin from EURORACK-STEREO/alt_firmwares/plaits_lab_catalog/
+   catalog.json (98 engines: 63 MI + 22 Rubato Lab + 13 Community), same registry
+   order the firmware indexes. */
+const ENGINES = ('virtual-analog|Virtual Analog|MI;virtual-analog-dual|Virtual Analog Dual|MI;virtual-analog-crossfade|Virtual Analog Crossfade|MI;waveshaping|Waveshaping|MI;two-op-fm|Two-op FM|MI;granular-formant|Granular Formant|MI;harmonic|Harmonic Oscillator|MI;wavetable|Wavetable|MI;chords|Chords|MI;speech|Speech|MI;formant-speech|Speech Sounds|MI;lpc-speech|LPC Words|MI;swarm|Swarm|MI;filtered-noise|Filtered Noise|MI;particle-noise|Particle Noise|MI;inharmonic-string|Inharmonic String|MI;modal-resonator|Modal Resonator|MI;analog-bass-drum|Analog Bass Drum|MI;analog-snare|Analog Snare|MI;analog-hi-hat|Analog Hi-hat|MI;virtual-analog-vcf|VA + VCF|MI;phase-distortion|Phase Distortion|MI;dx7-bank-a|6-Op FM Bank A|MI;dx7-bank-b|6-Op FM Bank B|MI;dx7-bank-c|6-Op FM Bank C|MI;wave-terrain|Wave Terrain|MI;string-machine|String Machine|MI;chiptune|Chiptune|MI;natural-speech|Natural Speech|Rubato;glisson|Glisson|Rubato;gendy|GENDY|Rubato;scanned|Scanned|Rubato;pulsar|Pulsar|Rubato;loopback|Loopback|Rubato;lockstep|Lockstep|Rubato;tapfield|Tapfield|Rubato;phase-weave|Phase Weave|Rubato;sideband-bank|Sideband Bank|Rubato;attractor|Attractor|Rubato;undertow|Undertow|Rubato;reed-pipe|Reed Pipe|Rubato;phase-flock|Phase Flock|Rubato;rulefield|Rulefield|Rubato;spectral-spiral|Spectral Spiral|Rubato;z-filter|Z Filter|MI;toy|Toy|MI;csaw|CSaw|MI;ring-mod|Ring Mod|MI;fold|Fold|MI;buzz|Buzz|MI;dual-sync|Dual Sync|MI;granular-cloud|Granular Cloud|MI;morph|Morph|MI;noise-bank|Noise Bank|MI;particle-burst|Particle Burst|MI;saw-square|Saw Square|MI;saw-swarm|Saw Swarm|MI;vowel|Vowel|MI;harmonics|Harmonics|MI;vosim|VOSIM|MI;plucked|Plucked|MI;blown|Blown|MI;struck-bell|Struck Bell|MI;struck-drum|Struck Drum|MI;kick|Kick|MI;snare|Snare|MI;cymbal|Cymbal|MI;wave-scan|Wave Scan|MI;wave-paraphonic|Wave Paraphonic|MI;fluted|Fluted|MI;question-mark|Question Mark|MI;virtual-analog-variant|Virtual Analog Variant|MI;bowed|Bowed|MI;sub-oscillator|Sub Osc|MI;digital-modulation|Digital Modulation|MI;saw-comb|Saw Comb|MI;vowel-fof|Vowel FOF|MI;raw-fm|Raw FM|MI;triple|Triple|MI;bytebeat|Bytebeat|Community;diatonic-chord|Diatonic Chord|Community;scale-stack|Scale Stack|Community;wavetable-chord|Wavetable Diatonic Chord|Community;wavetable-scale-stack|Wavetable Scale Stack|Community;shakers|Shakers|Rubato;brass|Brass|Rubato;helix|Helix|Rubato;skins|Skins|Rubato;circuit-zaps|Circuit Zaps|Rubato;metalwork|Metalwork|Rubato;clap|Analog Clap|Community;analog-percussion|Analog Percussion|Community;freshets-formant|Freshets Formant|Community;bubbletime|BubbleTime|Community;zxphase48k|ZxPhase48k|Community;zxpulse48k|ZxPulse48k|Community;acid|Acid|Community;chords-supersaw|Supersaw Chords|Community')
+  .split(';').map(s => s.split('|'));
+const ORIGIN_LONG = { MI:'Mutable Instruments', Rubato:'Rubato Lab', Community:'Community' };
+
+/* ================= MIDI ================= */
+let access = null, out = null, ch = 0;
+const voices = new Map();          // voiceId -> sent midi note
+let coarseSemi = 0, fineSt = 0, lastNote = 48;
+let bendDirty = false, flushQueued = false;
+const ccDirty = new Map();
+
+function send(...b) { if (out) { try { out.send(b); } catch (e) {} } }
+const sendCC = (cc, v) => send(0xB0 | ch, cc, v & 127);
+const bend14 = () => clamp(Math.round(8192 + fineSt * 4096), 0, 16383);
+function sendBend() { const b = bend14(); send(0xE0 | ch, b & 127, (b >> 7) & 127); }
+const ccVal = c => Math.round(c.v * 127);
+
+function queueSend(c) {
+  if (c.cc !== undefined) ccDirty.set(c.id, c);
+  if (c.type === 'fine') bendDirty = true;
+  if (!flushQueued) { flushQueued = true; setTimeout(flush, 5); }  // timer, not rAF: must fire in background tabs
+}
+function flush() {
+  flushQueued = false;
+  for (const c of ccDirty.values()) sendCC(c.cc, ccVal(c));
+  ccDirty.clear();
+  if (bendDirty) { bendDirty = false; sendBend(); }
+}
+
+function noteOn(id, note, vel) {
+  const n = clamp(note + coarseSemi, 0, 127);
+  voices.set(id, n);
+  send(0x90 | ch, n, vel);
+  lastNote = note;
+}
+function noteOff(id) {
+  const n = voices.get(id);
+  if (n === undefined) return;
+  voices.delete(id);
+  if (![...voices.values()].includes(n)) send(0x80 | ch, n, 64);
+}
+const getVel = () => +$('#vel').value;
+
+function sendSync() {
+  for (const c of controls.values()) if (c.cc !== undefined) sendCC(c.cc, ccVal(c));
+  sendCC(23, +$('#engine').value);   // engine index 0-97 (raw)
+  sendCC(24, selAux);                // aux option 0/1/2 (raw)
+  sendBend();
+}
+function panic() {
+  for (let c = 0; c < 16; c++) send(0xB0 | c, 123, 0);   // firmware ignores CC 123,
+  for (const n of new Set(voices.values())) send(0x80 | ch, n, 64);  // so release
+  voices.clear();                                        // panel-held notes explicitly
+}
+
+function setStatus(text, cls) { $('#status').textContent = text; $('#dot').className = cls || ''; }
+
+function refreshPorts() {
+  const sel = $('#ports');
+  const prev = sel.value;
+  sel.innerHTML = '';
+  const outs = access ? [...access.outputs.values()] : [];
+  for (const p of outs) {
+    const o = document.createElement('option');
+    o.value = p.id; o.textContent = p.name;
+    sel.appendChild(o);
+  }
+  if (!outs.length) { out = null; setStatus('no MIDI outputs', 'err'); return; }
+  const prevStill = outs.some(p => p.id === prev);
+  const auto = outs.find(p => /pico|plaits|clouds|elements/i.test(p.name));
+  sel.value = prevStill ? prev : (auto ? auto.id : outs[0].id);
+  const changed = !out || out.id !== sel.value;
+  out = access.outputs.get(sel.value);
+  if (changed) { sendSync(); setStatus(`\u2192 ${out.name} (ch ${ch + 1})`, 'ok'); }
+}
+
+async function connectMidi() {
+  if (!navigator.requestMIDIAccess) {
+    setStatus('Web MIDI unsupported \u2014 use Chrome/Chromium/Edge', 'err');
+    return;
+  }
+  try { access = await navigator.requestMIDIAccess({ sysex: false }); }
+  catch (e) { setStatus('MIDI access denied (' + e.name + ')', 'err'); return; }
+  access.onstatechange = refreshPorts;
+  refreshPorts();
+}
+
+/* ================= knob widget ================= */
+const tooltip = $('#tooltip');
+let tipTimer = 0;
+
+function showTip(c) {
+  const r = c.el.getBoundingClientRect();
+  tooltip.textContent = displayValue(c);
+  tooltip.style.left = (r.left + r.width / 2) + 'px';
+  tooltip.style.top = r.top + 'px';
+  tooltip.style.display = 'block';
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(() => tooltip.style.display = 'none', 900);
+}
+function displayValue(c) {
+  if (c.bipolar) {                       // ±1 attenuverter: CC 64 = 0.00 = off
+    const x = c.v * 2 - 1;
+    return (x >= 0 ? '+' : '') + x.toFixed(2);
+  }
+  return String(Math.round(c.v * 127));
+}
+
+function setControl(c, v, show, queue = true) {
+  c.v = clamp(v, 0, 1);
+  c.el.style.setProperty('--deg', (-135 + c.v * 270) + 'deg');
+  c.el.setAttribute('aria-valuenow', Math.round(c.v * 127));
+  if (queue) queueSend(c);
+  if (show) showTip(c);
+}
+
+function makeKnob(c) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  $(c.sec).appendChild(cell);
+
+  const el = document.createElement('div');
+  el.className = 'knob ' + (c.big ? 'big' : 'small');
+  el.tabIndex = 0;
+  el.setAttribute('role', 'slider');
+  el.setAttribute('aria-label', c.label);
+  el.setAttribute('aria-valuemin', 0);
+  el.setAttribute('aria-valuemax', 127);
+  el.innerHTML = `<div class="ring"></div><div class="cap ${c.variant}"></div>` +
+                 `<div class="rot"><div class="notch ${c.variant}"></div></div>`;
+  cell.appendChild(el);
+
+  const lab = document.createElement('div');
+  lab.className = 'label';
+  lab.textContent = c.label;
+  cell.appendChild(lab);
+
+  const tag = document.createElement('div');
+  tag.className = 'cctag';
+  tag.textContent = c.tag || (c.cc !== undefined ? 'CC ' + c.cc : '');
+  cell.appendChild(tag);
+
+  c.el = el;
+  c.v = c.def;
+  controls.set(c.id, c);
+  setControl(c, c.def, false, false);
+
+  let startY = 0, startV = 0, dragging = false;
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    dragging = true; startY = e.clientY; startV = c.v;
+    showTip(c);
+  });
+  el.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const px = e.shiftKey ? 800 : 200;
+    setControl(c, startV + (startY - e.clientY) / px, true);
+  });
+  const end = () => dragging = false;
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+  el.addEventListener('dblclick', () => setControl(c, c.def, true));  // bipolar: default = center = off
+  el.addEventListener('wheel', e => {
+    e.preventDefault();
+    const d = (e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? 1 / 1270 : 1 / 127);
+    setControl(c, c.v + d, true);
+  }, { passive: false });
+  el.addEventListener('keydown', e => {
+    const fine = e.shiftKey ? 1 / 1270 : 1 / 127;
+    let d = 0;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') d = fine;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') d = -fine;
+    if (d) { e.preventDefault(); setControl(c, c.v + d, true); }
+  });
+}
+
+for (const c of KNOBS) makeKnob(c);
+
+/* ================= engine selector (CC 23, raw 0-97) ================= */
+const engineSel = $('#engine');
+for (let i = 0; i < ENGINES.length; ++i) {
+  const [id, , tag] = ENGINES[i];
+  const o = document.createElement('option');
+  o.value = i;
+  o.textContent = String(i).padStart(2, '0') + ' \u2014 ' + id + ' (' + tag + ')';
+  engineSel.appendChild(o);
+}
+function refreshEngineTag() {
+  const [id, name, tag] = ENGINES[+engineSel.value];
+  $('#engineTag').textContent = 'CC 23 · ' + name + ' (' + id + ') · ' + ORIGIN_LONG[tag];
+}
+engineSel.addEventListener('change', () => { sendCC(23, +engineSel.value); refreshEngineTag(); });
+engineSel.value = '0';               // firmware seed: patch.engine = 0
+refreshEngineTag();
+
+/* ================= aux out selector (CC 24, raw 0/1/2) ================= */
+let selAux = 1;                      // firmware seed: patch.aux_output_option = 1 (stereo)
+const auxBtns = [...document.querySelectorAll('.auxbtn')];
+function refreshAux() {
+  auxBtns.forEach(b => b.classList.toggle('on', +b.dataset.aux === selAux));
+}
+auxBtns.forEach(b => b.addEventListener('click', () => {
+  selAux = +b.dataset.aux;
+  sendCC(24, selAux);
+  refreshAux();
+}));
+refreshAux();
+
+/* ================= keyboard ================= */
+const KEYMAP = {
+  z:0, s:1, x:2, d:3, c:4, v:5, g:6, b:7, h:8, n:9, j:10, m:11,
+  ',':12, l:13, '.':14, ';':15, '/':16,
+  q:12, '2':13, w:14, '3':15, e:16, r:17, '5':18, t:19, '6':20,
+  y:21, '7':22, u:23, i:24, '9':25, o:26, '0':27, p:28,
+};
+let oct = 3;                       // Z key = C3 = MIDI 48 (firmware idle note)
+const baseNote = () => 12 * (oct + 1);
+const setOct = d => { oct = clamp(oct + d, 0, 7); $('#octName').textContent = 'C' + oct; };
+$('#octDown').addEventListener('click', () => setOct(-1));
+$('#octUp').addEventListener('click', () => setOct(1));
+
+/* computer keyboard */
+window.addEventListener('keydown', e => {
+  if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  if (t instanceof HTMLSelectElement || t instanceof HTMLInputElement) return;
+  if (e.key === 'ArrowUp') { e.preventDefault(); setOct(1); return; }
+  if (e.key === 'ArrowDown') { e.preventDefault(); setOct(-1); return; }
+  const k = e.key.toLowerCase();
+  if (k in KEYMAP) { e.preventDefault(); if (!voices.has('k:' + k)) noteOn('k:' + k, baseNote() + KEYMAP[k], getVel()); }
+});
+window.addEventListener('keyup', e => {
+  const k = e.key.toLowerCase();
+  if (k in KEYMAP) noteOff('k:' + k);
+});
+window.addEventListener('blur', () => {
+  for (const id of [...voices.keys()]) if (id.startsWith('k:')) noteOff(id);
+});
+
+/* ================= toolbar wiring ================= */
+$('#connect').addEventListener('click', connectMidi);
+$('#sync').addEventListener('click', () => { sendSync(); setStatus(out ? `\u2192 ${out.name} (ch ${ch + 1})` : 'not connected', out ? 'ok' : ''); });
+$('#panic').addEventListener('click', panic);
+$('#ports').addEventListener('change', () => { out = access ? access.outputs.get($('#ports').value) : null; sendSync(); if (out) setStatus(`\u2192 ${out.name} (ch ${ch + 1})`, 'ok'); });
+const chanSel = $('#chan');
+for (let i = 1; i <= 16; i++) {
+  const o = document.createElement('option');
+  o.value = i - 1; o.textContent = i;
+  chanSel.appendChild(o);
+}
+chanSel.addEventListener('change', () => { ch = +chanSel.value; if (out) setStatus(`\u2192 ${out.name} (ch ${ch + 1})`, 'ok'); });
+
+/* try to grab MIDI access right away (Chrome shows its permission prompt) */
+connectMidi();
+</script>
+
+<script>
+/* ================= headless byte-dump test driver (?panel_test) =================
+   Drives: connect-sync, every knob, engine select 0/22/97, aux 0/1/2, keyboard
+   note z on/off; dumps the exact emitted bytes into <pre id="testdump">. */
+if (window.__PANEL_TEST__) {
+  const hex = b => b.map(x => x.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+  const tick = ms => new Promise(r => setTimeout(r, ms));
+  (async () => {
+    const lines = ['PANEL-TEST-BEGIN'];
+    try {
+      await connectMidi();                       // virtual port auto-selected -> sendSync
+      await tick(40);
+      lines.push('# connect-sync (panel defaults = firmware seed)');
+      lines.push(...window.__SENT__.map(hex));
+      window.__SENT__.length = 0;
+
+      const moves = [                            // knob -> raw CC value
+        ['timbre', 100], ['morph', 10], ['harmonics', 90], ['macro', 40],
+        ['lpg', 120], ['decay', 20], ['fm', 64], ['tmod', 0], ['mmod', 127],
+        ['level', 100],
+      ];
+      for (const [id, ccv] of moves) setControl(controls.get(id), ccv / 127, false);
+      await tick(40);
+      lines.push('# knobs CC 14=100 15=10 16=90 17=40 18=120 19=20 20=64 21=0 22=127 25=100');
+      lines.push(...window.__SENT__.map(hex));
+      window.__SENT__.length = 0;
+
+      for (const v of [0, 22, 97]) {             // engine index -> CC 23 raw
+        engineSel.value = String(v);
+        engineSel.dispatchEvent(new Event('change'));
+      }
+      await tick(40);
+      lines.push('# engine select 0 / 22 / 97 (CC 23 raw)');
+      lines.push(...window.__SENT__.map(hex));
+      window.__SENT__.length = 0;
+
+      for (const v of [0, 1, 2]) {               // aux option -> CC 24 raw
+        document.querySelector('.auxbtn[data-aux="' + v + '"]').click();
+      }
+      await tick(40);
+      lines.push('# aux option 0 / 1 / 2 (CC 24 raw)');
+      lines.push(...window.__SENT__.map(hex));
+      window.__SENT__.length = 0;
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', bubbles: true }));
+      await tick(40);
+      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'z', bubbles: true }));
+      await tick(40);
+      lines.push('# computer keyboard: z on/off (C3 = note 48, VEL 100)');
+      lines.push(...window.__SENT__.map(hex));
+      window.__SENT__.length = 0;
+
+      lines.push('# engines in dropdown: ' + engineSel.options.length +
+                 ' · selected: ' + engineSel.options[engineSel.selectedIndex].textContent +
+                 ' · tag: ' + document.querySelector('#engineTag').textContent);
+    } catch (e) {
+      lines.push('# ERROR: ' + (e && e.stack || e));
+    }
+    lines.push('PANEL-TEST-END');
+    const pre = document.createElement('pre');
+    pre.id = 'testdump';
+    pre.textContent = lines.join('\n');
+    document.body.appendChild(pre);
+  })();
+}
+</script>
+</body>
+</html>
