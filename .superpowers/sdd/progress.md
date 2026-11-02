@@ -969,3 +969,45 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   + hard-wired 48 kHz + 24-sample blocks + BufferAllocator-based
   Voice::Init + 10.5k-line resources.cc).
 - AGENTS.md doc map points at it ("START HERE for new module ports").
+
+### Plaits RP2350 port — T1+T2 landed (2026-11-02)
+
+- **Source:** lylepmills/eurorack (Rubato "Plaits Lab" fork) added as submodule
+  `EURORACK-STEREO` @ `83f86ae` — all models stereo-converted, 98-engine
+  catalog (63 MI incl. Braids-derived engine2 set / 22 Rubato Lab / 13
+  community; 2 catalogued "retired" but functional). Plan:
+  `docs/superpowers/plans/2026-11-02-plaits-rp2350.md`.
+- **Key fork facts (survey):** no engine enum — registry index; the 32-slot
+  ceiling is ONLY the uint32 speech/chiptune masks (13 `1u << engine_index`
+  sites, all in voice.cc); `Frame{short out; short aux}` native 48 kHz,
+  `kMaxBlockSize=24`; workspace = largest engine only (16.4 KB, Particle);
+  worst engine ≈30% of our 500 µs budget per the fork's own F373 sweeps;
+  no FFT, one deliberate `double` (struck_drum); poetaster STMLIB works as-is
+  (14 headers verified).
+- **T1 (485d94c, 72a5ee4, f91f1f1):** 5-patch chain in `tools/patches/plaits/`:
+  PLAITS.h wrapper, user_data STM32-flash stub (`-DPLAITS_HAS_USER_DATA_BANK=1`
+  → DX7 banks from syx_bank_0/1/2), build_config ceiling 32→98,
+  engine_config.h full 98-catalog rewrite (uint64_t masks at slots speech=9 /
+  lpc=11 / chiptune=27 / natural-speech=28; kEngineUserDataBank 22/23/24),
+  voice.cc `1u`→`1ULL` ×13. All 98 slots linked — nm cross-check vs
+  catalog.json: 0 engines missing. sync script gained `SRC:dst[:mode[:nest]]`
+  + eurorack-layout source resolution + plaits prune (118 TUs).
+- **T2 (f91f1f1):** src/ from clouds template: 48 kHz / 24-sample blocks,
+  setBuffers(48,16)=16 ms bank, budget 500 µs multiply-first, Voice +
+  BufferAllocator(32 KB, aligned 8); patch.note = MIDI note + bend (69 = 440 Hz
+  per engine.h NoteToFrequency); velocity → trigger pulse 0.3+0.7·v/127
+  (threshold 0.3); MACRO via modulations.engine with model_cv_option=1;
+  modulation amounts ±1 (v·2−1); aux_output_option=1 (stereo) via CC 24;
+  engine CC 23 → patch.engine 0-97; raw write16(f.out, f.aux) (already
+  Clip16'd + stereo-limited in ChannelPostProcessor); no exciter. README with
+  the full 98-engine table.
+- **Build:** SUCCESS 93 s — RAM 17.3% (90,616 B / 524,288), flash 15.1%
+  (634,632 B). sizeof(plaits::Voice) = 21,748 B (98 engines ≈ +2.9 KB over the
+  stock 24). voice/workspace at 0x2000xxxx; engine Render fns still in flash.
+- **Also:** committed the previously-uncommitted clouds-ram-hot.patch fix-up
+  (a655a20 — WSOLA time-budget hunk; round-trip proves it matches the shipped
+  clouds lib).
+- **Next:** T3 SRAM placement (voice hot paths + fork-flagged hot set:
+  particle, modal(+voice), string(+voice), chord, chiptune, six_op, scanned)
+  + selective LUT SRAM + per-engine CPU sweep; T4 web panel; T5 hardware
+  acceptance + soak (user).
