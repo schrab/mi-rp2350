@@ -77,6 +77,19 @@ sync_project() {
         esac
       done
     fi
+    # Rings (MiniElements) fork: keep dsp/ + resources.{h,cc} only — the root
+    # firmware files (rings.cc/ui/settings/cv_scaler/meter) are STM32-only,
+    # samples/ are the wav sources for resources.cc, resources/ holds the .py
+    # generators.
+    if [ "$dst" = "rings" ]; then
+      pr="$REPO_ROOT/$proj/lib/$dst/${nest:-}"
+      rm -rf "$pr/bootloader" "$pr/drivers" "$pr/test" "$pr/hardware_design" \
+             "$pr/resources" "$pr/samples"
+      rm -f "$pr/rings.cc" "$pr/ui.cc" "$pr/ui.h" "$pr/settings.cc" \
+            "$pr/settings.h" "$pr/cv_scaler.cc" "$pr/cv_scaler.h" \
+            "$pr/meter.h" "$pr/makefile" "$pr/makeflash.sh" "$pr/__init__.py"
+      rm -f "$pr"/*.md
+    fi
     if [ "$mode" = "inc" ]; then
       find "$REPO_ROOT/$proj/lib/$dst" -name '*.cc' -type f -delete
     else
@@ -130,5 +143,6 @@ EOF
 sync_project elements-rp2350 "STMLIB:stmlib" "ELEMENTS:elements"
 sync_project clouds-rp2350  "STMLIB:stmlib" "CLOUDS:clouds:cc"
 sync_project plaits-rp2350  "STMLIB:stmlib" "EURORACK-STEREO/plaits:plaits:cc:plaits"
+sync_project rings-rp2350   "STMLIB:stmlib" "EURORACK-STEREO/rings:rings:cc:rings"
 
 echo "done. Submodules untouched."
