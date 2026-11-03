@@ -1,0 +1,17 @@
+--- /dev/null
++++ b/RINGS.h
+@@ -0,0 +1,14 @@
++// RINGS.h - Arduino wrapper for the MiniElements Rings fork
++// (lylepmills/eurorack @ EURORACK-STEREO). Stock Rings DSP + internal
++// MiniElements exciters + string-synth easter egg. The original sources
++// (.cc files) are retained and compiled directly; this header exists so a
++// sketch can #include <RINGS.h> and reach rings::Part +
++// rings::StringSynthPart. Port deltas live in tools/patches/rings/*.patch
++// and are applied by tools/sync_pio_libs.sh — never hand-edit lib/rings.
++#ifndef RINGS_RP2350_WRAPPER_H_
++#define RINGS_RP2350_WRAPPER_H_
++
++#include "rings/dsp/part.h"
++#include "rings/dsp/string_synth_part.h"
++
++#endif  // RINGS_RP2350_WRAPPER_H_
