@@ -1109,3 +1109,21 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   commits: Elements T1-T6, Clouds, Plaits 98-engine, Rings MiniElements
   ports + panels + docs), pushed to origin; both branches pushed. Working
   checkout stays on `elements-clone` (established workflow).**
+
+### Combined rack (rack-rp2350) — SDD status table
+
+Plan: `docs/superpowers/plans/2026-11-04-combined-rp2350.md` (read first —
+decisions are final; fresh-session entry protocol is at its top). One task
+per session; update the row + append dated findings below after each task.
+
+| Task | Status | Committed | Notes |
+|---|---|---|---|
+| T1 Linker/sections (module-prefixed .time_critical, NOLOAD SRAM window, selective copy) | pending | — | |
+| T2 Arena + live swap (bench switching via switch-CC + serial console) | pending | — | |
+| T3 Mod engine + clock bus (internal BPM / MIDI 24 PPQ, 1-32-step euclid+gate, bench settings via CC/console) | pending | — | |
+| T4 RP2350 DIN 31250 parser + serial console | pending | — | DIN hardware needed to test |
+| T5 C3 UI + UART link (after DSP acceptance AND hardware) | pending | — | encoder+button menus, HC4067, ST7789, BLE-MIDI |
+| T6 Chain mode v2 (plaits@32k patch, 4-pair table) | pending | — | |
+| T7 Hardware bring-up + sweeps + user acceptance + soak | pending | — | |
+
+Findings (append per task below):
