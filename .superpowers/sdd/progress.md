@@ -1061,3 +1061,41 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
 - **Board state:** running the final clean build (`93 s`, RAM 69.3%, flash
   15.1%), eng 0/7 verified sounding, zero stalls. **Next: user ear check
   across engine groups + 30 min soak.**
+
+### Rings RP2350 port — T1-T5a landed (2026-11-03)
+
+- **Source:** same `EURORACK-STEREO` submodule, `rings/` — the fork's Rings is
+  the **MiniElements** alt firmware. Survey corrected PORTING-HIGHLIGHTS §9 in
+  four load-bearing ways: **32 kHz / 24-sample blocks** (750 µs budget, no
+  `Dsp::setSr` — constants baked), ~184 KB worst-case RAM (not 55-60; 8 Strings
+  ≈ 99 KB + Resonators + 64 KB caller-owned reverb buffer), **no STM32 leak in
+  dsp/** (no settings/user_data stub needed — prune suffices), 5 performance
+  modes (Rings stereo/waveform, MiniElements stereo/exciter, easter-egg string
+  synth) × 6 resonator models/fx × 3 chord tables. out/aux = ODD/EVEN → L/R.
+  Plan: `docs/superpowers/plans/2026-11-03-rings-rp2350.md`.
+- **T1** (`177237e` sync pair+prune, `b84dcfc` project): 8-TU compile set
+  (7 dsp .cc + resources.cc), `RINGS.h` wrapper, `bryanChords` → const
+  (1.4 KB out of .data). Build green 47 s, **RAM 43.2%**.
+- **T2** (`b84dcfc`): firmware from the plaits template — fresh
+  Patch/PerformanceState per block (rings.cc contract), internal_exciter=true
+  (standalone: pluck/pulse/envelope + MiniElements bow/blow/strike from the
+  flash-resident 338 KB smp_* ROMs), strum pulses from MIDI note-ons
+  (Strummer/OnsetDetector dropped), CC 14-23 (structure/brightness/damping/
+  position/model+fx/polyphony/mode/waveform/chord-table/chord — chord clamped
+  per table), set_model/set_fx/set_polyphony between blocks, Clip16 ours.
+  **RAM 43.4% / flash 12.2%.**
+- **T3** (`76ed5e2`): `02-rings-ram-code.patch` — 23 `.time_critical`
+  functions (Part/String+ProcessInternal templates/Resonator/FMVoice/Exciter×7
+  /Tube/Reverb/Chorus/Ensemble/StringSynthPart) + 9 LUTs (28.2 KB incl.
+  lut_sine 20.5 KB); smp_* ROMs + stmlib deliberately flash. **RAM → 54.4%,
+  nm-verified 35/35 at 0x2000xxxx.**
+- **T4** (`c0c6b56`): `tools/rings_panel.html` — mode/model (dynamically
+  relabeled to FX in easter egg)/polyphony/waveform/chord-table selectors +
+  chord dropdown + 4 knobs; headless byte-validated PASS.
+- **T5a flash + sweep** (19 combos: mode 0 × models × poly 1/4, modes 1-4,
+  easter egg × fx 1-5): **`i2s stalls: 0` throughout; ALL under the 750 µs
+  budget** — worst 511 µs (sympathetic string, poly 1), string-family modes
+  461-511, modal 279, MiniElements 271-274, easter egg 300-320. No spike
+  analysis needed (nothing near budget). Board re-enumerates as
+  "Rings RP2350" (client 24:0).
+- **Next: user ear check (modes 0-4, models, chords) + 30 min soak.**
