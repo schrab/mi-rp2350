@@ -1120,7 +1120,7 @@ after each task).
 
 | Task | Status | Committed | Notes |
 |---|---|---|---|
-| T1 Linker/sections (module-prefixed .time_critical, NOLOAD SRAM window, selective copy) | done | (see commit) | 4 boot-select envs benched on hardware 2026-11-04; per-env SRAM windows; 2 firmware boot bugs fixed (early CDC print, post-detach re-enum death); findings below |
+| T1 Linker/sections (module-prefixed .time_critical, NOLOAD SRAM window, selective copy) | done | 14a9436 | 4 boot-select envs benched on hardware 2026-11-04; per-env SRAM windows; 2 firmware boot bugs fixed (early CDC print, post-detach re-enum death); findings below |
 | T2 Arena + live swap (bench switching via switch-CC + serial console) | pending | — | |
 | T3 Mod engine + clock bus (internal BPM / MIDI 24 PPQ, 1-32-step euclid+gate, bench settings via CC/console) | pending | — | |
 | T4 RP2350 DIN 31250 parser + serial console | pending | — | DIN hardware needed to test |
