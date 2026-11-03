@@ -1098,4 +1098,8 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   461-511, modal 279, MiniElements 271-274, easter egg 300-320. No spike
   analysis needed (nothing near budget). Board re-enumerates as
   "Rings RP2350" (client 24:0).
-- **Next: user ear check (modes 0-4, models, chords) + 30 min soak.**
+- **T5b USER EAR-CONFIRMED (2026-11-03): "sound fine, max process near
+  250-300"** — matches the sweep's sustained numbers (270-320 µs, 36-43% of
+  the 750 µs budget), zero-stall expectation holding. RINGS PORT ACCEPTED.
+  Remaining open items: plaits-rp2350 ear check (T5c), then the
+  elements-clone → main merge decision for all ports.
