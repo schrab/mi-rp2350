@@ -35,6 +35,7 @@
 #include <algorithm>
 
 #include "rings/dsp/dsp.h"
+#include "rings/dsp/ram_code.h"
 
 namespace rings {
 
@@ -46,7 +47,7 @@ class Tube {
   ~Tube() { }
   
   void Init();
-  void Process(
+  RINGS_RAM_CODE(tube_process) void Process(
       float frequency,
       float envelope,
       float timbre,

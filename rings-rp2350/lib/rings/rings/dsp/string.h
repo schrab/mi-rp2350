@@ -37,6 +37,7 @@
 #include "stmlib/dsp/filter.h"
 
 #include "rings/dsp/dsp.h"
+#include "rings/dsp/ram_code.h"
 
 namespace rings {
 
@@ -99,7 +100,7 @@ class String {
   ~String() { }
   
   void Init(bool enable_dispersion);
-  void Process(const float* in, float* out, float* aux, size_t size);
+  RINGS_RAM_CODE(string_process) void Process(const float* in, float* out, float* aux, size_t size);
   
   inline void set_frequency(float frequency) {
     frequency_ = frequency;
@@ -128,8 +129,12 @@ class String {
   inline StringDelayLine* mutable_string() { return &string_; }
   
  private:
+  // The section attribute must sit on this in-class declaration: GCC drops
+  // section attributes placed on the out-of-line .cc definition of a member
+  // template (the instantiations then land in .text and are reached from
+  // SRAM String::Process through veneers into XIP flash).
   template<bool enable_dispersion>
-  void ProcessInternal(const float* in, float* out, float* aux, size_t size);
+  RINGS_RAM_CODE(string_process_internal) void ProcessInternal(const float* in, float* out, float* aux, size_t size);
    
   float frequency_;
   float dispersion_;

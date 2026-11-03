@@ -34,6 +34,8 @@
 #include "stmlib/dsp/filter.h"
 #include "stmlib/utils/random.h"
 
+#include "rings/dsp/ram_code.h"
+
 namespace rings {
 
 enum ExciterModel {
@@ -93,14 +95,14 @@ class Exciter {
   
   inline const stmlib::Svf& filter() const { return lp_; }
   
-  void Process(const uint8_t flags, float* out, size_t n);
-  void ProcessGranularSamplePlayer(const uint8_t, float*, size_t);
-  void ProcessSamplePlayer(const uint8_t, float*, size_t);
-  void ProcessMallet(const uint8_t, float*, size_t);
-  void ProcessPlectrum(const uint8_t, float*, size_t);
-  void ProcessParticles(const uint8_t, float*, size_t);
-  void ProcessFlow(const uint8_t, float*, size_t);
-  void ProcessNoise(const uint8_t, float*, size_t);
+  RINGS_RAM_CODE(exciter_process) void Process(const uint8_t flags, float* out, size_t n);
+  RINGS_RAM_CODE(exciter_process_granular_sample_player) void ProcessGranularSamplePlayer(const uint8_t, float*, size_t);
+  RINGS_RAM_CODE(exciter_process_sample_player) void ProcessSamplePlayer(const uint8_t, float*, size_t);
+  RINGS_RAM_CODE(exciter_process_mallet) void ProcessMallet(const uint8_t, float*, size_t);
+  RINGS_RAM_CODE(exciter_process_plectrum) void ProcessPlectrum(const uint8_t, float*, size_t);
+  RINGS_RAM_CODE(exciter_process_particles) void ProcessParticles(const uint8_t, float*, size_t);
+  RINGS_RAM_CODE(exciter_process_flow) void ProcessFlow(const uint8_t, float*, size_t);
+  RINGS_RAM_CODE(exciter_process_noise) void ProcessNoise(const uint8_t, float*, size_t);
   
  private:
   float GetPulseAmplitude(float cutoff);

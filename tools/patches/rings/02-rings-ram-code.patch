@@ -1,0 +1,410 @@
+diff -ruN a/rings/dsp/exciter.h b/rings/dsp/exciter.h
+--- a/rings/dsp/exciter.h	2026-11-03 03:51:19.721188148 +0700
++++ b/rings/dsp/exciter.h	2026-11-03 22:30:43.331730191 +0700
+@@ -34,6 +34,8 @@
+ #include "stmlib/dsp/filter.h"
+ #include "stmlib/utils/random.h"
+ 
++#include "rings/dsp/ram_code.h"
++
+ namespace rings {
+ 
+ enum ExciterModel {
+@@ -93,14 +95,14 @@
+   
+   inline const stmlib::Svf& filter() const { return lp_; }
+   
+-  void Process(const uint8_t flags, float* out, size_t n);
+-  void ProcessGranularSamplePlayer(const uint8_t, float*, size_t);
+-  void ProcessSamplePlayer(const uint8_t, float*, size_t);
+-  void ProcessMallet(const uint8_t, float*, size_t);
+-  void ProcessPlectrum(const uint8_t, float*, size_t);
+-  void ProcessParticles(const uint8_t, float*, size_t);
+-  void ProcessFlow(const uint8_t, float*, size_t);
+-  void ProcessNoise(const uint8_t, float*, size_t);
++  RINGS_RAM_CODE(exciter_process) void Process(const uint8_t flags, float* out, size_t n);
++  RINGS_RAM_CODE(exciter_process_granular_sample_player) void ProcessGranularSamplePlayer(const uint8_t, float*, size_t);
++  RINGS_RAM_CODE(exciter_process_sample_player) void ProcessSamplePlayer(const uint8_t, float*, size_t);
++  RINGS_RAM_CODE(exciter_process_mallet) void ProcessMallet(const uint8_t, float*, size_t);
++  RINGS_RAM_CODE(exciter_process_plectrum) void ProcessPlectrum(const uint8_t, float*, size_t);
++  RINGS_RAM_CODE(exciter_process_particles) void ProcessParticles(const uint8_t, float*, size_t);
++  RINGS_RAM_CODE(exciter_process_flow) void ProcessFlow(const uint8_t, float*, size_t);
++  RINGS_RAM_CODE(exciter_process_noise) void ProcessNoise(const uint8_t, float*, size_t);
+   
+  private:
+   float GetPulseAmplitude(float cutoff);
+diff -ruN a/rings/dsp/fm_voice.h b/rings/dsp/fm_voice.h
+--- a/rings/dsp/fm_voice.h	2026-11-03 03:51:19.721188148 +0700
++++ b/rings/dsp/fm_voice.h	2026-11-03 22:29:53.799270350 +0700
+@@ -37,6 +37,7 @@
+ 
+ #include "rings/dsp/dsp.h"
+ #include "rings/dsp/follower.h"
++#include "rings/dsp/ram_code.h"
+ 
+ #include "rings/resources.h"
+ 
+@@ -50,7 +51,7 @@
+   ~FMVoice() { }
+   
+   void Init();
+-  void Process(
++  RINGS_RAM_CODE(fm_voice_process) void Process(
+       const float* in,
+       float* out,
+       float* aux,
+diff -ruN a/rings/dsp/fx/chorus.h b/rings/dsp/fx/chorus.h
+--- a/rings/dsp/fx/chorus.h	2026-11-03 03:51:19.721631816 +0700
++++ b/rings/dsp/fx/chorus.h	2026-11-03 22:31:16.407016260 +0700
+@@ -34,6 +34,7 @@
+ #include "stmlib/dsp/dsp.h"
+ 
+ #include "rings/dsp/fx/fx_engine.h"
++#include "rings/dsp/ram_code.h"
+ #include "rings/resources.h"
+ 
+ namespace rings {
+@@ -49,7 +50,7 @@
+     phase_2_ = 0;
+   }
+   
+-  void Process(float* left, float* right, size_t size) {
++  RINGS_RAM_CODE(fx_chorus_process) void Process(float* left, float* right, size_t size) {
+     typedef E::Reserve<2047> Memory;
+     E::DelayLine<Memory, 0> line;
+     E::Context c;
+diff -ruN a/rings/dsp/fx/ensemble.h b/rings/dsp/fx/ensemble.h
+--- a/rings/dsp/fx/ensemble.h	2026-11-03 03:51:19.721631816 +0700
++++ b/rings/dsp/fx/ensemble.h	2026-11-03 22:31:16.474010240 +0700
+@@ -34,6 +34,7 @@
+ #include "stmlib/dsp/dsp.h"
+ 
+ #include "rings/dsp/fx/fx_engine.h"
++#include "rings/dsp/ram_code.h"
+ #include "rings/resources.h"
+ 
+ namespace rings {
+@@ -49,7 +50,7 @@
+     phase_2_ = 0;
+   }
+   
+-  void Process(float* left, float* right, size_t size) {
++  RINGS_RAM_CODE(fx_ensemble_process) void Process(float* left, float* right, size_t size) {
+     typedef E::Reserve<2047, E::Reserve<2047> > Memory;
+     E::DelayLine<Memory, 0> line_l;
+     E::DelayLine<Memory, 1> line_r;
+diff -ruN a/rings/dsp/fx/reverb.h b/rings/dsp/fx/reverb.h
+--- a/rings/dsp/fx/reverb.h	2026-11-03 03:51:19.721631816 +0700
++++ b/rings/dsp/fx/reverb.h	2026-11-03 22:31:16.356020842 +0700
+@@ -32,6 +32,7 @@
+ #include "stmlib/stmlib.h"
+ 
+ #include "rings/dsp/fx/fx_engine.h"
++#include "rings/dsp/ram_code.h"
+ 
+ namespace rings {
+ 
+@@ -48,7 +49,7 @@
+     diffusion_ = 0.625f;
+   }
+   
+-  void Process(float* left, float* right, size_t size) {
++  RINGS_RAM_CODE(fx_reverb_process) void Process(float* left, float* right, size_t size) {
+     // This is the Griesinger topology described in the Dattorro paper
+     // (4 AP diffusers on the input, then a loop of 2x 2AP+1Delay).
+     // Modulation is applied in the loop of the first diffuser AP for additional
+diff -ruN a/rings/dsp/part.h b/rings/dsp/part.h
+--- a/rings/dsp/part.h	2026-11-03 03:51:19.721631816 +0700
++++ b/rings/dsp/part.h	2026-11-03 22:32:07.179832025 +0700
+@@ -36,6 +36,7 @@
+ #include "stmlib/dsp/delay_line.h"
+ 
+ #include "rings/dsp/dsp.h"
++#include "rings/dsp/ram_code.h"
+ #include "rings/dsp/fm_voice.h"
+ #include "rings/dsp/fx/diffuser.h"
+ #include "rings/dsp/fx/reverb.h"
+@@ -74,7 +75,7 @@
+   
+   void Init(uint16_t* reverb_buffer);
+   
+-  void Process(
++  RINGS_RAM_CODE(part_process) void Process(
+       const PerformanceState& performance_state,
+       const Patch& patch,
+       const float* in,
+@@ -105,7 +106,7 @@
+ 
+  private:
+   void ConfigureResonators();
+-  void RenderModalVoice(
++  RINGS_RAM_CODE(part_render_modal_voice) void RenderModalVoice(
+       int32_t voice,
+       const PerformanceState& performance_state,
+       const Patch& patch,
+@@ -113,7 +114,7 @@
+       float frequency,
+       float filter_cutoff,
+       size_t size);
+-  void RenderStringVoice(
++  RINGS_RAM_CODE(part_render_string_voice) void RenderStringVoice(
+       int32_t voice,
+       const PerformanceState& performance_state,
+       const Patch& patch,
+@@ -155,7 +156,7 @@
+     return x;
+   }
+ 
+-  void ComputeSympatheticStringsNotes(
++  RINGS_RAM_CODE(part_compute_sympathetic_strings) void ComputeSympatheticStringsNotes(
+       const PerformanceState& performance_state,
+       float tonic,
+       float note,
+@@ -163,7 +164,7 @@
+       float* destination,
+       size_t num_strings);
+ 
+-  void FillExciterBuffer(
++  RINGS_RAM_CODE(part_fill_exciter_buffer) void FillExciterBuffer(
+       const PerformanceState& performance_state,
+       const Patch& patch,
+       bool update_patch,
+diff -ruN a/rings/dsp/ram_code.h b/rings/dsp/ram_code.h
+--- a/rings/dsp/ram_code.h	1970-01-01 08:00:00.000000000 +0800
++++ b/rings/dsp/ram_code.h	2026-11-03 22:29:05.145173940 +0700
+@@ -0,0 +1,26 @@
++// Copyright 2026 Rings RP2350 port.
++//
++// Marker for per-sample hot paths (RP2350 port). Mirrors the
++// plaits/clouds/elements ram_code.h: .time_critical.* sections are mapped to
++// SRAM by the Arduino-pico linker script (inside .data, copied from flash at
++// boot), so marked functions/data execute without XIP flash cache stalls —
++// those stalls cost more than the entire 750 us audio block budget. No-op on
++// every other platform.
++//
++// Usage: RINGS_RAM_CODE(unique_token) void Foo::Process(...) { ... }
++// Each function needs its own token: shared section names collide at link
++// time between inline/COMDAT and plain copies (section type conflict). Two
++// same-flags weak copies (e.g. template instantiations) MAY share one token.
++// NOTE: for member templates defined out-of-line (.cc), the attribute MUST
++// sit on the in-class declaration — GCC silently drops section attributes
++// placed on the out-of-line definition (see string.h).
++#ifndef RINGS_DSP_RAM_CODE_H_
++#define RINGS_DSP_RAM_CODE_H_
++
++#if defined(ARDUINO_ARCH_RP2040)
++#define RINGS_RAM_CODE(token) __attribute__((section(".time_critical." #token)))
++#else
++#define RINGS_RAM_CODE(token)
++#endif
++
++#endif  // RINGS_DSP_RAM_CODE_H_
+diff -ruN a/rings/dsp/resonator.h b/rings/dsp/resonator.h
+--- a/rings/dsp/resonator.h	2026-11-03 03:51:19.721631816 +0700
++++ b/rings/dsp/resonator.h	2026-11-03 22:29:53.745271589 +0700
+@@ -34,6 +34,7 @@
+ #include <algorithm>
+ 
+ #include "rings/dsp/dsp.h"
++#include "rings/dsp/ram_code.h"
+ #include "stmlib/dsp/filter.h"
+ #include "stmlib/dsp/delay_line.h"
+ 
+@@ -47,7 +48,7 @@
+   ~Resonator() { }
+   
+   void Init();
+-  void Process(
++  RINGS_RAM_CODE(resonator_process) void Process(
+       const float* in,
+       float* out,
+       float* aux,
+@@ -79,7 +80,7 @@
+   }
+   
+  private:
+-  int32_t ComputeFilters();
++  RINGS_RAM_CODE(resonator_compute_filters) int32_t ComputeFilters();
+   float frequency_;
+   float structure_;
+   float brightness_;
+diff -ruN a/rings/dsp/string.h b/rings/dsp/string.h
+--- a/rings/dsp/string.h	2026-11-03 03:51:19.721631816 +0700
++++ b/rings/dsp/string.h	2026-11-03 22:29:41.174442952 +0700
+@@ -37,6 +37,7 @@
+ #include "stmlib/dsp/filter.h"
+ 
+ #include "rings/dsp/dsp.h"
++#include "rings/dsp/ram_code.h"
+ 
+ namespace rings {
+ 
+@@ -99,7 +100,7 @@
+   ~String() { }
+   
+   void Init(bool enable_dispersion);
+-  void Process(const float* in, float* out, float* aux, size_t size);
++  RINGS_RAM_CODE(string_process) void Process(const float* in, float* out, float* aux, size_t size);
+   
+   inline void set_frequency(float frequency) {
+     frequency_ = frequency;
+@@ -128,8 +129,12 @@
+   inline StringDelayLine* mutable_string() { return &string_; }
+   
+  private:
++  // The section attribute must sit on this in-class declaration: GCC drops
++  // section attributes placed on the out-of-line .cc definition of a member
++  // template (the instantiations then land in .text and are reached from
++  // SRAM String::Process through veneers into XIP flash).
+   template<bool enable_dispersion>
+-  void ProcessInternal(const float* in, float* out, float* aux, size_t size);
++  RINGS_RAM_CODE(string_process_internal) void ProcessInternal(const float* in, float* out, float* aux, size_t size);
+    
+   float frequency_;
+   float dispersion_;
+diff -ruN a/rings/dsp/string_synth_part.h b/rings/dsp/string_synth_part.h
+--- a/rings/dsp/string_synth_part.h	2026-11-03 03:51:19.721631816 +0700
++++ b/rings/dsp/string_synth_part.h	2026-11-03 22:31:16.694990385 +0700
+@@ -34,6 +34,7 @@
+ #include "stmlib/dsp/filter.h"
+ 
+ #include "rings/dsp/dsp.h"
++#include "rings/dsp/ram_code.h"
+ #include "rings/dsp/fx/chorus.h"
+ #include "rings/dsp/fx/ensemble.h"
+ #include "rings/dsp/fx/reverb.h"
+@@ -76,7 +77,7 @@
+   
+   void Init(uint16_t* reverb_buffer);
+   
+-  void Process(
++  RINGS_RAM_CODE(string_synth_part_process) void Process(
+       const PerformanceState& performance_state,
+       const Patch& patch,
+       const float* in,
+@@ -103,10 +104,10 @@
+   }
+   
+  private:
+-  void ProcessEnvelopes(float shape, uint8_t* flags, float* values);
++  RINGS_RAM_CODE(string_synth_process_envelopes) void ProcessEnvelopes(float shape, uint8_t* flags, float* values);
+   void ComputeRegistration(float gain, float registration, float* amplitudes);
+ 
+-  void ProcessFormantFilter(float vowel, float shift, float resonance,
++  RINGS_RAM_CODE(string_synth_process_formant_filter) void ProcessFormantFilter(float vowel, float shift, float resonance,
+                             float* out, float* aux, size_t size);
+   
+   StringSynthVoice<kNumHarmonics> voice_[kStringSynthVoices];
+diff -ruN a/rings/dsp/tube.h b/rings/dsp/tube.h
+--- a/rings/dsp/tube.h	2026-11-03 03:51:19.721631816 +0700
++++ b/rings/dsp/tube.h	2026-11-03 22:30:43.393725670 +0700
+@@ -35,6 +35,7 @@
+ #include <algorithm>
+ 
+ #include "rings/dsp/dsp.h"
++#include "rings/dsp/ram_code.h"
+ 
+ namespace rings {
+ 
+@@ -46,7 +47,7 @@
+   ~Tube() { }
+   
+   void Init();
+-  void Process(
++  RINGS_RAM_CODE(tube_process) void Process(
+       float frequency,
+       float envelope,
+       float timbre,
+diff -ruN a/rings/resources.cc b/rings/resources.cc
+--- a/rings/resources.cc	2026-11-03 03:51:19.723405615 +0700
++++ b/rings/resources.cc	2026-11-03 22:31:42.259916079 +0700
+@@ -32,6 +32,8 @@
+ 
+ #include "rings/resources.h"
+ 
++#include "rings/dsp/ram_code.h"
++
+ namespace rings {
+ 
+ 
+@@ -44,7 +46,7 @@
+ const uint32_t* lookup_table_uint32_table[] = {
+ };
+ 
+-const float lut_sine[] = {
++RINGS_RAM_CODE(lut_sine) const float lut_sine[] = {
+    0.000000000e+00,  1.533980186e-03,  3.067956763e-03,  4.601926120e-03,
+    6.135884649e-03,  7.669828740e-03,  9.203754782e-03,  1.073765917e-02,
+    1.227153829e-02,  1.380538853e-02,  1.533920628e-02,  1.687298795e-02,
+@@ -1327,7 +1329,7 @@
+    9.999811753e-01,  9.999894111e-01,  9.999952938e-01,  9.999988235e-01,
+    1.000000000e+00,
+ };
+-const float lut_approx_svf_gain[] = {
++RINGS_RAM_CODE(lut_approx_svf_gain) const float lut_approx_svf_gain[] = {
+    4.200005822e+02,  4.099237183e+02,  4.000886248e+02,  3.904895013e+02,
+    3.811206860e+02,  3.719766535e+02,  3.630520105e+02,  3.543414934e+02,
+    3.458399648e+02,  3.375424105e+02,  3.294439367e+02,  3.215397669e+02,
+@@ -1394,7 +1396,7 @@
+    1.230167210e+00,  1.217909100e+00,  1.206629817e+00,  1.196346629e+00,
+    1.188672690e+00,
+ };
+-const float lut_approx_svf_g[] = {
++RINGS_RAM_CODE(lut_approx_svf_g) const float lut_approx_svf_g[] = {
+    3.141602989e-03,  3.218831536e-03,  3.297958582e-03,  3.379030801e-03,
+    3.462096013e-03,  3.547203214e-03,  3.634402603e-03,  3.723745617e-03,
+    3.815284955e-03,  3.909074612e-03,  4.005169912e-03,  4.103627537e-03,
+@@ -1461,7 +1463,7 @@
+    6.993550439e+00,  9.318558639e+00,  1.407720922e+01,  2.935971016e+01,
+    3.183088390e+02,
+ };
+-const float lut_approx_svf_r[] = {
++RINGS_RAM_CODE(lut_approx_svf_r) const float lut_approx_svf_r[] = {
+    2.000000000e+00,  1.946754762e+00,  1.894927051e+00,  1.844479130e+00,
+    1.795374265e+00,  1.747576700e+00,  1.701051631e+00,  1.655765181e+00,
+    1.611684376e+00,  1.568777116e+00,  1.527012161e+00,  1.486359098e+00,
+@@ -1528,7 +1530,7 @@
+    2.227947720e-03,  2.168633916e-03,  2.110899202e-03,  2.054701536e-03,
+    2.000000000e-03,
+ };
+-const float lut_approx_svf_h[] = {
++RINGS_RAM_CODE(lut_approx_svf_h) const float lut_approx_svf_h[] = {
+    9.937462795e-01,  9.935932867e-01,  9.934365695e-01,  9.932760383e-01,
+    9.931116010e-01,  9.929431638e-01,  9.927706303e-01,  9.925939020e-01,
+    9.924128782e-01,  9.922274556e-01,  9.920375286e-01,  9.918429892e-01,
+@@ -1595,7 +1597,7 @@
+    1.565022410e-02,  9.392083109e-03,  4.399041685e-03,  1.084937594e-03,
+    9.807947187e-06,
+ };
+-const float lut_4_decades[] = {
++RINGS_RAM_CODE(lut_4_decades) const float lut_4_decades[] = {
+    1.000000000e+00,  1.036632928e+00,  1.074607828e+00,  1.113973860e+00,
+    1.154781985e+00,  1.197085030e+00,  1.240937761e+00,  1.286396945e+00,
+    1.333521432e+00,  1.382372227e+00,  1.433012570e+00,  1.485508017e+00,
+@@ -1662,7 +1664,7 @@
+    8.659643234e+03,  8.976871324e+03,  9.305720409e+03,  9.646616199e+03,
+    1.000000000e+04,
+ };
+-const float lut_svf_shift[] = {
++RINGS_RAM_CODE(lut_svf_shift) const float lut_svf_shift[] = {
+    2.500000000e-01,  2.408119579e-01,  2.316544611e-01,  2.225575501e-01,
+    2.135502761e-01,  2.046602549e-01,  1.959132760e-01,  1.873329789e-01,
+    1.789406032e-01,  1.707548172e-01,  1.627916233e-01,  1.550643347e-01,
+@@ -1729,7 +1731,7 @@
+    1.517819816e-07,  1.432631135e-07,  1.352223728e-07,  1.276329242e-07,
+    1.204694386e-07,
+ };
+-const float lut_stiffness[] = {
++RINGS_RAM_CODE(lut_stiffness) const float lut_stiffness[] = {
+   -6.250000000e-02, -6.152343750e-02, -6.054687500e-02, -5.957031250e-02,
+   -5.859375000e-02, -5.761718750e-02, -5.664062500e-02, -5.566406250e-02,
+   -5.468750000e-02, -5.371093750e-02, -5.273437500e-02, -5.175781250e-02,
+@@ -1796,7 +1798,7 @@
+    1.808823654e+00,  1.884612937e+00,  1.945398753e+00,  2.000000000e+00,
+    2.000000000e+00,
+ };
+-const float lut_fm_frequency_quantizer[] = {
++RINGS_RAM_CODE(lut_fm_frequency_quantizer) const float lut_fm_frequency_quantizer[] = {
+   -1.200000000e+01, -1.200000000e+01, -1.200000000e+01, -1.184000000e+01,
+   -1.184000000e+01, -1.184000000e+01, -1.111000000e+01, -1.038000000e+01,
+   -9.650000000e+00, -8.920000000e+00, -8.190000000e+00, -7.460000000e+00,

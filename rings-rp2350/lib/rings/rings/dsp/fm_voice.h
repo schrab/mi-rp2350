@@ -37,6 +37,7 @@
 
 #include "rings/dsp/dsp.h"
 #include "rings/dsp/follower.h"
+#include "rings/dsp/ram_code.h"
 
 #include "rings/resources.h"
 
@@ -50,7 +51,7 @@ class FMVoice {
   ~FMVoice() { }
   
   void Init();
-  void Process(
+  RINGS_RAM_CODE(fm_voice_process) void Process(
       const float* in,
       float* out,
       float* aux,

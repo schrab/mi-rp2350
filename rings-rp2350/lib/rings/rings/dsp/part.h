@@ -36,6 +36,7 @@
 #include "stmlib/dsp/delay_line.h"
 
 #include "rings/dsp/dsp.h"
+#include "rings/dsp/ram_code.h"
 #include "rings/dsp/fm_voice.h"
 #include "rings/dsp/fx/diffuser.h"
 #include "rings/dsp/fx/reverb.h"
@@ -74,7 +75,7 @@ class Part {
   
   void Init(uint16_t* reverb_buffer);
   
-  void Process(
+  RINGS_RAM_CODE(part_process) void Process(
       const PerformanceState& performance_state,
       const Patch& patch,
       const float* in,
@@ -105,7 +106,7 @@ class Part {
 
  private:
   void ConfigureResonators();
-  void RenderModalVoice(
+  RINGS_RAM_CODE(part_render_modal_voice) void RenderModalVoice(
       int32_t voice,
       const PerformanceState& performance_state,
       const Patch& patch,
@@ -113,7 +114,7 @@ class Part {
       float frequency,
       float filter_cutoff,
       size_t size);
-  void RenderStringVoice(
+  RINGS_RAM_CODE(part_render_string_voice) void RenderStringVoice(
       int32_t voice,
       const PerformanceState& performance_state,
       const Patch& patch,
@@ -155,7 +156,7 @@ class Part {
     return x;
   }
 
-  void ComputeSympatheticStringsNotes(
+  RINGS_RAM_CODE(part_compute_sympathetic_strings) void ComputeSympatheticStringsNotes(
       const PerformanceState& performance_state,
       float tonic,
       float note,
@@ -163,7 +164,7 @@ class Part {
       float* destination,
       size_t num_strings);
 
-  void FillExciterBuffer(
+  RINGS_RAM_CODE(part_fill_exciter_buffer) void FillExciterBuffer(
       const PerformanceState& performance_state,
       const Patch& patch,
       bool update_patch,

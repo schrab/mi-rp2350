@@ -34,6 +34,7 @@
 #include "stmlib/dsp/dsp.h"
 
 #include "rings/dsp/fx/fx_engine.h"
+#include "rings/dsp/ram_code.h"
 #include "rings/resources.h"
 
 namespace rings {
@@ -49,7 +50,7 @@ class Chorus {
     phase_2_ = 0;
   }
   
-  void Process(float* left, float* right, size_t size) {
+  RINGS_RAM_CODE(fx_chorus_process) void Process(float* left, float* right, size_t size) {
     typedef E::Reserve<2047> Memory;
     E::DelayLine<Memory, 0> line;
     E::Context c;

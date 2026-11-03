@@ -34,6 +34,7 @@
 #include "stmlib/dsp/filter.h"
 
 #include "rings/dsp/dsp.h"
+#include "rings/dsp/ram_code.h"
 #include "rings/dsp/fx/chorus.h"
 #include "rings/dsp/fx/ensemble.h"
 #include "rings/dsp/fx/reverb.h"
@@ -76,7 +77,7 @@ class StringSynthPart {
   
   void Init(uint16_t* reverb_buffer);
   
-  void Process(
+  RINGS_RAM_CODE(string_synth_part_process) void Process(
       const PerformanceState& performance_state,
       const Patch& patch,
       const float* in,
@@ -103,10 +104,10 @@ class StringSynthPart {
   }
   
  private:
-  void ProcessEnvelopes(float shape, uint8_t* flags, float* values);
+  RINGS_RAM_CODE(string_synth_process_envelopes) void ProcessEnvelopes(float shape, uint8_t* flags, float* values);
   void ComputeRegistration(float gain, float registration, float* amplitudes);
 
-  void ProcessFormantFilter(float vowel, float shift, float resonance,
+  RINGS_RAM_CODE(string_synth_process_formant_filter) void ProcessFormantFilter(float vowel, float shift, float resonance,
                             float* out, float* aux, size_t size);
   
   StringSynthVoice<kNumHarmonics> voice_[kStringSynthVoices];

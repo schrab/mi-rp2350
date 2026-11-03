@@ -34,6 +34,7 @@
 #include <algorithm>
 
 #include "rings/dsp/dsp.h"
+#include "rings/dsp/ram_code.h"
 #include "stmlib/dsp/filter.h"
 #include "stmlib/dsp/delay_line.h"
 
@@ -47,7 +48,7 @@ class Resonator {
   ~Resonator() { }
   
   void Init();
-  void Process(
+  RINGS_RAM_CODE(resonator_process) void Process(
       const float* in,
       float* out,
       float* aux,
@@ -79,7 +80,7 @@ class Resonator {
   }
   
  private:
-  int32_t ComputeFilters();
+  RINGS_RAM_CODE(resonator_compute_filters) int32_t ComputeFilters();
   float frequency_;
   float structure_;
   float brightness_;
