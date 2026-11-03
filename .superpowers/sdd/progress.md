@@ -1059,8 +1059,10 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   rawmidi `/dev/snd/midiC2D0` open can wedge kernel-side after
   flash/re-enum (EBUSY with no fd holder) — the seq path sidesteps it.
 - **Board state:** running the final clean build (`93 s`, RAM 69.3%, flash
-  15.1%), eng 0/7 verified sounding, zero stalls. **Next: user ear check
-  across engine groups + 30 min soak.**
+  15.1%), eng 0/7 verified sounding, zero stalls. **T5c USER EAR-CONFIRMED
+  (2026-11-03): "plaits sound fine too" — PLAITS PORT ACCEPTED.** All four
+  ports (Elements, Clouds, Plaits, Rings) now user-accepted on
+  `elements-clone`; merge to `main` unblocked.
 
 ### Rings RP2350 port — T1-T5a landed (2026-11-03)
 
@@ -1101,5 +1103,5 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
 - **T5b USER EAR-CONFIRMED (2026-11-03): "sound fine, max process near
   250-300"** — matches the sweep's sustained numbers (270-320 µs, 36-43% of
   the 750 µs budget), zero-stall expectation holding. RINGS PORT ACCEPTED.
-  Remaining open items: plaits-rp2350 ear check (T5c), then the
-  elements-clone → main merge decision for all ports.
+  Plaits ear check confirmed same day — all four ports (Elements, Clouds,
+  Plaits, Rings) user-accepted; elements-clone → main merge unblocked.
