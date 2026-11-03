@@ -82,6 +82,18 @@ clouds debugging war stories. Module RAM estimates:
   Also: `< "$p" </dev/null` — the second redirect wins, patch reads EMPTY
   input, "succeeds" with exit 0 and applies nothing. One redirect only, and
   verify the result.
+- **Patch-diff recipe (exact mechanics)**: snapshot the fresh lib tree TWICE
+  with the module leaf dir preserved on both sides, e.g.
+  `cp -a lib/rings/rings /tmp/rings_a/rings && cp -a lib/rings/rings /tmp/rings_b/rings`
+  (missing the leaf dir on one side makes diff emit the WHOLE tree as
+  additions — hit twice in the rings session), edit `/tmp/rings_b` with
+  Read/Edit/Write only, then
+  `cd /tmp && diff -ruN rings_a/rings rings_b/rings | sed -e 's|rings_a/rings|a/rings|g' -e 's|rings_b/rings|b/rings|g' > tools/patches/<lib>/NN-name.patch`,
+  **Read the generated patch and confirm it contains only the intended
+  hunks** (a full-tree `@@ -0,0 +1,N @@` loop = snapshot layout wrong), advance
+  fresh with `cp -a /tmp/rings_b/. /tmp/rings_a/` between patches, and
+  round-trip: re-run the sync script + `diff -ruN /tmp/rings_b/rings
+  lib/<proj>/lib/<lib>/<lib>/rings` empty + other projects' libs untouched.
 
 ## 3. THE audio-budget law: nothing hot in flash
 
