@@ -1120,7 +1120,7 @@ after each task).
 
 | Task | Status | Committed | Notes |
 |---|---|---|---|
-| T1 Linker/sections (module-prefixed .time_critical, NOLOAD SRAM window, selective copy) | pending | — | |
+| T1 Linker/sections (module-prefixed .time_critical, NOLOAD SRAM window, selective copy) | done | (see commit) | 4 boot-select envs benched on hardware 2026-11-04; per-env SRAM windows; 2 firmware boot bugs fixed (early CDC print, post-detach re-enum death); findings below |
 | T2 Arena + live swap (bench switching via switch-CC + serial console) | pending | — | |
 | T3 Mod engine + clock bus (internal BPM / MIDI 24 PPQ, 1-32-step euclid+gate, bench settings via CC/console) | pending | — | |
 | T4 RP2350 DIN 31250 parser + serial console | pending | — | DIN hardware needed to test |
@@ -1130,3 +1130,109 @@ after each task).
 | T7 Hardware bring-up + sweeps + user acceptance + soak | pending | — | |
 
 Findings (append per task below):
+
+### Rack T1 — linker/sections + selective copy (2026-11-04)
+
+- **New project `rack-rp2350/`**, 4 envs (`rack-elements/clouds/plaits/rings`,
+  `-DRACK_BOOT_MODULE=0..3`, board rpipico2, 240 MHz, USE_TINYUSB, chain+).
+  All four module libs link in every env (LDF needs unguarded includes);
+  only the selected module instantiates state (compile-guarded adapters in
+  `src/module_*.h`, state/handlers lifted verbatim from the four ports'
+  main.cpp/midi.h). Uniform 2 s report: `max Process | i2s stalls | in= out=
+  notes= | host: …` with per-module budgets (496/1000/500/750 µs).
+- **Patch regeneration ×4** (elements-ram-hot, clouds-ram-hot,
+  05-plaits-ram-hot, 02-rings-ram-code): the ram_code.h macro is conditional —
+  `RACK_RP2350_TC` → `.tc_<module>.<token>`, else the original
+  `.time_critical.<token>`. New `tools/patches/cmsis_dsp/01-rack-tc-names.patch`
+  retargets the vendored CMSIS copy inside the rack only. Standalone
+  round-trip verified: all four standalone projects clean-build with
+  byte-identical RAM/flash numbers (elements 47.3%/11.7%, clouds 71.0%/7.3%,
+  plaits 69.3%/15.1%, rings 54.4%/12.2%).
+- **PER-ENV linker scripts** `memmap_rack_<module>.ld` (forks of the core
+  rp2350 script — a raw -T fork reaches ld un-substituted, so
+  `__FLASH_LENGTH__` etc. are hardened to the rpipico2 values). The SELECTED
+  module's sections = an ld OVERLAY member (VMA = that env's SRAM window
+  directly above the heap, LMA = reserved flash RACK_LMA @0x10381000); the
+  other three modules = flash-resident `.tc_flash_*` sections (VMA=LMA,
+  linked, never called in that env). **Why per-env:** the first cut shared
+  ONE window sized for plaits (0x43000 @0x2003d000) — the clouds env was
+  left with 7,320 B of heap, the core's `malloc(0x2000)` for core 1's
+  separate stack FAILED, core 1 never launched and core 0 hung forever at
+  the `g_host_alarm_pool_ready` handshake (hardware symptom: LED self-test
+  runs, USB enumerates, zero report lines). With per-env windows clouds has
+  144 KB of heap.
+- Window sizing (rack ELF-measured `.tc_*` totals): elements 36,752 B →
+  window 0x9000 @0x20077000; clouds 136,960 B (incl. 60,344 CMSIS) → 0x21800
+  @0x2005E800; plaits 272,564 B → 0x43000 @0x2003D000; rings 58,084 B →
+  0xE400 @0x20071C00. **T2 NOTE: live swap needs ONE window that fits every
+  module → the plaits re-tier (~120 KB, plan-T6) must land before/in T2.**
+- **Selective copy API** `src/rack_window.h`: per-module {VMA, LMA, size}
+  table from linker symbols (`__tc_<m>_start/_end`,
+  `__rack_flash_<m>_start/_end` — all four pairs exist in every env; for
+  unselected modules both pairs coincide at flash addresses, a dead path
+  since boot-select is compile-time), `rack_window_copy(id)` memcpy
+  flash→window + FNV-1a both sides; `setup()` copies as its ABSOLUTE FIRST
+  action (crt0-like, before Serial/LED/USB) and prints size + checksums.
+- **Verification (per env)**: `.tc_*` inputs in `.data` = 0; selected overlay
+  VMA = window origin, unselected `.tc_flash_*` VMA=LMA in RACK_LMA; hot
+  symbols at window addresses (elements Part::Process, clouds
+  GranularProcessor::Process + twiddleCoef_4096, plaits Voice/engine Renders,
+  rings Part::Process, CMSIS arm_rfft_fast_f32); pio_usb stays
+  .time_critical→.data (low SRAM); `__rack_flash_end` ≤ RACK_LMA end with
+  ~11.5 KB slack; ASSERTs per env (window fit, flash end, stack/heap).
+
+### Rack T1 — boot-wedge saga: three root causes, two firmware fixes (2026-11-04)
+
+- **Symptom that started it:** rack boots "wedged" nondeterministically
+  (CDC-up-but-silent or device-gone-from-bus), ~40% in early testing, while
+  the standalone control was clean through the identical procedure. Cost a
+  day of LED-breadcrumb diag builds before the ground truth appeared.
+- **Fix 1 (real, firmware): first CDC print vs enumeration.** The rack's
+  first unconditional `Serial` write (the `rack: window …` line) fired within
+  milliseconds of boot, while the host was still enumerating → chip hang.
+  The proven standalone prints its first unconditional line only AFTER
+  host+I2S init (~1 s in) — that timing difference was the boot delta that
+  mattered. Fix: compose the line early, print it once enumeration has
+  settled; conditional error prints stay early (as in the standalone).
+- **Fix 2 (real, firmware): the detach/attach re-enum guard was a boot
+  killer.** Kernel log: firmware enumerates fine (product read), the guard's
+  own detach fires 1 s in, and the POST-DETACH re-enumeration intermittently
+  dies (SET_ADDRESS refused / descriptor-timeouts → dead until power cycle).
+  This is the same "CDC port death" family the standalone era mitigated with
+  the 500 ms detach window (10-31 session) — mitigated, never eliminated.
+  **Fix: register the MIDI interface as the FIRST setup action** (the host's
+  first GET_DESCRIPTOR lands ≥100 ms after attach per USB reset recovery, so
+  MIDI is in the first configuration) and DELETE the guard — the device now
+  enumerates exactly once. NOTE: the four standalone ports carry the same
+  guard and the same latent defect (rare); not touched (accepted code).
+- **Non-firmware cause: the 1200-baud touch.** `reset_usb_boot` sometimes
+  leaves the BOOTROM unable to enumerate (kernel: attach-no-descriptor ×3 →
+  "unable to enumerate" → dead to USB until power cycle) — the erratic-touch
+  behavior recorded in the standalone era. Touch-induced USB resets also
+  explain the "black/frozen LED" reads (reset_usb_boot resets PIO/pad state
+  → WS2812 dark), the "3 s DAC noise at boot" (touch landing mid-boot) and
+  partial breadcrumb sequences. **Procedure: the touch requires DTR low — a
+  serial monitor holding the port blocks it; two failed touches → fall back
+  to button-BOOTSEL; and ALWAYS read `journalctl -k` for USB ground truth
+  (attach-without-descriptors = touch/bootrom victim, not firmware) before
+  touching firmware.**
+- Distractor eliminated: RP2350 M33 I/D-caches are NOT enabled by the
+  core/SDK (no SCB_Enable*Cache anywhere; symbols not linked) —
+  cache-incoherence after the setup()-time window copy was impossible.
+
+### Rack T1 — hardware bench matrix (2026-11-04, orchestrator)
+
+All four boot-select builds flashed (touch + button-BOOTSEL mix) and benched;
+each enumerated exactly once (guard removed), MIDI port "Rack RP2350 MIDI 1":
+
+| env | idle max Process | loaded max (bench sweep) | notes/meters | stalls |
+|---|---|---|---|---|
+| elements | 101-125 µs (budget 496) | 193-207 µs (strings model active); ominous dwell 260-267 µs | 4/4 notes, user ear-confirmed ("notes played", "i hear sound"), in/out RMS to 1000 | 0 |
+| clouds | ~236 µs granular (budget 1000) | mode-change spike 1737 µs (standalone: 1743); spectral burst 13.8-14.2 ms bank-absorbed (standalone 13.5) | notes 4/4, exciter meters live | 0 in 11/11 reports |
+| plaits | 34 µs engine 0 (budget 500) | ≤148 µs across engines 0/7/40 + level CC | notes 8/8, meters live | 0 |
+| rings | 122-125 µs (budget 750) | 473 µs across mode/model sweep (standalone worst 511) | notes 7/7, out RMS ~410 | 0 |
+
+Standalone-signature parity: every number lands on (or under) the recorded
+standalone ranges — the window-resident hot code behaves like the standalone
+builds' crt0-copied .time_critical. User ear-confirmed elements; the other
+three are metrics-verified (ears at the DSP-acceptance checkpoint).

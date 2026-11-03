@@ -1,0 +1,7 @@
+{
+  "name": "cmsis_dsp",
+  "version": "0.0.0",
+  "build": {
+    "flags": ["-O3", "-DARM_MATH_CM33"]
+  }
+}

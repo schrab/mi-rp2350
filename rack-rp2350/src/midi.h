@@ -1,0 +1,148 @@
+// Shared MIDI parser + state for the Rack RP2350 firmware — module-agnostic
+// (the per-module CC maps / note handling live in the module adapters,
+// src/module_*.h; only the ONE selected adapter is compiled).
+//
+// Same 4-byte USB-MIDI event packet contract as the four standalone ports
+// (elements/clouds/plaits/rings-rp2350/src/midi.h), verified against the
+// bundled Adafruit TinyUSB Library v3.7.7:
+//   pkt[0] = (cable_number << 4) | CIN
+//   pkt[1] = MIDI status byte (e.g. 0x9n)
+//   pkt[2] = data1 (note/cc#/bend LSB)
+//   pkt[3] = data2 (velocity/cc value/bend MSB; 0 for 2-byte messages)
+// Device (readPacket) and PIO-USB host (tuh_midi_packet_read) packets take
+// the same midiHandleEventPacket() entry point; T4 adds DIN/BLE to the same
+// funnel.
+//
+// Note handling: last-note priority with an 8-deep note stack (proven
+// pattern from the standalone ports). shared_note always tracks the NEWEST
+// held note; the gate only drops when the stack empties. Pitch bend is
+// remembered and applied on top of the current top note (+/- 2 semitones).
+#pragma once
+#include <stdint.h>
+
+#include <Arduino.h>             // millis() for the stuck-gate watchdog
+#include <I2S.h>                 // extern I2S i2s below
+
+// --- shared MIDI state (core0 writes, core1 reads; DEFINED in main.cpp) ---
+extern volatile float shared_note;         // top note + bend, semitones
+extern volatile bool  shared_gate;         // note stack non-empty
+// Firmware-side note-on counter — printed in the 2 s report; separates
+// "MIDI reached the firmware" from "the DSP made sound".
+extern volatile uint32_t note_on_count;
+
+// Per-module meters for the status LED + the 2 s report (core 1 writes after
+// each block, core 0 reads). Max-since-report, x1000 in the print.
+// elements: exciter level / resonator level (the original smoothed meters);
+// clouds:   input RMS / output RMS;
+// plaits:   OUT RMS / AUX RMS;
+// rings:    OUT RMS / AUX RMS.
+extern volatile float rack_meter_a;
+extern volatile float rack_meter_b;
+
+// --- perf telemetry (core1 writes, core0 prints; DEFINED in main.cpp) ---
+extern volatile uint32_t proc_us_max;      // worst module Process since report
+extern volatile uint32_t i2s_stall_count;  // slow I2S write-block loops
+
+extern I2S i2s;                            // defined in main.cpp (OUTPUT)
+
+// --- module adapter hooks (DEFINED by the ONE compiled module_*.h) ---
+void module_note_on(uint8_t note, uint8_t vel);
+void module_note_off(uint8_t note);
+void module_control_change(uint8_t cc, uint8_t val);
+
+// --- note stack: last-note priority (single TU: main.cpp -> static storage) ---
+struct NoteStack {
+  static const uint8_t kMaxNotes = 8;
+  uint8_t notes[kMaxNotes];      // notes[0] = oldest ... notes[size-1] = newest
+  uint8_t size = 0;
+
+  void clear() { size = 0; }
+
+  int find(uint8_t note) const {
+    for (uint8_t i = 0; i < size; ++i) {
+      if (notes[i] == note) return static_cast<int>(i);
+    }
+    return -1;
+  }
+
+  uint8_t top() const { return notes[size - 1]; }
+
+  // Note-on: a re-pressed held note moves to the top (no duplicate); a new
+  // note is pushed to the top, dropping the oldest when the stack is full.
+  void push(uint8_t note) {
+    int i = find(note);
+    if (i >= 0) {
+      for (int j = i; j < size - 1; ++j) notes[j] = notes[j + 1];
+      notes[size - 1] = note;
+      return;
+    }
+    if (size >= kMaxNotes) {
+      for (uint8_t j = 0; j < size - 1; ++j) notes[j] = notes[j + 1];
+      --size;
+    }
+    notes[size++] = note;
+  }
+
+  // Note-off: remove the note if it is held (no-op otherwise).
+  void remove(uint8_t note) {
+    int i = find(note);
+    if (i < 0) return;
+    for (int j = i; j < size - 1; ++j) notes[j] = notes[j + 1];
+    --size;
+  }
+};
+
+static NoteStack note_stack;
+static int16_t bend_offset = 0;          // -8192..8191, applied to the top note
+static uint32_t last_note_event_ms = 0;  // stuck-gate watchdog input (core 0)
+
+// shared_note = newest held note (or 48.0 when idle) + current bend offset.
+static void applyNote() {
+  float base = note_stack.size ? static_cast<float>(note_stack.top()) : 48.0f;
+  shared_note = base + static_cast<float>(bend_offset) * (2.0f / 8192.0f);
+}
+
+inline void midiNoteOn(uint8_t note, uint8_t vel) {
+  note_stack.push(note);          // retrigger: moves to top, no duplicate
+  applyNote();
+  shared_gate = true;
+  ++note_on_count;
+  last_note_event_ms = millis();
+  module_note_on(note, vel);      // adapter: exciter/strum/trigger + params
+}
+
+inline void midiNoteOff(uint8_t note) {
+  note_stack.remove(note);
+  if (note_stack.size == 0) {
+    shared_gate = false;          // gate only drops when the stack empties
+  } else {
+    applyNote();                  // released note was on top: fall back to the
+  }                               // previous held note
+  last_note_event_ms = millis();
+  module_note_off(note);
+}
+
+inline void midiPitchBend(int16_t bend14) {  // -8192..8191, 0 = centered
+  bend_offset = bend14;
+  applyNote();                    // bend always applies to the current top note
+}
+
+inline void midiControlChange(uint8_t cc, uint8_t val) {
+  module_control_change(cc, val);  // adapter CC map (verbatim per module)
+}
+
+// USB-MIDI event packet (4 bytes) -> channel voice messages.
+// CIN 0x8..0xE map 1:1 onto the MIDI status nibble (single cable).
+inline void midiHandleEventPacket(const uint8_t pkt[4]) {
+  const uint8_t cin = pkt[0] & 0x0F;
+  if (cin < 0x8 || cin > 0xE) return;      // ignore system / SYSEX / malformed
+  const uint8_t d1 = pkt[2] & 0x7F;        // note number / cc# / bend LSB
+  const uint8_t d2 = pkt[3] & 0x7F;        // velocity / value / bend MSB
+  switch (cin) {
+    case 0x8: midiNoteOff(d1); break;
+    case 0x9: if (d2) { midiNoteOn(d1, d2); } else { midiNoteOff(d1); } break;
+    case 0xB: midiControlChange(d1, d2); break;
+    case 0xE: midiPitchBend((int16_t)((d2 << 7) | d1) - 8192); break;
+    default: break;                        // 0xC pgm / 0xD pressure: unused
+  }
+}

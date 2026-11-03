@@ -1,6 +1,6 @@
 diff -ruN a/rings/dsp/exciter.h b/rings/dsp/exciter.h
---- a/rings/dsp/exciter.h	2026-11-03 03:51:19.721188148 +0700
-+++ b/rings/dsp/exciter.h	2026-11-03 22:30:43.331730191 +0700
+--- a/rings/dsp/exciter.h	2026-11-04 01:03:50.292379748 +0700
++++ b/rings/dsp/exciter.h	2026-11-04 01:03:50.332930563 +0700
 @@ -34,6 +34,8 @@
  #include "stmlib/dsp/filter.h"
  #include "stmlib/utils/random.h"
@@ -34,8 +34,8 @@ diff -ruN a/rings/dsp/exciter.h b/rings/dsp/exciter.h
   private:
    float GetPulseAmplitude(float cutoff);
 diff -ruN a/rings/dsp/fm_voice.h b/rings/dsp/fm_voice.h
---- a/rings/dsp/fm_voice.h	2026-11-03 03:51:19.721188148 +0700
-+++ b/rings/dsp/fm_voice.h	2026-11-03 22:29:53.799270350 +0700
+--- a/rings/dsp/fm_voice.h	2026-11-04 01:03:50.292666966 +0700
++++ b/rings/dsp/fm_voice.h	2026-11-04 01:03:50.333137449 +0700
 @@ -37,6 +37,7 @@
  
  #include "rings/dsp/dsp.h"
@@ -54,8 +54,8 @@ diff -ruN a/rings/dsp/fm_voice.h b/rings/dsp/fm_voice.h
        float* out,
        float* aux,
 diff -ruN a/rings/dsp/fx/chorus.h b/rings/dsp/fx/chorus.h
---- a/rings/dsp/fx/chorus.h	2026-11-03 03:51:19.721631816 +0700
-+++ b/rings/dsp/fx/chorus.h	2026-11-03 22:31:16.407016260 +0700
+--- a/rings/dsp/fx/chorus.h	2026-11-04 01:03:50.292837566 +0700
++++ b/rings/dsp/fx/chorus.h	2026-11-04 01:03:50.333337081 +0700
 @@ -34,6 +34,7 @@
  #include "stmlib/dsp/dsp.h"
  
@@ -74,8 +74,8 @@ diff -ruN a/rings/dsp/fx/chorus.h b/rings/dsp/fx/chorus.h
      E::DelayLine<Memory, 0> line;
      E::Context c;
 diff -ruN a/rings/dsp/fx/ensemble.h b/rings/dsp/fx/ensemble.h
---- a/rings/dsp/fx/ensemble.h	2026-11-03 03:51:19.721631816 +0700
-+++ b/rings/dsp/fx/ensemble.h	2026-11-03 22:31:16.474010240 +0700
+--- a/rings/dsp/fx/ensemble.h	2026-11-04 01:03:50.293075511 +0700
++++ b/rings/dsp/fx/ensemble.h	2026-11-04 01:03:50.333491140 +0700
 @@ -34,6 +34,7 @@
  #include "stmlib/dsp/dsp.h"
  
@@ -94,8 +94,8 @@ diff -ruN a/rings/dsp/fx/ensemble.h b/rings/dsp/fx/ensemble.h
      E::DelayLine<Memory, 0> line_l;
      E::DelayLine<Memory, 1> line_r;
 diff -ruN a/rings/dsp/fx/reverb.h b/rings/dsp/fx/reverb.h
---- a/rings/dsp/fx/reverb.h	2026-11-03 03:51:19.721631816 +0700
-+++ b/rings/dsp/fx/reverb.h	2026-11-03 22:31:16.356020842 +0700
+--- a/rings/dsp/fx/reverb.h	2026-11-04 01:03:50.293887387 +0700
++++ b/rings/dsp/fx/reverb.h	2026-11-04 01:03:50.333657611 +0700
 @@ -32,6 +32,7 @@
  #include "stmlib/stmlib.h"
  
@@ -114,8 +114,8 @@ diff -ruN a/rings/dsp/fx/reverb.h b/rings/dsp/fx/reverb.h
      // (4 AP diffusers on the input, then a loop of 2x 2AP+1Delay).
      // Modulation is applied in the loop of the first diffuser AP for additional
 diff -ruN a/rings/dsp/part.h b/rings/dsp/part.h
---- a/rings/dsp/part.h	2026-11-03 03:51:19.721631816 +0700
-+++ b/rings/dsp/part.h	2026-11-03 22:32:07.179832025 +0700
+--- a/rings/dsp/part.h	2026-11-04 01:03:50.295494408 +0700
++++ b/rings/dsp/part.h	2026-11-04 01:03:50.333850345 +0700
 @@ -36,6 +36,7 @@
  #include "stmlib/dsp/delay_line.h"
  
@@ -171,8 +171,8 @@ diff -ruN a/rings/dsp/part.h b/rings/dsp/part.h
        bool update_patch,
 diff -ruN a/rings/dsp/ram_code.h b/rings/dsp/ram_code.h
 --- a/rings/dsp/ram_code.h	1970-01-01 08:00:00.000000000 +0800
-+++ b/rings/dsp/ram_code.h	2026-11-03 22:29:05.145173940 +0700
-@@ -0,0 +1,26 @@
++++ b/rings/dsp/ram_code.h	2026-11-04 01:04:07.071435809 +0700
+@@ -0,0 +1,40 @@
 +// Copyright 2026 Rings RP2350 port.
 +//
 +// Marker for per-sample hot paths (RP2350 port). Mirrors the
@@ -189,19 +189,33 @@ diff -ruN a/rings/dsp/ram_code.h b/rings/dsp/ram_code.h
 +// NOTE: for member templates defined out-of-line (.cc), the attribute MUST
 +// sit on the in-class declaration — GCC silently drops section attributes
 +// placed on the out-of-line definition (see string.h).
++//
++// Rack build (rack-rp2350, RACK_RP2350_TC defined project-wide): the prefix
++// switches to .tc_rings. so every marked input section becomes
++// .tc_rings.<token>. The rack's linker script collects those into a single
++// flash-resident tc_rings output section (VMA = the shared SRAM window,
++// LMA = the reserved flash region) and copies the SELECTED module's section
++// into the window at boot — standalone builds keep .time_critical.* (the
++// core's crt0 copy path) unchanged.
 +#ifndef RINGS_DSP_RAM_CODE_H_
 +#define RINGS_DSP_RAM_CODE_H_
 +
 +#if defined(ARDUINO_ARCH_RP2040)
-+#define RINGS_RAM_CODE(token) __attribute__((section(".time_critical." #token)))
++#if defined(RACK_RP2350_TC)
++#define RINGS_RAM_CODE_PREFIX ".tc_rings."
++#else
++#define RINGS_RAM_CODE_PREFIX ".time_critical."
++#endif
++#define RINGS_RAM_CODE(token) \
++  __attribute__((section(RINGS_RAM_CODE_PREFIX #token)))
 +#else
 +#define RINGS_RAM_CODE(token)
 +#endif
 +
 +#endif  // RINGS_DSP_RAM_CODE_H_
 diff -ruN a/rings/dsp/resonator.h b/rings/dsp/resonator.h
---- a/rings/dsp/resonator.h	2026-11-03 03:51:19.721631816 +0700
-+++ b/rings/dsp/resonator.h	2026-11-03 22:29:53.745271589 +0700
+--- a/rings/dsp/resonator.h	2026-11-04 01:03:50.296359067 +0700
++++ b/rings/dsp/resonator.h	2026-11-04 01:03:50.334142360 +0700
 @@ -34,6 +34,7 @@
  #include <algorithm>
  
@@ -229,8 +243,8 @@ diff -ruN a/rings/dsp/resonator.h b/rings/dsp/resonator.h
    float structure_;
    float brightness_;
 diff -ruN a/rings/dsp/string.h b/rings/dsp/string.h
---- a/rings/dsp/string.h	2026-11-03 03:51:19.721631816 +0700
-+++ b/rings/dsp/string.h	2026-11-03 22:29:41.174442952 +0700
+--- a/rings/dsp/string.h	2026-11-04 01:03:50.297073785 +0700
++++ b/rings/dsp/string.h	2026-11-04 01:03:50.334345338 +0700
 @@ -37,6 +37,7 @@
  #include "stmlib/dsp/filter.h"
  
@@ -263,8 +277,8 @@ diff -ruN a/rings/dsp/string.h b/rings/dsp/string.h
    float frequency_;
    float dispersion_;
 diff -ruN a/rings/dsp/string_synth_part.h b/rings/dsp/string_synth_part.h
---- a/rings/dsp/string_synth_part.h	2026-11-03 03:51:19.721631816 +0700
-+++ b/rings/dsp/string_synth_part.h	2026-11-03 22:31:16.694990385 +0700
+--- a/rings/dsp/string_synth_part.h	2026-11-04 01:03:50.298317467 +0700
++++ b/rings/dsp/string_synth_part.h	2026-11-04 01:03:50.334512788 +0700
 @@ -34,6 +34,7 @@
  #include "stmlib/dsp/filter.h"
  
@@ -296,8 +310,8 @@ diff -ruN a/rings/dsp/string_synth_part.h b/rings/dsp/string_synth_part.h
    
    StringSynthVoice<kNumHarmonics> voice_[kStringSynthVoices];
 diff -ruN a/rings/dsp/tube.h b/rings/dsp/tube.h
---- a/rings/dsp/tube.h	2026-11-03 03:51:19.721631816 +0700
-+++ b/rings/dsp/tube.h	2026-11-03 22:30:43.393725670 +0700
+--- a/rings/dsp/tube.h	2026-11-04 01:03:50.298993529 +0700
++++ b/rings/dsp/tube.h	2026-11-04 01:03:50.334657024 +0700
 @@ -35,6 +35,7 @@
  #include <algorithm>
  
@@ -316,8 +330,8 @@ diff -ruN a/rings/dsp/tube.h b/rings/dsp/tube.h
        float envelope,
        float timbre,
 diff -ruN a/rings/resources.cc b/rings/resources.cc
---- a/rings/resources.cc	2026-11-03 03:51:19.723405615 +0700
-+++ b/rings/resources.cc	2026-11-03 22:31:42.259916079 +0700
+--- a/rings/resources.cc	2026-11-04 01:03:50.308369754 +0700
++++ b/rings/resources.cc	2026-11-04 01:03:50.340369881 +0700
 @@ -32,6 +32,8 @@
  
  #include "rings/resources.h"

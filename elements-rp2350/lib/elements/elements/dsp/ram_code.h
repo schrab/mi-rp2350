@@ -27,6 +27,14 @@
 // .data, copied from flash at boot), so marked functions execute without XIP
 // flash cache stalls. On every other platform the marker is a no-op.
 //
+// Rack build (rack-rp2350, RACK_RP2350_TC defined project-wide): the prefix
+// switches to .tc_elements. so every marked input section becomes
+// .tc_elements.<token>. The rack's linker script collects those into a single
+// flash-resident tc_elements output section (VMA = the shared SRAM window,
+// LMA = the reserved flash region) and copies the SELECTED module's section
+// into the window at boot — standalone builds keep .time_critical.* (the
+// core's crt0 copy path) unchanged.
+//
 // Usage: ELEMENTS_RAM_CODE(unique_token) void Foo::Process(...) { ... }
 // Each function needs its own token: inline/COMDAT and plain copies of one
 // shared section name collide at link time (section type conflict).
@@ -34,7 +42,13 @@
 #define ELEMENTS_DSP_RAM_CODE_H_
 
 #if defined(ARDUINO_ARCH_RP2040)
-#define ELEMENTS_RAM_CODE(token) __attribute__((section(".time_critical." #token)))
+#if defined(RACK_RP2350_TC)
+#define ELEMENTS_RAM_CODE_PREFIX ".tc_elements."
+#else
+#define ELEMENTS_RAM_CODE_PREFIX ".time_critical."
+#endif
+#define ELEMENTS_RAM_CODE(token) \
+  __attribute__((section(ELEMENTS_RAM_CODE_PREFIX #token)))
 #else
 #define ELEMENTS_RAM_CODE(token)
 #endif

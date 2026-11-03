@@ -145,4 +145,39 @@ sync_project clouds-rp2350  "STMLIB:stmlib" "CLOUDS:clouds:cc"
 sync_project plaits-rp2350  "STMLIB:stmlib" "EURORACK-STEREO/plaits:plaits:cc:plaits"
 sync_project rings-rp2350   "STMLIB:stmlib" "EURORACK-STEREO/rings:rings:cc:rings"
 
+# Rack project: same four module libs as the standalone ports (the same patch
+# chains apply; the module ram_code.h headers switch their section prefix to
+# .tc_<module>. only when the RACK build defines RACK_RP2350_TC).
+sync_project rack-rp2350    "STMLIB:stmlib" "ELEMENTS:elements" "CLOUDS:clouds:cc" \
+             "EURORACK-STEREO/plaits:plaits:cc:plaits" \
+             "EURORACK-STEREO/rings:rings:cc:rings"
+
+# Vendored (NOT submodule-derived) library copies for the rack project:
+# mirrored verbatim from the standalone projects, then re-patched from
+# tools/patches/<name>/ (rack-only deltas). The library.json of a vendored dir
+# ships with the copy (pio_usb needs none; cmsis_dsp keeps -DARM_MATH_CM33) —
+# unlike sync_project, vendor_copy never rewrites it.
+vendor_copy() {
+  local proj=$1 name=$2 src=$3
+  local dst="$REPO_ROOT/$proj/lib/$name"
+  if [ ! -d "$REPO_ROOT/$src" ]; then
+    echo "error: vendored source $REPO_ROOT/$src not found" >&2
+    exit 1
+  fi
+  rm -rf "$dst"
+  mkdir -p "$dst"
+  cp -R "$REPO_ROOT/$src/." "$dst/"
+  for p in "$REPO_ROOT/tools/patches/$name"/*.patch; do
+    if [ -e "$p" ]; then
+      patch --forward --fuzz=0 -p1 -d "$dst" < "$p" \
+        || { echo "error: $p no longer applies to $name — regenerate it" >&2; exit 1; }
+      echo "applied $(basename "$p") to $proj/lib/$name"
+    fi
+  done
+  echo "vendored $src -> $proj/lib/$name"
+}
+
+vendor_copy rack-rp2350 pio_usb   elements-rp2350/lib/pio_usb
+vendor_copy rack-rp2350 cmsis_dsp clouds-rp2350/lib/cmsis_dsp
+
 echo "done. Submodules untouched."

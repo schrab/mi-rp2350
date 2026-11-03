@@ -28,6 +28,15 @@
 // stalls — on Elements those stalls cost more than the entire audio block
 // budget. No-op on every other platform.
 //
+// Rack build (rack-rp2350, RACK_RP2350_TC defined project-wide): the prefix
+// switches to .tc_clouds. so every marked input section becomes
+// .tc_clouds.<token> (the rack's CMSIS-DSP copy carries the matching
+// .tc_clouds.cmsis / .tc_clouds.cmsis_tables names). The rack's linker script
+// collects those into a single flash-resident tc_clouds output section
+// (VMA = the shared SRAM window, LMA = the reserved flash region) and copies
+// the SELECTED module's section into the window at boot — standalone builds
+// keep .time_critical.* (the core's crt0 copy path) unchanged.
+//
 // Usage: CLOUDS_RAM_CODE(unique_token) void Foo::Process(...) { ... }
 // Each function needs its own token: shared section names collide at link
 // time between inline/COMDAT and plain copies (section type conflict). Two
@@ -36,7 +45,13 @@
 #define CLOUDS_DSP_RAM_CODE_H_
 
 #if defined(ARDUINO_ARCH_RP2040)
-#define CLOUDS_RAM_CODE(token) __attribute__((section(".time_critical." #token)))
+#if defined(RACK_RP2350_TC)
+#define CLOUDS_RAM_CODE_PREFIX ".tc_clouds."
+#else
+#define CLOUDS_RAM_CODE_PREFIX ".time_critical."
+#endif
+#define CLOUDS_RAM_CODE(token) \
+  __attribute__((section(CLOUDS_RAM_CODE_PREFIX #token)))
 #else
 #define CLOUDS_RAM_CODE(token)
 #endif

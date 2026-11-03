@@ -1,6 +1,6 @@
 diff -ruN a/plaits/dsp/engine/engine.h b/plaits/dsp/engine/engine.h
---- a/plaits/dsp/engine/engine.h	2026-11-02 23:42:48.648103772 +0700
-+++ b/plaits/dsp/engine/engine.h	2026-11-03 00:50:14.660376261 +0700
+--- a/plaits/dsp/engine/engine.h	2026-11-04 01:03:01.858600937 +0700
++++ b/plaits/dsp/engine/engine.h	2026-11-04 01:03:02.129794859 +0700
 @@ -31,6 +31,10 @@
  
  #include "plaits/dsp/dsp.h"
@@ -13,8 +13,8 @@ diff -ruN a/plaits/dsp/engine/engine.h b/plaits/dsp/engine/engine.h
  #include "stmlib/dsp/dsp.h"
  #include "stmlib/dsp/units.h"
 diff -ruN a/plaits/dsp/oscillator/square_oscillator.h b/plaits/dsp/oscillator/square_oscillator.h
---- a/plaits/dsp/oscillator/square_oscillator.h	2026-11-02 23:42:48.657389487 +0700
-+++ b/plaits/dsp/oscillator/square_oscillator.h	2026-11-03 00:50:14.626375769 +0700
+--- a/plaits/dsp/oscillator/square_oscillator.h	2026-11-04 01:03:01.935144368 +0700
++++ b/plaits/dsp/oscillator/square_oscillator.h	2026-11-04 01:03:02.129940929 +0700
 @@ -5,6 +5,7 @@
  
  #include "stmlib/dsp/dsp.h"
@@ -37,8 +37,8 @@ diff -ruN a/plaits/dsp/oscillator/square_oscillator.h b/plaits/dsp/oscillator/sq
      if (size == 0) {
 diff -ruN a/plaits/dsp/ram_code.h b/plaits/dsp/ram_code.h
 --- a/plaits/dsp/ram_code.h	1970-01-01 08:00:00.000000000 +0800
-+++ b/plaits/dsp/ram_code.h	2026-11-03 00:49:29.855729754 +0700
-@@ -0,0 +1,23 @@
++++ b/plaits/dsp/ram_code.h	2026-11-04 01:03:36.168313010 +0700
+@@ -0,0 +1,37 @@
 +// Copyright 2026 Plaits RP2350 port.
 +//
 +// Marker for per-sample hot paths (RP2350 port). Mirrors the clouds/elements
@@ -52,19 +52,33 @@ diff -ruN a/plaits/dsp/ram_code.h b/plaits/dsp/ram_code.h
 +// Each function needs its own token: shared section names collide at link
 +// time between inline/COMDAT and plain copies (section type conflict). Two
 +// same-flags weak copies (e.g. template instantiations) MAY share one token.
++//
++// Rack build (rack-rp2350, RACK_RP2350_TC defined project-wide): the prefix
++// switches to .tc_plaits. so every marked input section becomes
++// .tc_plaits.<token>. The rack's linker script collects those into a single
++// flash-resident tc_plaits output section (VMA = the shared SRAM window,
++// LMA = the reserved flash region) and copies the SELECTED module's section
++// into the window at boot — standalone builds keep .time_critical.* (the
++// core's crt0 copy path) unchanged.
 +#ifndef PLAITS_DSP_RAM_CODE_H_
 +#define PLAITS_DSP_RAM_CODE_H_
 +
 +#if defined(ARDUINO_ARCH_RP2040)
-+#define PLAITS_RAM_CODE(token) __attribute__((section(".time_critical." #token)))
++#if defined(RACK_RP2350_TC)
++#define PLAITS_RAM_CODE_PREFIX ".tc_plaits."
++#else
++#define PLAITS_RAM_CODE_PREFIX ".time_critical."
++#endif
++#define PLAITS_RAM_CODE(token) \
++  __attribute__((section(PLAITS_RAM_CODE_PREFIX #token)))
 +#else
 +#define PLAITS_RAM_CODE(token)
 +#endif
 +
 +#endif  // PLAITS_DSP_RAM_CODE_H_
 diff -ruN a/plaits/dsp/voice.h b/plaits/dsp/voice.h
---- a/plaits/dsp/voice.h	2026-11-02 23:42:48.658156729 +0700
-+++ b/plaits/dsp/voice.h	2026-11-03 00:49:56.380112039 +0700
+--- a/plaits/dsp/voice.h	2026-11-04 01:03:01.944435965 +0700
++++ b/plaits/dsp/voice.h	2026-11-04 01:03:02.130126883 +0700
 @@ -31,6 +31,7 @@
  
  #include "stmlib/stmlib.h"

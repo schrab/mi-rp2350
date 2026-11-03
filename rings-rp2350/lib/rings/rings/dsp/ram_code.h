@@ -14,11 +14,25 @@
 // NOTE: for member templates defined out-of-line (.cc), the attribute MUST
 // sit on the in-class declaration — GCC silently drops section attributes
 // placed on the out-of-line definition (see string.h).
+//
+// Rack build (rack-rp2350, RACK_RP2350_TC defined project-wide): the prefix
+// switches to .tc_rings. so every marked input section becomes
+// .tc_rings.<token>. The rack's linker script collects those into a single
+// flash-resident tc_rings output section (VMA = the shared SRAM window,
+// LMA = the reserved flash region) and copies the SELECTED module's section
+// into the window at boot — standalone builds keep .time_critical.* (the
+// core's crt0 copy path) unchanged.
 #ifndef RINGS_DSP_RAM_CODE_H_
 #define RINGS_DSP_RAM_CODE_H_
 
 #if defined(ARDUINO_ARCH_RP2040)
-#define RINGS_RAM_CODE(token) __attribute__((section(".time_critical." #token)))
+#if defined(RACK_RP2350_TC)
+#define RINGS_RAM_CODE_PREFIX ".tc_rings."
+#else
+#define RINGS_RAM_CODE_PREFIX ".time_critical."
+#endif
+#define RINGS_RAM_CODE(token) \
+  __attribute__((section(RINGS_RAM_CODE_PREFIX #token)))
 #else
 #define RINGS_RAM_CODE(token)
 #endif

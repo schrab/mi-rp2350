@@ -1,0 +1,7 @@
+{
+  "name": "plaits",
+  "version": "0.0.0",
+  "build": {
+    "flags": ["-O3"]
+  }
+}
