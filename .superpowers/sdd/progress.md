@@ -1105,3 +1105,7 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   the 750 µs budget), zero-stall expectation holding. RINGS PORT ACCEPTED.
   Plaits ear check confirmed same day — all four ports (Elements, Clouds,
   Plaits, Rings) user-accepted; elements-clone → main merge unblocked.
+- **MERGED (2026-11-03): `main` fast-forwarded d8e6184 → `03b1119` (61
+  commits: Elements T1-T6, Clouds, Plaits 98-engine, Rings MiniElements
+  ports + panels + docs), pushed to origin; both branches pushed. Working
+  checkout stays on `elements-clone` (established workflow).**
