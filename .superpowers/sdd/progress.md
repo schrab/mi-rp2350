@@ -1124,7 +1124,8 @@ after each task).
 | T2 Arena + live swap (bench switching via switch-CC + serial console) | pending | — | |
 | T3 Mod engine + clock bus (internal BPM / MIDI 24 PPQ, 1-32-step euclid+gate, bench settings via CC/console) | pending | — | |
 | T4 RP2350 DIN 31250 parser + serial console | pending | — | DIN hardware needed to test |
-| T5 C3 UI + UART link (after DSP acceptance AND hardware) | pending | — | encoder+button menus, HC4067, ST7789, BLE-MIDI |
+| T4a Presets (serialization + console dump/load + last-state autosave) | pending | — | bank lands on C3 flash in T5 |
+| T5 C3 UI + UART link (after DSP acceptance AND hardware) | pending | — | encoder+button menus, HC4067, ST7789, BLE-MIDI, preset bank |
 | T6 Chain mode v2 (plaits@32k patch, 4-pair table) | pending | — | |
 | T7 Hardware bring-up + sweeps + user acceptance + soak | pending | — | |
 
