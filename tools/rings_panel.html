@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<!--
+  Rings RP2350 — web control panel (single file, no dependencies).
+
+  Open in Chrome/Chromium/Edge (file:// works). Uses Web MIDI to talk to the
+  synth (enumerates as "Rings RP2350 MIDI 1"). Defaults match the firmware's
+  seed (mode 0 RINGS STEREO, model 0 MODAL, polyphony 1, waveform 0, chord
+  table BRYAN, chord 0, knobs 0.5); "Send panel" (also automatic on connect)
+  pushes all CCs so the synth matches the panel.
+
+  CC map = rings-rp2350/src/midi.h:
+    14 STRUCTURE   (0..1, clamped <= 0.9995 at fill — cv_scaler.cc:187)
+    15 BRIGHTNESS  (0..1; easter egg: drawbar registration)
+    16 DAMPING     (0..1; easter egg: envelope decay, >= CC 125 drones)
+    17 POSITION    (0..1; in MiniElements modes 2/3 with WAVEFORM = blow/strike
+                    the Part repurposes it as the exciter parameter)
+    18 MODEL/FX    (raw 0..5: ResonatorModel modal / sympathetic strings /
+                    string / FM voice / sympathetic quantized / string+reverb
+                    in modes 0-3, FxType formant / chorus / reverb / formant 2
+                    / ensemble / reverb 2 in mode 4 — this panel relabels the
+                    row dynamically when the easter egg is selected)
+    19 POLYPHONY   (1 + val/32: CC 0-31 -> 1, 32-63 -> 2, 64-95 -> 3,
+                    96-127 -> 4; the panel sends 0/32/64/96)
+    20 MODE        (raw 0..4 PerformanceMode: RINGS_STEREO / RINGS_WAVEFORM /
+                    MINI_ELEMENTS_STEREO / MINI_ELEMENTS_EXCITER / EASTER_EGG)
+    21 WAVEFORM EXCITER (raw 0..2: square·bow / impulse·blow / saw·strike —
+                    monitor oscillator in mode 1, exciter in modes 2-3,
+                    unused in modes 0/4)
+    22 CHORD TABLE (raw 0..2 ChordTable: Bryan / Jon / Joe)
+    23 CHORD       (raw chord index 0..127, clamped at fill to the current
+                    table's NumChords; the panel offers 0..17 = the largest)
+
+  Layout: big STRUCTURE/BRIGHTNESS/DAMPING/POSITION knobs, plain button rows
+  for MODEL/FX, MODE, POLYPHONY, WAVEFORM EXCITER, CHORD TABLE plus a CHORD
+  dropdown. No on-screen piano: the COMPUTER keyboard plays notes (same key
+  map as the plaits/clouds/elements panels). Every note-on pulses rings'
+  strum (re-excite + voice rotation + easter-egg chord advance) and the gate
+  holds while notes are held. VELOCITY IS IGNORED (rings' strum is a bool) —
+  the VEL slider is kept for panel parity and changes nothing on this synth.
+
+  Plain-background variant of the plaits panel: flat fills, no screws, no
+  decorative SVGs; the knob widget (rotating notch via --deg) is unchanged.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rings RP2350 — resonator panel</title>
+<script>
+/* Headless byte-dump validation hook: with ?panel_test in the URL, stub
+   navigator.requestMIDIAccess with a virtual "Rings RP2350" port that records
+   every send() as hex lines (window.__SENT__). The driver at the end of the
+   page drives the panel and dumps the transcript into <pre id="testdump">;
+   run chromium --headless=new --dump-dom "...rings_panel.html?panel_test=1". */
+if (/[?&]panel_test/.test(location.search)) {
+  window.__PANEL_TEST__ = true;
+  window.__SENT__ = [];
+  const virtualOut = {
+    id: 'virtual-rings',
+    name: 'Rings RP2350 (virtual)',
+    state: 'connected',
+    send(bytes) { window.__SENT__.push(Array.from(bytes)); },
+  };
+  navigator.requestMIDIAccess = async () => ({
+    inputs: new Map(),
+    outputs: new Map([['virtual-rings', virtualOut]]),
+    onstatechange: null,
+  });
+}
+</script>
+<style>
+  :root {
+    --panel: #d8d7d4;
+    --panel-edge: #c4c3bf;
+    --ink: #3d3d3d;
+    --yellow: #f2d21f;
+    --knob-b: 138px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: #26272b;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    -webkit-user-select: none; user-select: none;
+  }
+
+  /* ---------- toolbar ---------- */
+  #bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; background: #1d1e21; color: #cfcfcf;
+    font-size: 13px; border-bottom: 1px solid #101114;
+  }
+  #bar button, #bar select {
+    background: #33343a; color: #e4e4e4; border: 1px solid #4a4b52;
+    border-radius: 4px; padding: 5px 10px; font: inherit; cursor: pointer;
+  }
+  #bar button:hover { background: #3f4047; }
+  #bar select { cursor: default; }
+  #bar label { display: flex; align-items: center; gap: 5px; color: #9a9a9f; }
+  #dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #55565e; box-shadow: 0 0 0 2px #2a2b30 inset;
+  }
+  #dot.ok { background: #3ecf6a; box-shadow: 0 0 8px #3ecf6a88; }
+  #dot.err { background: #e05252; }
+  #status { color: #9a9a9f; }
+
+  #wrap { width: 1080px; max-width: 98vw; margin: 22px auto 40px; }
+
+  /* ---------- panel (plain fill, no screws / decorative art) ---------- */
+  #panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: 6px;
+    box-shadow: 0 18px 45px rgba(0,0,0,.5);
+    padding: 46px 40px 42px;
+  }
+  #ptitle {
+    position: absolute; top: 14px; right: 46px;
+    font-size: 23px; font-weight: 300; color: #55565a; letter-spacing: .5px;
+  }
+  #panel { position: relative; }
+
+  /* ---------- knobs (plaits widget: rotating notch via --deg) ---------- */
+  .knob { position: relative; cursor: ns-resize; touch-action: none; outline: none; }
+  .knob.big   { width: var(--knob-b); height: var(--knob-b); }
+  .knob:focus-visible { border-radius: 50%; box-shadow: 0 0 0 3px #f2d21f66; }
+  .rot { position: absolute; inset: 0; transform: rotate(var(--deg, 0deg)); }
+  .ring {
+    position: absolute; inset: 0; border-radius: 50%;
+    background:
+      radial-gradient(circle at 50% 42%, rgba(255,255,255,.14), rgba(0,0,0,0) 55%),
+      repeating-conic-gradient(#303034 0deg 3.6deg, #131316 3.6deg 7.2deg);
+    box-shadow:
+      0 7px 14px rgba(0,0,0,.38),
+      inset 0 2px 3px rgba(255,255,255,.16),
+      inset 0 -3px 6px rgba(0,0,0,.5);
+  }
+  .cap {
+    position: absolute; border-radius: 50%;
+    box-shadow: 0 3px 6px rgba(0,0,0,.45), inset 0 -4px 8px rgba(0,0,0,.18), inset 0 2px 3px rgba(255,255,255,.65);
+  }
+  .knob.big .cap { inset: 18%; }
+  .cap.white { background: radial-gradient(circle at 36% 30%, #ffffff, #ececea 55%, #dbdbd8); }
+  .notch {
+    position: absolute; top: 5.5%; left: 50%; width: 11%; height: 15%;
+    margin-left: -5.5%; border-radius: 3px;
+    box-shadow: 0 1px 1px rgba(0,0,0,.35);
+  }
+  .notch.white { background: #f2f2f0; border: 1px solid rgba(0,0,0,.14); }
+
+  /* ---------- knob row ---------- */
+  #bigrow { display: grid; grid-template-columns: repeat(4, 1fr); margin-bottom: 34px; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 9px; }
+
+  .label { font-size: 15px; font-weight: 700; letter-spacing: 1.5px; color: var(--ink); }
+  .cctag { font-size: 9px; letter-spacing: .5px; color: #9b9a95; margin-top: -4px; }
+
+  /* ---------- selector rows (CC 18-23) ---------- */
+  #selgrid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 30px; margin-bottom: 34px;
+  }
+  .selcell { display: flex; flex-direction: column; align-items: center; gap: 9px; }
+  .selcell.wide { grid-column: 1 / -1; }
+  .btnrow { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .selbtn {
+    background: #c9c8c4; color: var(--ink); border: 1px solid #b3b2ae;
+    border-radius: 4px; padding: 9px 12px; cursor: pointer; outline: none;
+    font: 700 11px/1 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    letter-spacing: .8px; white-space: nowrap;
+    box-shadow: 0 1px 2px rgba(0,0,0,.18);
+  }
+  .selbtn:active { transform: scale(.97); }
+  .selbtn:focus-visible { box-shadow: 0 0 0 3px #f2d21f66; }
+  .selbtn.on { background: var(--ink); color: #f2f2f0; border-color: #2c2c2e; }
+  #chord {
+    width: 100%; max-width: 220px;
+    font: 13px/1.25 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    padding: 8px 9px; color: var(--ink);
+    background: #c9c8c4; border: 1px solid #b3b2ae; border-radius: 4px;
+    outline: none;
+  }
+  #chord:focus-visible { box-shadow: 0 0 0 3px #f2d21f66; }
+
+  /* ---------- footer rules (panel bottom, jacks omitted) ---------- */
+  #footer { margin-top: 38px; }
+  #footer .rule1 { height: 6px; background: #c9c8c4; border-radius: 3px; }
+  #footer .rule2 { height: 2px; background: #c9c8c4; margin-top: 22px; }
+
+  /* ---------- keyboard bar ---------- */
+  #kbbar {
+    display: flex; align-items: center; gap: 14px;
+    margin-top: 18px; padding: 9px 14px;
+    background: #1d1e21; color: #cfcfcf; font-size: 13px;
+    border: 1px solid #101114; border-radius: 6px; flex-wrap: wrap;
+  }
+  #kbbar button {
+    background: #33343a; color: #e4e4e4; border: 1px solid #4a4b52;
+    border-radius: 4px; padding: 4px 10px; font: inherit; cursor: pointer;
+  }
+  #octName { min-width: 34px; text-align: center; color: #f2d21f; font-weight: 700; }
+  #kbbar label { display: flex; align-items: center; gap: 7px; color: #9a9a9f; }
+  #help { margin-left: auto; color: #7d7e85; font-size: 12px; }
+
+  /* ---------- tooltip ---------- */
+  #tooltip {
+    position: fixed; display: none; z-index: 10; pointer-events: none;
+    background: #1d1e21; color: #f2f2f2; font-size: 12px; font-weight: 700;
+    padding: 3px 9px; border-radius: 4px; border: 1px solid #4a4b52;
+    transform: translate(-50%, -130%);
+  }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <button id="connect">Connect MIDI</button>
+  <select id="ports" title="MIDI output port"></select>
+  <label>Ch <select id="chan"></select></label>
+  <button id="sync" title="Send all panel CCs to the synth">Send panel</button>
+  <button id="panic" title="All notes off (CC 123 + note-offs for panel-held notes)">Panic</button>
+  <span id="dot"></span><span id="status">not connected</span>
+</div>
+
+<div id="wrap">
+  <div id="panel">
+    <div id="ptitle">Rings RP2350</div>
+
+    <div id="bigrow"></div>
+
+    <!-- selector rows (CC 18-23), built by script -->
+    <div id="selgrid">
+      <div class="selcell wide">
+        <div class="label" id="mfLabel">MODEL</div>
+        <div class="btnrow" id="mf" role="radiogroup" aria-label="resonator model or fx type"></div>
+        <div class="cctag" id="mfTag">CC 18 · resonator model in modes 0–3 · FX type in mode 4 · labels follow the mode</div>
+      </div>
+      <div class="selcell wide">
+        <div class="label">MODE</div>
+        <div class="btnrow" id="mode" role="radiogroup" aria-label="performance mode"></div>
+        <div class="cctag">CC 20 · raw PerformanceMode index 0–4 · in mode 1 WAVEFORM = monitor osc · modes 2/3 = exciter</div>
+      </div>
+      <div class="selcell">
+        <div class="label">POLYPHONY</div>
+        <div class="btnrow" id="poly" role="radiogroup" aria-label="polyphony"></div>
+        <div class="cctag">CC 19 · sends 0/32/64/96 → 1/2/3/4</div>
+      </div>
+      <div class="selcell">
+        <div class="label">WAVEFORM EXCITER</div>
+        <div class="btnrow" id="wave" role="radiogroup" aria-label="waveform exciter"></div>
+        <div class="cctag">CC 21 · square·bow / impulse·blow / saw·strike</div>
+      </div>
+      <div class="selcell">
+        <div class="label">CHORD TABLE</div>
+        <div class="btnrow" id="ctable" role="radiogroup" aria-label="chord table"></div>
+        <div class="cctag">CC 22 · Bryan / Jon / Joe</div>
+      </div>
+      <div class="selcell">
+        <label class="label" for="chord">CHORD</label>
+        <select id="chord" aria-label="chord index"></select>
+        <div class="cctag">CC 23 · clamped at fill to the table's size (Bryan 11 · Jon 17 · Joe 18)</div>
+      </div>
+    </div>
+
+    <div id="footer"><div class="rule1"></div><div class="rule2"></div></div>
+  </div>
+
+  <div id="kbbar">
+    <button id="octDown">Oct&minus;</button>
+    <span id="octName">C3</span>
+    <button id="octUp">Oct+</button>
+    <label>VEL <input id="vel" type="range" min="1" max="127" value="100"></label>
+    <span id="help">Z S X D C V G B H N J M , &mdash; lower &nbsp;&middot;&nbsp; Q 2 W 3 E R 5 T 6 Y 7 U &mdash; upper &nbsp;&middot;&nbsp; &uarr;/&darr; octave &nbsp;&middot;&nbsp; note-on = strum pulse &nbsp;&middot;&nbsp; rings ignores velocity &nbsp;&middot;&nbsp; Shift-drag = fine</span>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+/* ================= knob definitions (CC map from rings-rp2350/src/midi.h) ================= */
+const KNOBS = [
+  { id:'structure',  cc:14, label:'STRUCTURE',  variant:'white', big:1, def:.5, sec:'#bigrow',
+    tag:'CC 14 · clamped ≤ 0.9995 at fill' },
+  { id:'brightness', cc:15, label:'BRIGHTNESS', variant:'white', big:1, def:.5, sec:'#bigrow',
+    tag:'CC 15 · easter egg: registration' },
+  { id:'damping',    cc:16, label:'DAMPING',    variant:'white', big:1, def:.5, sec:'#bigrow',
+    tag:'CC 16 · easter egg: decay · ≥125 drones' },
+  { id:'position',   cc:17, label:'POSITION',   variant:'white', big:1, def:.5, sec:'#bigrow',
+    tag:'CC 17 · exciter param when WAVEFORM = blow/strike' },
+];
+const controls = new Map();
+
+/* ================= MIDI ================= */
+let access = null, out = null, ch = 0;
+const voices = new Map();          // voiceId -> sent midi note
+let coarseSemi = 0, fineSt = 0, lastNote = 48;
+let bendDirty = false, flushQueued = false;
+const ccDirty = new Map();
+
+function send(...b) { if (out) { try { out.send(b); } catch (e) {} } }
+const sendCC = (cc, v) => send(0xB0 | ch, cc, v & 127);
+const bend14 = () => clamp(Math.round(8192 + fineSt * 4096), 0, 16383);
+function sendBend() { const b = bend14(); send(0xE0 | ch, b & 127, (b >> 7) & 127); }
+const ccVal = c => Math.round(c.v * 127);
+
+function queueSend(c) {
+  if (c.cc !== undefined) ccDirty.set(c.id, c);
+  if (c.type === 'fine') bendDirty = true;
+  if (!flushQueued) { flushQueued = true; setTimeout(flush, 5); }  // timer, not rAF: must fire in background tabs
+}
+function flush() {
+  flushQueued = false;
+  for (const c of ccDirty.values()) sendCC(c.cc, ccVal(c));
+  ccDirty.clear();
+  if (bendDirty) { bendDirty = false; sendBend(); }
+}
+
+function noteOn(id, note, vel) {
+  const n = clamp(note + coarseSemi, 0, 127);
+  voices.set(id, n);
+  send(0x90 | ch, n, vel);
+  lastNote = note;
+}
+function noteOff(id) {
+  const n = voices.get(id);
+  if (n === undefined) return;
+  voices.delete(id);
+  if (![...voices.values()].includes(n)) send(0x80 | ch, n, 64);
+}
+const getVel = () => +$('#vel').value;
+
+function sendSync() {
+  for (const c of controls.values()) if (c.cc !== undefined) sendCC(c.cc, ccVal(c));
+  sendCC(18, selModel);                 // model / FX index 0-5 (raw)
+  sendCC(19, (selPoly - 1) * 32);       // polyphony range base: 0/32/64/96 -> 1/2/3/4
+  sendCC(20, selMode);                  // mode index 0-4 (raw)
+  sendCC(21, selWave);                  // waveform exciter 0-2 (raw)
+  sendCC(22, selTable);                 // chord table 0-2 (raw)
+  sendCC(23, +$('#chord').value);       // chord index (raw)
+  sendBend();
+}
+function panic() {
+  for (let c = 0; c < 16; c++) send(0xB0 | c, 123, 0);   // firmware ignores CC 123,
+  for (const n of new Set(voices.values())) send(0x80 | ch, n, 64);  // so release
+  voices.clear();                                        // panel-held notes explicitly
+}
+
+function setStatus(text, cls) { $('#status').textContent = text; $('#dot').className = cls || ''; }
+
+function refreshPorts() {
+  const sel = $('#ports');
+  const prev = sel.value;
+  sel.innerHTML = '';
+  const outs = access ? [...access.outputs.values()] : [];
+  for (const p of outs) {
+    const o = document.createElement('option');
+    o.value = p.id; o.textContent = p.name;
+    sel.appendChild(o);
+  }
+  if (!outs.length) { out = null; setStatus('no MIDI outputs', 'err'); return; }
+  const prevStill = outs.some(p => p.id === prev);
+  const auto = outs.find(p => /pico|plaits|clouds|elements|rings/i.test(p.name));
+  sel.value = prevStill ? prev : (auto ? auto.id : outs[0].id);
+  const changed = !out || out.id !== sel.value;
+  out = access.outputs.get(sel.value);
+  if (changed) { sendSync(); setStatus(`\u2192 ${out.name} (ch ${ch + 1})`, 'ok'); }
+}
+
+async function connectMidi() {
+  if (!navigator.requestMIDIAccess) {
+    setStatus('Web MIDI unsupported \u2014 use Chrome/Chromium/Edge', 'err');
+    return;
+  }
+  try { access = await navigator.requestMIDIAccess({ sysex: false }); }
+  catch (e) { setStatus('MIDI access denied (' + e.name + ')', 'err'); return; }
+  access.onstatechange = refreshPorts;
+  refreshPorts();
+}
+
+/* ================= knob widget ================= */
+const tooltip = $('#tooltip');
+let tipTimer = 0;
+
+function showTip(c) {
+  const r = c.el.getBoundingClientRect();
+  tooltip.textContent = displayValue(c);
+  tooltip.style.left = (r.left + r.width / 2) + 'px';
+  tooltip.style.top = r.top + 'px';
+  tooltip.style.display = 'block';
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(() => tooltip.style.display = 'none', 900);
+}
+function displayValue(c) {
+  return String(Math.round(c.v * 127));
+}
+
+function setControl(c, v, show, queue = true) {
+  c.v = clamp(v, 0, 1);
+  c.el.style.setProperty('--deg', (-135 + c.v * 270) + 'deg');
+  c.el.setAttribute('aria-valuenow', Math.round(c.v * 127));
+  if (queue) queueSend(c);
+  if (show) showTip(c);
+}
+
+function makeKnob(c) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  $(c.sec).appendChild(cell);
+
+  const el = document.createElement('div');
+  el.className = 'knob ' + (c.big ? 'big' : 'small');
+  el.tabIndex = 0;
+  el.setAttribute('role', 'slider');
+  el.setAttribute('aria-label', c.label);
+  el.setAttribute('aria-valuemin', 0);
+  el.setAttribute('aria-valuemax', 127);
+  el.innerHTML = `<div class="ring"></div><div class="cap ${c.variant}"></div>` +
+                 `<div class="rot"><div class="notch ${c.variant}"></div></div>`;
+  cell.appendChild(el);
+
+  const lab = document.createElement('div');
+  lab.className = 'label';
+  lab.textContent = c.label;
+  cell.appendChild(lab);
+
+  const tag = document.createElement('div');
+  tag.className = 'cctag';
+  tag.textContent = c.tag || (c.cc !== undefined ? 'CC ' + c.cc : '');
+  cell.appendChild(tag);
+
+  c.el = el;
+  c.v = c.def;
+  controls.set(c.id, c);
+  setControl(c, c.def, false, false);
+
+  let startY = 0, startV = 0, dragging = false;
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    dragging = true; startY = e.clientY; startV = c.v;
+    showTip(c);
+  });
+  el.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const px = e.shiftKey ? 800 : 200;
+    setControl(c, startV + (startY - e.clientY) / px, true);
+  });
+  const end = () => dragging = false;
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+  el.addEventListener('dblclick', () => setControl(c, c.def, true));  // back to seed
+  el.addEventListener('wheel', e => {
+    e.preventDefault();
+    const d = (e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? 1 / 1270 : 1 / 127);
+    setControl(c, c.v + d, true);
+  }, { passive: false });
+  el.addEventListener('keydown', e => {
+    const fine = e.shiftKey ? 1 / 1270 : 1 / 127;
+    let d = 0;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') d = fine;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') d = -fine;
+    if (d) { e.preventDefault(); setControl(c, c.v + d, true); }
+  });
+}
+
+for (const c of KNOBS) makeKnob(c);
+
+/* ================= selectors (CC 18-23) =================
+   Firmware seed: model 0, polyphony 1, mode 0, waveform 0, table 0, chord 0. */
+const MODEL_NAMES = ['MODAL', 'SYMPATHETIC STRING', 'STRING', 'FM VOICE', 'SYMPATHETIC QUANTIZED', 'STRING+REVERB'];
+const FX_NAMES    = ['FORMANT', 'CHORUS', 'REVERB', 'FORMANT 2', 'ENSEMBLE', 'REVERB 2'];
+const MODE_NAMES  = ['RINGS STEREO', 'RINGS WAVEFORM', 'MINI ELEMENTS STEREO', 'MINI ELEMENTS EXCITER', 'EASTER EGG'];
+let selModel = 0, selMode = 0, selPoly = 1, selWave = 0, selTable = 0;
+
+function makeBtns(sec, attr, labels, onPick) {
+  const row = $(sec);
+  const btns = [];
+  labels.forEach((txt, i) => {
+    const b = document.createElement('button');
+    b.className = 'selbtn';
+    b.dataset[attr] = i;
+    b.textContent = txt;
+    b.addEventListener('click', () => onPick(i));
+    row.appendChild(b);
+    btns.push(b);
+  });
+  return btns;
+}
+
+/* MODEL/FX — CC 18, raw 0..5; labels swap with the mode (easter egg = FX) */
+const mfBtns = makeBtns('#mf', 'mf', MODEL_NAMES, i => {
+  selModel = i;
+  sendCC(18, i);
+  refreshMf();
+});
+function refreshMf() { mfBtns.forEach((b, i) => b.classList.toggle('on', i === selModel)); }
+function refreshMfLabels() {
+  const fx = selMode === 4;
+  const names = fx ? FX_NAMES : MODEL_NAMES;
+  mfBtns.forEach((b, i) => b.textContent = names[i]);
+  $('#mfLabel').textContent = fx ? 'FX' : 'MODEL';
+  $('#mfTag').textContent = fx
+    ? 'CC 18 · FX type in the easter egg (mode 4) · same byte keeps the index'
+    : 'CC 18 · resonator model in modes 0–3 · FX type in mode 4 · labels follow the mode';
+}
+
+/* MODE — CC 20, raw 0..4 */
+const modeBtns = makeBtns('#mode', 'mode', MODE_NAMES, i => {
+  selMode = i;
+  sendCC(20, i);
+  refreshMode();
+});
+function refreshMode() {
+  modeBtns.forEach((b, i) => b.classList.toggle('on', i === selMode));
+  refreshMfLabels();
+}
+
+/* POLYPHONY — CC 19, sends the range base 0/32/64/96 (firmware: 1 + val/32) */
+const polyBtns = makeBtns('#poly', 'poly', ['1', '2', '3', '4'], i => {
+  selPoly = i + 1;
+  sendCC(19, i * 32);
+  refreshPoly();
+});
+function refreshPoly() { polyBtns.forEach((b, i) => b.classList.toggle('on', i === selPoly - 1)); }
+
+/* WAVEFORM EXCITER — CC 21, raw 0..2 */
+const waveBtns = makeBtns('#wave', 'wave', ['SQUARE\u00B7BOW', 'IMPULSE\u00B7BLOW', 'SAW\u00B7STRIKE'], i => {
+  selWave = i;
+  sendCC(21, i);
+  refreshWave();
+});
+function refreshWave() { waveBtns.forEach((b, i) => b.classList.toggle('on', i === selWave)); }
+
+/* CHORD TABLE — CC 22, raw 0..2 */
+const ctBtns = makeBtns('#ctable', 'ct', ['BRYAN', 'JON', 'JOE'], i => {
+  selTable = i;
+  sendCC(22, i);
+  refreshCt();
+});
+function refreshCt() { ctBtns.forEach((b, i) => b.classList.toggle('on', i === selTable)); }
+
+/* CHORD — CC 23, raw index 0..17, plain number labels */
+const chordSel = $('#chord');
+for (let i = 0; i <= 17; ++i) {
+  const o = document.createElement('option');
+  o.value = i;
+  o.textContent = String(i);
+  chordSel.appendChild(o);
+}
+chordSel.addEventListener('change', () => sendCC(23, +chordSel.value));
+chordSel.value = '0';                 // firmware seed: applied_chord = 0
+
+/* initial highlight (= firmware seed, nothing sent) */
+refreshMf();
+refreshMode();
+refreshPoly();
+refreshWave();
+refreshCt();
+
+/* ================= keyboard ================= */
+const KEYMAP = {
+  z:0, s:1, x:2, d:3, c:4, v:5, g:6, b:7, h:8, n:9, j:10, m:11,
+  ',':12, l:13, '.':14, ';':15, '/':16,
+  q:12, '2':13, w:14, '3':15, e:16, r:17, '5':18, t:19, '6':20,
+  y:21, '7':22, u:23, i:24, '9':25, o:26, '0':27, p:28,
+};
+let oct = 3;                       // Z key = C3 = MIDI 48 (firmware idle note)
+const baseNote = () => 12 * (oct + 1);
+const setOct = d => { oct = clamp(oct + d, 0, 7); $('#octName').textContent = 'C' + oct; };
+$('#octDown').addEventListener('click', () => setOct(-1));
+$('#octUp').addEventListener('click', () => setOct(1));
+
+/* computer keyboard */
+window.addEventListener('keydown', e => {
+  if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  if (t instanceof HTMLSelectElement || t instanceof HTMLInputElement) return;
+  if (e.key === 'ArrowUp') { e.preventDefault(); setOct(1); return; }
+  if (e.key === 'ArrowDown') { e.preventDefault(); setOct(-1); return; }
+  const k = e.key.toLowerCase();
+  if (k in KEYMAP) { e.preventDefault(); if (!voices.has('k:' + k)) noteOn('k:' + k, baseNote() + KEYMAP[k], getVel()); }
+});
+window.addEventListener('keyup', e => {
+  const k = e.key.toLowerCase();
+  if (k in KEYMAP) noteOff('k:' + k);
+});
+window.addEventListener('blur', () => {
+  for (const id of [...voices.keys()]) if (id.startsWith('k:')) noteOff(id);
+});
+
+/* ================= toolbar wiring ================= */
+$('#connect').addEventListener('click', connectMidi);
+$('#sync').addEventListener('click', () => { sendSync(); setStatus(out ? `\u2192 ${out.name} (ch ${ch + 1})` : 'not connected', out ? 'ok' : ''); });
+$('#panic').addEventListener('click', panic);
+$('#ports').addEventListener('change', () => { out = access ? access.outputs.get($('#ports').value) : null; sendSync(); if (out) setStatus(`\u2192 ${out.name} (ch ${ch + 1})`, 'ok'); });
+const chanSel = $('#chan');
+for (let i = 1; i <= 16; i++) {
+  const o = document.createElement('option');
+  o.value = i - 1; o.textContent = i;
+  chanSel.appendChild(o);
+}
+chanSel.addEventListener('change', () => { ch = +chanSel.value; if (out) setStatus(`\u2192 ${out.name} (ch ${ch + 1})`, 'ok'); });
+
+/* try to grab MIDI access right away (Chrome shows its permission prompt) */
+connectMidi();
+</script>
+
+<script>
+/* ================= headless byte-dump test driver (?panel_test) =================
+   Drives: connect-sync, all 4 knobs, MODEL/FX 0..5, MODE 0..4, POLYPHONY 1..4,
+   WAVEFORM 0..2, CHORD TABLE 0..2, CHORD 0 then 17, keyboard note z on/off;
+   dumps the exact emitted bytes (status bytes unmasked) into <pre id="testdump">. */
+if (window.__PANEL_TEST__) {
+  const hex = b => b.map(x => x.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+  const tick = ms => new Promise(r => setTimeout(r, ms));
+  const clickSel = (sel, attr, v) => document.querySelector(sel + ' .selbtn[data-' + attr + '="' + v + '"]').click();
+  (async () => {
+    const lines = ['PANEL-TEST-BEGIN'];
+    try {
+      await connectMidi();                       // virtual port auto-selected -> sendSync
+      await tick(40);
+      lines.push('# connect-sync (panel defaults = firmware seed: mode 0 / model 0 / poly 1 / waveform 0 / table BRYAN / chord 0 / knobs 0.5)');
+      lines.push(...window.__SENT__.map(hex));
+      window.__SENT__.length = 0;
+
+      const moves = [                            // knob -> raw CC value
+        ['structure', 100], ['brightness', 10], ['damping', 90], ['position', 40],
+      ];
+      for (const [id, ccv] of moves) setControl(controls.get(id), ccv / 127, false);
+      await tick(40);
+      lines.push('# knobs CC 14=100 15=10 16=90 17=40');
+      lines.push(...window.__SENT__.map(hex));
+      window.__SENT__.length = 0;
+
+      for (const v of [0, 1, 2, 3, 4, 5]) clickSel('#mf', 'mf', v);       // model index -> CC 18 raw
+      await tick(40);
+      lines.push('# MODEL/FX buttons 0..5 (CC 18 raw, labels still MODEL names in mode 0)');
+      lines.push(...window.__SENT__.map(hex));
+      window.__SENT__.length = 0;
+
+      for (const v of [0, 1, 2, 3, 4]) clickSel('#mode', 'mode', v);      // mode index -> CC 20 raw
+      await tick(40);
+      lines.push('# MODE buttons 0..4 (CC 20 raw; ends on EASTER EGG)');
+      lines.push(...window.__SENT__.map(hex));
+      lines.push('# MODEL row relabeled in mode 4: ' + $('#mfLabel').textContent +
+                 ' = ' + mfBtns.map(b => b.textContent).join(' | '));
+      window.__SENT__.length = 0;
+
+      for (const v of [0, 1, 2, 3]) clickSel('#poly', 'poly', v);         // poly button i -> CC 19 = i*32
+      await tick(40);
+      lines.push('# POLYPHONY buttons 1/2/3/4 (CC 19 = 0/32/64/96)');
+      lines.push(...window.__SENT__.map(hex));
+      window.__SENT__.length = 0;
+
+      for (const v of [0, 1, 2]) clickSel('#wave', 'wave', v);            // waveform -> CC 21 raw
+      for (const v of [0, 1, 2]) clickSel('#ctable', 'ct', v);            // chord table -> CC 22 raw
+      await tick(40);
+      lines.push('# WAVEFORM buttons 0..2 (CC 21 raw) then CHORD TABLE buttons 0..2 (CC 22 raw)');
+      lines.push(...window.__SENT__.map(hex));
+      window.__SENT__.length = 0;
+
+      chordSel.value = '0'; chordSel.dispatchEvent(new Event('change'));
+      chordSel.value = '17'; chordSel.dispatchEvent(new Event('change'));
+      await tick(40);
+      lines.push('# CHORD select 0 then 17 (CC 23 raw; 17 = 0x11; dropdown offers 0..' +
+                 (chordSel.options.length - 1) + ')');
+      lines.push(...window.__SENT__.map(hex));
+      window.__SENT__.length = 0;
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', bubbles: true }));
+      await tick(40);
+      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'z', bubbles: true }));
+      await tick(40);
+      lines.push('# computer keyboard: z on/off (C3 = note 48 = 0x30, VEL 100 = 0x64; rings ignores velocity, note-on pulses strum)');
+      lines.push(...window.__SENT__.map(hex));
+      window.__SENT__.length = 0;
+
+      clickSel('#mode', 'mode', 0);              // leave the panel back on mode 0
+      await tick(40);
+      lines.push('# MODE back to 0 (CC 20 = 0)');
+      lines.push(...window.__SENT__.map(hex));
+      lines.push('# MODEL row labels restored: ' + $('#mfLabel').textContent +
+                 ' = ' + mfBtns.map(b => b.textContent).join(' | '));
+    } catch (e) {
+      lines.push('# ERROR: ' + (e && e.stack || e));
+    }
+    lines.push('PANEL-TEST-END');
+    const pre = document.createElement('pre');
+    pre.id = 'testdump';
+    pre.textContent = lines.join('\n');
+    document.body.appendChild(pre);
+  })();
+}
+</script>
+</body>
+</html>
