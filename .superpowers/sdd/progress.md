@@ -1113,8 +1113,10 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
 ### Combined rack (rack-rp2350) — SDD status table
 
 Plan: `docs/superpowers/plans/2026-11-04-combined-rp2350.md` (read first —
-decisions are final; fresh-session entry protocol is at its top). One task
-per session; update the row + append dated findings below after each task.
+decisions are final; the ORCHESTRATION protocol is at its top: this session's
+agent spawns one subagent per task, sequentially, verifies each acceptance
+gate itself on hardware, and updates the row + appends dated findings below
+after each task).
 
 | Task | Status | Committed | Notes |
 |---|---|---|---|
