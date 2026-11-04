@@ -97,13 +97,23 @@ struct State {
 
 static State* s = nullptr;   // placement-new'd by init(); arena offset 0
 
-void init() {
-  s = new (g_rack_object_arena) State();
+// T6 chain hooks (see module_elements.h): state_size()/init_at() keep the
+// single-module path; init_chain_a() re-Inits the slot at the CHAIN rate
+// context (plaits renders at 32 kHz while chained, 48 kHz switched).
+static size_t state_size() { return sizeof(State); }
+
+void init_at(uint8_t* base) {
+  s = new (base) State();
   // Buffer carve: uint32_t workspace[8192] = 32 KB from the buffer arena.
   // The arena is alignas(8): Allocate<T> does not adjust alignment.
   memset(g_rack_buffer_arena, 0, 32768);
   stmlib::BufferAllocator allocator(
       reinterpret_cast<void*>(g_rack_buffer_arena), 32768);
+  // Rate context (08-plaits-runtime-rate.patch: runtime kSampleRate): the
+  // native SWITCHED context is 48 kHz. Engines capture the rate inside their
+  // Init() — the setter MUST run before voice.Init(). (Before T6 this was
+  // implicit: the compile-time 48 kHz constant.)
+  plaits::SetSampleRate(kSampleRate);   // 48000
   s->voice.Init(&allocator);
 
   s->pending_engine = -1;
@@ -134,6 +144,83 @@ void init() {
   s->patch.chord_set_option = 0;            // first chord table (chord engines)
   s->patch.attenuverter_mode = plaits::ATTENUVERTER_MODE_STOCK;  // 0
   s->patch.freqlock_param = 0.5f;           // unused while locked_frequency=0
+}
+
+void init() { init_at(g_rack_object_arena); }
+
+// T6: chain A-slot init — the SAME factory state as init_at, but at the
+// CHAIN rate context (32 kHz). Decision 3: entering/leaving a chain is a
+// rate-context event; the Voice re-Init re-captures the rate in every engine
+// (engines bake rate-derived coefficients in Init()). NOT reachable in this
+// build (the pair table rejects plaits as chain A on window capacity — see
+// main.cpp) but kept wired so the runtime-rate mechanism is exercised
+// end-to-end by the state machine the moment the window grows.
+void init_chain_a(uint8_t* base) {
+  init_at(base);
+  // Re-Init at the chain rate: the whole Init sequence runs again with the
+  // 32 kHz context (BufferAllocator state is rebuilt by voice.Init).
+  memset(g_rack_buffer_arena, 0, 32768);
+  stmlib::BufferAllocator allocator(
+      reinterpret_cast<void*>(g_rack_buffer_arena), 32768);
+  plaits::SetSampleRate(32000.0f);
+  s->voice.Init(&allocator);
+}
+
+// T6: chain A-slot render — exactly n samples (n <= 24 = kMaxBlockSize) into
+// caller buffers as ±1.0 floats (frames are already int16-clipped by Voice;
+// /32768 is the same normalization the I2S write path uses), NO I2S write,
+// NO proc_us_max update (the chain loop times A + route + B together).
+void chain_render_a(float* out_l, float* out_r, size_t n) {
+  if (s->pending_engine >= 0) {
+    int engine = s->pending_engine;
+    if (engine > plaits::kMaxEngines - 1) engine = plaits::kMaxEngines - 1;
+    s->patch.engine = engine;
+    s->pending_engine = -1;
+  }
+  if (s->pending_aux_option >= 0) {
+    s->patch.aux_output_option = static_cast<uint8_t>(s->pending_aux_option);
+    s->pending_aux_option = -1;
+  }
+  if (s->pending_trigger > -0.5f) {
+    s->mod.trigger = s->pending_trigger;
+    s->pending_trigger = -1.0f;
+  } else {
+    s->mod.trigger = 0.0f;
+  }
+
+  s->patch.note = shared_note;
+  s->patch.harmonics = s->shared_harmonics;
+  s->patch.timbre = s->shared_timbre;
+  s->patch.morph = s->shared_morph;
+  s->patch.frequency_modulation_amount = s->shared_fm_amount;
+  s->patch.timbre_modulation_amount = s->shared_timbre_mod;
+  s->patch.morph_modulation_amount = s->shared_morph_mod;
+  s->patch.decay = s->shared_decay;
+  s->patch.lpg_colour = s->shared_lpg_colour;
+
+  s->mod.engine = s->shared_macro_cv;
+  s->mod.note = 0.0f;
+  s->mod.frequency = 0.0f;
+  s->mod.harmonics = 0.0f;
+  s->mod.timbre = 0.0f;
+  s->mod.morph = 0.0f;
+  s->mod.level = shared_gate ? s->shared_level : 0.0f;
+  s->mod.hard_sync = 0;
+  for (size_t i = 0; i < n; ++i) {
+    s->mod.frequency_audio[i] = 0.0f;
+  }
+  s->mod.frequency_audio_rate = false;
+  s->mod.frequency_patched = false;
+  s->mod.timbre_patched = false;
+  s->mod.morph_patched = false;
+  s->mod.trigger_patched = true;
+  s->mod.level_patched = true;
+
+  s->voice.Render(s->patch, s->mod, s->frames, n);
+  for (size_t i = 0; i < n; ++i) {
+    out_l[i] = static_cast<float>(s->frames[i].out) / 32768.0f;
+    out_r[i] = static_cast<float>(s->frames[i].aux) / 32768.0f;
+  }
 }
 
 void render() {

@@ -171,6 +171,11 @@ volatile float rack_meter_b = 0.0f;
 volatile uint32_t proc_us_max = 0;
 volatile uint32_t i2s_stall_count = 0;
 volatile float g_render_gain = 1.0f;     // swap-mute ramp (see midi.h)
+// T6 chain grid overrides for the mod engine (declared in mod_engine.h):
+// nonzero while a chain is engaged — the engine's per-block pass then runs
+// the 32 kHz / 24-sample chain grid instead of the A slot's registry block.
+volatile uint8_t g_mod_chain_grid = 0;
+volatile uint8_t g_mod_chain_rate_khz = 0;
 
 // T3 persistent mod engine + clock bus — plain .bss, OUTSIDE the arenas, and
 // NEVER touched by the swap path (do_module_swap references none of it): its
@@ -212,6 +217,84 @@ static volatile uint32_t g_swap_duration_ms = 0;
 static volatile uint32_t g_swap_copied_bytes = 0;
 static volatile uint8_t g_swap_to = 0;
 static volatile bool g_swap_i2s_ok = false;
+
+// ===================== T6: chain mode (v2) =====================
+// A->B serial chain. PERSISTENT STATE in main.cpp-side .bss (NOT module
+// state): routing is persistent state, not module state (plan "Live swap
+// while chained" — a slot re-Init re-patches the routing automatically).
+// For T6 the pair table is X->clouds (user-amended 2026-11-05: elements,
+// plaits, rings as A; clouds is the only B).
+//
+// CHAIN GRID: 24-sample blocks @ 32 kHz (750 us) — rings/clouds are
+// 32k-native and their budgets die at 48 kHz; chained plaits would render
+// its DSP at 32 kHz via the runtime kSampleRate (08-plaits-runtime-rate).
+// A renders the 24-sample block into float buffers (elements: two <=16-
+// sample Part::Process sub-calls), the ROUTE copies A's out/aux into
+// clouds' stereo FloatFrame input at gain 1.0 (the adapters' float outputs
+// are the ±1.0 class the write path Clip16s to I2S — same magnitude class
+// the standalone test exciter produced), B = clouds processes 24 frames,
+// and B's output goes to I2S (the chain OUTPUT is B — clouds is the effect
+// stage). g_render_gain (swap ramps) applies at the write stage as today.
+//
+// TRANSITIONS = rate-context events (mute -> window copies -> I2S
+// reconfigure on CORE 0 via the chain handshake -> re-Init both slots ->
+// unmute), the same discipline as do_module_swap. While chained
+// g_active_module == the A slot: MIDI notes/CC route to A (except the
+// B-slot CCs 23/24/65/66, see midi.h), the mod engine binds its
+// destinations to A, and its grid override runs the chain block/rate.
+struct ChainState {
+  bool active;
+  uint8_t a;   // A slot module id (the sound source)
+  uint8_t b;   // B slot module id — clouds in every T6 pair
+};
+static ChainState g_chain = { false, RACK_MODULE_ELEMENTS, RACK_MODULE_CLOUDS };
+// Pending transition slot: core 0 (console) queues, core 1 consumes at a
+// block boundary (one transition per loop1 call, g_swapping held throughout).
+static volatile int8_t g_pending_chain = -1;    // -1 none / 1 engage / 0 disengage
+static volatile bool g_pending_chain_a_reinit = false;  // A-swap while chained
+// Chain transition stats hand-off (core 1 sets, core 0 prints once).
+static volatile bool g_chain_report_ready = false;
+static volatile uint8_t g_chain_report_kind = 0;   // 0 off / 1 engage / 2 a-reinit
+static volatile bool g_chain_report_ok = false;
+static volatile uint32_t g_chain_report_ms = 0;
+static volatile uint32_t g_chain_report_bytes = 0;
+
+// The chain grid + the per-pair budget (750 us incl. the mod engine's
+// <= 50 us — the report's budget field switches to this while chained).
+static const size_t kChainBlockSize = 24;   // rings/plaits/clouds max block
+static const uint32_t kChainRate = 32000;
+static const uint32_t kChainBudgetUs = 750;
+static const uint32_t kChainStallUs = 1400; // ~1.8x the 750 us block period
+
+// I2S bank in chain mode = clouds' config (32 x 16 words = 16 ms): the
+// largest bank of any chain participant; it absorbs clouds' one-off
+// mode-change spike (~1.7 ms) with the same margin the standalone has.
+static const uint32_t kChainI2sBuffers = 32;
+static const uint32_t kChainI2sWords = 16;
+
+// CHAINED CLOUDS BUFFER SPLIT (documented deviation): the buffer arena is
+// exactly full for the elements/rings pairs (chain A carve 65,536 + clouds
+// 131,072 = 196,608), so chained clouds runs large 98,304 B (= 32,768 B
+// sample memory ch0 + 65,536 B FX workspace — the FX depth is IDENTICAL to
+// the standalone) + small 32,768 B (sample memory ch1) = 0.512 s/channel
+// sample memory vs the standalone's 1.024 s. Grain parameters are
+// unaffected; only the maximum loop length / grain-window reach halves.
+static const size_t kChainCloudsLargeBytes = 98304;
+static const size_t kChainCloudsSmallBytes = 32768;
+// Chain A slots carve the buffer arena from offset 0 (all three A adapters
+// hard-carve there, same as single-module mode); clouds-B carves above the
+// A carve. Per-A carve size (elements reverb / rings reverb 64 KB, plaits
+// workspace 32 KB).
+static const size_t kChainABufferBytes[RACK_MODULE_COUNT] = {
+    65536, 0, 32768, 65536,   // elements, clouds(-), plaits, rings
+};
+
+// Chain render block buffers (24 x 2 floats x 2 = 384 B in .bss — the
+// routing plumbing the brief sizes at ~192 B per direction).
+static float chain_a_out_l[kChainBlockSize];
+static float chain_a_out_r[kChainBlockSize];
+static float chain_b_out_l[kChainBlockSize];
+static float chain_b_out_r[kChainBlockSize];
 
 // --- USB MIDI device (core 0) ---
 Adafruit_USBD_MIDI usb_midi;
@@ -357,10 +440,76 @@ void rack_module_control_change(uint8_t cc, uint8_t val) {
 
 // CC 32 / console entry: queue a module switch. Values > 3 and == the active
 // module are ignored (no self-swap; the swap print is the ack).
+// T6 chain semantics (decision 5): while chained, CC 32 targets the CHAIN
+// SLOTS, not the single-module switch —
+//   v == A slot: fresh re-Init of A (no I2S change, no window copy; the
+//                routing re-patches automatically),
+//   v == B slot: rejected (clouds is the only B in T6; mode/quality go
+//                through CC 23/24),
+//   otherwise:   rejected with the window math (a chained swap target must
+//                have its hot image fit the A slot below the B slot).
 void rack_request_switch(uint8_t module_id) {
   if (module_id >= RACK_MODULE_COUNT) return;
+  if (g_chain.active) {
+    if (module_id == g_chain.a) {
+      g_pending_chain_a_reinit = true;
+      Serial.printf("rack: chain: %s (A slot) fresh re-Init queued\r\n",
+                    kRackModules[module_id].name);
+      return;
+    }
+    if (module_id == g_chain.b) {
+      Serial.println("rack: chain: B swap rejected (clouds is the only B in "
+                     "T6; mode/quality via CC 23/24)");
+      return;
+    }
+    const RackWindowSection& sa = rack_window_section(module_id);
+    const RackWindowSection& sb = rack_window_section(RACK_MODULE_CLOUDS);
+    const uint32_t b_offset = (uint32_t)(sb.window_start -
+                                         rack_window_section(
+                                             RACK_MODULE_ELEMENTS).window_start);
+    Serial.printf("rack: chain: swap to %s rejected while chained (%s hot "
+                  "image %u B > A slot %u B below the clouds-B slot; only "
+                  "elements fits the chain window)\r\n",
+                  kRackModules[module_id].name, sa.name,
+                  (unsigned)(sa.window_end - sa.window_start),
+                  (unsigned)b_offset);
+    return;
+  }
   if (module_id == g_active_module) return;
   g_pending_module = static_cast<int8_t>(module_id);
+}
+
+// T6 chain CC intercept (declared in midi.h): while chained, CCs 23/24/65/66
+// drive the B slot (clouds) — everything else reaches the A slot through the
+// normal registry dispatch. 23/24 collide with every chain-A module's map
+// (elements geometry/brightness, plaits engine/aux, rings chord/-) — while
+// chained they mean clouds mode/quality; the A slot's parameters stay
+// reachable through the mod engine (destinations bind to A).
+bool rack_chain_wants_cc(uint8_t cc) {
+  return g_chain.active &&
+         (cc == 23 || cc == 24 || cc == 65 || cc == 66);
+}
+
+void rack_chain_control_change(uint8_t cc, uint8_t val) {
+  switch (cc) {
+    case 23:
+      // clouds-B playback-mode CLAMP (chain mode = granular/looping ONLY):
+      // clouds' mode enum is 0 granular / 1 stretch / 2 looping / 3
+      // spectral. 1 (stretch) and 3 (spectral) are REJECTED while chained —
+      // stretch stays available in single-module mode, spectral is excluded
+      // everywhere (T2). The adapter's apply-time clamp is belt-and-braces.
+      if (val == 0 || val == 2) {
+        rack_modules::mod_clouds::control_change(23, val);
+      } else {
+        Serial.printf("rack: chain: clouds-B mode %u rejected while chained "
+                      "(granular 0 / looping 2 only)\r\n", val);
+      }
+      break;
+    default:
+      // 24 quality / 65 freeze / 66 trig: no collision with any chain-A map.
+      rack_modules::mod_clouds::control_change(cc, val);
+      break;
+  }
 }
 
 // ================= core 1: audio + live swap =================
@@ -514,12 +663,346 @@ static void do_module_swap(uint8_t new_id) {
   g_swapping = false;
 }
 
+// ===================== T6: chain transitions =====================
+// Chain I2S reconfig handshake — a PARALLEL copy of the swap handshake's
+// discipline (same core-0-performs rule, same bounded core-1 wait; the swap
+// handshake itself is untouched). Core 1 requests an explicit
+// (rate, buffers, words) config; core 0 performs end/config/begin and acks.
+static volatile bool g_chain_i2s_request = false;
+static volatile bool g_chain_i2s_ack = false;
+static volatile bool g_chain_i2s_result = false;
+static volatile uint32_t g_chain_i2s_rate = kChainRate;
+static volatile uint32_t g_chain_i2s_buffers = kChainI2sBuffers;
+static volatile uint32_t g_chain_i2s_words = kChainI2sWords;
+
+// Core 0 side — called once per loop() iteration, next to serviceSwapI2s.
+static void serviceChainI2s() {
+  if (!g_chain_i2s_request) return;
+  i2s.end();
+  const bool ok = i2s.setBitsPerSample(16) &&
+                  i2s.setBuffers(g_chain_i2s_buffers, g_chain_i2s_words) &&
+                  i2s.setFrequency(g_chain_i2s_rate) &&
+                  i2s.begin();
+  g_chain_i2s_result = ok;
+  g_chain_i2s_request = false;
+  g_chain_i2s_ack = true;
+}
+
+// The CHAIN RENDER BLOCK (core 1, while g_chain.active): A.Process(24) ->
+// ROUTE (A out/aux -> clouds FloatFrame in, gain 1.0) -> B.Process(24) ->
+// B out -> I2S. proc_us_max times A + route + B HONESTLY (decision 6) — the
+// adapters' chain hooks do not touch it. The mod engine ran BEFORE this at
+// loop-top (its u: is measured separately in g_mod_engine.mod_us_max).
+static void chain_render_block() {
+  const uint32_t t0 = time_us_32();
+  // A slot (the sound source; its hook applies pending slots + fills
+  // perf/patch state exactly like its single-module render does).
+  switch (g_chain.a) {
+    case RACK_MODULE_ELEMENTS:
+      rack_modules::mod_elements::chain_render_a(
+          chain_a_out_l, chain_a_out_r, kChainBlockSize);
+      break;
+    case RACK_MODULE_PLAITS:
+      rack_modules::mod_plaits::chain_render_a(
+          chain_a_out_l, chain_a_out_r, kChainBlockSize);
+      break;
+    default:
+      rack_modules::mod_rings::chain_render_a(
+          chain_a_out_l, chain_a_out_r, kChainBlockSize);
+      break;
+  }
+  // ROUTE + B (clouds — the effect stage; chain_render_b fills its
+  // FloatFrame input from the routed buffers, Prepares, Processes, and
+  // meters the pair).
+  rack_modules::mod_clouds::chain_render_b(
+      chain_a_out_l, chain_a_out_r, chain_b_out_l, chain_b_out_r,
+      kChainBlockSize);
+  const uint32_t dt = time_us_32() - t0;
+  if (dt > proc_us_max) proc_us_max = dt;
+
+  // Write stage: the chain OUTPUT is B's output; g_render_gain (swap-mute
+  // ramps) applies here exactly as in the single-module adapters. The
+  // writes pace the loop: one iteration = one 24-frame block, blocks free
+  // every 750 us; > 1400 us = stalled.
+  uint32_t w0 = time_us_32();
+  const float gain = g_render_gain;
+  for (size_t i = 0; i < kChainBlockSize; ++i) {
+    const int16_t l = stmlib::Clip16(
+        static_cast<int32_t>(chain_b_out_l[i] * 32768.0f * gain));
+    const int16_t r = stmlib::Clip16(
+        static_cast<int32_t>(chain_b_out_r[i] * 32768.0f * gain));
+    i2s.write16(l, r);
+  }
+  if (time_us_32() - w0 > kChainStallUs) {
+    ++i2s_stall_count;
+  }
+}
+
+// Silence flush of the CURRENT DMA bank (same pacing argument as the swap's
+// flush; used before each transition's I2S reconfigure).
+static void chain_flush_silence(uint32_t buffers, uint32_t words) {
+  for (uint32_t i = 0; i < buffers * words + 16; ++i) {
+    i2s.write16(0, 0);
+  }
+}
+
+// Mute ramp down through `render_once` (a callable doing exactly one
+// block's render + write), then a silent block.
+template <typename F>
+static void chain_ramp_down(F render_once) {
+  g_render_gain = 1.0f;
+  for (uint32_t i = 1; i <= kSwapRampSteps; ++i) {
+    g_render_gain = 1.0f - static_cast<float>(i) / (kSwapRampSteps + 1);
+    render_once();
+  }
+  g_render_gain = 0.0f;
+  render_once();
+}
+
+// Unmute ramp up through `render_once`.
+template <typename F>
+static void chain_ramp_up(F render_once) {
+  g_render_gain = 0.0f;
+  for (uint32_t i = 1; i <= kSwapRampSteps; ++i) {
+    g_render_gain = static_cast<float>(i) / (kSwapRampSteps + 1);
+    render_once();
+  }
+  g_render_gain = 1.0f;
+}
+
+static void chain_ramp_down_single() {
+  const uint8_t id = g_active_module;
+  chain_ramp_down([id]() { kRackModules[id].render(); });
+}
+static void chain_ramp_down_chain() {
+  chain_ramp_down(chain_render_block);
+}
+
+// ENTER the chain: g_pending_chain == 1 consumed at a block boundary.
+// Sequence = do_module_swap's discipline, minus the single-copy/plus the
+// second slot: mute -> window copies (A + clouds, checksummed; on a corrupt
+// copy restore the old image and stay single) -> I2S reconfigure to the
+// chain grid bank (core 0 via the handshake) -> re-Init BOTH slots at the
+// chain rate context -> unmute through the chain render.
+static void do_chain_engage() {
+  const uint8_t a = g_chain.a;                 // validated by cmd_chain
+  const uint8_t b = g_chain.b;                 // RACK_MODULE_CLOUDS
+  const uint8_t old_active = g_active_module;
+  const uint32_t t0 = time_us_32();
+
+  // (a) MUTE through the current single-module render + silence flush.
+  chain_ramp_down_single();
+  chain_flush_silence(kRackModules[old_active].i2s_buffers,
+                      kRackModules[old_active].i2s_words);
+
+  // (b) COPY both slot images (idempotent: the A copy re-plants A even when
+  // A == the old active module; the B copy re-plants clouds after any
+  // single-module use that spanned the B-slot region).
+  uint32_t src_sum = 0, dst_sum = 0;
+  const uint32_t copied_a = rack_window_copy(a, &src_sum, &dst_sum);
+  const bool a_ok = (src_sum == dst_sum);
+  uint32_t copied_b = 0;
+  bool b_ok = false;
+  if (a_ok) {
+    src_sum = dst_sum = 0;
+    copied_b = rack_window_copy(b, &src_sum, &dst_sum);
+    b_ok = (src_sum == dst_sum);
+  }
+  if (!a_ok || !b_ok) {
+    // Corrupt copy: restore the old module's image and stay single-module.
+    rack_window_copy(old_active, nullptr, nullptr);
+    g_chain_report_ms = (time_us_32() - t0) / 1000;
+    g_chain_report_bytes = copied_a + copied_b;
+    g_chain_report_kind = 1;
+    g_chain_report_ok = false;
+    g_chain_report_ready = true;
+    g_swapping = false;
+    return;
+  }
+
+  // (c) I2S reconfigure to the chain grid/bank — REQUESTED from core 1,
+  // PERFORMED by core 0 (same ISR-affinity rule as the swap handshake).
+  g_chain_i2s_rate = kChainRate;
+  g_chain_i2s_buffers = kChainI2sBuffers;
+  g_chain_i2s_words = kChainI2sWords;
+  g_chain_i2s_ack = false;
+  g_chain_i2s_result = false;
+  g_chain_i2s_request = true;
+  const uint32_t i2s_t0 = time_us_32();
+  while (!g_chain_i2s_ack && time_us_32() - i2s_t0 < 1000000UL) {
+    delay(1);
+  }
+  const bool i2s_ok = g_chain_i2s_ack && g_chain_i2s_result;
+  if (!i2s_ok) {
+    // Same failure posture as the swap: stay muted, report the fault.
+    g_chain_report_ms = (time_us_32() - t0) / 1000;
+    g_chain_report_bytes = copied_a + copied_b;
+    g_chain_report_kind = 1;
+    g_chain_report_ok = false;
+    g_chain_report_ready = true;
+    g_swapping = false;
+    return;
+  }
+
+  // (d) INIT both slots at the chain rate context. Object arena: A at
+  // offset 0 (its single-module placement), clouds-B AFTER A's state; the
+  // buffer arena: A's carve at 0 (the adapters' own), clouds-B above it
+  // with the chained split.
+  switch (a) {
+    case RACK_MODULE_ELEMENTS:
+      rack_modules::mod_elements::init_at(g_rack_object_arena);
+      break;
+    case RACK_MODULE_PLAITS:
+      rack_modules::mod_plaits::init_chain_a(g_rack_object_arena);
+      break;
+    default:
+      rack_modules::mod_rings::init_at(g_rack_object_arena);
+      break;
+  }
+  {
+    const size_t a_state = (a == RACK_MODULE_ELEMENTS)
+        ? rack_modules::mod_elements::state_size()
+        : (a == RACK_MODULE_PLAITS)
+            ? rack_modules::mod_plaits::state_size()
+            : rack_modules::mod_rings::state_size();
+    uint8_t* b_obj = g_rack_object_arena + ((a_state + 7u) & ~(size_t)7u);
+    uint8_t* b_buf =
+        g_rack_buffer_arena + kChainABufferBytes[a];
+    rack_modules::mod_clouds::init_chain_b(
+        b_obj, b_buf, kChainCloudsLargeBytes,
+        b_buf + kChainCloudsLargeBytes, kChainCloudsSmallBytes);
+  }
+
+  // (e) GO CHAIN: active module = the A slot (notes/CC/mod destinations
+  // bind there), the mod engine runs the chain grid.
+  g_chain.active = true;
+  g_active_module = a;
+  g_mod_chain_grid = kChainBlockSize;
+  g_mod_chain_rate_khz = (uint8_t)(kChainRate / 1000);
+  proc_us_max = 0;              // the transition must not read as a max
+  g_mod_engine.mod_us_max = 0;
+  rack_meter_a = 0.0f;
+  rack_meter_b = 0.0f;
+
+  // (f) UNMUTE through the chain render.
+  chain_ramp_up(chain_render_block);
+
+  // (g) Stats for core 0's deferred print.
+  g_chain_report_ms = (time_us_32() - t0) / 1000;
+  g_chain_report_bytes = copied_a + copied_b;
+  g_chain_report_kind = 1;
+  g_chain_report_ok = true;
+  g_chain_report_ready = true;
+  g_swapping = false;
+}
+
+// LEAVE the chain: g_pending_chain == 0. The A slot re-Inits at its NATIVE
+// rate context (plaits would re-capture 48 kHz via init_at's
+// SetSampleRate); clouds-B's state is simply abandoned (union arena).
+static void do_chain_disengage() {
+  const uint8_t a = g_chain.a;
+  const uint32_t t0 = time_us_32();
+
+  // (a) MUTE through the chain render + silence flush (chain bank).
+  chain_ramp_down_chain();
+  chain_flush_silence(kChainI2sBuffers, kChainI2sWords);
+
+  // (b) I2S reconfigure to the A slot's native rate/bank (registry).
+  g_chain_i2s_rate = kRackModules[a].sample_rate;
+  g_chain_i2s_buffers = kRackModules[a].i2s_buffers;
+  g_chain_i2s_words = kRackModules[a].i2s_words;
+  g_chain_i2s_ack = false;
+  g_chain_i2s_result = false;
+  g_chain_i2s_request = true;
+  const uint32_t i2s_t0 = time_us_32();
+  while (!g_chain_i2s_ack && time_us_32() - i2s_t0 < 1000000UL) {
+    delay(1);
+  }
+  const bool i2s_ok = g_chain_i2s_ack && g_chain_i2s_result;
+
+  // (c) Re-Init the A slot fresh at its native context. Its hot image is
+  // still resident at the A-slot VMA (the engage-time B copy went to the
+  // B slot); re-copy defensively anyway — idempotent, covers any future A
+  // whose image spans the B-slot region.
+  rack_window_copy(a, nullptr, nullptr);
+  switch (a) {
+    case RACK_MODULE_ELEMENTS:
+      rack_modules::mod_elements::init_at(g_rack_object_arena);
+      break;
+    case RACK_MODULE_PLAITS:
+      rack_modules::mod_plaits::init_at(g_rack_object_arena);  // 48 kHz
+      break;
+    default:
+      rack_modules::mod_rings::init_at(g_rack_object_arena);
+      break;
+  }
+
+  // (d) CHAIN OFF: the mod engine drops the grid override (g_active_module
+  // stays the A slot).
+  g_chain.active = false;
+  g_mod_chain_grid = 0;
+  g_mod_chain_rate_khz = 0;
+  proc_us_max = 0;
+  g_mod_engine.mod_us_max = 0;
+  rack_meter_a = 0.0f;
+  rack_meter_b = 0.0f;
+
+  // (e) UNMUTE single-module render — only if the I2S reconfig succeeded
+  // (on failure the report says so and the rack stays muted).
+  if (i2s_ok) {
+    const uint8_t id = a;
+    chain_ramp_up([id]() { kRackModules[id].render(); });
+  }
+
+  // (f) Stats for core 0's deferred print.
+  g_chain_report_ms = (time_us_32() - t0) / 1000;
+  g_chain_report_bytes = 0;
+  g_chain_report_kind = 0;
+  g_chain_report_ok = i2s_ok;
+  g_chain_report_ready = true;
+  g_swapping = false;
+}
+
+// A-slot fresh re-Init while chained (CC 32 == the A slot's id / decision 5):
+// NO window copy, NO I2S change (elements/clouds/rings are all 32k and the
+// chain grid rate is unchanged even for a plaits A), just factory-fresh
+// state; the routing re-patches automatically (persistent state).
+static void do_chain_a_reinit() {
+  const uint8_t a = g_chain.a;
+  const uint32_t t0 = time_us_32();
+  chain_ramp_down_chain();
+  // Fresh state at the SAME chain rate context (plaits stays 32k chained).
+  switch (a) {
+    case RACK_MODULE_ELEMENTS:
+      rack_modules::mod_elements::init_at(g_rack_object_arena);
+      break;
+    case RACK_MODULE_PLAITS:
+      rack_modules::mod_plaits::init_chain_a(g_rack_object_arena);
+      break;
+    default:
+      rack_modules::mod_rings::init_at(g_rack_object_arena);
+      break;
+  }
+  proc_us_max = 0;
+  rack_meter_a = 0.0f;
+  rack_meter_b = 0.0f;
+  chain_ramp_up(chain_render_block);
+  g_chain_report_ms = (time_us_32() - t0) / 1000;
+  g_chain_report_bytes = 0;
+  g_chain_report_kind = 2;
+  g_chain_report_ok = true;
+  g_chain_report_ready = true;
+  g_swapping = false;
+}
+
 void loop1() {
   // Pending swap first: consumed at the TOP of the render loop (strictly
   // between two Process() calls), max one swap per call. The T3 mod engine
   // shares this discipline: on a swap call it is SKIPPED exactly like the
   // render (return below) — the engine never touches module state while the
   // arena aliasing is in flight, and its own state is untouched by the swap.
+  // While chained, core 0 never queues g_pending_module (rack_request_switch
+  // routes CC 32 to the chain-slot semantics instead).
   const int8_t pending = g_pending_module;
   if (pending >= 0) {
     g_pending_module = -1;
@@ -530,13 +1013,37 @@ void loop1() {
     }
     return;                    // this call performed the swap, not a render
   }
+  // T6 chain transitions: same block-boundary discipline, one per call.
+  if (g_pending_chain_a_reinit) {
+    g_pending_chain_a_reinit = false;
+    g_swapping = true;
+    do_chain_a_reinit();
+    return;
+  }
+  const int8_t chain_req = g_pending_chain;
+  if (chain_req >= 0) {
+    g_pending_chain = -1;
+    g_swapping = true;
+    if (chain_req == 1) {
+      do_chain_engage();
+    } else {
+      do_chain_disengage();
+    }
+    return;
+  }
   // T3 mod engine: clock bus + sources + destination routing, BEFORE the
   // module's render, every block, at the active module's block size. Its
   // destinations resolve against the active module's registry entry, so a
   // swap re-targets the routing automatically (phase survives: g_mod_engine
-  // is never written by the swap path).
+  // is never written by the swap path). While chained, g_active_module is
+  // the A slot and the g_mod_chain_* overrides run the 32 kHz / 24-sample
+  // chain grid — destinations bind to A (decision 4).
   mod_engine_process_block(g_active_module);
-  kRackModules[g_active_module].render();
+  if (g_chain.active) {
+    chain_render_block();
+  } else {
+    kRackModules[g_active_module].render();
+  }
 }
 
 // ================= core 0: control =================
@@ -550,6 +1057,7 @@ struct ConsoleCommand {
 
 static void cmd_switch(const char* args);
 static void cmd_module(const char* args);
+static void cmd_chain(const char* args);
 static void cmd_route(const char* args);
 static void cmd_status(const char* args);
 static void cmd_din(const char* args);
@@ -567,6 +1075,7 @@ extern void mod_engine_cmd_clock(const char* args);
 static const ConsoleCommand kConsoleCommands[] = {
     {"switch",    cmd_switch},
     {"module",    cmd_module},
+    {"chain",     cmd_chain},
     {"mod",       mod_engine_cmd_mod},
     {"mod?",      mod_engine_cmd_modq},
     {"route",     cmd_route},
@@ -604,6 +1113,15 @@ static void cmd_switch(const char* args) {
     Serial.println("rack: unknown module (0 elements / 1 clouds / 2 plaits / 3 rings)");
     return;
   }
+  if (g_chain.active) {
+    // Chain semantics own the request (A-slot fresh re-Init / B reject /
+    // window-math reject) — they must run BEFORE the single-module
+    // self-swap guard: while chained the ACTIVE module IS the A slot, so
+    // "switch <A>" means a fresh re-Init, not a no-op. (Bench finding
+    // 2026-11-05: the guard swallowed the A re-Init via the console.)
+    rack_request_switch(static_cast<uint8_t>(id));
+    return;
+  }
   if (static_cast<uint8_t>(id) == g_active_module) {
     Serial.printf("rack: %s already active\r\n", kRackModules[id].name);
     return;
@@ -622,6 +1140,151 @@ static void cmd_module(const char* args) {
                 (unsigned long)m.budget_us);
   Serial.printf("rack: cc map: %s\r\n", m.cc_map);
   Serial.printf("rack: mod destinations: %s\r\n", m.mod_destinations->summary);
+}
+
+// chain — T6 bench console: `chain` (status) / `chain <a> [b]` (validate +
+// queue engage; b defaults to clouds) / `chain off`.
+//
+// PAIR VALIDATION (the 3-pair table, user-amended 2026-11-05 — all X->clouds):
+//   elements->clouds, plaits->clouds, rings->clouds
+// Engagement additionally requires the CHAIN RESIDENCY invariants (both
+// slots' hot images must fit the two-slot SRAM window, both states must fit
+// the object arena, both buffer carves must fit the buffer arena) — checked
+// here with the REAL linker-symbol sizes, so a reject line carries the
+// exact numbers. In this build only elements->clouds passes all three
+// checks (the ledger T6 findings hold the full math; plaits->clouds needs
+// ~49 KB more window than the 512 KiB part can give and rings->clouds needs
+// the A-slot widened past its 58 KB image + an 8 KB object-arena bump).
+static bool chain_parse_module(const char* tok, int8_t* out) {
+  if (tok[0] >= '0' && tok[0] <= '9') {
+    long v = atol(tok);
+    if (v >= 0 && v < RACK_MODULE_COUNT) { *out = static_cast<int8_t>(v); return true; }
+    return false;
+  }
+  for (uint8_t i = 0; i < RACK_MODULE_COUNT; ++i) {
+    if (strcasecmp(tok, kRackModules[i].name) == 0) {
+      *out = static_cast<int8_t>(i);
+      return true;
+    }
+  }
+  return false;
+}
+
+static void cmd_chain(const char* args) {
+  while (*args == ' ') ++args;
+  if (*args == '\0') {
+    // status
+    if (g_chain.active) {
+      Serial.printf("rack: chain ACTIVE %s->%s (grid %lu Hz / %u-sample blocks, "
+                    "budget %lu us incl. mod; B mode clamped to granular/looping; "
+                    "CC 23/24/65/66 -> B, others -> A)\r\n",
+                    kRackModules[g_chain.a].name, kRackModules[g_chain.b].name,
+                    (unsigned long)kChainRate, (unsigned)kChainBlockSize,
+                    (unsigned long)kChainBudgetUs);
+    } else {
+      Serial.println("rack: chain off (pairs: elements|plaits|rings -> clouds; "
+                     "usage: chain <a> [b] / chain off)");
+    }
+    return;
+  }
+  if (strcasecmp(args, "off") == 0) {
+    if (!g_chain.active) {
+      Serial.println("rack: chain not engaged");
+      return;
+    }
+    g_pending_chain = 0;
+    Serial.println("rack: chain off queued (mutes at the next block boundary)");
+    return;
+  }
+  // chain <a> [b]
+  char tok[24];
+  if (sscanf(args, "%23s", tok) != 1) return;
+  int8_t a = -1, b = -1;
+  if (!chain_parse_module(tok, &a)) {
+    Serial.println("rack: chain: unknown module (0 elements / 1 clouds / 2 plaits / 3 rings)");
+    return;
+  }
+  const char* rest = args + strlen(tok);
+  while (*rest == ' ') ++rest;
+  if (*rest) {
+    if (sscanf(rest, "%23s", tok) != 1 || !chain_parse_module(tok, &b)) {
+      Serial.println("rack: chain: unknown B module");
+      return;
+    }
+  } else {
+    b = static_cast<int8_t>(RACK_MODULE_CLOUDS);
+  }
+  // --- pair table + residency validation (all with real numbers) ---
+  if (b != RACK_MODULE_CLOUDS) {
+    Serial.println("rack: chain: B must be clouds (T6 pair table: "
+                   "elements|plaits|rings -> clouds)");
+    return;
+  }
+  if (a == RACK_MODULE_CLOUDS) {
+    Serial.println("rack: chain: A cannot be clouds (no clouds->clouds pair)");
+    return;
+  }
+  if (g_chain.active) {
+    if (static_cast<uint8_t>(a) == g_chain.a) {
+      Serial.println("rack: chain: that pair is already engaged");
+    } else {
+      Serial.println("rack: chain: a different pair needs 'chain off' first");
+    }
+    return;
+  }
+  const RackWindowSection& sa = rack_window_section(static_cast<uint8_t>(a));
+  const RackWindowSection& sb = rack_window_section(RACK_MODULE_CLOUDS);
+  const RackWindowSection& s_origin =
+      rack_window_section(RACK_MODULE_ELEMENTS);
+  const uint32_t a_bytes = (uint32_t)(sa.window_end - sa.window_start);
+  const uint32_t b_bytes = (uint32_t)(sb.window_end - sb.window_start);
+  const uint32_t b_offset =
+      (uint32_t)(sb.window_start - s_origin.window_start);  // A-slot capacity
+  const uint32_t window_bytes = kRackWindowBytes;
+  if (a_bytes > b_offset) {
+    Serial.printf("rack: chain REJECTED: %s hot image %u B > A slot %u B "
+                  "(below the clouds-B slot) — pair not resident-capable in "
+                  "this build\r\n",
+                  sa.name, (unsigned)a_bytes, (unsigned)b_offset);
+    return;
+  }
+  if (b_offset + b_bytes > window_bytes) {
+    Serial.printf("rack: chain REJECTED: B slot %u + %u B > window %u B\r\n",
+                  (unsigned)b_offset, (unsigned)b_bytes, (unsigned)window_bytes);
+    return;
+  }
+  const size_t a_state = (a == RACK_MODULE_ELEMENTS)
+      ? rack_modules::mod_elements::state_size()
+      : (a == RACK_MODULE_PLAITS)
+          ? rack_modules::mod_plaits::state_size()
+          : rack_modules::mod_rings::state_size();
+  const size_t b_state = rack_modules::mod_clouds::state_size();
+  const size_t obj_needed =
+      ((a_state + 7u) & ~(size_t)7u) + b_state;
+  if (obj_needed > kRackObjectArenaBytes) {
+    Serial.printf("rack: chain REJECTED: object arena %u B needed (%s %u + "
+                  "clouds %u) > %u B\r\n",
+                  (unsigned)obj_needed, sa.name, (unsigned)a_state,
+                  (unsigned)b_state, (unsigned)kRackObjectArenaBytes);
+    return;
+  }
+  const size_t buf_needed = kChainABufferBytes[static_cast<uint8_t>(a)] +
+                            kChainCloudsLargeBytes + kChainCloudsSmallBytes;
+  if (buf_needed > kRackBufferArenaBytes) {
+    Serial.printf("rack: chain REJECTED: buffer arena %u B needed > %u B\r\n",
+                  (unsigned)buf_needed, (unsigned)kRackBufferArenaBytes);
+    return;
+  }
+  g_chain.a = static_cast<uint8_t>(a);
+  g_chain.b = RACK_MODULE_CLOUDS;
+  g_pending_chain = 1;
+  Serial.printf("rack: chain %s->clouds validated (window %u+%u of %u B, "
+                "objects %u of %u B, buffers %u of %u B) — engaging at the "
+                "next block boundary\r\n",
+                sa.name, (unsigned)a_bytes, (unsigned)b_bytes,
+                (unsigned)window_bytes, (unsigned)obj_needed,
+                (unsigned)kRackObjectArenaBytes, (unsigned)buf_needed,
+                (unsigned)kRackBufferArenaBytes);
 }
 
 // route <source> <dest> — pure alias of `mod <src> dest <dest>`: re-tokenize
@@ -803,6 +1466,9 @@ static void cmd_help(const char* args) {
   }
   Serial.println("  switch <0-3|name>  live module swap (also MIDI CC 32, value 0-3)");
   Serial.println("  module             print active module + cc map + mod destinations");
+  Serial.println("  chain [a] [b]|off  T6 serial chain (b defaults clouds; B mode clamped");
+  Serial.println("                     to granular/looping; CC 23/24/65/66 -> B while");
+  Serial.println("                     chained, other CCs -> A; bare 'chain' = status)");
   Serial.println("  mod <src> <param> <value>  set a mod-engine source param");
   Serial.println("     src: 0-11 or lfo1-4 / eu1-4 / gate1-2 / adsr1-2");
   Serial.println("     LFO  params: mode(hz|clock) rate(Hz) wave(sine|tri|saw|square|sh)");
@@ -988,8 +1654,10 @@ void setup() {
 }
 
 void loop() {
-  // --- I2S reconfig requests from a running swap (core 1 waits bounded) ---
+  // --- I2S reconfig requests from a running swap / chain transition (core 1
+  // waits bounded on either) ---
   serviceSwapI2s();
+  serviceChainI2s();
 
   // --- USB host: service the host stack, then poll host MIDI ---
   USBHost.task();
@@ -1023,6 +1691,42 @@ void loop() {
                     "(window %lu bytes, i2s reconfig/copy rejected - audio muted)\r\n",
                     m.name, (unsigned long)g_swap_duration_ms,
                     (unsigned long)g_swap_copied_bytes);
+    }
+  }
+
+  // --- deferred chain-transition print (stats set by core 1, printed once;
+  // formats per the T6 brief: `rack: chain <a>-><b> engaged (<ms> ms)` /
+  // `rack: chain off (<ms> ms)`) ---
+  if (g_chain_report_ready) {
+    g_chain_report_ready = false;
+    const uint8_t kind = g_chain_report_kind;
+    if (kind == 1) {
+      if (g_chain_report_ok) {
+        Serial.printf("rack: chain %s->%s engaged (%lu ms, %lu window bytes)\r\n",
+                      kRackModules[g_chain.a].name,
+                      kRackModules[g_chain.b].name,
+                      (unsigned long)g_chain_report_ms,
+                      (unsigned long)g_chain_report_bytes);
+      } else {
+        Serial.printf("rack: CHAIN FAULT: %s->%s engage failed in %lu ms "
+                      "(window copy/i2s rejected - single module kept)\r\n",
+                      kRackModules[g_chain.a].name,
+                      kRackModules[g_chain.b].name,
+                      (unsigned long)g_chain_report_ms);
+      }
+    } else if (kind == 2) {
+      Serial.printf("rack: chain A (%s) re-Init'ed fresh in %lu ms\r\n",
+                    kRackModules[g_chain.a].name,
+                    (unsigned long)g_chain_report_ms);
+    } else {
+      if (g_chain_report_ok) {
+        Serial.printf("rack: chain off (%lu ms)\r\n",
+                      (unsigned long)g_chain_report_ms);
+      } else {
+        Serial.printf("rack: CHAIN FAULT: chain off failed in %lu ms "
+                      "(i2s reconfig rejected - audio muted)\r\n",
+                      (unsigned long)g_chain_report_ms);
+      }
     }
   }
 
@@ -1078,10 +1782,23 @@ void loop() {
     const RackModuleInfo& m = kRackModules[g_active_module];
     static char modeng_tail[64];
     mod_engine_report_tail(modeng_tail, sizeof(modeng_tail));
+    // T6: the module field extends honestly to the chain (e.g.
+    // mod=elements>clouds); proc_us_max covers A+route+B while chained and
+    // the budget is the chain grid's 750 us (incl. the mod engine's u:).
+    char mod_field[28];
+    uint32_t budget;
+    if (g_chain.active) {
+      snprintf(mod_field, sizeof(mod_field), "%s>%s",
+               kRackModules[g_chain.a].name, kRackModules[g_chain.b].name);
+      budget = kChainBudgetUs;
+    } else {
+      snprintf(mod_field, sizeof(mod_field), "%s", m.name);
+      budget = m.budget_us;
+    }
     if (g_telemetry_enabled) {
       Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s\r\n",
                     proc_us_max,
-                    m.budget_us,
+                    (unsigned)budget,
                     stalls, stalls - last_stall_total,
                     (unsigned)(rack_meter_a * 1000.0f),
                     (unsigned)(rack_meter_b * 1000.0f),
@@ -1091,7 +1808,7 @@ void loop() {
                     (unsigned)host_device_mounted,
                     (unsigned)host_midi_idx_count,
                     (unsigned)pio_usb_host_get_frame_number(),
-                    m.name,
+                    mod_field,
                     modeng_tail);
     }
     last_stall_total = stalls;

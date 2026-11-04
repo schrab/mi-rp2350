@@ -1126,7 +1126,7 @@ after each task).
 | T4 RP2350 DIN 31250 parser + serial console | done (code-complete; DIN-jack bench pending wiring) | 67d6f77 | parser 109/109 host asserts; dintest proves parser→funnel→module on hardware (+3 notes, CC, 24/25 clock stamps); console full; findings below |
 | T4a Presets (serialization + console dump/load + last-state autosave) | pending | — | bank lands on C3 flash in T5 |
 | T5 C3 UI + UART link (after DSP acceptance AND hardware) | pending | — | encoder+button menus, HC4067, ST7789, BLE-MIDI, preset bank |
-| T6 Chain mode v2 (plaits@32k patch, 4-pair table) | pending | — | |
+| T6 Chain mode v2 (plaits@32k patch, pair table) | done (1 of 3 pairs; see residency note) | (see commit) | elements→clouds benched end-to-end (52% of 750 µs, zero stalls); runtime-rate plaits patch (standalone byte-identical); rings→clouds + plaits→clouds REJECTED by SRAM residency (exact math in findings); user dropped Plaits→Elements 2026-11-05 |
 | T7 Hardware bring-up + sweeps + user acceptance + soak | pending | — | |
 
 Findings (append per task below):
@@ -1383,3 +1383,57 @@ three are metrics-verified (ears at the DSP-acceptance checkpoint).
   on the C3 hardware existing; T7 adds the 30-min soak and full sweeps.
   One listening artifact to remember: routed mod sources override panel CCs
   until unrouted (standard mod-matrix behavior, documented in README).
+
+### Rack T6 — chain mode v2 (2026-11-05)
+
+- **Scope (user-amended):** Plaits→Elements DROPPED by the user 2026-11-05;
+  pair table = elements→clouds, plaits→clouds, rings→clouds (all X→clouds —
+  uniform routing into clouds' FloatFrame input, exciter fully bypassed when
+  chained).
+- **Plaits runtime-rate patch** (`tools/patches/plaits/08-plaits-runtime-rate.patch`,
+  rack-conditional `-DRACK_PLAITS_RUNTIME_RATE`): the fork's kSampleRate /
+  kCorrectedSampleRate / a0 become runtime globals + `plaits::SetSampleRate()`.
+  Survey: 94 code uses, ALL runtime float reads — zero compile-time uses
+  (no array sizes/templates/case labels). Standalone plaits round-trips
+  **byte-identical** (sha256-verified). 48k-baked exceptions documented
+  (README): zxphase48k/zxpulse48k time effects ×1.5 at 32k; particle burst
+  decay ×1.5 slower. Voice re-Init at every rate-context change.
+- **PHYSICAL RESIDENCY WALL (the T6 stop item):** chain mode needs BOTH
+  modules' hot code resident — the one-VMA overlay cannot express that.
+  Re-architected to a **two-slot window** (window 0x1C000→0x1D000, RAM −4 KiB;
+  A slot @origin, clouds-B slot @+0x9000). Measured verdicts:
+  - elements→clouds: **fits** (116,496 of 118,784 B window; objects
+    122,468/131,072; buffers exactly 196,608) — IMPLEMENTED.
+  - rings→clouds: needs 137,828 B (> window ceiling ~139,264 only with a
+    clouds spectral-code demotion + 8 KB arena bump) — REJECTED at engage
+    with exact numbers; ALSO the pair budget is 93-99% (rings worst 511 +
+    clouds ≈ 700-740 + mod ≤50 — over 750 in the worst case): the squeeze
+    likely buys residency without budget.
+  - plaits→clouds: needs ~188.7 KB — impossible without a SECOND, harder
+    chain-tier plaits image (~60 KB: voice path + engine 0 only); ~140 KB
+    window vs the ~139 KB ceiling — edge-of-feasible, another re-tier campaign.
+- **Chain machinery:** persistent chain state (routing survives swaps);
+  enter/leave = mute → checksummed double window copy → I2S via the core-0
+  handshake (32 kHz / 32×16 bank) → both slots re-Init (plaits at 32k) →
+  unmute; measured 32 ms engage / 24 ms disengage, click-free. Chain render:
+  A(24) → route → clouds Prepare+Process(24) → B → I2S; proc_us_max times
+  A+route+B. Mod engine runs the chain grid via two override reads
+  (destinations bind to A). Chained-clouds buffer split = 0.512 s/channel
+  (exact-fit arena). CC 23/24/65/66 pass to B while chained (A loses 23/24 —
+  dual-mapped; the mod engine still reaches A). B-mode clamp: stretch/spectral
+  rejected while chained (verified on hardware).
+- **Bench (elements→clouds, hardware):** engage 32 ms; sustained pair
+  **373-401 µs of 750 (~52%)**, in=923/out=516 meters live, zero stalls;
+  CC 23=1/3 rejected while chained; swap-while-chained: A fresh re-Init
+  6 ms + routing survives, rings/B rejects with window math; off→on→off
+  cycles clean (single-module budget/meters restore).
+- **ORCHESTRATOR FIX during bench:** `cmd_switch`'s single-module "already
+  active" guard swallowed the chain A-slot re-Init (while chained, A IS the
+  active module) — chain semantics now own the request before the guard.
+  CC-path note: amidi cannot address seq ports ("Unknown RawMidi 24:0") —
+  CC-path validation is code-shared with the console path (exercised via
+  console); the C seq client covers CC 32 if a dedicated test is ever needed.
+- **OPEN (user decision):** accept 1-of-3 pairs (recommended: the canonical
+  pairing), authorize the rings squeeze (budget-infeasible in worst case —
+  not recommended), or authorize the plaits chain-tier image (edge-of-
+  feasible, ~60 KB keep-list re-tier + second flash image).

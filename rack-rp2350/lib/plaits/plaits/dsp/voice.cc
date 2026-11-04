@@ -40,6 +40,23 @@ namespace plaits {
 using namespace std;
 using namespace stmlib;
 
+// Rack chain mode (RACK_PLAITS_RUNTIME_RATE, see dsp.h): the single runtime
+// definitions of the sample-rate trio + the setter. voice.cc is compiled (and
+// linked) in every build that uses plaits::Voice, so these always resolve.
+// The standalone ports never define the macro and never see this block --
+// their kSampleRate stays the compile-time 48 kHz constant.
+#ifdef RACK_PLAITS_RUNTIME_RATE
+float kSampleRate = 48000.0f;
+float kCorrectedSampleRate = 48000.0f;
+float a0 = (440.0f / 8.0f) / 48000.0f;
+
+void SetSampleRate(float rate) {
+  kSampleRate = rate;
+  kCorrectedSampleRate = rate;   // true-rate I2S: the SPEC R6 shim stays zero
+  a0 = (440.0f / 8.0f) / rate;   // NoteToFrequency / fm / wavetable engines
+}
+#endif  // RACK_PLAITS_RUNTIME_RATE
+
 #if defined(PLAITS_RANDOMIZER_PROFILES) && \
     defined(PLAITS_ENGINE_RANDOMIZER_PROFILE_INDICES)
 static const ParameterRandomizerProfile kRandomizerProfiles[] =

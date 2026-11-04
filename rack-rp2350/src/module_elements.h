@@ -92,8 +92,15 @@ struct State {
 
 static State* s = nullptr;   // placement-new'd by init(); arena offset 0
 
-void init() {
-  s = new (g_rack_object_arena) State();
+// T6 chain hooks (see main.cpp's chain state machine): state_size() +
+// init_at() let the chain place TWO module states side by side in the OBJECT
+// arena (the arena is a union — chain mode needs the A state and the
+// clouds-B state live at once). init() stays the single-module path
+// (placement at arena offset 0, exactly as before T6).
+static size_t state_size() { return sizeof(State); }
+
+void init_at(uint8_t* base) {
+  s = new (base) State();
   // Buffer carve: uint16_t reverb[32768] = 64 KB from the buffer arena.
   uint16_t* reverb_buffer = reinterpret_cast<uint16_t*>(g_rack_buffer_arena);
   memset(reverb_buffer, 0, 32768 * sizeof(uint16_t));
@@ -131,6 +138,49 @@ void init() {
   p->resonator_damping = 0.7f;
   p->resonator_position = 0.3f;
   p->space = 0.4f;
+}
+
+void init() { init_at(g_rack_object_arena); }
+
+// T6 chain A-slot render: exactly n samples (n <= 24, the chain grid) into
+// caller buffers, NO I2S write, NO proc_us_max update (the chain loop times
+// A + route + B together, per decision 6). Part::Process is fully size-
+// parameterized but its internal scratch is kMaxBlockSize = 16, so any n is
+// rendered as <= 16-sample sub-calls (24 = 16 + 8). The pending-slot apply
+// and perf_state fill are identical to render() — core-0 CCs keep landing on
+// the chain A slot through the registry dispatch while chained. Meters are
+// NOT written here: while chained, rack_meter_a/b report the B slot's
+// (clouds) input/output RMS — the LED + report meters become the effect
+// stage's meters.
+void chain_render_a(float* out_l, float* out_r, size_t n) {
+  int8_t egg = s->pending_easter_egg;
+  if (egg >= 0) {
+    s->pending_easter_egg = -1;
+    s->part.set_easter_egg(egg != 0);
+  }
+  int8_t m = s->pending_resonator_model;
+  if (m >= 0) {
+    s->pending_resonator_model = -1;
+    s->part.set_resonator_model(static_cast<elements::ResonatorModel>(m));
+  }
+
+  s->perf_state.gate = shared_gate;
+  s->perf_state.note = shared_note;
+  s->perf_state.strength = s->shared_strength;
+  s->perf_state.modulation = s->shared_modulation;
+
+  size_t done = 0;
+  while (done < n) {
+    const size_t chunk =
+        (n - done > kBlockSize) ? (size_t)kBlockSize : (n - done);
+    s->part.Process(s->perf_state, s->blow_in, s->strike_in, s->main_out,
+                    s->aux_out, chunk);
+    for (size_t i = 0; i < chunk; ++i) {
+      out_l[done + i] = s->main_out[i];
+      out_r[done + i] = s->aux_out[i];
+    }
+    done += chunk;
+  }
 }
 
 void render() {

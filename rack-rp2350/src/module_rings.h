@@ -126,8 +126,13 @@ static inline int32_t NumChordsFor(int32_t table, int32_t mode, int32_t polyphon
   }
 }
 
-void init() {
-  s = new (g_rack_object_arena) State();
+// T6 chain hooks (see module_elements.h): state_size()/init_at() keep the
+// single-module path. Rings is 32k-native — no rate-context hook needed
+// (unlike plaits, whose init_chain_a re-captures the runtime rate).
+static size_t state_size() { return sizeof(State); }
+
+void init_at(uint8_t* base) {
+  s = new (base) State();
   // Buffer carve: uint16_t reverb[32768] = 64 KB from the buffer arena.
   uint16_t* reverb_buffer = reinterpret_cast<uint16_t*>(g_rack_buffer_arena);
   memset(reverb_buffer, 0, 32768 * sizeof(uint16_t));
@@ -161,6 +166,98 @@ void init() {
   s->applied_waveform = 0;                           // square / bow
   s->applied_chord_table = rings::CHORD_TABLE_BRYAN; // 0
   s->applied_chord = 0;                              // raw, clamped at fill
+}
+
+void init() { init_at(g_rack_object_arena); }
+
+// T6: chain A-slot render — exactly n samples (n <= 24 = kMaxBlockSize) into
+// caller buffers (out/aux = the ODD/EVEN stereo convention), NO I2S write,
+// NO proc_us_max update. NOT reachable in this build (the pair table rejects
+// rings as chain A on window capacity — see main.cpp) but kept wired so
+// enabling the pair later is a linker-numbers change, not new code.
+void chain_render_a(float* out_l, float* out_r, size_t n) {
+  // --- apply pending changes strictly between two Process() calls ---
+  if (s->pending_mode >= 0) {
+    s->applied_mode = s->pending_mode <= rings::MODE_EASTER_EGG
+        ? s->pending_mode : rings::MODE_EASTER_EGG;
+    s->pending_mode = -1;
+  }
+  if (s->pending_model >= 0) {
+    s->applied_model = s->pending_model <= 5 ? s->pending_model : 5;
+    s->part.set_model(static_cast<rings::ResonatorModel>(s->applied_model));
+    s->string_synth.set_fx(static_cast<rings::FxType>(s->applied_model));
+    s->pending_model = -1;
+  }
+  if (s->pending_polyphony >= 0) {
+    int32_t p = s->pending_polyphony;
+    if (p < 1) p = 1;
+    if (p > rings::kMaxPolyphony) p = rings::kMaxPolyphony;
+    s->applied_polyphony = p;
+    s->part.set_polyphony(p);
+    s->string_synth.set_polyphony(p);
+    s->pending_polyphony = -1;
+  }
+  if (s->pending_waveform >= 0) {
+    s->applied_waveform = s->pending_waveform <= 2 ? s->pending_waveform : 2;
+    s->pending_waveform = -1;
+  }
+  if (s->pending_chord_table >= 0) {
+    s->applied_chord_table = s->pending_chord_table <= rings::CHORD_TABLE_JOE
+        ? s->pending_chord_table : rings::CHORD_TABLE_JOE;
+    s->pending_chord_table = -1;
+  }
+  if (s->pending_chord >= 0) {
+    s->applied_chord = s->pending_chord;
+    s->pending_chord = -1;
+  }
+
+  const bool strum_pulse = s->pending_strum;
+  s->pending_strum = false;
+
+  rings::PerformanceState perf;
+  rings::Patch patch;
+
+  perf.internal_exciter = true;
+  perf.internal_strum = false;
+  perf.internal_note = false;
+  perf.mode = static_cast<rings::PerformanceMode>(s->applied_mode);
+  perf.chord_table = static_cast<rings::ChordTable>(s->applied_chord_table);
+  perf.waveform_exciter = static_cast<uint8_t>(s->applied_waveform);
+  perf.strum_hold_option = 0;
+  perf.fm_input_option = 0;
+  perf.frequency_locked = 0;
+  perf.locked_frequency_pot_value = 0.0f;
+  perf.tonic = 0.0f;
+  perf.fm = 0.0f;
+  perf.note = shared_note;
+  perf.strum = strum_pulse;
+  perf.strum_gate = shared_gate;
+  perf.chord = s->applied_chord;
+  {
+    const int32_t num_chords =
+        NumChordsFor(s->applied_chord_table, s->applied_mode, s->applied_polyphony);
+    if (perf.chord > num_chords - 1) perf.chord = num_chords - 1;
+    if (perf.chord < 0) perf.chord = 0;
+  }
+
+  patch.structure = s->shared_structure;
+  if (patch.structure > 0.9995f) patch.structure = 0.9995f;
+  if (patch.structure < 0.0f) patch.structure = 0.0f;
+  patch.brightness = s->shared_brightness;
+  patch.damping = s->shared_damping;
+  patch.position = s->shared_position;
+
+  memset(s->in, 0, sizeof(s->in));
+
+  if (s->applied_mode == rings::MODE_EASTER_EGG) {
+    s->string_synth.Process(perf, patch, s->in, s->out, s->aux, n);
+  } else {
+    s->part.Process(perf, patch, s->in, s->out, s->aux, n);
+  }
+  for (size_t i = 0; i < n; ++i) {
+    out_l[i] = s->out[i];
+    out_r[i] = s->aux[i];
+  }
 }
 
 void render() {

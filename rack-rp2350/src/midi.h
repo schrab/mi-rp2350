@@ -84,6 +84,17 @@ static const uint8_t kModBenchCcValue  = 35;
 // Defined in mod_engine.h (included by main.cpp after the adapters).
 void rack_mod_bench_cc(uint8_t cc, uint8_t val);
 
+// T6 chain-mode CC intercept (DEFINED in main.cpp). While a chain is
+// engaged, CCs 23/24/65/66 belong to the B slot (clouds) and are handled by
+// the chain machinery (mode clamp / quality / freeze / trig); every other CC
+// goes to the A slot (the sound source) through the normal registry
+// dispatch. CC 23 is dual-mapped in every module map (elements geometry /
+// plaits engine / rings chord) — while chained it means clouds-B mode, so
+// the A slot loses CC 23/24 to the clamp (the mod engine can still drive A's
+// parameters — destinations bind to A). 65/66 are unused by all four maps.
+bool rack_chain_wants_cc(uint8_t cc);
+void rack_chain_control_change(uint8_t cc, uint8_t val);
+
 // T3 clock-bus realtime funnel: F8 (timing clock) / FA (start) / FB
 // (continue) / FC (stop), stamped with the render-loop sample position by
 // CORE 0 at this single entry point. Both USB paths (device readPacket +
@@ -171,11 +182,16 @@ inline void midiPitchBend(int16_t bend14) {  // -8192..8191, 0 = centered
 
 inline void midiControlChange(uint8_t cc, uint8_t val) {
   if (cc == kRackSwitchCc) {
-    rack_request_switch(val);     // CC 32 = live module switch (bench)
+    rack_request_switch(val);     // CC 32 = live module switch / chain-slot
+                                  // semantics while chained (T6 decision 5)
     return;
   }
   if (cc >= kModBenchCcSource && cc <= kModBenchCcValue) {
     rack_mod_bench_cc(cc, val);   // CC 33/34/35 = mod-engine bench mux (T3)
+    return;
+  }
+  if (rack_chain_wants_cc(cc)) {
+    rack_chain_control_change(cc, val);   // T6: B-slot CCs while chained
     return;
   }
   rack_module_control_change(cc, val);  // registry -> active adapter CC map

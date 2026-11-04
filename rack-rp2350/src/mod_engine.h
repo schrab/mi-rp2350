@@ -87,6 +87,17 @@
 
 extern volatile uint8_t g_active_module;   // defined in main.cpp (non-static since T3)
 
+// T6 chain-mode grid override (ADDITIVE — the engine's core logic is
+// untouched; these two reads replace the registry reads at the top of
+// mod_engine_process_block when nonzero). While a chain is engaged the
+// render loop runs the CHAIN grid (32 kHz / 24-sample blocks = 750 us)
+// instead of the A slot's registry block/rate, and g_active_module IS the A
+// slot — so destinations bind to A (decision 4) with no further changes.
+// Both are 0 whenever no chain is engaged (main.cpp keeps them in sync with
+// g_chain.active). Rate is carried as kHz (32/48 fits a byte).
+extern volatile uint8_t g_mod_chain_grid;       // 0 = off, else block size
+extern volatile uint8_t g_mod_chain_rate_khz;   // 0 = off, else rate/1000
+
 // ===================== source taxonomy =====================
 enum ModSourceType : uint8_t {
   MOD_LFO = 0, MOD_EUCLID = 1, MOD_GATE = 2, MOD_ADSR = 3,
@@ -387,8 +398,11 @@ void mod_engine_process_block(uint8_t active_module) {
   const uint32_t t0 = time_us_32();
   ModEngine& e = g_mod_engine;
   const RackModuleInfo& m = kRackModules[active_module];
-  const uint32_t bs = m.block_size;
-  const float sr = (float)m.sample_rate;
+  // T6: the chain grid overrides the registry block/rate while engaged
+  // (see the g_mod_chain_* note above); otherwise byte-identical to T3.
+  const uint32_t bs = g_mod_chain_grid ? g_mod_chain_grid : m.block_size;
+  const float sr = g_mod_chain_rate_khz ? g_mod_chain_rate_khz * 1000.0f
+                                        : (float)m.sample_rate;
   const float dt = (float)bs / sr;                  // seconds per block
 
   // Publish the block position for core 0's stamping. ORDER MATTERS: the

@@ -66,18 +66,41 @@
 
    NOLOAD note: RACK_WINDOW holds NO initialization (the tc_* OVERLAY
    members are the only things placed there, copied at boot/swap) — the
-   window is "NOLOAD" in effect: nothing in crt0 reads or zeroes it. */
+   window is "NOLOAD" in effect: nothing in crt0 reads or zeroes it.
+
+   T6 chain shape: chain mode (A -> clouds) needs TWO module images resident
+   SIMULTANEOUSLY, which the one-VMA OVERLAY cannot express. tc_clouds
+   therefore leaves the OVERLAY and gets its OWN output section (the "B
+   slot") at a FIXED offset RACK_CLOUDS_B_OFFSET = 0x9000 above the window
+   origin; the remaining three A-slot members keep the shared OVERLAY VMA at
+   the window origin (mutually exclusive, exactly one copied at a time —
+   unchanged T2 semantics). Slot sizing (RACK_WINDOW 0x1C000 -> 0x1D000):
+     A slot: 0x9000 = 36,864 B >= tc_elements 36,752 B (the chain A set;
+       tc_plaits 108,820 / tc_rings 58,080 are OVER it — single-module use
+       is unaffected, they simply span into the stale B-slot region and are
+       re-copied from flash on any switch; chain engagement with such an A
+       is rejected at runtime with these numbers)
+     B slot: 0x9000 + tc_clouds 79,744 = 116,596 <= 0x1D000 (119,808 B)
+   The ASSERTs below enforce both invariants at link time. Heap accounting:
+   RAM shrinks 0x64000 -> 0x63000 (the window must end exactly at the
+   SCRATCH_X origin — total main SRAM is a fixed 512 KiB), so the heap pays
+   the 4 KiB: measured 41,744 -> 37,640 B (>= the 16 KiB chain headroom gate
+   with the ~2 KiB I2S DMA bank allocation included in practice). */
 
 MEMORY
 {
     FLASH(rx) : ORIGIN = 0x10000000, LENGTH = 0x3FF000
     PSRAM(rwx) : ORIGIN = 0x11000000, LENGTH = 0
-    /* Main SRAM minus the module hot-code window (window = 112 KiB). */
-    RAM(rwx) : ORIGIN =  0x20000000, LENGTH = 0x64000
+    /* Main SRAM minus the module hot-code window (window = 116 KiB; T6 grew
+       it 0x1C000 -> 0x1D000 for the chain B slot, so RAM gives back the same
+       4 KiB — the heap pays for the chain residency, 1:1). */
+    RAM(rwx) : ORIGIN =  0x20000000, LENGTH = 0x63000
     /* SRAM window: top of main SRAM, right below SCRATCH_X (0x20080000).
-       ALL FOUR tc_* overlay members start here; exactly one is populated
-       (boot copy / live swap). */
-    RACK_WINDOW(rwx) : ORIGIN = 0x20064000, LENGTH = 0x1C000
+       The A-slot OVERLAY members (elements/plaits/rings) start here; exactly
+       one is populated (boot copy / live swap). tc_clouds has its own B-slot
+       section at ORIGIN + RACK_CLOUDS_B_OFFSET (T6 chain mode, see the
+       header). */
+    RACK_WINDOW(rwx) : ORIGIN = 0x20063000, LENGTH = 0x1D000
     /* Reserved flash sub-region: the four modules' tc_* flash copies
        (overlay LMAs, assigned consecutively by ld). Top of flash minus the
        core's 4 KiB EEPROM emulation block (EEPROM lives at 0x103FF000; the
@@ -92,6 +115,13 @@ PROVIDE ( _FS_start     = 0x103FF000 );
 PROVIDE ( _FS_end       = 0x103FF000 );
 
 ENTRY(_entry_point)
+
+/* T6 chain mode: tc_clouds' VMA sits at this FIXED offset above the window
+   origin (the "B slot"). Sized to the chain A set: >= tc_elements (36,752 B);
+   tc_plaits (108,820) / tc_rings (58,080) exceed it and are therefore
+   rejected as chain A at runtime (the ASSERT below fires if the A-slot
+   invariant is ever violated at link time). */
+RACK_CLOUDS_B_OFFSET = 0x9000;
 
 SECTIONS
 {
@@ -313,21 +343,40 @@ SECTIONS
     } > RAM
 
     /* ------------------------------------------------------------------
-       Rack module hot sections (RACK_RP2350_TC builds), UNIFIED overlay.
+       Rack module hot sections (RACK_RP2350_TC builds).
 
-       FOUR OVERLAY MEMBERS at ONE VMA: the shared SRAM window. LMAs are
-       assigned consecutively from ORIGIN(RACK_LMA) by the overlay rule.
+       T6 chain layout: TWO slots in the one window.
+       - A slot (the OVERLAY at ORIGIN(RACK_WINDOW)): elements / plaits /
+         rings — mutually exclusive, ONE VMA, exactly one image copied at a
+         time (unchanged T2 semantics).
+       - B slot (tc_clouds' own section at ORIGIN + RACK_CLOUDS_B_OFFSET):
+         resident ALONGSIDE the A slot while a chain is engaged; its image
+         may also be copied alone (single-module clouds uses the B-slot
+         address as its window image — nothing else lives at that offset
+         while clouds is the active module, and any switch re-copies from
+         flash).
+
+       LMAs are assigned from ORIGIN(RACK_LMA): tc_clouds takes the region
+       start (explicit AT), the overlay members continue consecutively after
+       it (explicit AT on the OVERLAY — GNU ld refuses `AT>` for OVERLAY
+       members).
        NOCROSSREFS is sound: the four modules are independent, shared code
        (stmlib) lives in .data/.text, never in a tc_* section.
        KEEP() so --gc-sections can never drop a marked section: the window
        size must be deterministic (independent of the adapter call graph),
-       matching the measured standalone totals. At any time exactly ONE
-       member's image is copied into the window (boot module or swap
-       target); the other members' VMA content is stale/garbage and never
-       referenced (every call into the window goes through the ACTIVE
-       module's registry entry).
+       matching the measured standalone totals.
        ------------------------------------------------------------------ */
-    OVERLAY ORIGIN(RACK_WINDOW) : NOCROSSREFS AT (ORIGIN(RACK_LMA))
+    tc_clouds ORIGIN(RACK_WINDOW) + RACK_CLOUDS_B_OFFSET :
+        AT (ORIGIN(RACK_LMA))
+    {
+        __tc_clouds_start = .;
+        KEEP(*(.tc_clouds.*))
+        . = ALIGN(4);
+        __tc_clouds_end = .;
+    } > RACK_WINDOW
+
+    OVERLAY ORIGIN(RACK_WINDOW) : NOCROSSREFS
+        AT (ORIGIN(RACK_LMA) + SIZEOF(tc_clouds))
     {
         tc_elements
         {
@@ -335,13 +384,6 @@ SECTIONS
             KEEP(*(.tc_elements.*))
             . = ALIGN(4);
             __tc_elements_end = .;
-        }
-        tc_clouds
-        {
-            __tc_clouds_start = .;
-            KEEP(*(.tc_clouds.*))
-            . = ALIGN(4);
-            __tc_clouds_end = .;
         }
         tc_plaits
         {
@@ -370,7 +412,8 @@ SECTIONS
     __rack_flash_rings_start = LOADADDR(tc_rings);
     __rack_flash_rings_end   = LOADADDR(tc_rings) + SIZEOF(tc_rings);
     /* Last-placed member's flash end = total extent of the reserved
-       region's rack content. */
+       region's rack content (tc_clouds LMA = region start; the overlay
+       members follow it, rings last). */
     __rack_flash_end = __rack_flash_rings_end;
 
     /* Every member must fit the ONE shared window. */
@@ -382,6 +425,22 @@ SECTIONS
         "ERROR: plaits hot section exceeds the rack SRAM window")
     ASSERT(SIZEOF(tc_rings) <= LENGTH(RACK_WINDOW),
         "ERROR: rings hot section exceeds the rack SRAM window")
+
+    /* T6 chain-residency invariants (B slot must not reach the A slot, and
+       both slots must fit the window). The first assert pins the chain A set
+       to modules whose hot image fits below the B slot — today tc_elements
+       36,752 <= 0x9000; adding plaits/rings as chain A requires raising
+       RACK_CLOUDS_B_OFFSET (and the window with it) and re-running the SRAM
+       math in the ledger. */
+    ASSERT(SIZEOF(tc_elements) <= RACK_CLOUDS_B_OFFSET,
+        "ERROR: elements hot section overlaps the chain B slot (raise RACK_CLOUDS_B_OFFSET)")
+    ASSERT(RACK_CLOUDS_B_OFFSET + SIZEOF(tc_clouds) <= LENGTH(RACK_WINDOW),
+        "ERROR: chain B slot (clouds) exceeds the rack SRAM window")
+    /* The window must end exactly where the core's scratch banks begin —
+       RAM + window + scratch partition the fixed 512 KiB main SRAM with no
+       gap and no overlap. */
+    ASSERT(ORIGIN(RACK_WINDOW) + LENGTH(RACK_WINDOW) == ORIGIN(SCRATCH_X),
+        "ERROR: RACK_WINDOW must end exactly at the SCRATCH_X origin")
     /* Explicit AT() bypasses ld's region accounting: assert the four flash
        copies stay inside the reserved region. */
     ASSERT(__rack_flash_end <= ORIGIN(RACK_LMA) + LENGTH(RACK_LMA),

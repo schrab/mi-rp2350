@@ -89,6 +89,12 @@ struct State {
   float noise_lp_state;
   uint32_t rng_state;
   bool previous_gate;
+
+  // T6: true when this State was placed by init_chain_b() as the chain B
+  // slot — the chain loop feeds REAL frames into Process() (the exciter is
+  // bypassed entirely) and the playback-mode selector is clamped to
+  // granular/looping (see control_change + chain_render_b).
+  bool chain_b;
 };
 
 static State* s = nullptr;   // placement-new'd by init(); arena offset 0
@@ -129,14 +135,21 @@ static inline float ExciterSample(float note_hz) {
   return sv * level;
 }
 
-void init() {
-  s = new (g_rack_object_arena) State();
+// T6 chain hooks (see module_elements.h + main.cpp): state_size()/init_at()
+// are the single-module path (unchanged placement/split); init_chain_b()
+// places the B-slot State AFTER the chain A state in the object arena and
+// carves the CHAINED buffer split from the caller's buffer-arena region.
+static size_t state_size() { return sizeof(State); }
+
+void init_at(uint8_t* base) {
+  s = new (base) State();
   // Buffer carve (rack_arena.h map): large @0, small @131072.
   uint32_t* large_buffer = reinterpret_cast<uint32_t*>(g_rack_buffer_arena);
   uint32_t* small_buffer =
       reinterpret_cast<uint32_t*>(g_rack_buffer_arena + kLargeBufferBytes);
   memset(large_buffer, 0, kLargeBufferBytes);
   memset(small_buffer, 0, kSmallBufferBytes);
+  s->chain_b = false;
 
   s->pending_playback_mode = -1;
   s->pending_quality = -1;
@@ -168,6 +181,145 @@ void init() {
   s->processor.set_playback_mode(clouds::PLAYBACK_MODE_GRANULAR);
   s->processor.set_quality(0);          // 16-bit stereo
   s->processor.Prepare();
+}
+
+void init() { init_at(g_rack_object_arena); }
+
+// T6: chain B-slot init. The State goes AFTER the chain A state in the
+// OBJECT arena (offset chosen by the caller); the buffers carve from the
+// CALLER's region of the BUFFER arena (above the chain A carve).
+//
+// CHAINED SPLIT (documented deviation): the caller passes
+//   large = 98,304 B (= 32,768 sample memory ch0 + 65,536 FX workspace)
+//   small = 32,768 B (sample memory ch1)
+// GranularProcessor::Init's stereo partition takes the per-channel sample
+// memory = the SMALL size from the front of the large buffer + the whole
+// small buffer, and the FX workspace = large - small (granular_processor.cc
+// Prepare(): buffer_size[0] = buffer_size[1] = buffer_size_[1]; workspace =
+// buffer_size_[0] - buffer_size_[1]). So vs the standalone split (64+64 KB
+// sample memory, 64 KB FX) the chained split keeps the FX workspace
+// IDENTICAL and halves the sample memory to 0.512 s/channel (32,768 B =
+// 16,384 stereo frames @ 32 kHz) — forced by the buffer arena's exact fit
+// (chain A carve 65,536 + 98,304 + 32,768 = 196,608 = the full arena).
+void init_chain_b(uint8_t* obj_base, uint8_t* large, size_t large_bytes,
+                  uint8_t* small, size_t small_bytes) {
+  s = new (obj_base) State();
+  memset(large, 0, large_bytes);
+  memset(small, 0, small_bytes);
+  s->chain_b = true;
+  // The chain path bypasses the exciter entirely (real frames instead);
+  // zero the exciter level as defense in depth.
+  s->pending_playback_mode = -1;
+  s->pending_quality = -1;
+  s->pending_freeze = -1;
+  s->pending_trigger = false;
+  s->shared_exciter_tone = 0.5f;
+  s->shared_exciter_level = 0.0f;
+  s->shared_exciter_mode = 0.0f;
+  s->shared_position = 0.35f;
+  s->shared_size = 0.5f;
+  s->shared_pitch = 0.5f;
+  s->shared_density = 0.75f;
+  s->shared_texture = 0.5f;
+  s->shared_dry_wet = 0.8f;
+  s->shared_stereo_spread = 0.5f;
+  s->shared_feedback = 0.0f;
+  s->shared_reverb = 0.3f;
+  s->burst_env = 0.0f;
+  s->burst_phase = 0.0f;
+  s->tone_phase = 0.0f;
+  s->noise_lp_state = 0.0f;
+  s->rng_state = 0x1fff7a10;
+  s->previous_gate = false;
+
+  s->processor.Init(large, large_bytes, small, small_bytes);
+  s->processor.set_sample_rate(static_cast<float>(kSampleRate));  // 32000
+  s->processor.set_playback_mode(clouds::PLAYBACK_MODE_GRANULAR);
+  s->processor.set_quality(0);          // 16-bit stereo
+  s->processor.Prepare();
+}
+
+// T6: chain B-slot render — exactly n samples (n <= 24, the chain grid) of
+// ROUTED INPUT (the chain A slot's out/aux) through Prepare() + Process(),
+// out into the caller's buffers, NO I2S write, NO proc_us_max update (the
+// chain loop times A + route + B together). This hook REPLACES the exciter:
+// clouds_in gets the routed frames, nothing else. parameters.gate stays
+// false — its only consumer is the excluded spectral path's
+// FrameTransformation.
+//
+// SCALE (documented choice): the routed frames pass at GAIN 1.0 — the A
+// adapters' float outputs are the same ±1.0 class the write path Clip16s to
+// I2S, and the standalone exciter produced 0.6-0.8 peaks, so the routed
+// material is at (slightly above) the level the granulator was validated
+// with. No fixed gain stage.
+void chain_render_b(const float* in_l, const float* in_r,
+                    float* out_l, float* out_r, size_t n) {
+  // Apply pending changes strictly between two Process() calls — with the
+  // CHAIN CLAMP as belt-and-braces: core 0 rejects CC 23 = 1 (stretch) / 3
+  // (spectral) loudly while chained; anything illegal that still arrives
+  // (future paths) lands on granular instead of stretching the budget.
+  if (s->pending_playback_mode >= 0) {
+    int8_t mode = s->pending_playback_mode;
+    if (s->chain_b && mode != 0 && mode != 2) mode = 0;
+    s->processor.set_playback_mode(
+        static_cast<clouds::PlaybackMode>(mode));
+    s->pending_playback_mode = -1;
+  }
+  if (s->pending_quality >= 0) {
+    s->processor.set_quality(s->pending_quality);
+    s->pending_quality = -1;
+  }
+  if (s->pending_freeze >= 0) {
+    s->processor.set_freeze(s->pending_freeze != 0);
+    s->pending_freeze = -1;
+  }
+  if (s->pending_trigger) {
+    s->processor.mutable_parameters()->trigger = true;
+    s->pending_trigger = false;
+  } else {
+    s->processor.mutable_parameters()->trigger = false;
+  }
+
+  // Copy the panel parameters between blocks (factory defaults while
+  // chained — B-CC routing for the grain parameters is future work).
+  clouds::Parameters* p = s->processor.mutable_parameters();
+  p->position       = s->shared_position;
+  p->size           = s->shared_size;
+  p->pitch          = s->shared_pitch;
+  p->density        = s->shared_density;
+  p->texture        = s->shared_texture;
+  p->dry_wet        = s->shared_dry_wet;
+  p->stereo_spread  = s->shared_stereo_spread;
+  p->feedback       = s->shared_feedback;
+  p->reverb         = s->shared_reverb;
+  p->gate           = false;
+
+  // ROUTE: the chain input IS the exciter replacement (bypassed entirely).
+  for (size_t i = 0; i < n; ++i) {
+    s->clouds_in[i].l = in_l[i];
+    s->clouds_in[i].r = in_r[i];
+  }
+
+  // Prepare() MUST run every block (original firmware contract).
+  s->processor.Prepare();
+  s->processor.Process(s->clouds_in, s->clouds_out, n);
+
+  for (size_t i = 0; i < n; ++i) {
+    out_l[i] = s->clouds_out[i].l;
+    out_r[i] = s->clouds_out[i].r;
+  }
+
+  // Meters: routed-input RMS / output RMS, max since the last 2 s report —
+  // while chained these feed the status LED + report for the PAIR.
+  float in_acc = 0.0f, out_acc = 0.0f;
+  for (size_t i = 0; i < n; ++i) {
+    in_acc += s->clouds_in[i].l * s->clouds_in[i].l;
+    out_acc += s->clouds_out[i].l * s->clouds_out[i].l;
+  }
+  float in_rms = sqrtf(in_acc / n);
+  float out_rms = sqrtf(out_acc / n);
+  if (in_rms > rack_meter_a) rack_meter_a = in_rms;
+  if (out_rms > rack_meter_b) rack_meter_b = out_rms;
 }
 
 void render() {

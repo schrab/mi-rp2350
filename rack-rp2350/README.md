@@ -123,16 +123,19 @@ per-message lines (34 packets + 2 discards), then `52 bytes -> 34 packets
 active module (60/64/67), CC 7 applies, and `mod?` shows midi `ticks +25`
 once core 1 drains the stamp ring (within one audio block).
 
-## SRAM architecture (T2)
+## SRAM architecture (T2 + T6 two-slot window)
 
 - **One window for all four modules**: `memmap_rack.ld` (single script, every
-  env) places ALL FOUR `.tc_<module>.*` hot sets into ONE ld OVERLAY — same
-  VMA = the 112 KiB SRAM window at 0x20064000 (top of main SRAM), sequential
-  LMAs in the reserved flash region RACK_LMA (origin 0x10389000). Measured
-  members (rack ELF, 2026-11-04): elements 36,752 B, clouds 79,744 B, plaits
-  108,820 B, rings 58,084 B — all ≤ 0x1C000 (114,688 B; ~5.9 KB promotion
-  slack). `rack_window_copy(module_id)` copies ANY member into the window
-  (boot or swap); the copied image is the only live one.
+  env) places the elements/plaits/rings `.tc_<module>.*` hot sets into ONE ld
+  OVERLAY — same VMA = the window origin (the chain A slot), with clouds in
+  its OWN section at origin+0x9000 (the T6 chain B slot); LMAs are
+  sequential in the reserved flash region RACK_LMA (origin 0x10389000).
+  Measured members (rack ELF, 2026-11-04): elements 36,752 B, clouds 79,744
+  B, plaits 108,820 B, rings 58,084 B — the window is 0x1D000 (119,808 B;
+  T6 grew it from 0x1C000 and shrank RAM by the same 4 KiB for the chain B
+  slot). `rack_window_copy(module_id)` copies ANY member into the window
+  (boot or swap); in single-module mode the copied image is the only live
+  one, in chain mode A + clouds-B are live together (see Chain mode v2).
 - **Arenas** (`src/rack_arena.h`): object arena 128 KiB + buffer arena
   192 KiB, both `alignas(8)`, .bss-resident, used as UNIONS — the active
   module's placement/carve is the live one: elements Part 113,488 B + 64 KiB
@@ -141,10 +144,11 @@ once core 1 drains the stamp ring (within one audio block).
   rings Part 123,352 B + StringSynthPart 2,004 B (the object arena's sizing
   module) + 64 KiB reverb. Swaps re-place + re-Init factory defaults; no
   destructors exist in the four ports' DSP state.
-- **RAM per env** (identical map in all four): static .data 19,576 B + .bss
-  345,044 B (of which arenas 327,680 B → non-arena static ≈ 37 KB) → heap
-  44,708 B below the window; boot heap consumers: core-1 separate stack
-  8 KB, I2S DMA bank 2-3 KB, USB device+host buffers → ≥ ~16 KB headroom.
+- **RAM per env** (identical map in all four): static .data 20,264 B + .bss
+  347,328 B (of which arenas 327,680 B → non-arena static ≈ 40 KB) → heap
+  37,640 B below the window (T6: was 41,744 — the chain B slot's 4 KiB came
+  from the heap); boot heap consumers: core-1 separate stack 8 KB, I2S DMA
+  bank 2-3 KB, USB device+host buffers → ≥ ~16 KB headroom maintained.
 - **Plaits re-tier** (T2 prerequisite; patches `05/06/07` regenerated):
   tc_plaits 272,564 → 108,820 B (−163,744). KEPT in SRAM: the Voice::Render
   path (voice + post-processor + sub-oscillator), support DSP
@@ -185,6 +189,118 @@ sustained worst ≈ 268 µs of the 500 µs budget; from XIP they are EXPECTED
 slower — accepted by the plan, re-tier any offender = one token line, window
 slack ~5.9 KB.)
 
+## Chain mode v2 (T6)
+
+One A→B serial chain, bench-controlled via the serial console (`chain`,
+`chain <a> [b]`, `chain off`; no CC for T6 — the C3's CHORD_ROUTE arrives
+later). The chain grid is **32 kHz / 24-sample blocks (750 µs)**: A renders
+24 samples into float buffers (elements internally as 16+8 — `Part::Process`
+scratch is kMaxBlockSize 16), the route copies A's out/aux into clouds'
+stereo `FloatFrame` input, clouds-B processes 24 frames, and **B's output is
+the chain output** (clouds is the effect stage). Entering/leaving is a
+rate-context event: mute (4-block ramp + silent bank flush) → both slot
+images re-copied flash→window (checksummed) → I2S reconfigured on CORE 0
+via a handshake identical to the swap's → both slots re-Init (a chained
+plaits would re-capture 32 kHz via the runtime `kSampleRate`,
+`08-plaits-runtime-rate.patch`) → unmute. Prints:
+`rack: chain <a>-><b> engaged (<ms> ms)` / `rack: chain off (<ms> ms)`.
+
+### Pair table (user-amended 2026-11-05 — all X→clouds) vs chain residency
+
+Chain mode needs BOTH slots' hot images resident in the two-slot SRAM
+window simultaneously (memmap_rack.ld: the elements/plaits/rings overlay at
+the window origin = the A slot; clouds' own section at origin+0x9000 = the
+B slot). Engagement is validated at the console against the REAL
+linker-symbol sizes:
+
+| Pair | A hot (B) | B hot | Window need | Object arena | Verdict in this build |
+|---|---|---|---|---|---|
+| elements→clouds | 36,752 B | 79,744 B | 116,496 ≤ 119,808 | 113,920+8,706 ≤ 131,072 | **ENGAGEABLE** |
+| rings→clouds | 58,080 B | 79,744 B | 137,824 > 119,808 | 134,404 > 131,072 | rejected (window AND object arena) |
+| plaits→clouds | 108,820 B | 79,744 B | 188,564 > 119,808 | fits | rejected (needs ~+69 KB window; the 512 KiB part has ~+20 KB max at the 16 KB heap-headroom gate) |
+
+Rejected pairs print the exact numbers on `chain rings clouds` /
+`chain plaits clouds` and stay single-module. Enabling rings later needs the
+clouds spectral-code demotion (~5.1 KB of dead window code) + the object
+arena +8 KB + a wider B slot — see the ledger T6 findings. Enabling
+plaits→clouds needs a second (chain-tier) plaits window image — an
+architecture decision, not a tuning knob.
+
+**Per-pair budget math (standalone numbers, sustained):**
+elements 101-207 µs @16-sample blocks (≈150-310 @24) + clouds granular
+238-260 µs @32-sample (≈180-195 @24) + mod engine ≤50 µs ≈ **380-555 µs of
+750 (51-74%)**. plaits@32k ≈ 268/1.5 ≈ 179 µs (worst sustained, 48k basis)
++ clouds ≈ 420-470 µs (56-63%) — blocked on residency, not budget. rings
+worst 511 µs + clouds ≈ 700-740 µs (93-99%) — tight even if residency were
+solved; the bench must measure it before enabling.
+
+### Chain-mode behavior (documented choices)
+
+- **CC routing while chained**: CC 23/24/65/66 → the B slot (clouds mode
+  clamp / quality / freeze / trig — 65/66 are unused by every chain-A map);
+  every other CC → the A slot. CC 23 is dual-mapped in every module's map
+  (elements geometry / plaits engine / rings chord), so while chained it
+  MEANS clouds mode and the A slot loses CC 23/24 (the mod engine can still
+  drive A — destinations bind to A).
+- **Clouds-B mode clamp**: chain mode is granular/looping ONLY. CC 23 = 0
+  (granular) / 2 (looping) accepted; **1 (stretch) and 3 (spectral)
+  REJECTED** with a console line, no crash (belt-and-braces: the adapter's
+  apply-time clamp lands anything illegal on granular). Stretch stays
+  available in single-module mode; spectral is excluded everywhere (T2).
+- **Routing scale**: the route passes A's floats at **gain 1.0** — the
+  adapters' outputs are the same ±1.0 class the I2S write path Clip16s, and
+  the standalone test exciter produced 0.6-0.8 peaks, so routed material
+  lands at the level the granulator was validated with. No fixed gain
+  stage.
+- **Exciter bypass**: while chained, clouds' test exciter is bypassed
+  entirely — the routed frames ARE the exciter input (`parameters.gate`
+  stays false; its only consumer is the excluded spectral path).
+- **Chained clouds buffer split** (documented deviation): the buffer arena
+  is exactly full for the elements/rings pairs, so chained clouds runs
+  large 98,304 B (32,768 B sample memory ch0 + 65,536 B FX workspace — the
+  FX depth is IDENTICAL to standalone) + small 32,768 B (ch1) =
+  **0.512 s/channel sample memory vs 1.024 s standalone**. Grain parameters
+  are unaffected; maximum loop length halves.
+- **Mod engine in chain mode**: destinations bind to the A slot (the sound
+  source; `g_active_module` IS A while chained, and the engine's per-block
+  pass runs the chain grid via the additive `g_mod_chain_*` overrides).
+  B-destination binding is future work, same as B grain-parameter CC
+  routing (B stays at factory defaults while chained).
+- **Swap-while-chained (decision 5)**: CC 32 / `switch` while chained
+  targets the chain slots — v == A: fresh re-Init of A (no I2S change, no
+  window copy; routing re-patches automatically), v == B: rejected (clouds
+  is the only B in T6), otherwise rejected with the A-slot window math.
+- **Report**: the module field extends to `mod=elements>clouds` and the
+  budget field to the chain's 750 µs; `proc_us_max` times A+route+B
+  honestly (the write stage stays excluded, same convention as the
+  adapters); meters become the B slot's in/out RMS.
+
+### Plaits @ 32 kHz — runtime rate (`08-plaits-runtime-rate.patch`)
+
+Survey of every `kSampleRate`/`kCorrectedSampleRate` use in the fork (rack
+ELF-verified): **all code uses are runtime float arithmetic inside
+Init()/Render()** — drum envelope times, SVF cutoffs, delay lengths,
+SAM/LPC frame timers, six-op FM voice Init, brass per-sample scaling. NO
+compile-time use anywhere (no array sizes, template arguments, case labels,
+or static initializers outside dsp.h). Mechanism: under
+`-DRACK_PLAITS_RUNTIME_RATE` (rack envs only — the standalone builds stay
+byte-identical, proven by firmware.bin sha256), `kSampleRate`,
+`kCorrectedSampleRate` and `a0` become runtime globals set by
+`plaits::SetSampleRate()`; `kCorrectedPitchOffset` stays compile-time 0
+(both rates track the same true rate → log2(1) = 0 at ANY rate), so the
+derived namespace-scope constants (`kParticlePitchCorrection`,
+`kStruckDrumPitchCorrection`) never become a static-init-order hazard.
+Engines capture the rate at Init — the chain state machine re-Inits the
+Voice on every rate-context change.
+
+Documented 48k-baked exceptions (behave slightly differently at 32 kHz, by
+design accepted):
+
+| Engine | What is baked | 32 kHz effect |
+|---|---|---|
+| zxphase48k (94) / zxpulse48k (95) | fixed-point phase increments, "one internal (4x) step per sample" at 48 kHz out | internal time effects (1-bit flanger delay, pin widths) stretch ×1.5 in seconds |
+| particle_burst (14) | `kParticleStockDecay` = 64763/65536 per-48kHz-sample envelope coefficient | burst decays stretch ×1.5 in real time (pitch/pitch-correction stay exact) |
+
 ## Wiring
 
 Identical to the four standalone ports: PCM5102A BCK GP6 / DIN GP8 /
@@ -223,8 +339,12 @@ Three real findings from the bring-up:
 
 `max Process: N us (budget B) | i2s stalls: T (+d) | in= out= notes= |
 host: conn= st= dev= midi= frame= | mod=<active module>` — budgets:
-elements 496, clouds 1000, plaits 500 (48 kHz), rings 750 µs. Swap lines:
-`rack: switched to <module> in <ms> ms (window <n> bytes)`. `telemetry off`
+elements 496, clouds 1000, plaits 500 (48 kHz), rings 750 µs; while chained
+the module field reads `mod=<a>><b>` (e.g. `elements>clouds`) and the
+budget is the chain grid's 750 µs with `proc_us_max` = A+route+B. Swap
+lines: `rack: switched to <module> in <ms> ms (window <n> bytes)`; chain
+lines: `rack: chain <a>-><b> engaged (<ms> ms)` / `rack: chain off (<ms>
+ms)`. `telemetry off`
 mutes ONLY this line (cadence + counter resets continue; `status` prints a
 one-liner instead). T4 DIN counters deliberately live in `din`/`status`, not
 here — the format above is byte-compatible with the T1/T2/T3 bench history.
