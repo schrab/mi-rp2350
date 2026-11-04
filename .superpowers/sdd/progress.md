@@ -1122,7 +1122,7 @@ after each task).
 |---|---|---|---|
 | T1 Linker/sections (module-prefixed .time_critical, NOLOAD SRAM window, selective copy) | done | 14a9436 | 4 boot-select envs benched on hardware 2026-11-04; per-env SRAM windows; 2 firmware boot bugs fixed (early CDC print, post-detach re-enum death); findings below |
 | T2 Arena + live swap (bench switching via switch-CC + serial console) | done | 50d0489 | CC 32 + console swaps among all 4, 19-44 ms mutes, zero stalls, user ear-clean; plaits re-tiered 272→109 KB, clouds CMSIS tables to flash (spectral excluded v1); crash fix: I2S reconfig moved to core 0; findings below |
-| T3 Mod engine + clock bus (internal BPM / MIDI 24 PPQ, 1-32-step euclid+gate, bench settings via CC/console) | pending | — | |
+| T3 Mod engine + clock bus (internal BPM / MIDI 24 PPQ, 1-32-step euclid+gate, bench settings via CC/console) | done | (see commit) | 12 sources; u: ≤ 45 µs observed (gate 50, 31 µs under 12-source load); ext-clock verified (48/s @ 120 BPM, tempo-follow 120→100, START re-phase / STOP freeze); phase survives swaps; findings below |
 | T4 RP2350 DIN 31250 parser + serial console | pending | — | DIN hardware needed to test |
 | T4a Presets (serialization + console dump/load + last-state autosave) | pending | — | bank lands on C3 flash in T5 |
 | T5 C3 UI + UART link (after DSP acceptance AND hardware) | pending | — | encoder+button menus, HC4067, ST7789, BLE-MIDI, preset bank |
@@ -1295,3 +1295,43 @@ three are metrics-verified (ears at the DSP-acceptance checkpoint).
   via earlier cycle), spectral rejection, console swaps by name and id,
   8-swap stress. Swap semantics documented (factory defaults on swap; panel
   CC positions desync — reconnect re-syncs; T4a presets will restore).
+
+### Rack T3 — mod engine + clock bus (2026-11-05)
+
+- **`src/mod_engine.h` (~1230 lines, pure rack-src, no lib changes):**
+  persistent `g_mod_engine` = 1,776 B in .bss, nm-proven OUTSIDE both arenas
+  (ends exactly where the buffer arena begins). 12 sources (the plan's list
+  sums to 12 despite the "(8)" header — deviation accepted): 4× LFO
+  (free-Hz 0.02-20 exponential OR clocked-division; sine/tri/saw/square/S&H;
+  phase offset; level), 4× Euclidean (Toussaint-canon maximally-even masks,
+  first pulse at step 0, rotation-reachable; steps 1-32; host-tested
+  invariants), 2× rhythmic gate (1-32 mask, per-step gate length), 2× ADSR
+  (gate-follow from the note stack OR clock-retrigger; A/D/R 1 ms-10 s — a
+  host-side unit test caught and fixed a 1000 s exponent bug pre-build).
+- **Clock bus:** block-rate 24-PPQ accumulator (internal, BPM 20-300 @ 0.1)
+  OR sample-stamped external F8/FA/FB/FC: core 0 stamps at the single
+  `midiHandleEventPacket` funnel (both USB paths; T4's DIN adds one call)
+  with `sample_counter + sub-block µs interpolation`; 64-deep SPSC ring;
+  core 1 drains at block top. Per-source clock override + 10 divisions
+  (1/1…1/32 + triplets, exact 24-PPQ integers). Measured-tempo EMA drives
+  clocked LFOs (smooth ramp, no stair-step).
+- **Bench control:** CC 33/34/35 mux (source/param/value — grep-proven
+  collision-free vs all four maps) + serial `mod/mod?/bpm/clock`; CC 64 =
+  trigger pseudo-CC (plaits TRIG, rings STRUM); destinations per module
+  (continuous CC lists with mode/quality/engine selectors excluded; clouds
+  freeze=65 LATCH / trig=66 PULSE); inert destinations logged + tagged in
+  `mod?` (`INERT! on <module>` — verified on hardware).
+- **Bench (hardware):** EU odometer +16/2 s exactly (1/16 @ 120 BPM);
+  LFO1→CC 27 sweeps elements' space; routing re-resolves per module across
+  swaps (INERT on plaits, live again on elements, out= continuous mid-cycle
+  — phase survived two swaps, odometer never reset); trigger recipes
+  exercised (plaits TRIG retrigger with notes, rings STRUM, clouds
+  freeze+trig); **external sequencer via a C ALSA-seq client
+  (/tmp/seqclock.c — aplaymidi DROPS F8/FA/FC in its SMF→seq conversion,
+  ticks=0; rawmidi wedges post-flash per the known EBUSY issue): m:48/s at
+  120 BPM, tempo change 120→100 followed (EMA slew), clocked LFO re-phased
+  on START, frozen on STOP; `modeng=` telemetry + `u:` (mod_us_max) field;
+  u: ≤ 45 µs across all tests, 31 µs under all-12-sources routing — 50 µs
+  gate met with margin.**
+- Bench-tooling note for T4/T7: external-clock tests must use a seq CLIENT
+  sender (SND_SEQ_EVENT_CLOCK/START/STOP direct events), not aplaymidi SMFs.

@@ -27,6 +27,7 @@
 #include "pico/time.h"           // time_us_32 (static inline in pico-sdk 2.x)
 
 #include "rack_arena.h"
+#include "module_registry.h"     // RackModDestinations (T3 mod routing table)
 
 namespace rack_modules {
 namespace mod_rings {
@@ -43,7 +44,23 @@ static const uint32_t kStallUs = 1400;    // ~1.8x the 750 us block period
 static const char* const kCcMap =
     "14 structure, 15 brightness, 16 damping, 17 position, 18 model/fx, "
     "19 polyphony, 20 mode, 21 waveform, 22 chord-table, 23 chord";
-static const char* const kModDestinations = "";  // T3 placeholder
+// T3 mod destinations: the four float patch parameters 14-17 accept continuous
+// modulation; CC 23 (chord index) is included as a STEPPED destination (the
+// value is rounded into the pending_chord int8 and clamped against the active
+// chord table at fill time — modulating it sweeps chords). 18-22 are EXCLUDED
+// (model/fx, polyphony, mode, waveform, chord-table selectors — per-block
+// selector writes would spam the between-blocks apply path with no musical
+// meaning). Pseudo-CC 64 (verified unused by all four maps) = the STRUM
+// input: pulse-kind, one block per rising edge (same path as MIDI note-on).
+static const uint8_t kModContinuousCcs[] = {14, 15, 16, 17, 23};
+static const uint8_t kModTriggerCcs[] = {64};
+static const uint8_t kModTriggerKinds[] = {RACK_TRIG_PULSE};
+static const RackModDestinations kModDestinations = {
+    "rings: continuous 14-17,23 (18-22 excluded: model/poly/mode/wave/"
+    "chord-table selectors) | triggers: 64 strum (pulse)",
+    5, kModContinuousCcs,
+    1, kModTriggerCcs, kModTriggerKinds,
+};
 
 // --- engine state: arena-placed (was file-scope before T2) ---
 struct State {
@@ -310,6 +327,40 @@ void control_change(uint8_t cc, uint8_t val) {
     case 23: s->pending_chord = static_cast<int8_t>(val); break;
     default: break;
   }
+}
+
+// ===================== T3 mod-engine hooks (core 1) =====================
+// Same between-blocks discipline as the pending slots in render(); the mod
+// engine only runs while not swapping, so `s` is always the live state.
+
+// Continuous destination write (0..1 virtual CC position, float precision).
+// 14-17 are the float patch parameters; 23 is stepped (rounded into the
+// pending_chord int8, clamped against the table at fill). 18-22 excluded.
+bool mod_set_cc_float(uint8_t cc, float v) {
+  if (v < 0.0f) v = 0.0f;
+  if (v > 1.0f) v = 1.0f;
+  switch (cc) {
+    case 14: s->shared_structure = v; break;
+    case 15: s->shared_brightness = v; break;
+    case 16: s->shared_damping    = v; break;
+    case 17: s->shared_position   = v; break;
+    case 23:
+      s->pending_chord = static_cast<int8_t>(v * 127.0f + 0.5f);
+      break;
+    default: return false;
+  }
+  return true;
+}
+
+// Trigger destination write: pseudo-CC 64 = STRUM. Rising edges pulse for
+// exactly one block (re-excites the resonator / advances the easter egg's
+// chord) — the same pending_strum path MIDI note-on uses.
+bool mod_trigger_cc(uint8_t cc, bool high) {
+  if (cc == 64) {
+    if (high) s->pending_strum = true;
+    return true;
+  }
+  return false;
 }
 
 }  // namespace mod_rings

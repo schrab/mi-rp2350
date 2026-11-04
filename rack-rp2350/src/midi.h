@@ -70,6 +70,28 @@ void rack_module_control_change(uint8_t cc, uint8_t val);
 static const uint8_t kRackSwitchCc = 32;
 void rack_request_switch(uint8_t module_id);
 
+// --- T3 mod-engine bench CCs (multiplexed select/param/value, core 0) ---
+// CC 33 = source select (0-11: 0-3 LFO1-4, 4-7 EU1-4, 8-9 GATE1-2,
+// 10-11 ADSR1-2), CC 34 = parameter select (per-source param index), CC 35 =
+// value (0-127, mapped per param). Verified UNUSED by all four adapters' CC
+// maps and by this parser (grep: no `case 3[0-9]` outside CC 32). Both
+// handlers run on CORE 0 (called from midiControlChange below); they touch
+// only engine scalars (atomic aligned 32-bit writes) — the swap path is not
+// involved and keeps working during swaps.
+static const uint8_t kModBenchCcSource = 33;
+static const uint8_t kModBenchCcParam  = 34;
+static const uint8_t kModBenchCcValue  = 35;
+// Defined in mod_engine.h (included by main.cpp after the adapters).
+void rack_mod_bench_cc(uint8_t cc, uint8_t val);
+
+// T3 clock-bus realtime funnel: F8 (timing clock) / FA (start) / FB
+// (continue) / FC (stop), stamped with the render-loop sample position by
+// CORE 0 at this single entry point. Both USB paths (device readPacket +
+// PIO-USB host poll) call midiHandleEventPacket below, so the stamping is
+// automatically live on both; T4's DIN parser needs exactly one call to
+// midiHandleEventPacket to join. Defined in mod_engine.h.
+void rack_mod_clock_realtime(uint8_t status);
+
 // --- note stack: last-note priority (single TU: main.cpp -> static storage) ---
 struct NoteStack {
   static const uint8_t kMaxNotes = 8;
@@ -152,14 +174,28 @@ inline void midiControlChange(uint8_t cc, uint8_t val) {
     rack_request_switch(val);     // CC 32 = live module switch (bench)
     return;
   }
+  if (cc >= kModBenchCcSource && cc <= kModBenchCcValue) {
+    rack_mod_bench_cc(cc, val);   // CC 33/34/35 = mod-engine bench mux (T3)
+    return;
+  }
   rack_module_control_change(cc, val);  // registry -> active adapter CC map
 }
 
 // USB-MIDI event packet (4 bytes) -> channel voice messages.
 // CIN 0x8..0xE map 1:1 onto the MIDI status nibble (single cable).
+// CIN 0xF = single-byte SYSTEM REALTIME: F8/FA/FB/FC are the MIDI-clock
+// transport and feed the mod engine's clock bus (stamped with the render
+// sample position, see mod_engine.h). CIN 0x5 (single-byte system common) is
+// also accepted for status >= 0xF8 — some marginal sources send realtime
+// bytes with CIN 0x5; the status check makes the two unambiguous.
 inline void midiHandleEventPacket(const uint8_t pkt[4]) {
   const uint8_t cin = pkt[0] & 0x0F;
-  if (cin < 0x8 || cin > 0xE) return;      // ignore system / SYSEX / malformed
+  if (cin == 0xF || cin == 0x5) {
+    const uint8_t st = pkt[1];
+    if (st >= 0xF8) rack_mod_clock_realtime(st);  // F8 clock / FA-FB-FC transport
+    return;
+  }
+  if (cin < 0x8 || cin > 0xE) return;      // ignore system common / SYSEX
   const uint8_t d1 = pkt[2] & 0x7F;        // note number / cc# / bend LSB
   const uint8_t d2 = pkt[3] & 0x7F;        // velocity / value / bend MSB
   switch (cin) {

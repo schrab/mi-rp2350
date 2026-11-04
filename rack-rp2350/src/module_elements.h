@@ -27,6 +27,7 @@
 #include "pico/time.h"           // time_us_32 (static inline in pico-sdk 2.x)
 
 #include "rack_arena.h"
+#include "module_registry.h"     // RackModDestinations (T3 mod routing table)
 
 // Firmware-side definitions of the elements::Dsp statics. They are declared
 // as class statics in elements/dsp/dsp.h but defined nowhere in the library
@@ -55,7 +56,19 @@ static const char* const kCcMap =
     "1 mod, 11 strength, 14 env-shape, 15-16 bow, 17-19 blow, 20-22 strike, "
     "23 geometry, 24 brightness, 25 damping, 26 position, 27 space, "
     "28 model, 29 easter-egg";
-static const char* const kModDestinations = "";  // T3 placeholder
+// T3 mod destinations: every float-parameter CC of the map accepts continuous
+// modulation (1/11 included — note that velocity-scaled strength from note-on
+// is overridden while a source is routed to CC 11). Elements has NO trigger
+// inputs (excitation is envelope/gate driven): routing a trigger source
+// (euclid/gate) to any elements destination is inert. Selectors 28/29 are
+// excluded (int model/easter-egg switches — not modulable).
+static const uint8_t kModContinuousCcs[] = {1, 11, 14, 15, 16, 17, 18, 19,
+                                            20, 21, 22, 23, 24, 25, 26, 27};
+static const RackModDestinations kModDestinations = {
+    "elements: continuous 1,11,14-27 | triggers: none (no trigger inputs)",
+    16, kModContinuousCcs,
+    0, 0, 0,
+};
 
 // --- engine state: arena-placed (was file-scope before T2) ---
 struct State {
@@ -214,6 +227,52 @@ void control_change(uint8_t cc, uint8_t val) {
       break;
     default: break;
   }
+}
+
+// ===================== T3 mod-engine hooks (core 1) =====================
+// Called by the persistent mod engine (mod_engine.h) at the loop-top, BEFORE
+// render — the same between-blocks discipline as the pending slots above. The
+// engine runs only while not swapping, so `s` always points at the live state.
+
+// Continuous destination write: v is a 0..1 "virtual CC position" (clamped
+// here) applied with the EXACT mapping control_change uses for a CC byte, but
+// at float precision (no 7-bit quantization of the modulated value). While a
+// source is routed, it fully owns the parameter — the static CC value is
+// overridden each block (standard mod-matrix behavior; un-route with dest=0
+// to hand the parameter back to the panel). Returns false for CCs that are
+// not continuous destinations (selectors 28/29, unknown CCs) — the engine
+// treats those routings as inert.
+bool mod_set_cc_float(uint8_t cc, float v) {
+  if (v < 0.0f) v = 0.0f;
+  if (v > 1.0f) v = 1.0f;
+  elements::Patch* p = s->part.mutable_patch();
+  switch (cc) {
+    case 1:  s->shared_modulation = v; break;
+    case 11: s->shared_strength = v; break;
+    case 14: p->exciter_envelope_shape = v; break;
+    case 15: p->exciter_bow_level = v; break;
+    case 16: p->exciter_bow_timbre = v; break;
+    case 17: p->exciter_blow_level = v; break;
+    case 18: p->exciter_blow_meta = v; break;
+    case 19: p->exciter_blow_timbre = v; break;
+    case 20: p->exciter_strike_level = v; break;
+    case 21: p->exciter_strike_meta = v; break;
+    case 22: p->exciter_strike_timbre = v; break;
+    case 23: p->resonator_geometry = v; break;
+    case 24: p->resonator_brightness = v; break;
+    case 25: p->resonator_damping = v; break;
+    case 26: p->resonator_position = v; break;
+    case 27: p->space = v; break;
+    default: return false;    // 28/29 selectors + unknown CCs: not modulable
+  }
+  return true;
+}
+
+// Trigger destination hook: elements has no trigger inputs (see the
+// kModDestinations note) — always inert.
+bool mod_trigger_cc(uint8_t cc, bool high) {
+  (void)cc; (void)high;
+  return false;
 }
 
 }  // namespace mod_elements

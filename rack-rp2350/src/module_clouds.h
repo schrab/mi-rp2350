@@ -22,6 +22,7 @@
 #include "pico/time.h"           // time_us_32 (static inline in pico-sdk 2.x)
 
 #include "rack_arena.h"
+#include "module_registry.h"     // RackModDestinations (T3 mod routing table)
 
 namespace rack_modules {
 namespace mod_clouds {
@@ -39,7 +40,21 @@ static const char* const kCcMap =
     "1 ex-tone, 11 ex-level, 13 ex-mode, 14 position, 15 size, 16 pitch, "
     "17 density, 18 texture, 19 dry/wet, 20 spread, 21 feedback, 22 reverb, "
     "23 mode, 24 quality, 65 freeze, 66 trigger";
-static const char* const kModDestinations = "";  // T3 placeholder
+// T3 mod destinations: the grain parameters 14-22 accept continuous
+// modulation. 23/24 are EXCLUDED (playback-mode / quality selectors must not
+// be modulated — mode changes also reset recording buffers). 1/11/13 (the
+// test-exciter knobs) stay un-modulated per the T3 destination list. 65
+// (freeze) / 66 (trig) are TRIGGER-ONLY: freeze latches on/off with the
+// source level, trigger pulses on rising edges.
+static const uint8_t kModContinuousCcs[] = {14, 15, 16, 17, 18, 19, 20, 21, 22};
+static const uint8_t kModTriggerCcs[] = {65, 66};
+static const uint8_t kModTriggerKinds[] = {RACK_TRIG_LATCH, RACK_TRIG_PULSE};
+static const RackModDestinations kModDestinations = {
+    "clouds: continuous 14-22 (23/24 excluded: mode/quality selectors) | "
+    "triggers: 65 freeze (latch), 66 trig (pulse)",
+    9, kModContinuousCcs,
+    2, kModTriggerCcs, kModTriggerKinds,
+};
 
 // --- engine state: arena-placed (was file-scope before T2) ---
 struct State {
@@ -288,6 +303,42 @@ void control_change(uint8_t cc, uint8_t val) {
     // TRIGGER: one-shot pulse consumed by core 1 on the next block.
     case 66: if (val >= 64) s->pending_trigger = true; break;
     default: break;
+  }
+}
+
+// ===================== T3 mod-engine hooks (core 1) =====================
+// Same between-blocks discipline as the pending slots in render(); the mod
+// engine only runs while not swapping, so `s` is always the live state.
+
+// Continuous destination write (0..1 virtual CC position, float precision,
+// identical mapping to control_change's CC bytes). 1/11/13 excluded per the
+// destination list; 23/24 selectors excluded; 65/66 are trigger-only.
+bool mod_set_cc_float(uint8_t cc, float v) {
+  if (v < 0.0f) v = 0.0f;
+  if (v > 1.0f) v = 1.0f;
+  switch (cc) {
+    case 14: s->shared_position      = v; break;
+    case 15: s->shared_size          = v; break;
+    case 16: s->shared_pitch         = v; break;
+    case 17: s->shared_density       = v; break;
+    case 18: s->shared_texture       = v; break;
+    case 19: s->shared_dry_wet       = v; break;
+    case 20: s->shared_stereo_spread = v; break;
+    case 21: s->shared_feedback      = v; break;
+    case 22: s->shared_reverb        = v; break;
+    default: return false;
+  }
+  return true;
+}
+
+// Trigger destination write. 65 FREEZE is LATCH-kind: the engine calls it on
+// BOTH edges and freeze holds while the source is high. 66 TRIG is PULSE-kind:
+// rising edges produce the one-block pending_trigger pulse.
+bool mod_trigger_cc(uint8_t cc, bool high) {
+  switch (cc) {
+    case 65: s->pending_freeze = high ? 1 : 0; return true;
+    case 66: if (high) s->pending_trigger = true; return true;
+    default: return false;
   }
 }
 

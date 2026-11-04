@@ -21,6 +21,7 @@
 #include "pico/time.h"           // time_us_32 (static inline in pico-sdk 2.x)
 
 #include "rack_arena.h"
+#include "module_registry.h"     // RackModDestinations (T3 mod routing table)
 
 namespace rack_modules {
 namespace mod_plaits {
@@ -45,7 +46,23 @@ static const char* const kCcMap =
     "14 timbre, 15 morph, 16 harmonics, 17 macro/model-cv, 18 lpg-colour, "
     "19 decay, 20 fm-amount, 21 timbre-mod, 22 morph-mod, 23 engine(0-97), "
     "24 aux-option, 25 level";
-static const char* const kModDestinations = "";  // T3 placeholder
+// T3 mod destinations: the patch/modulation parameters 14-22 + 25 accept
+// continuous modulation (17/20/21/22 keep their control_change range mappings,
+// applied at float precision). 23 (engine catalog index) and 24 (aux output
+// option) are EXCLUDED — catalog/option selectors must not be modulated; the
+// engine change also re-Inits the engine mid-render, so a per-block write
+// would retrigger it every block. Pseudo-CC 64 (sustain pedal — verified
+// unused by all four CC maps) = the TRIG input: pulse-kind, full velocity.
+static const uint8_t kModContinuousCcs[] = {14, 15, 16, 17, 18, 19, 20, 21,
+                                            22, 25};
+static const uint8_t kModTriggerCcs[] = {64};
+static const uint8_t kModTriggerKinds[] = {RACK_TRIG_PULSE};
+static const RackModDestinations kModDestinations = {
+    "plaits: continuous 14-22,25 (23/24 excluded: engine/aux selectors) | "
+    "triggers: 64 trig (pulse, full velocity)",
+    10, kModContinuousCcs,
+    1, kModTriggerCcs, kModTriggerKinds,
+};
 
 // --- engine state: arena-placed (was file-scope before T2) ---
 struct State {
@@ -251,6 +268,44 @@ void control_change(uint8_t cc, uint8_t val) {
     case 25: s->shared_level = v; break;
     default: break;
   }
+}
+
+// ===================== T3 mod-engine hooks (core 1) =====================
+// Same between-blocks discipline as the pending slots in render(); the mod
+// engine only runs while not swapping, so `s` is always the live state.
+
+// Continuous destination write (0..1 virtual CC position, float precision).
+// CCs 17/20/21/22 apply the SAME range mappings control_change applies to a
+// CC byte (macro centered at v=64/127; the ±1 modulation amounts), so a routed
+// LFO sweeps the full panel range at level 1.0. 23/24 excluded (selectors).
+bool mod_set_cc_float(uint8_t cc, float v) {
+  if (v < 0.0f) v = 0.0f;
+  if (v > 1.0f) v = 1.0f;
+  switch (cc) {
+    case 14: s->shared_timbre     = v; break;
+    case 15: s->shared_morph      = v; break;
+    case 16: s->shared_harmonics  = v; break;
+    case 17: s->shared_macro_cv   = (v * 127.0f - 64.0f) / 127.0f; break;
+    case 18: s->shared_lpg_colour = v; break;
+    case 19: s->shared_decay      = v; break;
+    case 20: s->shared_fm_amount  = v * 2.0f - 1.0f; break;
+    case 21: s->shared_timbre_mod = v * 2.0f - 1.0f; break;
+    case 22: s->shared_morph_mod  = v * 2.0f - 1.0f; break;
+    case 25: s->shared_level      = v; break;
+    default: return false;
+  }
+  return true;
+}
+
+// Trigger destination write: pseudo-CC 64 = the TRIG input. Rising edges fire
+// a full-velocity one-block pulse (the same pending_trigger path note-on
+// uses; 1.0 = accent ceiling of the 0.3..1.0 pulse voltage).
+bool mod_trigger_cc(uint8_t cc, bool high) {
+  if (cc == 64) {
+    if (high) s->pending_trigger = 1.0f;
+    return true;
+  }
+  return false;
 }
 
 }  // namespace mod_plaits

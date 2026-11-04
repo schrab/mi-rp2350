@@ -77,6 +77,14 @@ uint8_t pio_host_line_state(void);
 
 #include "module_registry.h"
 
+// T3 persistent mod engine + clock bus: needs the ADAPTER HOOKS above (it
+// writes the modules' shared-float/pending machinery through
+// mod_set_cc_float / mod_trigger_cc) and the registry table below (its
+// functions reference the kRackModules extern; the table itself is defined
+// after this include). Its state object g_mod_engine is defined below —
+// plain .bss, OUTSIDE the arenas, untouched by the swap path.
+#include "mod_engine.h"
+
 // ===================== module registry =====================
 // main.cpp + midi.h dispatch through this table (no per-adapter #if left).
 const RackModuleInfo kRackModules[RACK_MODULE_COUNT] = {
@@ -88,7 +96,7 @@ const RackModuleInfo kRackModules[RACK_MODULE_COUNT] = {
      rack_modules::mod_elements::kI2sWords,
      rack_modules::mod_elements::kStallUs,
      rack_modules::mod_elements::kCcMap,
-     rack_modules::mod_elements::kModDestinations,
+     &rack_modules::mod_elements::kModDestinations,
      rack_modules::mod_elements::init,
      rack_modules::mod_elements::render,
      rack_modules::mod_elements::note_on,
@@ -102,7 +110,7 @@ const RackModuleInfo kRackModules[RACK_MODULE_COUNT] = {
      rack_modules::mod_clouds::kI2sWords,
      rack_modules::mod_clouds::kStallUs,
      rack_modules::mod_clouds::kCcMap,
-     rack_modules::mod_clouds::kModDestinations,
+     &rack_modules::mod_clouds::kModDestinations,
      rack_modules::mod_clouds::init,
      rack_modules::mod_clouds::render,
      rack_modules::mod_clouds::note_on,
@@ -116,7 +124,7 @@ const RackModuleInfo kRackModules[RACK_MODULE_COUNT] = {
      rack_modules::mod_plaits::kI2sWords,
      rack_modules::mod_plaits::kStallUs,
      rack_modules::mod_plaits::kCcMap,
-     rack_modules::mod_plaits::kModDestinations,
+     &rack_modules::mod_plaits::kModDestinations,
      rack_modules::mod_plaits::init,
      rack_modules::mod_plaits::render,
      rack_modules::mod_plaits::note_on,
@@ -130,7 +138,7 @@ const RackModuleInfo kRackModules[RACK_MODULE_COUNT] = {
      rack_modules::mod_rings::kI2sWords,
      rack_modules::mod_rings::kStallUs,
      rack_modules::mod_rings::kCcMap,
-     rack_modules::mod_rings::kModDestinations,
+     &rack_modules::mod_rings::kModDestinations,
      rack_modules::mod_rings::init,
      rack_modules::mod_rings::render,
      rack_modules::mod_rings::note_on,
@@ -153,6 +161,12 @@ volatile uint32_t proc_us_max = 0;
 volatile uint32_t i2s_stall_count = 0;
 volatile float g_render_gain = 1.0f;     // swap-mute ramp (see midi.h)
 
+// T3 persistent mod engine + clock bus — plain .bss, OUTSIDE the arenas, and
+// NEVER touched by the swap path (do_module_swap references none of it): its
+// clock phase, source state and routings survive every module swap. Defaults
+// are installed by mod_engine_init() in setup().
+ModEngine g_mod_engine;
+
 // T2 arenas (rack_arena.h): the module state unions. .bss-resident (crt0
 // zeroes them; each Init re-zeroes what it needs). alignas(8) for the
 // placement-new alignment + the plaits BufferAllocator workspace.
@@ -166,8 +180,10 @@ static volatile bool audio_ready = false;
 
 // --- live-swap state (T2) ---
 // g_active_module: written by core 1 (boot default set before audio starts),
-// read by core 0's registry dispatchers + report.
-static volatile uint8_t g_active_module = RACK_BOOT_MODULE;
+// read by core 0's registry dispatchers + report + the T3 mod engine's
+// set-time destination validation. NON-static since T3 (mod_engine.h declares
+// the extern; nothing else changed).
+volatile uint8_t g_active_module = RACK_BOOT_MODULE;
 // Pending swap slot: core 0 (CC 32 / console) writes a module id, core 1
 // consumes it at the TOP of loop1 — max one swap per call, strictly at a
 // block boundary.
@@ -436,7 +452,10 @@ static void do_module_swap(uint8_t new_id) {
 
 void loop1() {
   // Pending swap first: consumed at the TOP of the render loop (strictly
-  // between two Process() calls), max one swap per call.
+  // between two Process() calls), max one swap per call. The T3 mod engine
+  // shares this discipline: on a swap call it is SKIPPED exactly like the
+  // render (return below) — the engine never touches module state while the
+  // arena aliasing is in flight, and its own state is untouched by the swap.
   const int8_t pending = g_pending_module;
   if (pending >= 0) {
     g_pending_module = -1;
@@ -447,11 +466,18 @@ void loop1() {
     }
     return;                    // this call performed the swap, not a render
   }
+  // T3 mod engine: clock bus + sources + destination routing, BEFORE the
+  // module's render, every block, at the active module's block size. Its
+  // destinations resolve against the active module's registry entry, so a
+  // swap re-targets the routing automatically (phase survives: g_mod_engine
+  // is never written by the swap path).
+  mod_engine_process_block(g_active_module);
   kRackModules[g_active_module].render();
 }
 
 // ================= core 0: control =================
-// --- serial console (T2 scope; T4 expands the same command table) ---
+// --- serial console (T2 switch/module + T3 mod-engine commands; T4 expands
+// the same table) ---
 struct ConsoleCommand {
   const char* name;
   void (*fn)(const char* args);   // args = everything after the name
@@ -460,10 +486,20 @@ struct ConsoleCommand {
 static void cmd_switch(const char* args);
 static void cmd_module(const char* args);
 static void cmd_help(const char* args);
+// T3 mod-engine commands (defined in mod_engine.h, core 0 only).
+//   mod <src> <param> <value> | mod? | bpm <20-300> | clock <internal|midi> [src]
+extern void mod_engine_cmd_mod(const char* args);
+extern void mod_engine_cmd_modq(const char* args);
+extern void mod_engine_cmd_bpm(const char* args);
+extern void mod_engine_cmd_clock(const char* args);
 
 static const ConsoleCommand kConsoleCommands[] = {
     {"switch", cmd_switch},
     {"module", cmd_module},
+    {"mod",    mod_engine_cmd_mod},
+    {"mod?",   mod_engine_cmd_modq},
+    {"bpm",    mod_engine_cmd_bpm},
+    {"clock",  mod_engine_cmd_clock},
     {"help",   cmd_help},
 };
 static const uint8_t kConsoleCommandCount =
@@ -508,8 +544,7 @@ static void cmd_module(const char* args) {
                 (unsigned long)m.sample_rate, (unsigned long)m.block_size,
                 (unsigned long)m.budget_us);
   Serial.printf("rack: cc map: %s\r\n", m.cc_map);
-  Serial.printf("rack: mod destinations: %s\r\n",
-                m.mod_destinations[0] ? m.mod_destinations : "(T3 pending)");
+  Serial.printf("rack: mod destinations: %s\r\n", m.mod_destinations->summary);
 }
 
 static void cmd_help(const char* args) {
@@ -519,7 +554,18 @@ static void cmd_help(const char* args) {
     Serial.printf("  %s\r\n", kConsoleCommands[i].name);
   }
   Serial.println("  switch <0-3|name>  live module swap (also MIDI CC 32, value 0-3)");
-  Serial.println("  module             print active module + cc map");
+  Serial.println("  module             print active module + cc map + mod destinations");
+  Serial.println("  mod <src> <param> <value>  set a mod-engine source param");
+  Serial.println("     src: 0-11 or lfo1-4 / eu1-4 / gate1-2 / adsr1-2");
+  Serial.println("     LFO  params: mode(hz|clock) rate(Hz) wave(sine|tri|saw|square|sh)");
+  Serial.println("          phase(deg) level | clk(global|int|midi) div(1/4..) dest(CC|off)");
+  Serial.println("     EU   params: steps(1-32) pulses rot | clk div dest");
+  Serial.println("     GATE params: len(1-32) mask(hex) glen(0-1) | clk div dest");
+  Serial.println("     ADSR params: mode(gate|retrig) atk dec rel (ms) sus(0-1) | clk div dest");
+  Serial.println("  mod?               dump the whole engine (params + routing + telemetry)");
+  Serial.println("  bpm <20-300>       internal clock BPM (0.1 steps)");
+  Serial.println("  clock <internal|midi> [src]  global clock source / per-source override");
+  Serial.println("MIDI bench: CC 32 = switch | CC 33/34/35 = mod source/param/value mux");
   Serial.println("web panels drive everything else (per-module CC maps)");
 }
 
@@ -622,6 +668,8 @@ void setup() {
   TinyUSBDevice.setProductDescriptor("Rack RP2350");
 
   Serial.begin(115200);
+  mod_engine_init();                       // T3: engine defaults (plain .bss,
+                                           // independent of the modules)
   kRackModules[RACK_BOOT_MODULE].init();   // registry: boot module, arena-placed
   statusLed.Init();  // 3 white self-test flashes, then dark
 
@@ -671,7 +719,7 @@ void setup() {
 
   audio_ready = true;
   Serial.println(window_line);                // deferred boot line (see fix note)
-  Serial.printf("%s up (rack boot module, %lu Hz / %lu-sample blocks, budget %lu us, USB MIDI device + PIO-USB host; CC 32 or serial 'switch' swaps modules; console: help)\r\n",
+  Serial.printf("%s up (rack boot module, %lu Hz / %lu-sample blocks, budget %lu us, USB MIDI device + PIO-USB host; CC 32 or serial 'switch' swaps modules; CC 33/34/35 = mod engine source/param/value; console: help)\r\n",
                 boot.name,
                 (unsigned long)boot.sample_rate,
                 (unsigned long)boot.block_size,
@@ -747,15 +795,20 @@ void loop() {
   // One-line diagnostics report (proven elements-style format, uniform
   // across modules): worst module Process + per-module budget + I2S stall
   // counter + in/out RMS meters (max-since-report, x1000) + note counter +
-  // PIO-USB host tail + active module name. Budget arithmetic is per-module
-  // (registry: elements keeps its divide-first 496; the others
+  // PIO-USB host tail + active module name + the T3 mod-engine tail
+  // (modeng=... — see mod_engine.h: clock source+BPM / MIDI tick rate, EU1
+  // tick odometer, LFO1 phase byte, the engine's own mod_us_max for the
+  // 50 us gate, and one state char per source). Budget arithmetic is
+  // per-module (registry: elements keeps its divide-first 496; the others
   // multiply-first).
   if (now - last_report > 2000) {
     last_report = now;
     static uint32_t last_stall_total = 0;
     const uint32_t stalls = i2s_stall_count;
     const RackModuleInfo& m = kRackModules[g_active_module];
-    Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s\r\n",
+    static char modeng_tail[64];
+    mod_engine_report_tail(modeng_tail, sizeof(modeng_tail));
+    Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s\r\n",
                   proc_us_max,
                   m.budget_us,
                   stalls, stalls - last_stall_total,
@@ -767,9 +820,12 @@ void loop() {
                   (unsigned)host_device_mounted,
                   (unsigned)host_midi_idx_count,
                   (unsigned)pio_usb_host_get_frame_number(),
-                  m.name);
+                  m.name,
+                  modeng_tail);
     last_stall_total = stalls;
     proc_us_max = 0;
+    g_mod_engine.mod_us_max = 0;    // max-since-report (engine block cost)
+    g_mod_engine.telem_midi_ticks = 0;
     rack_meter_a = 0.0f;            // max-since-report meters (see adapters)
     rack_meter_b = 0.0f;
   }
