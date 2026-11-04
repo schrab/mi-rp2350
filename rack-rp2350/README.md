@@ -3,7 +3,8 @@
 ONE firmware running the four accepted ports (Elements, Clouds, Plaits
 98-engine, Rings MiniElements) on the RP2350 nano + PCM5102A, with LIVE
 MODULE SWITCHING (T2 of the combined plan,
-`docs/superpowers/plans/2026-11-04-combined-rp2350.md`).
+`docs/superpowers/plans/2026-11-04-combined-rp2350.md`) and a DIN MIDI input
++ serial bench console (T4).
 
 ## Module selection (T2: boot-select + live swap)
 
@@ -51,19 +52,76 @@ updates, so pitch/gate survive); **CC state of the new module starts at
 factory defaults** — web-panel knob positions desync on swap and re-sync on
 panel reconnect (T4a presets will restore parameter sets after a swap).
 
-### Serial console (T2 scope)
+### Serial console (T2/T3/T4 scope)
 
-115200 baud, non-blocking, `\n`-terminated lines:
+115200 baud, non-blocking, `\n`-terminated lines (`src/main.cpp`
+`kConsoleCommands` — one data-driven table; the T5 C3 console reuses it):
 
 | Command | Effect |
 |---|---|
 | `switch <0-3|elements|clouds|plaits|rings>` | queue a live swap (same path as CC 32) |
 | `module` | print active module, rate/block/budget, CC map |
+| `mod <src> <param> <value>` | set a mod-engine source param (T3; see `mod?`) |
+| `mod?` | dump the whole engine (params + routing + telemetry) |
+| `route <source> <dest>` | alias of `mod <src> dest <dest>` (dest = CC 0-127 \| off) |
+| `bpm <20-300>` | internal clock BPM (0.1 steps) |
+| `clock <internal\|midi> [src]` | global clock source / per-source override |
+| `status` | one-line summary: active module, clock source/BPM, swaps, DIN counters, uptime |
+| `din [clear]` | DIN MIDI counters + last message (+ `clear` resets them) |
+| `dintest` | inject a canned MIDI stream into the DIN parser → funnel (see below) |
+| `telemetry on\|off` | mute/unmute the 2 s report for quiet benching (default on) |
+| `panic` | all notes off: releases held notes on the active module, clears the note stack, forces the gate off |
 | `help` | list commands |
 
 Web panels drive everything else (per-module CC maps, unchanged from the
-standalone ports; see the four port READMEs). T4 expands the command table
-(`src/main.cpp` `kConsoleCommands`).
+standalone ports; see the four port READMEs).
+
+## DIN MIDI in (T4)
+
+DIN notes/CC/clock land in the SAME funnel as USB (`midiHandleEventPacket`,
+`src/midi.h`) — downstream they are indistinguishable from device/host MIDI,
+and DIN F8/FA/FB/FC reach the mod engine's sample-stamped clock bus with no
+extra code. Parser: `src/din_midi.h` (MIDI 1.0 byte stream → 4-byte USB-MIDI
+event packets; running status; realtime F8-FF passed through inline anywhere;
+sysex DISCARDED and counted; host-unit-tested, see the ledger T4 findings).
+
+### Wiring — MIDI DIN-IN jack (standard 6N138 opto circuit)
+
+RX pin: **GP5** (UART1 RX, 31250 8N1). GP4 is muxed as UART1 TX but RESERVED
+— DIN OUT is not in T4. The init sits in `setup()` after the module/engine
+init, before the PIO-USB host init (hardware UART claims no PIO/DMA/alarm
+resources, so the PIO-USB/I2S/LED order law does not apply to it).
+
+| MIDI DIN-5 jack (IN) | → | RP2350 side | Note |
+|---|---|---|---|
+| pin 4 | 220 Ω | 6N138 pin 2 (anode) | sender's current loop + |
+| pin 5 | 220 Ω | 6N138 pin 3 (cathode) | current return |
+| across pins 2-3 | 1N4148, reverse | — | recommended LED reverse-voltage protection |
+| — | 6N138 pin 8 (Vcc) | 3V3 | |
+| — | 6N138 pin 6 (output, open collector) | **GP5**, 10 kΩ pull-up to 3V3 | idle = mark (high); the firmware also enables the GP5 internal pull-up |
+| — | 6N138 pin 5 (emitter) | GND | |
+| — | 6N138 pin 7 (base) | n.c. | |
+| pin 2 (shield) | — | GND (optional) | |
+
+(6N138 DIP-8: 1 NC, 2 anode, 3 cathode, 4 NC, 5 emitter/GND, 6 collector out,
+7 base, 8 Vcc. 5 V for the current loop comes from the SENDER — the opto
+fully isolates the rack.)
+
+RX path: the core's `Serial2` (HW UART1) in IRQ mode — its IRQ drains the
+32-byte HW FIFO into a 256-entry SW ring (`setFIFOSize(256)`, ~82 ms of
+max-rate traffic), `loop()` parses into `midiHandleEventPacket()`. Ring
+overflow folds into the DIN `dropped` counter.
+
+### `dintest` — without-jack bench verification
+
+Injects the canned stream `kDinTestStream` (`src/din_midi.h`, shared
+byte-for-byte with the host unit test) directly INTO the parser — the UART1
+link is bypassed (honest scope: parser + funnel only). Expected output: 36
+per-message lines (34 packets + 2 discards), then `52 bytes -> 34 packets
+(27 realtime), +2 dropped | note_on_count +3`, plus the clock hint
+`FA + 25 F8 + FC`. Side effects are real: three short notes sound on the
+active module (60/64/67), CC 7 applies, and `mod?` shows midi `ticks +25`
+once core 1 drains the stamp ring (within one audio block).
 
 ## SRAM architecture (T2)
 
@@ -131,7 +189,8 @@ slack ~5.9 KB.)
 
 Identical to the four standalone ports: PCM5102A BCK GP6 / DIN GP8 /
 LRCK GP7, XSMT 3V3; USB-A host D+ GP14 / D- GP15; WS2812 GP22; USB-C =
-CDC serial (115200) + USB MIDI device ("Rack RP2350").
+CDC serial (115200) + USB MIDI device ("Rack RP2350"). T4 adds the MIDI
+DIN-IN jack on GP5 (6N138 opto — table above; GP4 = reserved UART1 TX).
 
 ## Boot-wedge notes (2026-11-04)
 
@@ -165,4 +224,7 @@ Three real findings from the bring-up:
 `max Process: N us (budget B) | i2s stalls: T (+d) | in= out= notes= |
 host: conn= st= dev= midi= frame= | mod=<active module>` — budgets:
 elements 496, clouds 1000, plaits 500 (48 kHz), rings 750 µs. Swap lines:
-`rack: switched to <module> in <ms> ms (window <n> bytes)`.
+`rack: switched to <module> in <ms> ms (window <n> bytes)`. `telemetry off`
+mutes ONLY this line (cadence + counter resets continue; `status` prints a
+one-liner instead). T4 DIN counters deliberately live in `din`/`status`, not
+here — the format above is byte-compatible with the T1/T2/T3 bench history.

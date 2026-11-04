@@ -2,8 +2,8 @@
 // 98-engine, Rings MiniElements) in ONE firmware with LIVE MODULE SWITCHING
 // (T2), on the RP2350 nano + PCM5102A, using the proven elements-rp2350
 // architecture:
-//   core 0 = USB MIDI device (CDC + USB-MIDI) + PIO-USB host MIDI + serial
-//            console + status LED + diagnostics;
+//   core 0 = USB MIDI device (CDC + USB-MIDI) + PIO-USB host MIDI + DIN MIDI
+//            in (UART1 31250, T4) + serial console + status LED + diagnostics;
 //   core 1 = audio render of the ACTIVE module at its native rate/block
 //            size into the I2S DAC, plus the live-swap sequence at block
 //            boundaries.
@@ -31,6 +31,15 @@
 // exactly like the standalone ports called into their crt0-copied
 // .time_critical sections.
 //
+// T4 DIN + console: DIN 31250 bytes arrive on UART1 RX (GP5, standard 6N138
+// opto circuit — wiring table in README.md); the core's SerialUART IRQ keeps
+// a 256 B ring fed, loop() parses bytes (src/din_midi.h — a pure, host-unit-
+// tested parser) and feeds the SAME midiHandleEventPacket funnel as the USB
+// device/host paths, so DIN notes/CC/clock are indistinguishable downstream
+// (DIN F8/FA/FB/FC reach the mod engine's sample-stamped clock bus with zero
+// extra code). The serial console table below drives every bench flow:
+// switch/module/mod/mod?/route/bpm/clock/status/din/dintest/telemetry/panic.
+//
 // Wiring (identical to the four standalone ports): PCM5102A BCK GP6 /
 // DIN GP8 / LRCK GP7, XSMT 3V3; USB-A host D+ GP14 / D- GP15, VBUS 5V;
 // WS2812 GP22.
@@ -52,8 +61,10 @@ bool core1_separate_stack = true;
 
 #include "status_led.h"          // WS2812 status LED on GP22 (before midi.h)
 #include "midi.h"                // shared parser + telemetry externs + hooks
+#include "din_midi.h"            // T4 DIN 31250 byte parser -> 4-byte packets
 #include "rack_window.h"         // SRAM window copy API
 #include "rack_arena.h"          // T2 module-state arenas (decls)
+#include "hardware/gpio.h"       // gpio_pull_up (DIN RX idle mark)
 
 // PIO-USB root-port accessors for the re-enumeration watchdog (C side,
 // usb_host_watchdog.c).
@@ -210,6 +221,59 @@ Adafruit_USBD_MIDI usb_midi;
 // native rhport 0, host = PIO-USB rhport 1). The host task + MIDI poll run
 // in core 0's free-running loop(); core 1 renders audio.
 Adafruit_USBH_Host USBHost;
+
+// ===================== T4: DIN MIDI in (UART1 @ 31250) =====================
+// Wiring (the standard MIDI-IN opto circuit — full table in README.md):
+//   DIN jack pin 4 -> 220R -> 6N138 pin 2 (anode); 6N138 pin 3 (cathode) ->
+//   220R -> jack pin 5; 6N138 pin 8 (Vcc) -> 3V3; pin 6 (open-collector out)
+//   -> GP5 with a 10k pull-up to 3V3; pin 5 (emitter) -> GND; pin 7 n.c.
+// Pins: GP5 = UART1 RX (valid per the core's UART1 pin table; GP7/GP9 are
+// the alternates and GP7 is taken by I2S), GP4 = UART1 TX RESERVED (DIN OUT
+// is NOT in T4 scope; the pin is muxed so it is defined, nothing wired).
+// Collision check: I2S 6/7/8, PIO-USB host 14/15, LED 22, native USB (dedicated
+// pads) — GP4/GP5 touch none of them and no PIO (hardware UART), so the init
+// position is unconstrained by the PIO-USB/I2S order law.
+//
+// RX path (chosen): the core's SerialUART class (`Serial2` = HW UART1) in its
+// default IRQ mode — its UART1 IRQ drains the 32-byte HW FIFO into a
+// 256-entry lockless SW ring (setFIFOSize(256)) with break/framing filtering
+// and the 32-bit-time idle timeout, and loop() drains the ring into the
+// parser. Chosen over loop-side HW-FIFO polling for burst robustness: the
+// ring absorbs ~82 ms of max-rate traffic (3125 B/s), far beyond any loop()
+// stall (swap prints, LED poll ~1 ms); chosen over a hand-rolled IRQ because
+// this IS the brief's "IRQ + ring if the core's API makes it clean" — the
+// core's handler is proven code. Overflow of the ring is reported by
+// Serial2.overflow() and folded into din_parser.dropped.
+static const uint8_t kPinDinRx = 5;   // UART1 RX (6N138 collector, pulled up)
+static const uint8_t kPinDinTx = 4;   // UART1 TX — reserved (no DIN OUT in T4)
+static DinMidiParser din_parser;      // counters + state (core 0 only)
+
+static void din_uart_init() {
+  // ORDER (all three before begin): FIFO size and pinout only apply when
+  // _running == false. The pinout MUST be overridden: the rpipico2 variant
+  // defaults Serial2 to GP8/GP9 — GP8 is the I2S DOUT pin.
+  Serial2.setFIFOSize(256);           // SW ring: 256 B = 82 ms @ 3125 B/s
+  Serial2.setPinout(kPinDinTx, kPinDinRx);
+  Serial2.begin(31250, SERIAL_8N1);   // MIDI 1.0: 31250 baud 8N1 (divisor is
+                                      // exact at every core clk_peri: 125/150/
+                                      // 240 MHz / (16 * 31250) = 250/300/480)
+  gpio_pull_up(kPinDinRx);            // idle = mark (opto off, collector high);
+                                      // belt-and-braces vs the external 10k
+}
+
+// Drain the UART ring -> parser -> midiHandleEventPacket (THE funnel — same
+// entry the USB device + PIO-USB host paths use; DIN F8/FA/FB/FC therefore
+// hit the mod engine's sample-stamped clock bus with zero extra code).
+static void din_pump() {
+  if (Serial2.overflow()) ++din_parser.dropped;   // SW ring overflow (IRQ side)
+  int c;
+  while ((c = Serial2.read()) >= 0) {
+    uint8_t pkt[4];
+    if (din_parser.parse(static_cast<uint8_t>(c), pkt)) {
+      midiHandleEventPacket(pkt);
+    }
+  }
+}
 
 // Mounted host MIDI interface indexes, tracked by tuh_midi_mount_cb /
 // tuh_midi_umount_cb. Host MIDI API is INDEX-based.
@@ -476,8 +540,9 @@ void loop1() {
 }
 
 // ================= core 0: control =================
-// --- serial console (T2 switch/module + T3 mod-engine commands; T4 expands
-// the same table) ---
+// --- serial console (T2 switch/module + T3 mod-engine + T4 route/telemetry/
+// status/din/dintest/panic — one data-driven table; T5's C3 console reuses
+// it) ---
 struct ConsoleCommand {
   const char* name;
   void (*fn)(const char* args);   // args = everything after the name
@@ -485,6 +550,12 @@ struct ConsoleCommand {
 
 static void cmd_switch(const char* args);
 static void cmd_module(const char* args);
+static void cmd_route(const char* args);
+static void cmd_status(const char* args);
+static void cmd_din(const char* args);
+static void cmd_dintest(const char* args);
+static void cmd_telemetry(const char* args);
+static void cmd_panic(const char* args);
 static void cmd_help(const char* args);
 // T3 mod-engine commands (defined in mod_engine.h, core 0 only).
 //   mod <src> <param> <value> | mod? | bpm <20-300> | clock <internal|midi> [src]
@@ -494,13 +565,19 @@ extern void mod_engine_cmd_bpm(const char* args);
 extern void mod_engine_cmd_clock(const char* args);
 
 static const ConsoleCommand kConsoleCommands[] = {
-    {"switch", cmd_switch},
-    {"module", cmd_module},
-    {"mod",    mod_engine_cmd_mod},
-    {"mod?",   mod_engine_cmd_modq},
-    {"bpm",    mod_engine_cmd_bpm},
-    {"clock",  mod_engine_cmd_clock},
-    {"help",   cmd_help},
+    {"switch",    cmd_switch},
+    {"module",    cmd_module},
+    {"mod",       mod_engine_cmd_mod},
+    {"mod?",      mod_engine_cmd_modq},
+    {"route",     cmd_route},
+    {"bpm",       mod_engine_cmd_bpm},
+    {"clock",     mod_engine_cmd_clock},
+    {"status",    cmd_status},
+    {"din",       cmd_din},
+    {"dintest",   cmd_dintest},
+    {"telemetry", cmd_telemetry},
+    {"panic",     cmd_panic},
+    {"help",      cmd_help},
 };
 static const uint8_t kConsoleCommandCount =
     sizeof(kConsoleCommands) / sizeof(kConsoleCommands[0]);
@@ -547,6 +624,177 @@ static void cmd_module(const char* args) {
   Serial.printf("rack: mod destinations: %s\r\n", m.mod_destinations->summary);
 }
 
+// route <source> <dest> — pure alias of `mod <src> dest <dest>`: re-tokenize
+// and forward, so the routing machinery/acks live in exactly one place
+// (mod_engine.h's mod_engine_cmd_mod). dest = CC 0-127 | off.
+static void cmd_route(const char* args) {
+  while (*args == ' ') ++args;
+  char src[24];
+  size_t i = 0;
+  const char* rest = args;
+  while (*rest && *rest != ' ' && i + 1 < sizeof(src)) src[i++] = *rest++;
+  src[i] = '\0';
+  while (*rest == ' ') ++rest;
+  if (!src[0] || !*rest) {
+    Serial.println("usage: route <source> <dest>   (dest = CC 0-127 | off; "
+                   "same as: mod <src> dest <dest>)");
+    return;
+  }
+  char fwd[64];
+  snprintf(fwd, sizeof(fwd), "%s dest %s", src, rest);
+  mod_engine_cmd_mod(fwd);
+}
+
+// telemetry on|off — gate the 2 s report for quiet benching. Default ON.
+// Counter resets stay unconditional (the report's max-since-report semantics
+// are unchanged when re-enabled); swap/panic/watchdog lines are NOT gated.
+static bool g_telemetry_enabled = true;
+
+static void cmd_telemetry(const char* args) {
+  while (*args == ' ') ++args;
+  if (!strcasecmp(args, "on")) {
+    g_telemetry_enabled = true;
+    Serial.println("telemetry: 2 s report ON");
+  } else if (!strcasecmp(args, "off")) {
+    g_telemetry_enabled = false;
+    Serial.println("telemetry: 2 s report OFF (swap/panic lines still print; "
+                   "use 'status' for a one-liner)");
+  } else {
+    Serial.println("usage: telemetry on|off (default on)");
+  }
+}
+
+// status — one-line bench summary (T4): active module, clock source/BPM,
+// swap count, DIN counters, uptime. The DIN counters also live in the 2 s
+// report's sibling commands (`din`); deliberately NOT in the report line.
+static uint32_t g_swap_count = 0;   // ++ per consumed swap report (loop())
+
+static void cmd_status(const char* args) {
+  (void)args;
+  const ModEngine& e = g_mod_engine;
+  const uint32_t bpm10 = (uint32_t)(e.bpm * 10.0f + 0.5f);
+  const uint32_t meas10 = (uint32_t)(e.midi_bpm_meas * 10.0f + 0.5f);
+  char clock[40];
+  if (e.global_clock == 0) {
+    snprintf(clock, sizeof(clock), "internal@%lu.%lubpm",
+             (unsigned long)(bpm10 / 10), (unsigned long)(bpm10 % 10));
+  } else if (!e.midi_running) {
+    snprintf(clock, sizeof(clock), "midi@STOPPED");
+  } else if (e.midi_bpm_meas > 0.0f) {
+    snprintf(clock, sizeof(clock), "midi@meas %lu.%lubpm",
+             (unsigned long)(meas10 / 10), (unsigned long)(meas10 % 10));
+  } else {
+    snprintf(clock, sizeof(clock), "midi@measuring");
+  }
+  Serial.printf("status: module=%s clk=%s swaps=%lu din: bytes=%lu msgs=%lu "
+                "rt=%lu drop=%lu uptime=%lu s\r\n",
+                kRackModules[g_active_module].name, clock,
+                (unsigned long)g_swap_count,
+                (unsigned long)din_parser.rx_bytes,
+                (unsigned long)din_parser.messages,
+                (unsigned long)din_parser.realtime,
+                (unsigned long)din_parser.dropped,
+                (unsigned long)(millis() / 1000UL));
+}
+
+// din [clear] — DIN counters + last message (+ the RX-path line for bring-up).
+static void cmd_din(const char* args) {
+  while (*args == ' ') ++args;
+  if (!strcasecmp(args, "clear")) {
+    din_parser.rx_bytes = 0;
+    din_parser.messages = 0;
+    din_parser.realtime = 0;
+    din_parser.dropped = 0;
+    din_parser.have_last = false;
+    Serial.println("din: counters cleared");
+    return;
+  }
+  Serial.printf("din: rx_bytes=%lu msgs=%lu realtime=%lu dropped=%lu "
+                "(sysex/aborted/orphan/ring overflow)\r\n",
+                (unsigned long)din_parser.rx_bytes,
+                (unsigned long)din_parser.messages,
+                (unsigned long)din_parser.realtime,
+                (unsigned long)din_parser.dropped);
+  if (din_parser.have_last) {
+    char desc[48];
+    din_describe(din_parser.last_pkt, desc, sizeof(desc));
+    Serial.printf("din: last [%02x %02x %02x %02x] %s\r\n",
+                  din_parser.last_pkt[0], din_parser.last_pkt[1],
+                  din_parser.last_pkt[2], din_parser.last_pkt[3], desc);
+  } else {
+    Serial.println("din: last: none");
+  }
+  Serial.printf("din: uart1 @31250 8n1, rx=GP%u (tx GP%u reserved, no DIN OUT "
+                "in T4), irq + 256B ring; 'dintest' injects a test stream\r\n",
+                kPinDinRx, kPinDinTx);
+}
+
+// dintest — inject the canned stream (kDinTestStream in din_midi.h, shared
+// byte-for-byte with the host unit test) INTO THE PARSER, as if from the
+// UART. Honest scope: the UART1 link is bypassed — this exercises
+// parser -> midiHandleEventPacket -> module/clock-bus dispatch only, which
+// is exactly the without-jack part of T4 and doubles as the wiring bring-up
+// helper (with the jack wired, real bytes take the same path from din_pump).
+// Side effects are REAL: notes sound on the active module, CCs apply, and
+// the clock stamps reach the mod engine's bus.
+static void cmd_dintest(const char* args) {
+  (void)args;
+  const uint32_t b0 = din_parser.rx_bytes, m0 = din_parser.messages;
+  const uint32_t r0 = din_parser.realtime, d0 = din_parser.dropped;
+  const uint32_t notes0 = note_on_count;
+  Serial.println("dintest: injecting the canned stream into the DIN parser "
+                 "(UART1 bypassed: parser+funnel only)");
+  for (uint32_t i = 0; i < kDinTestStreamLen; ++i) {
+    uint8_t pkt[4];
+    const uint32_t drop_before = din_parser.dropped;
+    if (din_parser.parse(kDinTestStream[i], pkt)) {
+      char desc[48];
+      din_describe(pkt, desc, sizeof(desc));
+      Serial.printf("dintest: [%02x %02x %02x %02x] -> %s\r\n",
+                    pkt[0], pkt[1], pkt[2], pkt[3], desc);
+      // Dispatch through the REAL funnel — parser→funnel→module is the whole
+      // point of dintest (without this the packets are only described).
+      midiHandleEventPacket(pkt);
+    } else if (din_parser.dropped != drop_before) {
+      Serial.printf("dintest: byte %02x -> discarded (dropped total %lu)\r\n",
+                    kDinTestStream[i], (unsigned long)din_parser.dropped);
+    }
+    // bytes that neither emit nor drop (sysex body) stay silent — honest
+  }
+  const uint32_t msgs = din_parser.messages - m0;
+  const uint32_t rts = din_parser.realtime - r0;
+  // FA + FC are transport, the rest of the realtime bytes are F8 ticks.
+  const uint32_t ticks = (rts >= 2) ? (rts - 2) : 0;
+  Serial.printf("dintest: %lu bytes -> %lu packets (%lu realtime), +%lu dropped | "
+                "note_on_count +%lu\r\n",
+                (unsigned long)(din_parser.rx_bytes - b0), (unsigned long)msgs,
+                (unsigned long)rts, (unsigned long)(din_parser.dropped - d0),
+                (unsigned long)(note_on_count - notes0));
+  Serial.printf("dintest: clock stamps queued: FA + %lu F8 + FC (core 1 drains "
+                "within one audio block; 'mod?' midi ticks should read +%lu)\r\n",
+                (unsigned long)ticks, (unsigned long)ticks);
+  Serial.printf("dintest: notes went to the ACTIVE module (%s) through the same "
+                "midiHandleEventPacket funnel as USB device/host\r\n",
+                kRackModules[g_active_module].name);
+}
+
+// panic — all notes off: release the held notes on the ACTIVE module's
+// adapter (real note-offs), then clear the shared note stack and force the
+// gate off. Same discipline as the stuck-gate watchdog, plus the adapter
+// releases.
+static void cmd_panic(const char* args) {
+  (void)args;
+  const uint8_t n = note_stack.size;
+  uint8_t held[NoteStack::kMaxNotes];
+  for (uint8_t i = 0; i < n; ++i) held[i] = note_stack.notes[i];
+  for (uint8_t i = 0; i < n; ++i) rack_module_note_off(held[i]);
+  note_stack.clear();
+  shared_gate = false;
+  Serial.printf("panic: %u note(s) released on %s, gate forced off, note stack "
+                "cleared\r\n",
+                (unsigned)n, kRackModules[g_active_module].name);
+}
+
 static void cmd_help(const char* args) {
   (void)args;
   Serial.println("rack console commands:");
@@ -563,8 +811,15 @@ static void cmd_help(const char* args) {
   Serial.println("     GATE params: len(1-32) mask(hex) glen(0-1) | clk div dest");
   Serial.println("     ADSR params: mode(gate|retrig) atk dec rel (ms) sus(0-1) | clk div dest");
   Serial.println("  mod?               dump the whole engine (params + routing + telemetry)");
+  Serial.println("  route <src> <dest> alias of 'mod <src> dest <dest>' (dest = CC|off)");
   Serial.println("  bpm <20-300>       internal clock BPM (0.1 steps)");
   Serial.println("  clock <internal|midi> [src]  global clock source / per-source override");
+  Serial.println("  status             one-line summary: module/clock/swaps/din/uptime");
+  Serial.println("  din [clear]        DIN MIDI counters + last message (UART1 GP5)");
+  Serial.println("  dintest            inject a canned MIDI stream into the DIN parser");
+  Serial.println("                     -> funnel (notes/CC/clock; UART1 bypassed)");
+  Serial.println("  telemetry on|off   mute/unmute the 2 s report (default on)");
+  Serial.println("  panic              all notes off (release held notes + clear stack)");
   Serial.println("MIDI bench: CC 32 = switch | CC 33/34/35 = mod source/param/value mux");
   Serial.println("web panels drive everything else (per-module CC maps)");
 }
@@ -671,6 +926,12 @@ void setup() {
   mod_engine_init();                       // T3: engine defaults (plain .bss,
                                            // independent of the modules)
   kRackModules[RACK_BOOT_MODULE].init();   // registry: boot module, arena-placed
+  // T4 DIN MIDI RX (UART1 @ 31250, GP5): hardware UART claims NO PIO, no DMA
+  // channel and no alarm pool, so — unlike the PIO-USB/I2S/LED order law
+  // above — its position here is unconstrained; it sits after the engine/
+  // module init and BEFORE the PIO-USB host init so the link is live before
+  // audio starts. No print (boot-wedge law: no unconditional early CDC).
+  din_uart_init();
   statusLed.Init();  // 3 white self-test flashes, then dark
 
   // --- USB host (PIO-USB, rhport 1): MUST init BEFORE i2s.begin() ---
@@ -740,12 +1001,18 @@ void loop() {
     midiHandleEventPacket(pkt);
   }
 
-  // --- serial console (non-blocking; switch/module/help in T2) ---
+  // --- T4 DIN MIDI: drain the UART1 ring -> parser -> the same funnel ---
+  // IRQ (core 0) keeps the 256 B ring fed; even at the 31250-baud maximum of
+  // 3125 B/s this needs a drain every ~82 ms, and loop() iterates far faster.
+  din_pump();
+
+  // --- serial console (non-blocking; T2/T3/T4 table) ---
   pumpConsole();
 
   // --- deferred swap print (stats set by core 1, printed here exactly once) ---
   if (g_swap_report_ready) {
     g_swap_report_ready = false;
+    ++g_swap_count;    // T4: the `status` swaps counter
     const RackModuleInfo& m = kRackModules[g_swap_to];
     if (g_swap_i2s_ok) {
       Serial.printf("rack: switched to %s in %lu ms (window %lu bytes)\r\n",
@@ -801,6 +1068,9 @@ void loop() {
   // 50 us gate, and one state char per source). Budget arithmetic is
   // per-module (registry: elements keeps its divide-first 496; the others
   // multiply-first).
+  // T4: `telemetry off` gates the PRINT ONLY — the cadence and every counter
+  // reset below stay unconditional, so re-enabling resumes with identical
+  // max-since-report semantics and the 2 s format is untouched.
   if (now - last_report > 2000) {
     last_report = now;
     static uint32_t last_stall_total = 0;
@@ -808,20 +1078,22 @@ void loop() {
     const RackModuleInfo& m = kRackModules[g_active_module];
     static char modeng_tail[64];
     mod_engine_report_tail(modeng_tail, sizeof(modeng_tail));
-    Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s\r\n",
-                  proc_us_max,
-                  m.budget_us,
-                  stalls, stalls - last_stall_total,
-                  (unsigned)(rack_meter_a * 1000.0f),
-                  (unsigned)(rack_meter_b * 1000.0f),
-                  note_on_count,
-                  (unsigned)pio_host_connected(),
-                  (unsigned)pio_host_line_state(),
-                  (unsigned)host_device_mounted,
-                  (unsigned)host_midi_idx_count,
-                  (unsigned)pio_usb_host_get_frame_number(),
-                  m.name,
-                  modeng_tail);
+    if (g_telemetry_enabled) {
+      Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s\r\n",
+                    proc_us_max,
+                    m.budget_us,
+                    stalls, stalls - last_stall_total,
+                    (unsigned)(rack_meter_a * 1000.0f),
+                    (unsigned)(rack_meter_b * 1000.0f),
+                    note_on_count,
+                    (unsigned)pio_host_connected(),
+                    (unsigned)pio_host_line_state(),
+                    (unsigned)host_device_mounted,
+                    (unsigned)host_midi_idx_count,
+                    (unsigned)pio_usb_host_get_frame_number(),
+                    m.name,
+                    modeng_tail);
+    }
     last_stall_total = stalls;
     proc_us_max = 0;
     g_mod_engine.mod_us_max = 0;    // max-since-report (engine block cost)

@@ -1123,7 +1123,7 @@ after each task).
 | T1 Linker/sections (module-prefixed .time_critical, NOLOAD SRAM window, selective copy) | done | 14a9436 | 4 boot-select envs benched on hardware 2026-11-04; per-env SRAM windows; 2 firmware boot bugs fixed (early CDC print, post-detach re-enum death); findings below |
 | T2 Arena + live swap (bench switching via switch-CC + serial console) | done | 50d0489 | CC 32 + console swaps among all 4, 19-44 ms mutes, zero stalls, user ear-clean; plaits re-tiered 272→109 KB, clouds CMSIS tables to flash (spectral excluded v1); crash fix: I2S reconfig moved to core 0; findings below |
 | T3 Mod engine + clock bus (internal BPM / MIDI 24 PPQ, 1-32-step euclid+gate, bench settings via CC/console) | done | 238b4d0 | 12 sources; u: ≤ 45 µs observed (gate 50, 31 µs under 12-source load); ext-clock verified (48/s @ 120 BPM, tempo-follow 120→100, START re-phase / STOP freeze); phase survives swaps; findings below |
-| T4 RP2350 DIN 31250 parser + serial console | pending | — | DIN hardware needed to test |
+| T4 RP2350 DIN 31250 parser + serial console | done (code-complete; DIN-jack bench pending wiring) | (see commit) | parser 109/109 host asserts; dintest proves parser→funnel→module on hardware (+3 notes, CC, 24/25 clock stamps); console full; findings below |
 | T4a Presets (serialization + console dump/load + last-state autosave) | pending | — | bank lands on C3 flash in T5 |
 | T5 C3 UI + UART link (after DSP acceptance AND hardware) | pending | — | encoder+button menus, HC4067, ST7789, BLE-MIDI, preset bank |
 | T6 Chain mode v2 (plaits@32k patch, 4-pair table) | pending | — | |
@@ -1335,3 +1335,37 @@ three are metrics-verified (ears at the DSP-acceptance checkpoint).
   gate met with margin.**
 - Bench-tooling note for T4/T7: external-clock tests must use a seq CLIENT
   sender (SND_SEQ_EVENT_CLOCK/START/STOP direct events), not aplaymidi SMFs.
+
+### Rack T4 — DIN parser + console (2026-11-05, DIN hardware NOT wired)
+
+- **`src/din_midi.h` (pure, no SDK types):** 4-state MIDI-1.0 byte parser
+  (IDLE/READY/COLLECT/SYSEX) → 4-byte USB-MIDI packets [cable<<4|CIN, …].
+  Realtime F8-FF emits inline anywhere and preserves running status; sysex
+  discarded (counted); F4/F5/orphans/aborted messages counted as dropped;
+  no buffer → no overflow. **109/109 host assertions** (running status,
+  interleaved realtime, sysex abort/restart, F1-F6, packet/CIN shapes; the
+  host test caught a stale-d1 bug in 1-data-byte messages pre-build).
+- **UART1 RX = GP5 (TX GP4 reserved), 31250 8N1** via the core's SerialUART
+  (IRQ + 256 B ring; `setPinout(4,5)` MANDATORY — the rpipico2 variant
+  defaults Serial2 to GP8/GP9 = I2S DOUT). No PIO/alarm/DMA claims → the
+  init-order law doesn't apply. 6N138 wiring table in the README
+  (datasheet-verified pinout; 10 kΩ pull-up on GP5 + internal pull-up).
+- **Console grew:** route (mod-dest alias) · status (one-liner incl. din
+  counters + swaps + uptime) · din [clear] · dintest · telemetry on|off ·
+  panic (real note-offs + stack clear + gate off). Data-driven table.
+- **Bench (without jack):** `dintest` injects a canned stream into the
+  parser and dispatches through the REAL funnel — 52 bytes → 34 packets
+  (27 realtime), +2 dropped, **note_on_count +3 audible notes + CC through
+  midiHandleEventPacket**, 24/25 clock stamps drained (one tick short of
+  the stream's 25 F8 — drain-timing, stamps_dropped=0; noted honestly).
+  status/din/panic/telemetry/route all verified on hardware.
+- **ORCHESTRATOR FIX during bench:** the subagent's dintest PARSED and
+  PRINTED packets but never called midiHandleEventPacket (the claimed
+  funnel dispatch didn't exist — note_on_count +0, ticks=0 on first bench).
+  One-line fix: dispatch inside the parse branch. Lesson: "expected-but-
+  unverified" claims must not restate intent as fact — dintest's summary
+  line asserted funnel delivery that the code didn't do.
+- **PENDING (needs the DIN jack wired per the README table):** real-UART
+  byte flow (UART1 IRQ → parser), hardware-controller notes/CC/clock
+  through DIN, the modeng=m:48 DIN-clock signature. The funnel + parser
+  halves are verified; only the UART-to-jack half awaits hardware.
