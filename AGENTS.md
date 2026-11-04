@@ -103,7 +103,9 @@ Desktop MIDI check (PipeWire holds raw ports, so avoid `amidi -p hw:…`): use
 
 ## Workflow
 
-- Work happens on branch `elements-clone`; commits follow `[Add]/[Fix]/[Update] <scope>` style.
+- Work happens on branch `rack-rp2350` (renamed from `elements-clone`
+  2026-11-05 — same line, all port + rack history; `main` holds the last
+  accepted merge); commits follow `[Add]/[Fix]/[Update] <scope>` style.
 - This is an SDD project: when a task lands, update the ledger
   (`.superpowers/sdd/progress.md`) with status, commit hash, and findings.
 - The user tests on real hardware and reports mid-turn (e.g. "mounted", "no
