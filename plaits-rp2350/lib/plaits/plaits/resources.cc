@@ -3320,7 +3320,7 @@ const float lut_fm_frequency_quantizer[] = {
    3.525000000e+01,  3.600000000e+01,  3.600000000e+01,  3.600000000e+01,
    3.600000000e+01,  3.600000000e+01,
 };
-PLAITS_RAM_CODE(lut_fold) const float lut_fold[] = {
+const float lut_fold[] = {
   -9.980545825e-01, -9.970653772e-01, -9.960649692e-01, -9.950532582e-01,
   -9.940301939e-01, -9.929957802e-01, -9.919500809e-01, -9.908932239e-01,
   -9.898254054e-01, -9.887468930e-01, -9.876580288e-01, -9.865592310e-01,
@@ -3451,7 +3451,7 @@ PLAITS_RAM_CODE(lut_fold) const float lut_fold[] = {
    9.940301939e-01,  9.950532582e-01,  9.960649692e-01,  9.970653772e-01,
    9.980545825e-01,  9.990327291e-01,  1.000000000e+00,  1.000000000e+00,
 };
-PLAITS_RAM_CODE(lut_fold_2) const float lut_fold_2[] = {
+const float lut_fold_2[] = {
    1.000000000e+00,  9.992967758e-01,  9.985815484e-01,  9.978540078e-01,
    9.971138332e-01,  9.963606927e-01,  9.955942426e-01,  9.948141269e-01,
    9.940199768e-01,  9.932114103e-01,  9.923880310e-01,  9.915494283e-01,
@@ -3683,7 +3683,7 @@ const float* lookup_table_table[] = {
   lut_4x_downsampler_fir,
 };
 
-PLAITS_RAM_CODE(lut_ws_inverse_tan) const int16_t lut_ws_inverse_tan[] = {
+const int16_t lut_ws_inverse_tan[] = {
   -32767, -26872, -24921, -23661,
   -22748, -22047, -21486, -21026,
   -20640, -20310, -20025, -19775,
@@ -3750,7 +3750,7 @@ PLAITS_RAM_CODE(lut_ws_inverse_tan) const int16_t lut_ws_inverse_tan[] = {
    22748,  23661,  24921,  26872,
    32767,
 };
-PLAITS_RAM_CODE(lut_ws_inverse_sin) const int16_t lut_ws_inverse_sin[] = {
+const int16_t lut_ws_inverse_sin[] = {
   -32767, -30921, -30153, -29561,
   -29060, -28617, -28215, -27843,
   -27496, -27169, -26858, -26561,
@@ -3817,7 +3817,7 @@ PLAITS_RAM_CODE(lut_ws_inverse_sin) const int16_t lut_ws_inverse_sin[] = {
    29060,  29561,  30153,  30921,
    32767,
 };
-PLAITS_RAM_CODE(lut_ws_linear) const int16_t lut_ws_linear[] = {
+const int16_t lut_ws_linear[] = {
   -32767, -32511, -32255, -31999,
   -31743, -31487, -31231, -30975,
   -30719, -30463, -30207, -29951,
@@ -3884,7 +3884,7 @@ PLAITS_RAM_CODE(lut_ws_linear) const int16_t lut_ws_linear[] = {
    31743,  31999,  32255,  32511,
    32767,
 };
-PLAITS_RAM_CODE(lut_ws_bump) const int16_t lut_ws_bump[] = {
+const int16_t lut_ws_bump[] = {
        0,    -36,   -150,   -348,
     -636,  -1017,  -1496,  -2074,
    -2752,  -3528,  -4401,  -5366,
@@ -4034,7 +4034,7 @@ const int16_t* lookup_table_i16_table[] = {
 const int32_t* lookup_table_i32_table[] = {
 };
 
-PLAITS_RAM_CODE(lut_lpc_excitation_pulse) const int8_t lut_lpc_excitation_pulse[] = {
+const int8_t lut_lpc_excitation_pulse[] = {
        0,      0,      0,      0,
        1,      1,      1,      2,
        3,      3,      4,      5,

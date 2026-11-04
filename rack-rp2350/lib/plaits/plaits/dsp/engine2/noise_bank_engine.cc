@@ -279,7 +279,7 @@ void NoiseBankEngine::Reset() {
   decimator_write_ = 0;
 }
 
-PLAITS_RAM_CODE(noise_bank_render) void NoiseBankEngine::Render(
+void NoiseBankEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

@@ -70,7 +70,7 @@ void SpeechEngine::Reset() {
   post_filter_ = 0.0f;
 }
 
-PLAITS_RAM_CODE(speech_render) void SpeechEngine::Render(
+void SpeechEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

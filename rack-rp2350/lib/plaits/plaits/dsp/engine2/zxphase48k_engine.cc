@@ -54,7 +54,7 @@ void ZxPhase48kEngine::Reset() {
   sweep_count_ = 0;
 }
 
-PLAITS_RAM_CODE(zxphase48k_render) void ZxPhase48kEngine::Render(
+void ZxPhase48kEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

@@ -1121,7 +1121,7 @@ after each task).
 | Task | Status | Committed | Notes |
 |---|---|---|---|
 | T1 Linker/sections (module-prefixed .time_critical, NOLOAD SRAM window, selective copy) | done | 14a9436 | 4 boot-select envs benched on hardware 2026-11-04; per-env SRAM windows; 2 firmware boot bugs fixed (early CDC print, post-detach re-enum death); findings below |
-| T2 Arena + live swap (bench switching via switch-CC + serial console) | pending | — | |
+| T2 Arena + live swap (bench switching via switch-CC + serial console) | done | (see commit) | CC 32 + console swaps among all 4, 19-44 ms mutes, zero stalls, user ear-clean; plaits re-tiered 272→109 KB, clouds CMSIS tables to flash (spectral excluded v1); crash fix: I2S reconfig moved to core 0; findings below |
 | T3 Mod engine + clock bus (internal BPM / MIDI 24 PPQ, 1-32-step euclid+gate, bench settings via CC/console) | pending | — | |
 | T4 RP2350 DIN 31250 parser + serial console | pending | — | DIN hardware needed to test |
 | T4a Presets (serialization + console dump/load + last-state autosave) | pending | — | bank lands on C3 flash in T5 |
@@ -1236,3 +1236,62 @@ Standalone-signature parity: every number lands on (or under) the recorded
 standalone ranges — the window-resident hot code behaves like the standalone
 builds' crt0-copied .time_critical. User ear-confirmed elements; the other
 three are metrics-verified (ears at the DSP-acceptance checkpoint).
+
+### Rack T2 — arenas + live swap (2026-11-05)
+
+- **UNIFIED BINARY.** The four per-env linker scripts collapsed back into ONE
+  `memmap_rack.ld`: all four `tc_*` sections share the window VMA (ld
+  OVERLAY), LMAs sequential in RACK_LMA. The four envs remain as boot-module
+  selects sharing identical maps.
+- **PLAITS RE-TIER: tc_plaits 272,564 → 108,820 B.** Demoted via regenerated
+  06/07 patches: 39 long-tail engine bodies (~116.2 KB) + 10 engine-private
+  LUTs (47.6 KB, incl. kWaves 32 KB, kBuzzZones, lut_fold/ws/lpc/formant).
+  KEEP: Voice::Render path, support DSP (fm::Voice<6>, Resonator, String,
+  ModalVoice, StringVoice), fork-flagged hot engines (chord/particle/modal/
+  string/chiptune/six_op/scanned) + boot-default engine 0 (VA, 5.8 KB —
+  required by the "engine 0 stays well under budget" constraint), per-sample
+  LUTs of the kept set (wav_integrated_waves ×3 = 50.7 KB, lut_sine).
+  **Standalone plaits round-trip: RAM 69.3% → 38.0% (−163,872 B), flash
+  +84 B** — the standalone port gets the re-tier's RAM win too.
+- **CLOUDS CMSIS TABLES TO FLASH (rack only):** tc_clouds 137,216 → 79,744 B
+  (twiddleCoef_4096/rfft/bitrev = 56 KB → .rodata; the FFT CODE stays in the
+  window). This is the plan's designated sacrifice — **spectral mode is
+  EXCLUDED in combined v1** (CC 23=3 rejected on clouds; verified on
+  hardware: no crash, no burst, mode unchanged). One-line revert path
+  documented. This was REQUIRED: clouds couldn't fit the shared ≤125 KB
+  window otherwise (the plan's re-tier row names only plaits — flagged).
+- **Window: 0x1C000 = 114,688 B @ VMA 0x20064000** (max member plaits
+  108,820 + 5.9 KB promotion slack). RACK_LMA moved to 0x10389000 (main
+  image grew by the demoted tables); extent ends 0x103ce308 (~200 KB slack).
+- **ARENAS** (`rack_arena.h`): object 128 KiB + buffer 192 KiB, both `alignas(8)`
+  .bss unions; adapters placement-new their state at Init (adapters' file-scope
+  state symbols GONE from .bss — nm-verified). Carves: elements reverb 64 KB /
+  clouds large+small 192 KB / plaits allocator pool 32 KB / rings reverb 64 KB;
+  objects: rings Part 123.4 KB is the sizing module. RAM per env: .data
+  19,576 + .bss 345,044 (incl. arenas) → heap 44,708 B, ~20-25 KB boot
+  headroom (core-1 stack 8 KB + I2S bank + USB).
+- **MODULE REGISTRY** (`module_registry.h`): {name, id, rate, block, budget,
+  i2s config, stall threshold, cc_map, mod_destinations (T3 placeholder),
+  init/render/note/cc hooks}; zero per-adapter `#if` remains. CC 32 = module
+  switch (verified unused by all four CC maps); serial console `switch
+  <0-3|name>` / `module` / `help` (non-blocking line parser, ready for T4).
+- **SWAP SEQUENCING (core 1, block boundary):** mute (4-block gain ramp +
+  full silent bank flush) → window copy (FNV-checksummed; corrupt copy
+  restores the old image and aborts) → placement-new + factory Init → I2S
+  reconfig → ramp-up. Measured mutes: 19-44 ms (plaits copy = 44 ms).
+- **SWAP CRASH FOUND AND FIXED (bench, 2026-11-05):** the swap's
+  `i2s.end()/setBuffers/begin()` ran on CORE 1 while the I2S DMA IRQ lives on
+  CORE 0 (i2s.begin() ran there; RP2350 routes enabled IRQs to the enabling
+  core) — teardown under the live ISR = core 0 hard fault (reports die, DMA
+  clocks freed buffers = noise burst, power cycle needed). Reproduced
+  mid-note clouds→elements after earlier timing-luck passes. **Fix: the I2S
+  reconfig moved to core 0 via a bounded handshake** (core 1 publishes the
+  target config + waits ≤1 s; core 0 performs end/config/begin + acks; no
+  concurrent I2S access from both cores). Verified: the exact crash scenario
+  + 8 consecutive swaps (all 4 modules ×2, held note) — 8/8 clean, zero
+  stalls, no faults; user ear-confirmed two mid-note swaps "Both clean".
+- **Bench:** CC 32 swap cycle (4/4, 23/44/31/28 ms), mid-note swaps, per-
+  module post-swap audio (clouds granular 239 µs / plaits 35-50 µs / rings
+  via earlier cycle), spectral rejection, console swaps by name and id,
+  8-swap stress. Swap semantics documented (factory defaults on swap; panel
+  CC positions desync — reconnect re-syncs; T4a presets will restore).

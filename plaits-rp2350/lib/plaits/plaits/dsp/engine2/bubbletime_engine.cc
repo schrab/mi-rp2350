@@ -277,7 +277,7 @@ float BubbleTimeEngine::NextGap(int zone, float timbre,
   return samples;
 }
 
-PLAITS_RAM_CODE(bubbletime_render) void BubbleTimeEngine::Render(
+void BubbleTimeEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

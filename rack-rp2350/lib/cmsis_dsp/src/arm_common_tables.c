@@ -12794,7 +12794,7 @@ const float32_t twiddleCoef_2048[4096] = {
   @par
   Cos and Sin values are in interleaved fashion
 */
-__attribute__((section(".tc_clouds.cmsis_tables"))) const float32_t twiddleCoef_4096[8192] = {
+const float32_t twiddleCoef_4096[8192] = {
     1.000000000f,  0.000000000f,
     0.999998823f,  0.001533980f,
     0.999995294f,  0.003067957f,
@@ -25824,7 +25824,7 @@ const uint16_t armBitRevIndexTable2048[ARMBITREVINDEXTABLE_2048_TABLE_LENGTH] =
 
 #if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_BITREVIDX_FLT_4096)
 
-__attribute__((section(".tc_clouds.cmsis_tables"))) const uint16_t armBitRevIndexTable4096[ARMBITREVINDEXTABLE_4096_TABLE_LENGTH] =
+const uint16_t armBitRevIndexTable4096[ARMBITREVINDEXTABLE_4096_TABLE_LENGTH] =
 {
    /* radix 8, size 4032 */
    8,4096, 16,8192, 24,12288, 32,16384, 40,20480, 48,24576, 56,28672, 64,512,
@@ -33079,7 +33079,7 @@ const float32_t twiddleCoef_rfft_2048[2048] = {
 #endif /* !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) */
 
 #if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_TWIDDLECOEF_RFFT_F32_4096)
-__attribute__((section(".tc_clouds.cmsis_tables"))) const float32_t twiddleCoef_rfft_4096[4096] = {
+const float32_t twiddleCoef_rfft_4096[4096] = {
     0.000000000f,  1.000000000f,
     0.001533980f,  0.999998823f,
     0.003067957f,  0.999995294f,

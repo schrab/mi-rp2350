@@ -1,24 +1,27 @@
-/* Rack RP2350 linker script — CLOUDS env — fork of the earlephilhower
-   core's lib/rp2350/memmap_default.ld. One of FOUR per-env scripts
-   (memmap_rack_{elements,clouds,plaits,rings}.ld), selected via
-   `board_build.ldscript = memmap_rack_clouds.ld` (the core's tools/
-   platformio-build.py only generates its own substituted memmap_default.ld
-   when board.build.ldscript is EMPTY; a custom script is passed to ld RAW,
-   so the core's __FLASH_LENGTH__ / __EEPROM_START__ / __FS_START__ /
-   __FS_END__ / __PSRAM_LENGTH__ substitution variables are NOT available and
-   are hard-coded here to the values the core computes for the pinned
-   rpipico2 board: upload.maximum_size = 4 MiB flash, filesystem_size = 0 MB,
-   no PSRAM:
+/* Rack RP2350 linker script — UNIFIED (T2) — fork of the earlephilhower
+   core's lib/rp2350/memmap_default.ld. ONE script for all four boot-select
+   envs (rack-elements/clouds/plaits/rings): the envs differ only in
+   -DRACK_BOOT_MODULE (which module boots); the SRAM window, the tc_* OVERLAY
+   and RACK_LMA are identical in every env, so any module can be copied into
+   the window at RUNTIME (rack_window_copy, live swap).
+
+   A raw -T fork reaches ld un-substituted, so the core's __FLASH_LENGTH__ /
+   __EEPROM_START__ / __FS_START__ / __FS_END__ / __PSRAM_LENGTH__ substitution
+   variables are NOT available and are hard-coded here to the values the core
+   computes for the pinned rpipico2 board: upload.maximum_size = 4 MiB flash,
+   filesystem_size = 0 MB, no PSRAM:
      __FLASH_LENGTH__  = 4194304 - 4096 (EEPROM) = 0x3FF000  (ends 0x103FF000)
      __EEPROM_START__  = 0x103FF000
      __FS_START__/__FS_END__ = 0x103FF000 (0 MB filesystem -> empty range)
      __PSRAM_LENGTH__  = 0
    If the board or filesystem_size ever changes, update these numbers.
 
-   The scripts split the old shared memmap_rack.ld (which sized ONE SRAM
-   window for the largest module, plaits — starving every other env's heap;
-   clouds' could not even malloc core 1's separate 8 KB stack, so core 1
-   never launched and core 0 hung at the alarm-pool handshake).
+   T2 shape (replaces the four per-env scripts of T1): ALL FOUR modules'
+   tc_* sections are members of ONE OVERLAY — same VMA = the shared SRAM
+   window RACK_WINDOW at the top of main SRAM, sequential LMAs in the
+   reserved flash region RACK_LMA. setup() copies the BOOT module's flash
+   image into the window (crt0-like first action); the T2 live swap repeats
+   the same copy for any other module between mute/unmute.
 
    WHAT CHANGED vs the core script (everything else is byte-identical):
 
@@ -26,71 +29,60 @@
       patches when the rack build defines RACK_RP2350_TC:
       .tc_elements.<token> / .tc_clouds.<token> / .tc_plaits.<token> /
       .tc_rings.<token> (the rack's vendored CMSIS copy uses
-      .tc_clouds.cmsis / .tc_clouds.cmsis_tables). None of those names match
-      the core .data rule `*(.time_critical*)`, so crt0's boot copy no longer
-      touches them — instead they are placed below:
+      .tc_clouds.cmsis for FFT CODE; its FFT TABLES were DEMOTED to plain
+      .rodata/flash in T2 — clouds spectral mode is excluded in the rack,
+      plan "SRAM architecture": the 57 KB twiddle/bitrev tables must not
+      occupy the shared window). None of those names match the core .data
+      rule `*(.time_critical*)`, so crt0's boot copy never touches them —
+      instead they are placed below:
 
-      - VMA: ONLY the SELECTED module's output section (tc_clouds) is an
-        OVERLAY member occupying the SRAM window region RACK_WINDOW at the
-        top of main SRAM (right below 0x20080000, where SCRATCH_X begins).
-        It is copied in at boot (rack_window_copy(), src/) BEFORE any module
-        code runs. The other THREE modules' .tc_* input sections are
-        collected into ORDINARY FLASH-RESIDENT output sections
-        (.tc_flash_elements / .tc_flash_plaits / .tc_flash_rings) inside the
-        reserved RACK_LMA region — VMA = LMA, like .rodata: linked but never
-        called/executed in this env, harmless dead weight kept so the copy
-        table in src/rack_window.h stays uniform (T2/T6 will re-tier). The
-        core .data rule keeps collecting the PLATFORM .time_critical*
-        sections (pio_usb, framework) exactly as before.
+      - VMA: the OVERLAY members ALL start at ORIGIN(RACK_WINDOW). Only the
+        copied module's contents are meaningful after boot/swap; the other
+        three members overlap it harmlessly (same VMA, different LMA —
+        exactly one image is copied at any time).
 
-      - LMA: the SELECTED module's flash copy lives at the bottom of the
-        reserved region RACK_LMA at the top of flash (below the 4 KB EEPROM
-        block the core reserves; the rack project sets no filesystem so
-        FS_START/FS_END collapse to that same EEPROM line), placed exactly
-        as the old shared script placed it: GNU ld refuses `AT>` for OVERLAY
-        members, hence the explicit MEMORY region + AT(ORIGIN(RACK_LMA)).
-        The three .tc_flash_* sections follow it sequentially in the same
-        region, chained by explicit start addresses (each = the previous
-        section's end symbol; VMA = LMA there). Explicit ASSERTs — not ld's
-        region accounting, which explicit AT/addresses bypass — guarantee
-        the reserved region can never collide with the main image or
-        overflow.
+      - LMA: the four members load consecutively from ORIGIN(RACK_LMA)
+        (GNU ld refuses `AT>` for OVERLAY members, hence the explicit
+        MEMORY region + AT(ORIGIN(RACK_LMA)); per-member LOADADDR() symbols
+        feed the copy table). Explicit ASSERTs — not ld's region accounting,
+        which explicit AT bypasses — guarantee the reserved region can never
+        collide with the main image or overflow.
 
-   2. RAM LENGTH shrinks by THIS env's window so the core's own heap/stack
-      limits (= ORIGIN(RAM) + LENGTH(RAM)) stay below it. Window = the
-      measured tc_clouds total (rack ELF, 2026-11-04) rounded up:
-      136,960 B (incl. 60,344 CMSIS) -> 0x21800 (137,216 B; 2-KiB round-up,
-      256 B slack). RAM = 512 KiB - 134 KiB = 0x5E800 (387,072 B below the
-      window) — the env the shared window starved: this restores ~137 KB of
-      heap so the core-1 stack malloc(0x2000), the I2S DMA bank and slack
-      all fit again.
+   2. Window sizing (T2 re-tier, rack ELF-measured tc_* input-section sums):
+      elements 36,756 B; clouds 79,648 B (CMSIS tables demoted to flash);
+      plaits 108,820 B (voice path + fm support + engine 0 + fork-flagged
+      hot engines + lut_sine + wav_integrated_waves; long-tail engines and
+      engine-only LUTs demoted to flash — see tools/patches/plaits/06+07);
+      rings 58,044 B. Largest member plaits -> window 0x1C000 (114,688 B;
+      ~5.8 KB slack for one-symbol promotions). RAM = 512 KiB - 112 KiB =
+      0x64000 (409,600 B below the window). T1's per-env windows
+      (0x9000/0x21800/0x43000/0xE400) are gone: one window serves all four.
 
-   3. RACK_LMA LENGTH = all four tc sets rounded up to 4 KiB = 0x7E000
-      (516,096 B; the sum of the four measured sets is 505,190 B) —
-      unchanged from the shared script: every env still links all four
-      modules' tc sets into this region (one overlay member + three
-      .tc_flash_* sections).
+   3. RACK_LMA ORIGIN moved up from 0x10381000 to 0x10389000: the main image
+      now carries the demoted CMSIS tables (~56 KB) plus the demoted plaits
+      engine bodies (~164 KB) in .text/.rodata, so it ends ~74 KB higher.
+      RACK_LMA LENGTH 0x76000 (top of flash minus the core's 4 KiB EEPROM
+      block at 0x103FF000) holds the four overlay LMAs (~283 KB total).
 
-   NOLOAD note: RACK_WINDOW holds NO initialization (the tc_clouds OVERLAY
-   section is the only thing placed there, copied at boot) — the window is
-   "NOLOAD" in effect: nothing in crt0 reads or zeroes it. */
+   NOLOAD note: RACK_WINDOW holds NO initialization (the tc_* OVERLAY
+   members are the only things placed there, copied at boot/swap) — the
+   window is "NOLOAD" in effect: nothing in crt0 reads or zeroes it. */
 
 MEMORY
 {
     FLASH(rx) : ORIGIN = 0x10000000, LENGTH = 0x3FF000
     PSRAM(rwx) : ORIGIN = 0x11000000, LENGTH = 0
-    /* Main SRAM minus the module hot-code window (window = 134 KiB). */
-    RAM(rwx) : ORIGIN =  0x20000000, LENGTH = 0x5E800
+    /* Main SRAM minus the module hot-code window (window = 112 KiB). */
+    RAM(rwx) : ORIGIN =  0x20000000, LENGTH = 0x64000
     /* SRAM window: top of main SRAM, right below SCRATCH_X (0x20080000).
-       ONLY tc_clouds (the SELECTED module) occupies this VMA in this
-       env; the other three modules are flash-resident (.tc_flash_*). */
-    RACK_WINDOW(rwx) : ORIGIN = 0x2005E800, LENGTH = 0x21800
-    /* Reserved flash sub-region: the SELECTED module's tc_* flash copy
-       (LMA) plus the three UNSELECTED modules' flash-resident .tc_flash_*
-       sections, sequentially chained. Top of flash minus the core's 4 KiB
-       EEPROM emulation block (EEPROM lives at 0x103FF000; the FLASH region
-       ends there). */
-    RACK_LMA(r) : ORIGIN = 0x10381000, LENGTH = 0x7E000
+       ALL FOUR tc_* overlay members start here; exactly one is populated
+       (boot copy / live swap). */
+    RACK_WINDOW(rwx) : ORIGIN = 0x20064000, LENGTH = 0x1C000
+    /* Reserved flash sub-region: the four modules' tc_* flash copies
+       (overlay LMAs, assigned consecutively by ld). Top of flash minus the
+       core's 4 KiB EEPROM emulation block (EEPROM lives at 0x103FF000; the
+       FLASH region ends there). */
+    RACK_LMA(r) : ORIGIN = 0x10389000, LENGTH = 0x76000
     SCRATCH_X(rwx) : ORIGIN = 0x20080000, LENGTH = 4k
     SCRATCH_Y(rwx) : ORIGIN = 0x20081000, LENGTH = 4k
 }
@@ -139,8 +131,7 @@ SECTIONS
         KEEP (*(.embedded_block))
         __embedded_block_end = .;
         KEEP (*(.reset))
-        /* TODO revisit this now memset/memcpy/float in ROM */
-        /* bit of a hack right now to exclude all floating point and time critical (e.g. memset, memcpy) code from
+        /* TODO revisit this now that we have the ability to exclude all floating point and time critical (e.g. memset, memcpy) code from
          * FLASH ... we will include any thing excluded here in .data below by default */
         *(.init)
         *libgcc.a:cmse_nonsecure_call.o
@@ -251,10 +242,8 @@ SECTIONS
 
         /* Platform .time_critical* sections ONLY: pio_usb, framework. The
            four modules' hot sections are renamed .tc_<module>.* under
-           RACK_RP2350_TC and are placed below instead: the SELECTED module
-           by the tc_* OVERLAY (flash-resident + copied into the SRAM window
-           at boot), the other three by the flash-resident .tc_flash_*
-           sections. */
+           RACK_RP2350_TC and are placed below in the tc_* OVERLAY (flash-
+           resident, copied into the SRAM window at boot/swap). */
         *(.time_critical*)
 
         /* remaining .text and .rodata; i.e. stuff we exclude above because we want it in RAM */
@@ -294,7 +283,7 @@ SECTIONS
         . = ALIGN(4);
         __bss_start__ = .;
         __tls_base = .;
-        *(.tbss .tbss.* .gnu.linkonce.tb.*)
+        *(.tbss .tbss.* .gnu.linkonce.td.*)
         *(.tcommon)
 
         __tls_end = .;
@@ -318,36 +307,35 @@ SECTIONS
         end = __end__;
         KEEP(*(.heap*))
         /* historically on GCC sbrk was growing past __HeapLimit to __StackLimit, however
-           to be more compatible, we now set __HeapLimit explicitly to where the end of the heap is */
+        to be more compatible, we now set __HeapLimit explicitly to where the end of the heap is */
         . = ORIGIN(RAM) + LENGTH(RAM);
         __HeapLimit = .;
     } > RAM
 
     /* ------------------------------------------------------------------
-       Rack module hot sections (RACK_RP2350_TC builds), CLOUDS env.
+       Rack module hot sections (RACK_RP2350_TC builds), UNIFIED overlay.
 
-       ONE OVERLAY MEMBER: the SELECTED module (clouds) occupies the VMA
-       ORIGIN(RACK_WINDOW); its load address starts at ORIGIN(RACK_LMA)
-       (ld also defines __load_start_tc_clouds / __load_stop_tc_clouds;
-       the copy API uses the explicit __rack_* symbols below). NOCROSSREFS
-       is sound: the four modules are independent, shared code (stmlib)
-       lives in .data/.text, never in a tc_* section.
+       FOUR OVERLAY MEMBERS at ONE VMA: the shared SRAM window. LMAs are
+       assigned consecutively from ORIGIN(RACK_LMA) by the overlay rule.
+       NOCROSSREFS is sound: the four modules are independent, shared code
+       (stmlib) lives in .data/.text, never in a tc_* section.
        KEEP() so --gc-sections can never drop a marked section: the window
        size must be deterministic (independent of the adapter call graph),
-       matching the measured standalone totals.
-
-       The other THREE modules are NOT overlay members here: their .tc_*
-       input sections are collected by the flash-resident .tc_flash_*
-       output sections right below (dead weight in this env — linked but
-       never called; they define the same __tc_<m>_start/_end symbol names,
-       pointing at their FLASH addresses, so src/rack_window.h's copy table
-       stays uniform and links unchanged). rack_window_copy() is only ever
-       called with the SELECTED id in this env (RACK_BOOT_MODULE is
-       compile-time); called with an unselected id it would memcpy flash
-       onto itself — a harmless dead path, never executed.
+       matching the measured standalone totals. At any time exactly ONE
+       member's image is copied into the window (boot module or swap
+       target); the other members' VMA content is stale/garbage and never
+       referenced (every call into the window goes through the ACTIVE
+       module's registry entry).
        ------------------------------------------------------------------ */
     OVERLAY ORIGIN(RACK_WINDOW) : NOCROSSREFS AT (ORIGIN(RACK_LMA))
     {
+        tc_elements
+        {
+            __tc_elements_start = .;
+            KEEP(*(.tc_elements.*))
+            . = ALIGN(4);
+            __tc_elements_end = .;
+        }
         tc_clouds
         {
             __tc_clouds_start = .;
@@ -355,57 +343,47 @@ SECTIONS
             . = ALIGN(4);
             __tc_clouds_end = .;
         }
+        tc_plaits
+        {
+            __tc_plaits_start = .;
+            KEEP(*(.tc_plaits.*))
+            . = ALIGN(4);
+            __tc_plaits_end = .;
+        }
+        tc_rings
+        {
+            __tc_rings_start = .;
+            KEEP(*(.tc_rings.*))
+            . = ALIGN(4);
+            __tc_rings_end = .;
+        }
     } > RACK_WINDOW
 
-    /* Flash (LMA) extent of the SELECTED module's hot section — copy
-       source for rack_window_copy(). */
+    /* Flash (LMA) extents of the four hot sections — copy sources for
+       rack_window_copy(). */
+    __rack_flash_elements_start = LOADADDR(tc_elements);
+    __rack_flash_elements_end   = LOADADDR(tc_elements) + SIZEOF(tc_elements);
     __rack_flash_clouds_start = LOADADDR(tc_clouds);
     __rack_flash_clouds_end   = LOADADDR(tc_clouds) + SIZEOF(tc_clouds);
-
-    /* The three UNSELECTED modules: flash-resident output sections in the
-       same RACK_LMA region, sequentially chained from the selected
-       module's flash copy via explicit start addresses (explicit AT() and
-       explicit addresses bypass ld's region accounting, hence the ASSERT
-       below). VMA = LMA here, so __rack_flash_<m>_* and __tc_<m>_*
-       coincide (the dead path rack_window_copy() would take for an
-       unselected id in this env — see above, never executed). */
-    .tc_flash_elements __rack_flash_clouds_end : {
-        __tc_elements_start = .;
-        KEEP(*(.tc_elements.*))
-        . = ALIGN(4);
-        __tc_elements_end = .;
-    } > RACK_LMA
-    __rack_flash_elements_start = ADDR(.tc_flash_elements);
-    __rack_flash_elements_end   = ADDR(.tc_flash_elements) + SIZEOF(.tc_flash_elements);
-
-    .tc_flash_plaits __tc_elements_end : {
-        __tc_plaits_start = .;
-        KEEP(*(.tc_plaits.*))
-        . = ALIGN(4);
-        __tc_plaits_end = .;
-    } > RACK_LMA
-    __rack_flash_plaits_start = ADDR(.tc_flash_plaits);
-    __rack_flash_plaits_end   = ADDR(.tc_flash_plaits) + SIZEOF(.tc_flash_plaits);
-
-    .tc_flash_rings __tc_plaits_end : {
-        __tc_rings_start = .;
-        KEEP(*(.tc_rings.*))
-        . = ALIGN(4);
-        __tc_rings_end = .;
-    } > RACK_LMA
-    __rack_flash_rings_start = ADDR(.tc_flash_rings);
-    __rack_flash_rings_end   = ADDR(.tc_flash_rings) + SIZEOF(.tc_flash_rings);
-    /* Last-placed flash section end = total extent of the reserved
-       region's rack content (selected overlay member + three .tc_flash_*). */
+    __rack_flash_plaits_start = LOADADDR(tc_plaits);
+    __rack_flash_plaits_end   = LOADADDR(tc_plaits) + SIZEOF(tc_plaits);
+    __rack_flash_rings_start = LOADADDR(tc_rings);
+    __rack_flash_rings_end   = LOADADDR(tc_rings) + SIZEOF(tc_rings);
+    /* Last-placed member's flash end = total extent of the reserved
+       region's rack content. */
     __rack_flash_end = __rack_flash_rings_end;
 
-    /* Only the SELECTED module shares the VMA window in this env; the
-       other three live in flash, guarded by the RACK_LMA assert below. */
+    /* Every member must fit the ONE shared window. */
+    ASSERT(SIZEOF(tc_elements) <= LENGTH(RACK_WINDOW),
+        "ERROR: elements hot section exceeds the rack SRAM window")
     ASSERT(SIZEOF(tc_clouds) <= LENGTH(RACK_WINDOW),
         "ERROR: clouds hot section exceeds the rack SRAM window")
-    /* Explicit AT()/addresses bypass ld's region accounting: assert the
-       four flash copies (selected member + three .tc_flash_*) stay inside
-       the reserved region. */
+    ASSERT(SIZEOF(tc_plaits) <= LENGTH(RACK_WINDOW),
+        "ERROR: plaits hot section exceeds the rack SRAM window")
+    ASSERT(SIZEOF(tc_rings) <= LENGTH(RACK_WINDOW),
+        "ERROR: rings hot section exceeds the rack SRAM window")
+    /* Explicit AT() bypasses ld's region accounting: assert the four flash
+       copies stay inside the reserved region. */
     ASSERT(__rack_flash_end <= ORIGIN(RACK_LMA) + LENGTH(RACK_LMA),
         "ERROR: rack module flash copies overflow RACK_LMA")
 

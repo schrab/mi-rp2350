@@ -54,7 +54,7 @@ void SnareDrumEngine::Reset() {
   
 }
 
-PLAITS_RAM_CODE(snare_drum_render) void SnareDrumEngine::Render(
+void SnareDrumEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

@@ -28,8 +28,6 @@
 
 #include "plaits/dsp/speech/sam_speech_synth.h"
 
-#include "plaits/dsp/ram_code.h"
-
 #include <algorithm>
 
 #include "stmlib/dsp/dsp.h"
@@ -113,7 +111,7 @@ void SAMSpeechSynth::InterpolatePhonemeData(
   }
 }
 
-PLAITS_RAM_CODE(sam_speech_render) void SAMSpeechSynth::Render(
+void SAMSpeechSynth::Render(
     bool consonant,
     float frequency,
     float vowel,

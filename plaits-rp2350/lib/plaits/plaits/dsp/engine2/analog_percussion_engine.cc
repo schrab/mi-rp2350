@@ -69,7 +69,7 @@ void AnalogPercussionEngine::Reset() {
   sustain_gain_ = 0.0f;
 }
 
-PLAITS_RAM_CODE(analog_percussion_render) void AnalogPercussionEngine::Render(
+void AnalogPercussionEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

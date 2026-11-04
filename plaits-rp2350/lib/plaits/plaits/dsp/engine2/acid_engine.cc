@@ -147,7 +147,7 @@ void AcidEngine::Reset() {
   prev_main_scale_ = kMainScale;
 }
 
-PLAITS_RAM_CODE(acid_render) void AcidEngine::Render(
+void AcidEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

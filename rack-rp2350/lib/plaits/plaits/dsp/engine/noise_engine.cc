@@ -61,7 +61,7 @@ void NoiseEngine::Reset() {
   
 }
 
-PLAITS_RAM_CODE(noise_render) void NoiseEngine::Render(
+void NoiseEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

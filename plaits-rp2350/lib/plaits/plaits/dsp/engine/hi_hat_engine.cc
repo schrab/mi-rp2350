@@ -52,7 +52,7 @@ void HiHatEngine::Reset() {
   
 }
 
-PLAITS_RAM_CODE(hi_hat_render) void HiHatEngine::Render(
+void HiHatEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

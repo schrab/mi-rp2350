@@ -52,7 +52,7 @@ void BassDrumEngine::Reset() {
   
 }
 
-PLAITS_RAM_CODE(bass_drum_render) void BassDrumEngine::Render(
+void BassDrumEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

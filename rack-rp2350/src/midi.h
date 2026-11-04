@@ -1,6 +1,7 @@
-// Shared MIDI parser + state for the Rack RP2350 firmware — module-agnostic
-// (the per-module CC maps / note handling live in the module adapters,
-// src/module_*.h; only the ONE selected adapter is compiled).
+// Shared MIDI parser + state for the Rack RP2350 firmware — module-agnostic.
+// The per-module CC maps / note handling live in the module adapters
+// (src/module_*.h — ALL FOUR compile since T2); dispatch goes through the
+// module registry (module_registry.h, defined in main.cpp).
 //
 // Same 4-byte USB-MIDI event packet contract as the four standalone ports
 // (elements/clouds/plaits/rings-rp2350/src/midi.h), verified against the
@@ -17,6 +18,10 @@
 // pattern from the standalone ports). shared_note always tracks the NEWEST
 // held note; the gate only drops when the stack empties. Pitch bend is
 // remembered and applied on top of the current top note (+/- 2 semitones).
+// The note stack + bend are PLATFORM state: they survive module swaps (the
+// swapped-in module sees the currently held note; its CC values re-Init to
+// factory defaults — documented rack behavior, web panels re-sync on
+// reconnect).
 #pragma once
 #include <stdint.h>
 
@@ -43,12 +48,27 @@ extern volatile float rack_meter_b;
 extern volatile uint32_t proc_us_max;      // worst module Process since report
 extern volatile uint32_t i2s_stall_count;  // slow I2S write-block loops
 
+// Swap-mute ramp multiplier (core 1 writes, core 1 reads in the adapters'
+// write loops): 1.0 in normal render; the live-swap sequence ramps it down
+// to 0 before muting (click-free) and back up after the swap. DEFINED in
+// main.cpp.
+extern volatile float g_render_gain;
+
 extern I2S i2s;                            // defined in main.cpp (OUTPUT)
 
-// --- module adapter hooks (DEFINED by the ONE compiled module_*.h) ---
-void module_note_on(uint8_t note, uint8_t vel);
-void module_note_off(uint8_t note);
-void module_control_change(uint8_t cc, uint8_t val);
+// --- module registry dispatch (DEFINED in main.cpp; the registry routes to
+// the ACTIVE adapter's hooks — all four adapters compile in every env) ---
+void rack_module_note_on(uint8_t note, uint8_t vel);
+void rack_module_note_off(uint8_t note);
+void rack_module_control_change(uint8_t cc, uint8_t val);
+
+// Dedicated switch CC: BANK SELECT (CC 32), value 0-3 = module id. Verified
+// UNUSED by all four adapters' CC maps (elements 1,11,14-29; clouds
+// 1,11,13-24,65,66; plaits 14-25; rings 14-23) and by this parser. Values
+// > 3 and == active module are ignored. Core 0 writes the pending slot;
+// core 1 consumes it at the top of loop1 (max one swap per call).
+static const uint8_t kRackSwitchCc = 32;
+void rack_request_switch(uint8_t module_id);
 
 // --- note stack: last-note priority (single TU: main.cpp -> static storage) ---
 struct NoteStack {
@@ -108,7 +128,7 @@ inline void midiNoteOn(uint8_t note, uint8_t vel) {
   shared_gate = true;
   ++note_on_count;
   last_note_event_ms = millis();
-  module_note_on(note, vel);      // adapter: exciter/strum/trigger + params
+  rack_module_note_on(note, vel);  // registry -> active adapter
 }
 
 inline void midiNoteOff(uint8_t note) {
@@ -119,7 +139,7 @@ inline void midiNoteOff(uint8_t note) {
     applyNote();                  // released note was on top: fall back to the
   }                               // previous held note
   last_note_event_ms = millis();
-  module_note_off(note);
+  rack_module_note_off(note);
 }
 
 inline void midiPitchBend(int16_t bend14) {  // -8192..8191, 0 = centered
@@ -128,7 +148,11 @@ inline void midiPitchBend(int16_t bend14) {  // -8192..8191, 0 = centered
 }
 
 inline void midiControlChange(uint8_t cc, uint8_t val) {
-  module_control_change(cc, val);  // adapter CC map (verbatim per module)
+  if (cc == kRackSwitchCc) {
+    rack_request_switch(val);     // CC 32 = live module switch (bench)
+    return;
+  }
+  rack_module_control_change(cc, val);  // registry -> active adapter CC map
 }
 
 // USB-MIDI event packet (4 bytes) -> channel voice messages.

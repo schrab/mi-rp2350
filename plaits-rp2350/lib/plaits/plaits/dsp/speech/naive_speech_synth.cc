@@ -29,8 +29,6 @@
 
 #include "plaits/dsp/speech/naive_speech_synth.h"
 
-#include "plaits/dsp/ram_code.h"
-
 #include <algorithm>
 
 #include "stmlib/dsp/dsp.h"
@@ -97,7 +95,7 @@ void NaiveSpeechSynth::Init() {
   pulse_coloration_.set_f_q<FREQUENCY_DIRTY>(800.0f / kSampleRate, 0.5f);
 }
 
-PLAITS_RAM_CODE(naive_speech_render) void NaiveSpeechSynth::Render(
+void NaiveSpeechSynth::Render(
     bool click,
     float frequency,
     float phoneme,

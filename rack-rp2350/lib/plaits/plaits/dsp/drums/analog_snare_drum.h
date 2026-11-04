@@ -38,7 +38,6 @@
 #include "stmlib/utils/random.h"
 
 #include "plaits/dsp/dsp.h"
-#include "plaits/dsp/ram_code.h"
 #include "plaits/dsp/oscillator/sine_oscillator.h"
 
 namespace plaits {
@@ -65,7 +64,7 @@ class AnalogSnareDrum {
     noise_filter_.Init();
   }
   
-  PLAITS_RAM_CODE(analog_snare_render) void Render(
+  void Render(
       bool sustain,
       bool trigger,
       float accent,

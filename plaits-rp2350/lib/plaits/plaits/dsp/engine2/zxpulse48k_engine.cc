@@ -58,7 +58,7 @@ void ZxPulse48kEngine::Reset() {
   }
 }
 
-PLAITS_RAM_CODE(zxpulse48k_render) void ZxPulse48kEngine::Render(
+void ZxPulse48kEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

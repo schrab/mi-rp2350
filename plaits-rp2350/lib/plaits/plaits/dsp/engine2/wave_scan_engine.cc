@@ -27,7 +27,7 @@ namespace {
 // reads index 128 as the wrap guard; that byte equals the wave's own sample 0
 // in all 256 waves (checked, 0 LSB), so ReadWave wraps the index with `& 127`
 // and reads the same value for 256 fewer bytes. 32,768 B.
-PLAITS_RAM_CODE(k_waves_scan) const uint8_t kWaves[256 * kWaveScanWaveSize] = {
+const uint8_t kWaves[256 * kWaveScanWaveSize] = {
   104,105,107,108,110,112,115,116,118,122,124,124,126,129,131,132,
   135,137,138,140,143,145,145,147,148,149,148,148,148,147,146,144,
   142,139,137,133,127,121,116,110,101, 93, 88, 83, 78, 74, 73, 73,
@@ -2316,7 +2316,7 @@ void WaveScanEngine::Reset() {
   decimator_write_ = 0;
 }
 
-PLAITS_RAM_CODE(wave_scan_render) void WaveScanEngine::Render(
+void WaveScanEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,
