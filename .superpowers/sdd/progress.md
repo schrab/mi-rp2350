@@ -1369,3 +1369,17 @@ three are metrics-verified (ears at the DSP-acceptance checkpoint).
   byte flow (UART1 IRQ → parser), hardware-controller notes/CC/clock
   through DIN, the modeng=m:48 DIN-clock signature. The funnel + parser
   halves are verified; only the UART-to-jack half awaits hardware.
+
+### DSP-ACCEPTANCE CHECKPOINT — PASSED (2026-11-05)
+
+- **User ear-accepted the rack build across all four modules** ("all fine")
+  after one bench-routing artifact was cleared (a leftover T3/T4 console
+  route of LFO1→elements CC 27 space made the reverb sweep at 1 Hz — routed
+  sources persist until power cycle; nothing persists settings until T4a).
+- Elements, swaps (mid-note, "Both clean"), clouds (granular/looping/
+  stretch; spectral excluded v1), plaits (engine sweep), rings (modes/
+  models): all confirmed on the final T4 build (`67d6f77`).
+- **T5/T6/T7 are unblocked pending the user's go** — T5 additionally gates
+  on the C3 hardware existing; T7 adds the 30-min soak and full sweeps.
+  One listening artifact to remember: routed mod sources override panel CCs
+  until unrouted (standard mod-matrix behavior, documented in README).
