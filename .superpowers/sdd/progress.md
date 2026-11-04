@@ -1126,7 +1126,7 @@ after each task).
 | T4 RP2350 DIN 31250 parser + serial console | done (code-complete; DIN-jack bench pending wiring) | 67d6f77 | parser 109/109 host asserts; dintest proves parser→funnel→module on hardware (+3 notes, CC, 24/25 clock stamps); console full; findings below |
 | T4a Presets (serialization + console dump/load + last-state autosave) | pending | — | bank lands on C3 flash in T5 |
 | T5 C3 UI + UART link (after DSP acceptance AND hardware) | pending | — | encoder+button menus, HC4067, ST7789, BLE-MIDI, preset bank |
-| T6 Chain mode v2 (plaits@32k patch, pair table) | done (1 of 3 pairs; see residency note) | (see commit) | elements→clouds benched end-to-end (52% of 750 µs, zero stalls); runtime-rate plaits patch (standalone byte-identical); rings→clouds + plaits→clouds REJECTED by SRAM residency (exact math in findings); user dropped Plaits→Elements 2026-11-05 |
+| T6 Chain mode v2 (plaits@32k patch, pair table) | done (1 of 3 pairs; see residency note) | 972c58a | elements→clouds benched end-to-end (52% of 750 µs, zero stalls); runtime-rate plaits patch (standalone byte-identical); rings→clouds + plaits→clouds REJECTED by SRAM residency (exact math in findings); user dropped Plaits→Elements 2026-11-05 |
 | T7 Hardware bring-up + sweeps + user acceptance + soak | pending | — | |
 
 Findings (append per task below):
