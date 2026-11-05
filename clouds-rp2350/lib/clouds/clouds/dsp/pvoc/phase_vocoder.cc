@@ -84,7 +84,7 @@ void PhaseVocoder::Init(
   }
 }
 
-CLOUDS_RAM_CODE(pvoc_process) void PhaseVocoder::Process(
+CLOUDS_RAM_CODE_DEMOTABLE(pvoc_process) void PhaseVocoder::Process(
     const Parameters& parameters,
     const FloatFrame* input,
     FloatFrame* output, size_t size) {

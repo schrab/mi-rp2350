@@ -42,7 +42,7 @@
   return        none
 */
 
-__attribute__((section(".tc_clouds.cmsis"))) void arm_radix8_butterfly_f32(
+void arm_radix8_butterfly_f32(
   float32_t * pSrc,
   uint16_t fftLen,
   const float32_t * pCoef,

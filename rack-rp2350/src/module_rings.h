@@ -426,6 +426,52 @@ void control_change(uint8_t cc, uint8_t val) {
   }
 }
 
+// ===================== T6b: chained-budget clamp (core 0) =====================
+// While rings is the chain A slot, the PAIR budget is 750 us (24-sample
+// blocks @ 32 kHz) shared as rings + route + clouds-B (~180-195 us chained)
+// + mod engine (<= 50 us). The standalone rings sweep (T5a, 19 combos, all
+// under the 750 us SINGLE-module budget) measured the sympathetic-string
+// models as the worst: model 1 (RESONATOR_MODEL_SYMPATHETIC_STRING) = 511 us
+// ALONE -> 511 + 195 + 50 = 756 > 750, over the pair budget. Model 4
+// (SYMPATHETIC_STRING_QUANTIZED) runs the same string bank (the sweep's
+// string-family range 461-511 tops out there). Both are REJECTED while
+// chained; every other combination measured keeps >= 44 us of pair headroom
+// (string-family floor 461 + 195 + 50 = 706 <= 750; modal 279, MiniElements
+// modes 271-274, easter egg 300-320).
+//   - CC 18 (model/fx) is clamped only in the Part modes 0-3; in mode 4 the
+//     same CC selects the easter-egg FxType (measured 300-320 us across
+//     fx 1-5 — no clamp).
+//   - CC 20 (mode) is clamped when it would ENTER a Part mode (0-3) while a
+//     sympathetic model byte is already applied (in mode 4 the byte is an
+//     FxType index — the same byte drives both enums, so entering mode 0-3
+//     with fx 1/4 set would silently become a sympathetic model).
+//   - Polyphony (CC 19) is NOT clamped: the sweep's poly-4 rows never
+//     exceeded its poly-1 sympathetic worst (511), so no measured
+//     combination puts poly > 2 over the pair budget beyond what the model
+//     clamp already removes.
+// Single-module rings is fully unclamped (this hook is only called while
+// g_chain.active with rings as A — see main.cpp rack_module_control_change).
+// Benign cross-core read: applied_mode/applied_model are core-1-written
+// aligned int32s; the load is atomic and at most one block stale.
+bool chain_rejects_cc(uint8_t cc, uint8_t val) {
+  if (!s) return false;
+  const bool part_mode = s->applied_mode != rings::MODE_EASTER_EGG;
+  if (cc == 18 && part_mode && (val == 1 || val == 4)) {
+    Serial.printf("rack: chain: rings model %u rejected while chained "
+                  "(sympathetic string = 511 us standalone; pair budget "
+                  "750 us incl. clouds+mod)\r\n", val);
+    return true;
+  }
+  if (cc == 20 && val <= 3 &&
+      (s->applied_model == 1 || s->applied_model == 4)) {
+    Serial.printf("rack: chain: rings mode %u rejected while chained "
+                  "(sympathetic model %u is live - change CC 18 first)\r\n",
+                  val, (unsigned)s->applied_model);
+    return true;
+  }
+  return false;
+}
+
 // ===================== T3 mod-engine hooks (core 1) =====================
 // Same between-blocks discipline as the pending slots in render(); the mod
 // engine only runs while not swapping, so `s` is always the live state.

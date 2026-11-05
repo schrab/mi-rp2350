@@ -587,7 +587,7 @@ void merge_rfft_f32(
   @return        none
 */
 
-__attribute__((section(".tc_clouds.cmsis"))) void arm_rfft_fast_f32(
+void arm_rfft_fast_f32(
   const arm_rfft_fast_instance_f32 * S,
   float32_t * p,
   float32_t * pOut,

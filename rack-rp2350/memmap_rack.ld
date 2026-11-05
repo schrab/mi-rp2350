@@ -71,21 +71,29 @@
    T6 chain shape: chain mode (A -> clouds) needs TWO module images resident
    SIMULTANEOUSLY, which the one-VMA OVERLAY cannot express. tc_clouds
    therefore leaves the OVERLAY and gets its OWN output section (the "B
-   slot") at a FIXED offset RACK_CLOUDS_B_OFFSET = 0x9000 above the window
-   origin; the remaining three A-slot members keep the shared OVERLAY VMA at
-   the window origin (mutually exclusive, exactly one copied at a time —
-   unchanged T2 semantics). Slot sizing (RACK_WINDOW 0x1C000 -> 0x1D000):
-     A slot: 0x9000 = 36,864 B >= tc_elements 36,752 B (the chain A set;
-       tc_plaits 108,820 / tc_rings 58,080 are OVER it — single-module use
-       is unaffected, they simply span into the stale B-slot region and are
-       re-copied from flash on any switch; chain engagement with such an A
-       is rejected at runtime with these numbers)
-     B slot: 0x9000 + tc_clouds 79,744 = 116,596 <= 0x1D000 (119,808 B)
-   The ASSERTs below enforce both invariants at link time. Heap accounting:
-   RAM shrinks 0x64000 -> 0x63000 (the window must end exactly at the
-   SCRATCH_X origin — total main SRAM is a fixed 512 KiB), so the heap pays
-   the 4 KiB: measured 41,744 -> 37,640 B (>= the 16 KiB chain headroom gate
-   with the ~2 KiB I2S DMA bank allocation included in practice). */
+   slot") at a FIXED offset RACK_CLOUDS_B_OFFSET above the window origin;
+   the remaining three A-slot members keep the shared OVERLAY VMA at the
+   window origin (mutually exclusive, exactly one copied at a time —
+   unchanged T2 semantics).
+
+   T6b slot sizing (rings->clouds residency, after the dead-mode demotion —
+   tools/patches/clouds/clouds-tc-demote-dead-modes.patch moved the excluded
+   spectral code/LUTs + dead-KEEP'd tables (measured 22,752 B of output
+   section; 22,676 B by input-section sum) out of tc_clouds):
+     A slot: 0xE400 = 58,368 B >= tc_rings 58,084 B (the largest chain A;
+       tc_elements 36,752 fits with room to spare; tc_plaits 108,732 stays
+       OVER it — plaits->clouds remains rejected at runtime with those
+       numbers; single-module use is unaffected, plaits simply spans into
+       the stale B-slot region and is re-copied from flash on any switch)
+     B slot: 0xE400 + tc_clouds 56,992 = 115,360 <= 0x1D000 (118,784 B)
+       — window slack 3,424 B (>= the 2 KiB gate)
+   The window KEEPS its T6 size 0x1D000: the demotion bought the wider A
+   slot without growing the window. The ASSERTs below enforce both slot
+   invariants at link time. Heap accounting: the OBJECT arena grew
+   128 -> 132 KiB (rack_arena.h) for the rings+clouds chain states
+   (126,216 + 8,692 = 134,908 B needed; was over the 128 KiB arena), so the
+   heap pays 4 KiB: measured 37,216 -> 33,120 B (>= the 30 KiB gate with the
+   ~2 KiB I2S DMA bank allocation included in practice). */
 
 MEMORY
 {
@@ -117,11 +125,12 @@ PROVIDE ( _FS_end       = 0x103FF000 );
 ENTRY(_entry_point)
 
 /* T6 chain mode: tc_clouds' VMA sits at this FIXED offset above the window
-   origin (the "B slot"). Sized to the chain A set: >= tc_elements (36,752 B);
-   tc_plaits (108,820) / tc_rings (58,080) exceed it and are therefore
-   rejected as chain A at runtime (the ASSERT below fires if the A-slot
-   invariant is ever violated at link time). */
-RACK_CLOUDS_B_OFFSET = 0x9000;
+   origin (the "B slot"). Sized to the chain A set (T6b): >= tc_rings
+   (58,084 B, the largest chain A); tc_elements (36,752) fits below it, and
+   tc_plaits (108,732) exceeds it and is therefore rejected as chain A at
+   runtime (the ASSERT below fires if the A-slot invariant is ever violated
+   at link time). */
+RACK_CLOUDS_B_OFFSET = 0xE400;
 
 SECTIONS
 {
@@ -427,13 +436,14 @@ SECTIONS
         "ERROR: rings hot section exceeds the rack SRAM window")
 
     /* T6 chain-residency invariants (B slot must not reach the A slot, and
-       both slots must fit the window). The first assert pins the chain A set
-       to modules whose hot image fits below the B slot — today tc_elements
-       36,752 <= 0x9000; adding plaits/rings as chain A requires raising
-       RACK_CLOUDS_B_OFFSET (and the window with it) and re-running the SRAM
-       math in the ledger. */
+       both slots must fit the window). The asserts pin the chain A set to
+       modules whose hot image fits below the B slot — today tc_elements
+       36,752 and tc_rings 58,084 <= 0xE400; tc_plaits (108,732) does not
+       fit and is rejected as chain A at runtime with those numbers. */
     ASSERT(SIZEOF(tc_elements) <= RACK_CLOUDS_B_OFFSET,
         "ERROR: elements hot section overlaps the chain B slot (raise RACK_CLOUDS_B_OFFSET)")
+    ASSERT(SIZEOF(tc_rings) <= RACK_CLOUDS_B_OFFSET,
+        "ERROR: rings hot section overlaps the chain B slot (raise RACK_CLOUDS_B_OFFSET)")
     ASSERT(RACK_CLOUDS_B_OFFSET + SIZEOF(tc_clouds) <= LENGTH(RACK_WINDOW),
         "ERROR: chain B slot (clouds) exceeds the rack SRAM window")
     /* The window must end exactly where the core's scratch banks begin —

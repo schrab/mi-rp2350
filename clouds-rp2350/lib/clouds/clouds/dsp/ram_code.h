@@ -41,6 +41,15 @@
 // Each function needs its own token: shared section names collide at link
 // time between inline/COMDAT and plain copies (section type conflict). Two
 // same-flags weak copies (e.g. template instantiations) MAY share one token.
+//
+// CLOUDS_RAM_CODE_DEMOTABLE(token): for code/LUTs whose ONLY consumers are
+// paths the rack EXCLUDES (spectral — CC 23 = 3 rejected rack-wide, T2 — plus
+// dead-but-KEEP'd upstream tables with no remaining reader). In the rack
+// build (RACK_RP2350_TC) the mark expands to NOTHING, so the section lands
+// in flash (.text/.rodata) instead of the SRAM window — the window must hold
+// TWO chain images (T6), and dead modes must not be charged for residency.
+// Standalone builds expand it to the plain CLOUDS_RAM_CODE mark: every mode
+// stays SRAM-resident there and the produced firmware is unchanged.
 #ifndef CLOUDS_DSP_RAM_CODE_H_
 #define CLOUDS_DSP_RAM_CODE_H_
 
@@ -52,8 +61,14 @@
 #endif
 #define CLOUDS_RAM_CODE(token) \
   __attribute__((section(CLOUDS_RAM_CODE_PREFIX #token)))
+#if defined(RACK_RP2350_TC)
+#define CLOUDS_RAM_CODE_DEMOTABLE(token)
+#else
+#define CLOUDS_RAM_CODE_DEMOTABLE(token) CLOUDS_RAM_CODE(token)
+#endif
 #else
 #define CLOUDS_RAM_CODE(token)
+#define CLOUDS_RAM_CODE_DEMOTABLE(token)
 #endif
 
 #endif  // CLOUDS_DSP_RAM_CODE_H_

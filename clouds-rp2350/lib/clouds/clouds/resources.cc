@@ -36,10 +36,19 @@
 // All lookup tables live in SRAM (CLOUDS_RAM_CODE): the granular/WSOLA/pvov
 // paths read them per-sample, and XIP flash cache misses would dominate the
 // audio block budget (same fix as the Elements port).
+//
+// EXCEPTIONS (CLOUDS_RAM_CODE_DEMOTABLE — flash in the rack, SRAM in the
+// standalone): lut_sine_window_4096 (only the spectral STFT window, excluded
+// in the rack), lut_db + src_filter_1x_2_31/63/91 (no remaining reader in
+// either build — referenced only by the unreferenced src_filter_table[] /
+// lookup_table_int16_table[] index arrays; they survived in the window purely
+// through the linker script's KEEP()). lut_sin and lut_window STAY marked
+// with the plain macro in every build: granular reads both per-sample (pan
+// gains / GRAIN_QUALITY_HIGH grain envelope).
 
 namespace clouds {
 
-CLOUDS_RAM_CODE(src_filter_31) const float src_filter_1x_2_31[] = {
+CLOUDS_RAM_CODE_DEMOTABLE(src_filter_31) const float src_filter_1x_2_31[] = {
    6.826286541e-03,  1.617306168e-02, -9.023930288e-03, -1.314720136e-02,
    2.771050661e-03,  2.178528721e-02,  3.540864731e-03, -2.954351590e-02,
   -1.652225270e-02,  3.723501469e-02,  3.990208332e-02, -4.362991064e-02,
@@ -63,7 +72,7 @@ CLOUDS_RAM_CODE(src_filter_45) const float src_filter_1x_2_45[] = {
    1.833575577e-03,  5.352009980e-03,  4.393903915e-04, -5.894682972e-03,
   -6.928606892e-04,
 };
-CLOUDS_RAM_CODE(src_filter_63) const float src_filter_1x_2_63[] = {
+CLOUDS_RAM_CODE_DEMOTABLE(src_filter_63) const float src_filter_1x_2_63[] = {
   -6.348730944e-05, -1.372758379e-03, -1.090158652e-04,  1.449992610e-03,
    7.764237476e-04, -1.914529528e-03, -1.888816073e-03,  2.068584229e-03,
    3.473105649e-03, -1.607254039e-03, -5.400889080e-03,  2.059859441e-04,
@@ -81,7 +90,7 @@ CLOUDS_RAM_CODE(src_filter_63) const float src_filter_1x_2_63[] = {
   -1.888816073e-03, -1.914529528e-03,  7.764237476e-04,  1.449992610e-03,
   -1.090158652e-04, -1.372758379e-03, -6.348730944e-05,
 };
-CLOUDS_RAM_CODE(src_filter_91) const float src_filter_1x_2_91[] = {
+CLOUDS_RAM_CODE_DEMOTABLE(src_filter_91) const float src_filter_1x_2_91[] = {
    5.995404419e-05, -1.086251194e-04, -1.567613822e-04,  7.318513013e-05,
    2.786863682e-04, -2.005518760e-05, -4.598993838e-04, -1.491618144e-04,
    6.419356251e-04,  4.667860185e-04, -7.605503855e-04, -9.553359341e-04,
@@ -115,7 +124,7 @@ const float* src_filter_table[] = {
   src_filter_1x_2_91,
 };
 
-CLOUDS_RAM_CODE(lut_db) const int16_t lut_db[] = {
+CLOUDS_RAM_CODE_DEMOTABLE(lut_db) const int16_t lut_db[] = {
   -32768, -32768, -24576, -19783,
   -16384, -13746, -11591,  -9770,
    -8192,  -6799,  -5554,  -4428,
@@ -1552,7 +1561,7 @@ CLOUDS_RAM_CODE(lut_xfade_out) const float lut_xfade_out[] = {
    2.603033675e-01,  1.919373828e-01,  1.215722327e-01,  4.994082069e-02,
    4.329780281e-17,
 };
-CLOUDS_RAM_CODE(lut_sine_window_4096) const float lut_sine_window_4096[] = {
+CLOUDS_RAM_CODE_DEMOTABLE(lut_sine_window_4096) const float lut_sine_window_4096[] = {
    0.000000000e+00,  1.725808584e-04,  4.103438160e-04,  6.809730624e-04,
    9.753747396e-04,  1.288775731e-03,  1.618163527e-03,  1.961437906e-03,
    2.317038924e-03,  2.683755658e-03,  3.060616964e-03,  3.446824198e-03,

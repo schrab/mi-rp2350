@@ -37,13 +37,15 @@ enum RackModuleId {
 };
 
 // Window capacity of THIS build — must equal LENGTH(RACK_WINDOW) in
-// memmap_rack.ld. T6: grown 0x1C000 -> 0x1D000 (119,808 B) to hold the chain
-// A slot (tc_elements at the window origin) AND the chain B slot (tc_clouds
-// at origin + 0x9000) simultaneously; single-module mode is unchanged (any
-// one member's image is copied at boot/swap, clouds' now landing at its
-// B-slot address). Only feeds prints; the copy itself uses the start/end
-// symbols.
-static const uint32_t kRackWindowBytes = 0x1D000u;   // 119,808 B (T6 two-slot)
+// memmap_rack.ld. T6: grown 0x1C000 -> 0x1D000 (118,784 B) to hold a chain
+// A slot at the window origin AND the chain B slot (tc_clouds) at
+// origin + RACK_CLOUDS_B_OFFSET simultaneously. T6b: the offset moved
+// 0x9000 -> 0xE400 so rings (58,084 B) fits the A slot — paid for by the
+// dead-mode demotion of tc_clouds (79,744 -> 56,992 B), the window size is
+// unchanged; single-module mode is unaffected (any one member's image is
+// copied at boot/swap, clouds' landing at its B-slot address). Only feeds
+// prints; the copy itself uses the start/end symbols.
+static const uint32_t kRackWindowBytes = 0x1D000u;   // 118,784 B (T6 two-slot)
 
 extern "C" {
 // VMA side (SRAM window) — copy DESTINATION for each module (all four are

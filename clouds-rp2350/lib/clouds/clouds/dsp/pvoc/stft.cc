@@ -88,7 +88,7 @@ void STFT::Reset() {
   done_ = 0;
 }
 
-CLOUDS_RAM_CODE(stft_process) void STFT::Process(
+CLOUDS_RAM_CODE_DEMOTABLE(stft_process) void STFT::Process(
     const Parameters& parameters,
     const float* input,
     float* output,
@@ -118,7 +118,7 @@ CLOUDS_RAM_CODE(stft_process) void STFT::Process(
   }
 }
 
-CLOUDS_RAM_CODE(stft_buffer) void STFT::Buffer() {
+CLOUDS_RAM_CODE_DEMOTABLE(stft_buffer) void STFT::Buffer() {
   if (ready_ == done_) {
     return;
   }

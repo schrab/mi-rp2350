@@ -435,6 +435,16 @@ void rack_module_note_off(uint8_t note) {
 
 void rack_module_control_change(uint8_t cc, uint8_t val) {
   if (g_swapping) return;
+  // T6b chained-A budget clamp: rings->clouds shares the 750 us pair budget
+  // (rings + route + clouds-B + mod), and the rings combinations the
+  // standalone sweep measured over the pair's headroom (the sympathetic-
+  // string models, 511 us alone) are rejected loudly here. See
+  // module_rings.h chain_rejects_cc for the sweep basis. Single-module
+  // rings is fully unclamped; elements A needs no clamp (193-207 us).
+  if (g_chain.active && g_chain.a == RACK_MODULE_RINGS &&
+      rack_modules::mod_rings::chain_rejects_cc(cc, val)) {
+    return;
+  }
   kRackModules[g_active_module].control_change(cc, val);
 }
 
@@ -468,8 +478,8 @@ void rack_request_switch(uint8_t module_id) {
                                          rack_window_section(
                                              RACK_MODULE_ELEMENTS).window_start);
     Serial.printf("rack: chain: swap to %s rejected while chained (%s hot "
-                  "image %u B > A slot %u B below the clouds-B slot; only "
-                  "elements fits the chain window)\r\n",
+                  "image %u B > A slot %u B below the clouds-B slot; "
+                  "chain-capable A: elements, rings)\r\n",
                   kRackModules[module_id].name, sa.name,
                   (unsigned)(sa.window_end - sa.window_start),
                   (unsigned)b_offset);
@@ -1151,10 +1161,11 @@ static void cmd_module(const char* args) {
 // slots' hot images must fit the two-slot SRAM window, both states must fit
 // the object arena, both buffer carves must fit the buffer arena) — checked
 // here with the REAL linker-symbol sizes, so a reject line carries the
-// exact numbers. In this build only elements->clouds passes all three
-// checks (the ledger T6 findings hold the full math; plaits->clouds needs
-// ~49 KB more window than the 512 KiB part can give and rings->clouds needs
-// the A-slot widened past its 58 KB image + an 8 KB object-arena bump).
+// exact numbers. Since T6b (tc_clouds dead-mode demotion 79,744 -> 56,992 B
+// paid for the 0xE400 A slot; the object arena grew to 132 KiB) BOTH
+// elements->clouds and rings->clouds pass all three checks; plaits->clouds
+// still fails the A-slot check (108,732 > 58,368 B — its ~94 KB chain-tier
+// re-tier is a separate, user-gated decision).
 static bool chain_parse_module(const char* tok, int8_t* out) {
   if (tok[0] >= '0' && tok[0] <= '9') {
     long v = atol(tok);
@@ -1176,11 +1187,14 @@ static void cmd_chain(const char* args) {
     // status
     if (g_chain.active) {
       Serial.printf("rack: chain ACTIVE %s->%s (grid %lu Hz / %u-sample blocks, "
-                    "budget %lu us incl. mod; B mode clamped to granular/looping; "
-                    "CC 23/24/65/66 -> B, others -> A)\r\n",
+                    "budget %lu us incl. mod; clamps: B mode granular/looping "
+                    "only, %s A budget clamp %s; CC 23/24/65/66 -> B, others "
+                    "-> A)\r\n",
                     kRackModules[g_chain.a].name, kRackModules[g_chain.b].name,
                     (unsigned long)kChainRate, (unsigned)kChainBlockSize,
-                    (unsigned long)kChainBudgetUs);
+                    (unsigned long)kChainBudgetUs,
+                    kRackModules[g_chain.a].name,
+                    g_chain.a == RACK_MODULE_RINGS ? "ON" : "n/a");
     } else {
       Serial.println("rack: chain off (pairs: elements|plaits|rings -> clouds; "
                      "usage: chain <a> [b] / chain off)");

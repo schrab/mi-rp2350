@@ -436,11 +436,14 @@ void control_change(uint8_t cc, uint8_t val) {
     case 22: s->shared_reverb       = v; break;
     // Playback mode selector: 0 granular / 1 stretch / 2 looping delay.
     // Values > 2 are ignored; applied between render blocks.
-    // SPECTRAL (3) IS EXCLUDED in the rack (plan, "SRAM architecture"):
-    // its 57 KB of CMSIS FFT tables are flash-resident here (memmap_rack.ld
-    // header), so the 13.8 ms transform burst would no longer be bank-
-    // absorbable — the mode is the designated sacrifice for the shared
-    // 112 KiB window that live-swapping requires.
+    // SPECTRAL (3) IS EXCLUDED in the rack (plan, "SRAM architecture") and
+    // its code path is DEMOTED to flash since T6b (clouds-tc-demote patch:
+    // STFT/pvoc/FrameTransformation + the CMSIS FFT code + the spectral
+    // window LUT are no longer window-resident), so the 13.8 ms transform
+    // burst would no longer be bank-absorbable — the mode stays the
+    // designated sacrifice for the shared two-slot window. Stretch (1)
+    // remains fully available single-module (its hot body is inlined in the
+    // SRAM-resident ProcessGranular).
     case 23:
       if (val <= 2) s->pending_playback_mode = static_cast<int8_t>(val);
       break;

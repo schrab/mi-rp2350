@@ -67,7 +67,7 @@ void FrameTransformation::Reset() {
   }
 }
 
-CLOUDS_RAM_CODE(frame_transform) void FrameTransformation::Process(
+CLOUDS_RAM_CODE_DEMOTABLE(frame_transform) void FrameTransformation::Process(
     const Parameters& parameters,
     float* fft_out,
     float* ifft_in) {

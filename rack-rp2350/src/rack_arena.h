@@ -9,9 +9,10 @@
 // four ports' DSP state).
 //
 // Sizing (measured from the T1 rack ELFs, sizeof via nm):
-//   OBJECT arena 128 KiB — largest state = rings (Part 123,352 B +
-//   StringSynthPart 2,004 B + block buffers ~0.3 KB); elements Part is
-//   113,488 B; plaits Voice 21,748 B; clouds processor 8,104 B.
+//   OBJECT arena 132 KiB (T6b, was 128) — largest chain = rings + clouds
+//   (RingsState 126,212 B + CloudsState 8,692 B = 134,908 B; rings Part is
+//   123,352 B + StringSynthPart 2,004 B + block buffers ~0.3 KB); elements
+//   Part is 113,488 B; plaits Voice 21,748 B; clouds processor 8,104 B.
 //   BUFFER arena 192 KiB — clouds large(128 KiB) + small(64 KiB) fill it
 //   exactly; elements/rings reverb 64 KiB; plaits workspace 32 KiB.
 //
@@ -31,7 +32,13 @@
 
 // alignas(8): stmlib::BufferAllocator::Allocate<T> does not adjust alignment
 // (the plaits workspace requirement) and Part's float members want 4+.
-static constexpr size_t kRackObjectArenaBytes = 128 * 1024;
+//
+// T6b: the OBJECT arena grew 128 -> 132 KiB for the rings->clouds chain:
+// sizeof(RingsState) 126,212 + sizeof(CloudsState) 8,692 = 134,908 B needed
+// (align8(rings) + clouds), over the old 131,072 B arena. The buffer arena
+// stays exactly full for every chain (196,608 B); the 4 KiB comes out of the
+// heap (measured 37,216 -> 33,120 B, >= the 30 KiB gate).
+static constexpr size_t kRackObjectArenaBytes = 132 * 1024;
 static constexpr size_t kRackBufferArenaBytes = 192 * 1024;
 
 // DEFINED in main.cpp (single TU: main.cpp includes this header before the
