@@ -1126,7 +1126,7 @@ after each task).
 | T4 RP2350 DIN 31250 parser + serial console | done (code-complete; DIN-jack bench pending wiring) | 67d6f77 | parser 109/109 host asserts; dintest proves parser→funnel→module on hardware (+3 notes, CC, 24/25 clock stamps); console full; findings below |
 | T4a Presets (serialization + console dump/load + last-state autosave) | pending | — | bank lands on C3 flash in T5 |
 | T5 C3 UI + UART link (after DSP acceptance AND hardware) | pending | — | encoder+button menus, HC4067, ST7789, BLE-MIDI, preset bank |
-| T6 Chain mode v2 (plaits@32k patch, pair table) | done (1 of 3 pairs; see residency note) | 972c58a | elements→clouds benched end-to-end (52% of 750 µs, zero stalls); runtime-rate plaits patch (standalone byte-identical); rings→clouds + plaits→clouds REJECTED by SRAM residency (exact math in findings); user dropped Plaits→Elements 2026-11-05 |
+| T6 Chain mode v2 (plaits@32k patch, pair table) | done (2 of 3 pairs) | 972c58a + c106458 | elements→clouds (52% of 750 µs) AND rings→clouds (36-48%) benched; runtime-rate plaits patch; clouds dead-mode demotion freed 22.7 KB; plaits→clouds = chain-tier decision pending (findings); user dropped Plaits→Elements |
 | T7 Hardware bring-up + sweeps + user acceptance + soak | pending | — | |
 
 Findings (append per task below):
@@ -1437,3 +1437,43 @@ three are metrics-verified (ears at the DSP-acceptance checkpoint).
   pairing), authorize the rings squeeze (budget-infeasible in worst case —
   not recommended), or authorize the plaits chain-tier image (edge-of-
   feasible, ~60 KB keep-list re-tier + second flash image).
+
+### Rack T6b — rings→clouds made resident (2026-11-05, user pushback honored)
+
+- **The user challenged the 1-of-3 verdict** — and the challenge was right:
+  the T6 squeeze estimate missed the real lever. clouds' window image still
+  carried the code of the modes the rack excludes. **Dead-mode demotion**
+  (new `clouds-tc-demote-dead-modes.patch`, applies last): spectral
+  stft/pvoc/frame_transform (1.9 KB) + lut_sine_window_4096 (16.4 KB, only
+  PhaseVocoder::Init reads it) + CMSIS fft code (3.1 KB — the cfft trio had
+  NO caller at all and got GC'd) + dead-KEEP'd src/lut_db tables (1.3 KB)
+  → **tc_clouds 79,744 → 56,992 B (−22,752)**. Survey corrections: WSOLA/
+  Looping/Diffuser/PitchShifter have NO out-of-line copies (fully inlined
+  into the SRAM ProcessGranular — their marks are no-ops); lut_window/lut_sin
+  are LIVE-shared with granular (kept). **Stretch stays reachable
+  single-module** (correlator + body kept resident) — zero behavior change
+  anywhere in single-module mode.
+- **Geometry:** A slot grown to 0xE400 (rings-sized; elements still fits),
+  clouds-B slot at +0xE400 → 115,360 ≤ window 118,784 (slack 3.4 KB);
+  object arena 128 → 132 KiB (exact need 134,908); **heap 33.1 KB** (≥30 KB
+  gate). Window size itself unchanged. Standalone clouds byte-identical.
+- **Chained-rings budget clamp** (mirrors the clouds-B clamp): CC 18 = 1/4
+  (sympathetic-string models, 511 µs standalone) rejected in modes 0-3 with
+  the reason line; CC 20 mode-entry interdicted while the model byte is
+  sympathetic; poly unclamped (sweep basis: poly-4 never exceeded the poly-1
+  sympathetic worst); mode 4 easter egg unclamped. Single-module rings fully
+  unclamped.
+- **Bench (hardware):** `chain rings clouds` engaged 45 ms with exact
+  validation numbers; pair sustained **268-357 µs of 750 (36-48%)** — well
+  under the 93-99% worst-case estimates (those assumed sympathetic-heavy
+  loads, which the clamp now gates); sympathetic reject fired live;
+  clouds-B mode switch mid-chain clean; zero stalls; regressions: both
+  chains re-engage with the new numbers (elements→clouds 93,744 window
+  bytes), single-module budget/meters restore.
+- **plaits→clouds (REPORT ONLY, needs user approval):** a chain-tier plaits
+  keep-list (voice path + engine 0 + lut_sine ≈ 14.3 KB, demote ≈ 94.4 KB)
+  fits the A slot trivially — but the rack has ONE plaits image, so the
+  demotion would also move the fork-hot engines + 50.7 KB of LUTs to flash
+  for SWITCHED plaits (T5b sustained numbers were all-SRAM; flash engines
+  need a re-sweep). That is a sound/performance tradeoff on an accepted
+  port — user must opt in.
