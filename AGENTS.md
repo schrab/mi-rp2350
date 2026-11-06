@@ -27,6 +27,7 @@ consumes copies, not the originals.
 | [`README.md`](README.md) | Upstream repo context (Arduino MI ports, engine status per chip) |
 | [`tools/elements_panel.html`](tools/elements_panel.html) | Browser Web-MIDI control panel for the device port |
 | [`tools/clouds_panel.html`](tools/clouds_panel.html) | Browser Web-MIDI control panel for the Clouds port (modes, quality, freeze, trigger; jacks omitted) |
+| [`tools/rack_panel.html`](tools/rack_panel.html) | Browser control panel for the rack build: CC 32 module switching (tabs), all four CC maps, mod-engine bench mux (CC 33/34/35), optional Web Serial console for chain engage/off + bpm/clock; auto-syncs tabs from firmware acks |
 | [`tools/sync_pio_libs.sh`](tools/sync_pio_libs.sh) | Regenerates `elements-rp2350/lib/` from upstream sources (STMLIB, ELEMENTS) and re-applies `tools/patches/elements/*.patch` — run after submodule updates |
 | [`tools/syx2array.py`](tools/syx2array.py) | SysEx → C array converter |
 
