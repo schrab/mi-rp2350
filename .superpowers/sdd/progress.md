@@ -1502,3 +1502,28 @@ three are metrics-verified (ears at the DSP-acceptance checkpoint).
 - **Remaining bench debt for T7:** chained/switched plaits per-engine ear
   pass by the user; the 30-min soak; full re-sweep if the user wants a
   per-engine ledger table update.
+
+### Rack v2 — clouds grain alias bank + rack web panel (2026-11-07, user-accepted)
+
+- **`e903145` firmware:** kCloudsAliasCcBase = 40 (midi.h) — CC 40-48 always
+  addresses clouds' grain params 14-22 when clouds is the TARGET
+  (single-module clouds via rack_clouds_alias_active; the B slot while
+  chained via the widened rack_chain_wants_cc + translation in
+  rack_chain_control_change). Native 14-22 keep their meaning (A's panel
+  params while chained — the collision that forces the alias). Band range
+  checked free: 36-63 unused by all four maps + rack system CCs. B-slot CCs
+  now dropped during chain transitions (g_swapping guard). Strings updated
+  ('chain' status/help, clouds kCcMap).
+- **`473051f` tools/rack_panel.html:** the rack's web control panel (doc-map
+  row in AGENTS.md). Web MIDI: CC 32 MODULE strip, all four maps with
+  adapter-exact defaults + selector byte encodings, plaits ENGINE slider,
+  mod-engine bench mux with firmware-exact quantizers + DEST select.
+  Web Serial: CHAIN strip pair buttons + bpm/clock/log; parses firmware
+  acks to follow switches and badge chains; connect/disconnect toggle +
+  pagehide release. While chained: DUAL-PANEL layout (A + clouds), clouds
+  live on the alias bank except the bypassed exciter, A's 23/24 retagged
+  → CLOUDS + disabled, other tabs inert, MODE STRETCH snap-back.
+- **Bench (user):** elements→clouds chained, all 9 grain knobs swept on the
+  dual panel — ears accepted ("all fine"). Build: all 4 envs SUCCESS.
+  Flash: 1200-baud touch while the panel console held the port (EBUSY
+  lesson → Disconnect button + pagehide release added).
