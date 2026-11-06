@@ -1527,3 +1527,23 @@ three are metrics-verified (ears at the DSP-acceptance checkpoint).
   dual panel — ears accepted ("all fine"). Build: all 4 envs SUCCESS.
   Flash: 1200-baud touch while the panel console held the port (EBUSY
   lesson → Disconnect button + pagehide release added).
+
+### Rack T6d — chained-rings clamp re-measured and narrowed (2026-11-07)
+
+- The user asked which T1-T6 reductions were recoverable with the measured
+  headroom. The chained-rings sympathetic clamp was the one likely-wrong
+  reduction: the T6b prediction (756 µs) double-counted — measured pairs
+  came in at roughly half the predictions. A/B: clamp disabled → the
+  sympathetic pair MEASURED **692 µs of 750 (92%)**, zero stalls.
+- **Blanket model clamp removed; narrow guard added:** CC 19 polyphony > 2
+  rejected while a sympathetic model (1/4) is live chained (the only
+  unmeasured corner — poly-4 sympathetic + clouds + mod). Bench-fix during
+  verification: the first cut compared the RAW MIDI byte (rejected poly 2
+  by mistake); the clamp now decodes poly = 1 + val/32 like the adapter.
+- Verified: sympathetic poly 1-2 chained 655-692 µs sustained, zero stalls;
+  poly 4 rejected with the reason line; single-module rings unclamped.
+  Commit 650078a. The OTHER reductions stand: chained-clouds 0.512 s/ch
+  (buffer-arena wall, hardware-bound), spectral excluded (single-module
+  on-demand window extension possible someday, ~1.1 KB window slack),
+  switched-plaits flash engines = the user-approved T6c trade (targeted
+  promotions possible, 44 KB A-slot slack).
