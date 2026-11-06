@@ -274,12 +274,22 @@ decides, and any offender gets a one-line token promotion (window slack
 
 ### Chain-mode behavior (documented choices)
 
-- **CC routing while chained**: CC 23/24/65/66 → the B slot (clouds mode
-  clamp / quality / freeze / trig — 65/66 are unused by every chain-A map);
-  every other CC → the A slot. CC 23 is dual-mapped in every module's map
-  (elements geometry / plaits engine / rings chord), so while chained it
-  MEANS clouds mode and the A slot loses CC 23/24 (the mod engine can still
-  drive A — destinations bind to A).
+- **CC routing while chained**: CC 23/24/65/66 AND the clouds grain alias
+  bank **CC 40-48 → the B slot** (clouds mode clamp / quality / freeze /
+  trig / grain params — 65/66 are unused by every chain-A map, 40-48 is
+  unused by every map); every other CC → the A slot. CC 23 is dual-mapped in
+  every module's map (elements geometry / plaits engine / rings chord), so
+  while chained it MEANS clouds mode and the A slot loses CC 23/24 (the mod
+  engine can still drive A — destinations bind to A).
+- **Clouds grain alias bank (v2)**: CC 40-48 always addresses clouds' grain
+  parameters 14-22 (position..reverb) whenever clouds is the TARGET —
+  single-module clouds via the registry dispatch, the B slot while chained
+  via the chain intercept (translated in `rack_chain_control_change`). The
+  band is always on, so a controller sends 40-48 in both modes with no
+  chain-state knowledge; native 14-22 keep their existing meaning everywhere
+  (A's panel params while chained — the collision that makes the alias
+  necessary). Free-band check: 36-63 is unused by all four maps + the rack
+  system CCs (32 bank, 33-35 mod mux).
 - **Clouds-B mode clamp**: chain mode is granular/looping ONLY. CC 23 = 0
   (granular) / 2 (looping) accepted; **1 (stretch) and 3 (spectral)
   REJECTED** with a console line, no crash (belt-and-braces: the adapter's

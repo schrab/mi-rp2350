@@ -39,7 +39,8 @@ static const uint32_t kStallUs = 1800;    // >2x the 1000 us block period
 static const char* const kCcMap =
     "1 ex-tone, 11 ex-level, 13 ex-mode, 14 position, 15 size, 16 pitch, "
     "17 density, 18 texture, 19 dry/wet, 20 spread, 21 feedback, 22 reverb, "
-    "23 mode, 24 quality, 65 freeze, 66 trigger";
+    "23 mode, 24 quality, 65 freeze, 66 trigger, 40-48 = 14-22 (grain alias "
+    "bank: single-module clouds + B slot while chained)";
 // T3 mod destinations: the grain parameters 14-22 accept continuous
 // modulation. 23/24 are EXCLUDED (playback-mode / quality selectors must not
 // be modulated — mode changes also reset recording buffers). 1/11/13 (the

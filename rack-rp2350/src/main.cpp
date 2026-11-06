@@ -489,18 +489,44 @@ void rack_request_switch(uint8_t module_id) {
   g_pending_module = static_cast<int8_t>(module_id);
 }
 
+// Clouds grain alias bank — single-module leg (declared in midi.h next to
+// kCloudsAliasCcBase): true when CC 40-48 should take the registry path as
+// clouds' native 14-22. While chained the band belongs to the B slot instead
+// (rack_chain_wants_cc below grabs it there), and other single-module
+// actives leave it untouched — it is unused in their maps.
+bool rack_clouds_alias_active() {
+  return !g_chain.active && g_active_module == RACK_MODULE_CLOUDS;
+}
+
 // T6 chain CC intercept (declared in midi.h): while chained, CCs 23/24/65/66
-// drive the B slot (clouds) — everything else reaches the A slot through the
-// normal registry dispatch. 23/24 collide with every chain-A module's map
-// (elements geometry/brightness, plaits engine/aux, rings chord/-) — while
-// chained they mean clouds mode/quality; the A slot's parameters stay
-// reachable through the mod engine (destinations bind to A).
+// AND the clouds grain alias bank 40-48 drive the B slot (clouds) —
+// everything else reaches the A slot through the normal registry dispatch.
+// 23/24 collide with every chain-A module's map (elements geometry/
+// brightness, plaits engine/aux, rings chord/-) — while chained they mean
+// clouds mode/quality; the A slot's parameters stay reachable through the
+// mod engine (destinations bind to A). The 40-48 band is translated to
+// clouds' native 14-22 so controllers get the FULL clouds grain surface
+// while chained, not just mode/quality/freeze/trig.
 bool rack_chain_wants_cc(uint8_t cc) {
   return g_chain.active &&
-         (cc == 23 || cc == 24 || cc == 65 || cc == 66);
+         (cc == 23 || cc == 24 || cc == 65 || cc == 66 ||
+          (cc >= kCloudsAliasCcBase && cc <= kCloudsAliasCcBase + 8));
 }
 
 void rack_chain_control_change(uint8_t cc, uint8_t val) {
+  // Swap-window discipline (same as the A-slot dispatch in
+  // rack_module_control_change): during a chain transition the B slot's
+  // state is being placement-new'd / re-Init'ed — drop instead of racing it.
+  if (g_swapping) return;
+  // Grain alias bank 40-48 -> clouds' native 14-22 (see midi.h
+  // kCloudsAliasCcBase). The mode clamp below does not apply here: 14-22 are
+  // plain float parameters (mod_clouds::control_change ignores anything its
+  // map does not define).
+  if (cc >= kCloudsAliasCcBase && cc <= kCloudsAliasCcBase + 8) {
+    rack_modules::mod_clouds::control_change(
+        static_cast<uint8_t>(cc - kCloudsAliasCcBase + 14), val);
+    return;
+  }
   switch (cc) {
     case 23:
       // clouds-B playback-mode CLAMP (chain mode = granular/looping ONLY):
@@ -1190,8 +1216,8 @@ static void cmd_chain(const char* args) {
     if (g_chain.active) {
       Serial.printf("rack: chain ACTIVE %s->%s (grid %lu Hz / %u-sample blocks, "
                     "budget %lu us incl. mod; clamps: B mode granular/looping "
-                    "only, %s A budget clamp %s; CC 23/24/65/66 -> B, others "
-                    "-> A)\r\n",
+                    "only, %s A budget clamp %s; CC 23/24/65/66 + grain bank "
+                    "40-48 -> B, others -> A)\r\n",
                     kRackModules[g_chain.a].name, kRackModules[g_chain.b].name,
                     (unsigned long)kChainRate, (unsigned)kChainBlockSize,
                     (unsigned long)kChainBudgetUs,
@@ -1483,8 +1509,9 @@ static void cmd_help(const char* args) {
   Serial.println("  switch <0-3|name>  live module swap (also MIDI CC 32, value 0-3)");
   Serial.println("  module             print active module + cc map + mod destinations");
   Serial.println("  chain [a] [b]|off  T6 serial chain (b defaults clouds; B mode clamped");
-  Serial.println("                     to granular/looping; CC 23/24/65/66 -> B while");
-  Serial.println("                     chained, other CCs -> A; bare 'chain' = status)");
+  Serial.println("                     to granular/looping; CC 23/24/65/66 + grain bank");
+  Serial.println("                     40-48 -> B while chained, other CCs -> A;");
+  Serial.println("                     bare 'chain' = status)");
   Serial.println("  mod <src> <param> <value>  set a mod-engine source param");
   Serial.println("     src: 0-11 or lfo1-4 / eu1-4 / gate1-2 / adsr1-2");
   Serial.println("     LFO  params: mode(hz|clock) rate(Hz) wave(sine|tri|saw|square|sh)");

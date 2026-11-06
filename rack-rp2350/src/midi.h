@@ -84,14 +84,34 @@ static const uint8_t kModBenchCcValue  = 35;
 // Defined in mod_engine.h (included by main.cpp after the adapters).
 void rack_mod_bench_cc(uint8_t cc, uint8_t val);
 
+// --- clouds grain-parameter ALIAS BANK (rack v2) --------------------------
+// CC 40-48 addresses clouds' grain parameters 14-22 (position..reverb)
+// whenever clouds is the TARGET — single-module clouds, or the B slot while
+// chained. Rationale: while chained, clouds' native 14-22 collide with every
+// chain-A module's map (elements 14-22 are env/bow/blow/strike, plaits 14-22
+// timbre..morph-mod, rings 14-17 structure..position), so the chain
+// intercept cannot hand the native band to clouds-B without stealing A's
+// panel. The alias band lives in the free range (36-63 is unused by all four
+// maps and the rack system CCs) and is ALWAYS ON: the web panel sends 40-48
+// in both modes, so its clouds view needs no chain-state knowledge. Native
+// wire CCs 14-22 keep their existing meaning everywhere (A's panel params
+// while chained; clouds' own params in single-module mode).
+static const uint8_t kCloudsAliasCcBase = 40;   // 40-48 -> clouds 14-22
+// DEFINED in main.cpp: true when the alias band should take the registry
+// path (single-module clouds). While chained the band is grabbed by
+// rack_chain_wants_cc below and translated inside rack_chain_control_change.
+bool rack_clouds_alias_active();
+
 // T6 chain-mode CC intercept (DEFINED in main.cpp). While a chain is
-// engaged, CCs 23/24/65/66 belong to the B slot (clouds) and are handled by
-// the chain machinery (mode clamp / quality / freeze / trig); every other CC
-// goes to the A slot (the sound source) through the normal registry
-// dispatch. CC 23 is dual-mapped in every module map (elements geometry /
-// plaits engine / rings chord) — while chained it means clouds-B mode, so
-// the A slot loses CC 23/24 to the clamp (the mod engine can still drive A's
-// parameters — destinations bind to A). 65/66 are unused by all four maps.
+// engaged, CCs 23/24/65/66 AND the clouds grain alias bank 40-48 (see
+// kCloudsAliasCcBase) belong to the B slot (clouds) and are handled by the
+// chain machinery (mode clamp / quality / freeze / trig / grain params);
+// every other CC goes to the A slot (the sound source) through the normal
+// registry dispatch. CC 23 is dual-mapped in every module map (elements
+// geometry / plaits engine / rings chord) — while chained it means clouds-B
+// mode, so the A slot loses CC 23/24 to the clamp (the mod engine can still
+// drive A's parameters — destinations bind to A). 65/66 are unused by all
+// four maps; 40-48 is unused everywhere (the alias bank's free range).
 bool rack_chain_wants_cc(uint8_t cc);
 void rack_chain_control_change(uint8_t cc, uint8_t val);
 
@@ -188,6 +208,15 @@ inline void midiControlChange(uint8_t cc, uint8_t val) {
   }
   if (cc >= kModBenchCcSource && cc <= kModBenchCcValue) {
     rack_mod_bench_cc(cc, val);   // CC 33/34/35 = mod-engine bench mux (T3)
+    return;
+  }
+  // Clouds grain alias bank, single-module path (see kCloudsAliasCcBase):
+  // only when clouds itself is the active module — other actives leave the
+  // band untouched (unused CCs in their maps). While chained the band is
+  // intercepted by rack_chain_wants_cc below and routed to the B slot.
+  if (cc >= kCloudsAliasCcBase && cc <= kCloudsAliasCcBase + 8 &&
+      rack_clouds_alias_active()) {
+    rack_module_control_change(static_cast<uint8_t>(cc - kCloudsAliasCcBase + 14), val);
     return;
   }
   if (rack_chain_wants_cc(cc)) {
