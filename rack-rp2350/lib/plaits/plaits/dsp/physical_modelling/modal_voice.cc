@@ -51,7 +51,7 @@ void ModalVoice::Init() {
   resonator_.Init(0.015f, kMaxNumModes);
 }
 
-PLAITS_RAM_CODE(modal_voice_render) void ModalVoice::Render(
+PLAITS_RAM_CODE_DEMOTABLE(modal_voice_render) void ModalVoice::Render(
     bool sustain,
     bool trigger,
     float accent,
@@ -100,7 +100,7 @@ PLAITS_RAM_CODE(modal_voice_render) void ModalVoice::Render(
   resonator_.Process(f0, structure, brightness, damping, temp, out, size);
 }
 
-PLAITS_RAM_CODE(modal_voice_render_stereo) void ModalVoice::RenderStereo(
+PLAITS_RAM_CODE_DEMOTABLE(modal_voice_render_stereo) void ModalVoice::RenderStereo(
     bool sustain,
     bool trigger,
     float accent,

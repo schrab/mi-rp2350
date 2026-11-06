@@ -81,7 +81,7 @@ void ScannedEngine::Excite(float position, float width, float amount) {
   }
 }
 
-PLAITS_RAM_CODE(scanned_step) void ScannedEngine::Step(
+PLAITS_RAM_CODE_DEMOTABLE(scanned_step) void ScannedEngine::Step(
     float inharmonicity,
     float structure,
     float damping,
@@ -167,7 +167,7 @@ PLAITS_RAM_CODE(scanned_step) void ScannedEngine::Step(
 // One virtual pickup: the interpolated readout blended toward its own spatial
 // derivative by TIMBRE, then sine-wavefolded by MORPH. Stereo mode reads a
 // second pickup on the same string, a quarter of the scan span away.
-PLAITS_RAM_CODE(scanned_read_pickup) float ScannedEngine::ReadPickup(
+PLAITS_RAM_CODE_DEMOTABLE(scanned_read_pickup) float ScannedEngine::ReadPickup(
     float phase,
     float timbre,
     float fold_amount,
@@ -201,7 +201,7 @@ PLAITS_RAM_CODE(scanned_read_pickup) float ScannedEngine::ReadPickup(
   return scanned + (folded - scanned) * fold_amount;
 }
 
-PLAITS_RAM_CODE(scanned_render) void ScannedEngine::Render(
+PLAITS_RAM_CODE_DEMOTABLE(scanned_render) void ScannedEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

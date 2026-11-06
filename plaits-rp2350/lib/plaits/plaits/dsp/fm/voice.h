@@ -180,7 +180,7 @@ class Voice {
     Render(parameters, buffers, size);
   }
 
-  PLAITS_RAM_CODE(fm_voice_render) inline void Render(
+  PLAITS_RAM_CODE_DEMOTABLE(fm_voice_render) inline void Render(
       const Parameters& parameters,
       float* buffers[4],
       size_t size) {

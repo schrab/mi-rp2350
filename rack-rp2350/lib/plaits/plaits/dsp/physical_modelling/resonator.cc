@@ -80,7 +80,7 @@ static inline bool AllAtNyquist(const float* f) {
   return f[0] >= 0.499f && f[1] >= 0.499f && f[2] >= 0.499f && f[3] >= 0.499f;
 }
 
-PLAITS_RAM_CODE(resonator_process) void Resonator::Process(
+PLAITS_RAM_CODE_DEMOTABLE(resonator_process) void Resonator::Process(
     float f0,
     float structure,
     float brightness,
@@ -145,7 +145,7 @@ PLAITS_RAM_CODE(resonator_process) void Resonator::Process(
   }
 }
 
-PLAITS_RAM_CODE(resonator_process_stereo) void Resonator::ProcessStereo(
+PLAITS_RAM_CODE_DEMOTABLE(resonator_process_stereo) void Resonator::ProcessStereo(
     float f0,
     float structure,
     float brightness,

@@ -4202,7 +4202,7 @@ const int8_t* lookup_table_i8_table[] = {
   lut_lpc_excitation_pulse,
 };
 
-PLAITS_RAM_CODE(wav_integrated_waves_1) const int16_t wav_integrated_waves_1[] = {
+PLAITS_RAM_CODE_DEMOTABLE(wav_integrated_waves_1) const int16_t wav_integrated_waves_1[] = {
   -20556, -20706, -20806, -20857,
   -20857, -20806, -20706, -20556,
   -20356, -20107, -19810, -19465,
@@ -6316,7 +6316,7 @@ PLAITS_RAM_CODE(wav_integrated_waves_1) const int16_t wav_integrated_waves_1[] =
       14,   -233,   -723,  -1484,
    -2455,  -3479,  -4342,  -4836,
 };
-PLAITS_RAM_CODE(wav_integrated_waves_2) const int16_t wav_integrated_waves_2[] = {
+PLAITS_RAM_CODE_DEMOTABLE(wav_integrated_waves_2) const int16_t wav_integrated_waves_2[] = {
   -24465, -24934, -25303, -25650,
   -25650, -25303, -24934, -24465,
   -23963, -23391, -22788, -22130,
@@ -8430,7 +8430,7 @@ PLAITS_RAM_CODE(wav_integrated_waves_2) const int16_t wav_integrated_waves_2[] =
    -1649,  -1649,  -1649,  -1650,
    -1892,  -1892,  -1892,  -1892,
 };
-PLAITS_RAM_CODE(wav_integrated_waves_3) const int16_t wav_integrated_waves_3[] = {
+PLAITS_RAM_CODE_DEMOTABLE(wav_integrated_waves_3) const int16_t wav_integrated_waves_3[] = {
   -11705, -12211, -12571, -12800,
   -12800, -12571, -12211, -11705,
   -11057, -10270,  -9392,  -8442,

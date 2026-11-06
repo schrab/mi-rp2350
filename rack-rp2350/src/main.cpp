@@ -479,7 +479,7 @@ void rack_request_switch(uint8_t module_id) {
                                              RACK_MODULE_ELEMENTS).window_start);
     Serial.printf("rack: chain: swap to %s rejected while chained (%s hot "
                   "image %u B > A slot %u B below the clouds-B slot; "
-                  "chain-capable A: elements, rings)\r\n",
+                  "chain-capable A: elements, rings, plaits)\r\n",
                   kRackModules[module_id].name, sa.name,
                   (unsigned)(sa.window_end - sa.window_start),
                   (unsigned)b_offset);
@@ -1162,10 +1162,12 @@ static void cmd_module(const char* args) {
 // the object arena, both buffer carves must fit the buffer arena) — checked
 // here with the REAL linker-symbol sizes, so a reject line carries the
 // exact numbers. Since T6b (tc_clouds dead-mode demotion 79,744 -> 56,992 B
-// paid for the 0xE400 A slot; the object arena grew to 132 KiB) BOTH
-// elements->clouds and rings->clouds pass all three checks; plaits->clouds
-// still fails the A-slot check (108,732 > 58,368 B — its ~94 KB chain-tier
-// re-tier is a separate, user-gated decision).
+// paid for the 0xE400 A slot; the object arena grew to 132 KiB) AND the
+// user-approved plaits chain-tier (09-plaits-chain-tier.patch: tc_plaits
+// 108,732 -> ~14.1 KB, voice path + engine 0 + lut_sine only), ALL THREE
+// pairs pass the residency checks: elements->clouds, rings->clouds,
+// plaits->clouds. The chained-plaits BUDGET (flash engines @ 32 kHz) is a
+// separate gate — see the README bench sheet.
 static bool chain_parse_module(const char* tok, int8_t* out) {
   if (tok[0] >= '0' && tok[0] <= '9') {
     long v = atol(tok);

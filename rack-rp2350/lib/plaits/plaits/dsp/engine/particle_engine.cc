@@ -86,7 +86,7 @@ const float particle_pan_right[kNumParticles] = {
 // that the diffuser receives the particles at their mono level.
 const float kStereoToMonoGain = 0.7708f;
 
-PLAITS_RAM_CODE(particle_render) void ParticleEngine::Render(
+PLAITS_RAM_CODE_DEMOTABLE(particle_render) void ParticleEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

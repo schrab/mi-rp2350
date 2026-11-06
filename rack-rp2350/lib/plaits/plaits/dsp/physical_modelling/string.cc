@@ -64,7 +64,7 @@ void String::Reset() {
   src_phase_ = 0.0f;
 }
 
-PLAITS_RAM_CODE(string_process) void String::Process(
+PLAITS_RAM_CODE_DEMOTABLE(string_process) void String::Process(
     float f0,
     float non_linearity_amount,
     float brightness,
@@ -82,7 +82,7 @@ PLAITS_RAM_CODE(string_process) void String::Process(
 }
 
 template<StringNonLinearity non_linearity>
-PLAITS_RAM_CODE(string_process_internal) void String::ProcessInternal(
+PLAITS_RAM_CODE_DEMOTABLE(string_process_internal) void String::ProcessInternal(
     float f0,
     float non_linearity_amount,
     float brightness,

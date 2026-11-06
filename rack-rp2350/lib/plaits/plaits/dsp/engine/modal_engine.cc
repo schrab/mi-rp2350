@@ -53,7 +53,7 @@ void ModalEngine::Reset() {
   voice_.Init();
 }
 
-PLAITS_RAM_CODE(modal_render) void ModalEngine::Render(
+PLAITS_RAM_CODE_DEMOTABLE(modal_render) void ModalEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

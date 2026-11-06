@@ -132,10 +132,11 @@ once core 1 drains the stamp ring (within one audio block).
   +0x9000 so rings fits the A slot); LMAs are sequential in the reserved
   flash region RACK_LMA (origin 0x10389000). Measured members (rack ELF,
   2026-11-06): elements 36,752 B, clouds **56,992 B** (T6b demotion, was
-  79,744), plaits 108,732 B, rings 58,084 B — the window is 0x1D000
-  (118,784 B; unchanged since T6). The A slot is 0xE400 = 58,368 B (fits
-  rings with 284 B spare; plaits stays over it and is rejected as chain A at
-  runtime); A + B = 115,360 B → window slack 3,424 B.
+  79,744), plaits **14,132 B** (T6b chain-tier, was 108,732), rings 58,084 B
+  — the window is 0x1D000 (118,784 B; unchanged since T6). The A slot is
+  0xE400 = 58,368 B (fits rings with 284 B spare and plaits' chain-tier
+  image with 44 KB spare — all three A members are chain-A-capable); A + B
+  = 115,360 B → window slack 3,424 B.
   `rack_window_copy(module_id)` copies ANY member into the window (boot or
   swap); in single-module mode the copied image is the only live one, in
   chain mode A + clouds-B are live together (see Chain mode v2).
@@ -155,18 +156,27 @@ once core 1 drains the stamp ring (within one audio block).
   the window itself did not grow); boot heap consumers: core-1 separate
   stack 8 KB, I2S DMA bank 2-3 KB, USB device+host buffers → ≥ ~16 KB
   headroom maintained.
-- **Plaits re-tier** (T2 prerequisite; patches `05/06/07` regenerated):
-  tc_plaits 272,564 → 108,820 B (−163,744). KEPT in SRAM: the Voice::Render
-  path (voice + post-processor + sub-oscillator), support DSP
-  (`fm::Voice<6>` + `fm::RenderOperators`, resonator, String +
-  ProcessInternal, modal/string/scanned voices), engine 0 (VirtualAnalog —
-  boot default), the fork-flagged hot engines (particle, modal, string,
-  chord, chiptune, six_op, scanned) and the per-sample LUTs the kept set
-  touches (`lut_sine`, `wav_integrated_waves_1/2/3` — the KEPT chord engine
-  reads them per sample). DEMOTED to flash (XIP, small working sets — the
-  plaits T3 method): the long-tail engine bodies (~54 functions, ~116 KB)
-  and their engine-only LUTs (kWaves 32 KB, kBuzzZones 7.7 KB, lut_fold×2,
-  lut_ws×4, lut_lpc_excitation_pulse, kFormantShapeSin — 47.6 KB).
+- **Plaits re-tier** (T2 prerequisite; patches `05/06/07`) **+ T6b chain-tier**
+  (user-approved; patch `09-plaits-chain-tier.patch`): tc_plaits
+  272,564 → 108,732 → **14,132 B** in the rack. KEPT in the window: the
+  Voice::Render path (voice + post-processor + sub-oscillator), engine 0
+  (VirtualAnalog — boot default) and `lut_sine`. DEMOTED to flash in the
+  rack (`PLAITS_RAM_CODE_DEMOTABLE` — the standalone keeps every mark and
+  produces a byte-identical firmware, sha256-verified):
+  - the T2 long tail (~54 engine bodies ~116 KB + engine-only LUTs 47.6 KB —
+    kWaves 32 KB, kBuzzZones 7.7 KB, lut_fold×2, lut_ws×4,
+    lut_lpc_excitation_pulse, kFormantShapeSin), as before, and now also
+  - the fork-flagged hot engines (chord, particle, modal, string, chiptune,
+    six_op, scanned — 37.9 KB), the physical-modelling/fm support DSP they
+    call (String + ProcessInternal, Resonator, ModalVoice, StringVoice,
+    `fm::Voice<6>` + `fm::RenderOperators` — 14.7 KB) and
+    `wav_integrated_waves_1/2/3` (50,688 B — chord was their only
+    window-resident reader, so chord now runs from flash entirely, LUTs
+    included).
+  Consequence (accepted by the user): SWITCHED plaits and chained plaits
+  both run those bodies through the XIP cache — sound-neutral, slower
+  sustained; the per-engine re-sweep is the T7 bench. Per-engine promotion
+  back to the window = one token line (window slack 44 KB).
 - **Clouds spectral excluded + T6b dead-mode demotion** (plan, "SRAM
   architecture"; patch `tools/patches/clouds/clouds-tc-demote-dead-modes.patch`
   + `tools/patches/cmsis_dsp/01-rack-tc-names.patch`): Clouds playback mode
@@ -187,25 +197,28 @@ once core 1 drains the stamp ring (within one audio block).
   GRAIN_QUALITY_HIGH envelope + stretch) and `lut_sin` (granular pan gains);
   stretch stays fully available in single-module mode.
 
-### Per-engine tier table (plaits)
+### Per-engine tier table (plaits — RACK tiers; the standalone keeps the full T3 hot set)
 
-| Engine (slot) | Tier | Basis |
+| Engine (slot) | Rack tier | Basis |
 |---|---|---|
-| virtual_analog (0) | SRAM | boot default; T5b ≤148 µs |
-| waveshaping (3), fm (4), grain (5), additive (6), wavetable (7), speech (9), swarm (12), noise (13), va_dual (1), va_crossfade (2), va_variant (71) | flash | unflagged long tail; speech measured 25 µs sustained (T5b) |
+| virtual_analog (0) | **SRAM (window)** | boot default; T5b ≤148 µs — the ONLY engine the rack keeps window-resident |
+| waveshaping (3), fm (4), grain (5), additive (6), wavetable (7), speech (9), swarm (12), noise (13), va_dual (1), va_crossfade (2), va_variant (71) | flash | unflagged long tail; speech measured 25 µs sustained (T5b, SRAM basis) |
 | bass_drum (17), snare_drum (18), hi_hat (19) | flash | drum tail (drum support headers demoted too) |
-| chord (8), particle (14), string (15), modal (16) | SRAM | fork-flagged hot set |
-| six_op / dx7 a/b/c (22-24) | SRAM | fork-flagged; dx7 67-69 µs sustained (T5b) |
-| chiptune (27) | SRAM | fork-flagged hot set |
+| chord (8), particle (14), string (15), modal (16) | **flash (T6b chain-tier)** | fork-flagged hot set — demoted 2026-11-06 (user-approved); T5b SRAM basis: particle/chord/modal/string bodies; from XIP expect ~1.5-3× sustained |
+| six_op / dx7 a/b/c (22-24) | **flash (T6b chain-tier)** | dx7 67-69 µs sustained (T5b, SRAM basis) |
+| chiptune (27) | **flash (T6b chain-tier)** | fork-flagged hot set, demoted with the rest |
 | formant/lpc/natural/sam speech (10, 11, 28), vosim (59) | flash | speech measured 25 µs, vosim 100-115 µs sustained (T5b, SRAM basis) |
-| scanned (31) | SRAM | fork-flagged hot set |
+| scanned (31) | **flash (T6b chain-tier)** | fork-flagged hot set, demoted with the rest |
 | buzz (49), wave_scan (67), shakers (84), acid (96), noise_bank (53), analog_percussion (91), freshets (92), bubbletime (93), zx* (94/95), grainlet-based (5, 60) + ~55 more | flash | unflagged long tail (T3 method: working set < XIP cache) |
 
-(Engine slots per the 98-catalog registry order; the flash-resident engines
-were measured ONCE with everything in SRAM — T5b sweep had zero stalls and
-sustained worst ≈ 268 µs of the 500 µs budget; from XIP they are EXPECTED
-slower — accepted by the plan, re-tier any offender = one token line, window
-slack ~5.9 KB.)
+(Engine slots per the 98-catalog registry order. The T5b sweep measured
+every engine ONCE with everything in SRAM — zero stalls, sustained worst
+≈ 268 µs of the 500 µs budget at 48 kHz. Since the T6b chain-tier ONLY
+engine 0 + the voice path stay window-resident in the rack: switched AND
+chained plaits run every other engine from XIP — sound-neutral, sustained
+cost expected ~1.5-3× the T5b number, to be re-swept on the T7 bench.
+Per-engine promotion back = one token line; window slack after the
+chain-tier is ~44 KB (A slot 58,368 − tc_plaits 14,132).)
 
 ## Chain mode v2 (T6)
 
@@ -233,14 +246,16 @@ linker-symbol sizes:
 
 | Pair | A hot (B) | B hot | Window need (B offset + B) | Object arena | Verdict in this build |
 |---|---|---|---|---|---|
-| elements→clouds | 36,752 B | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 113,920+8,692 ≤ 135,168 | **ENGAGEABLE** |
-| rings→clouds | 58,084 B | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 126,216+8,692 = 134,908 ≤ 135,168 | **ENGAGEABLE** (T6b) |
-| plaits→clouds | 108,732 B | 56,992 B | A slot check fails first | fits | rejected (A slot 58,368 B < 108,732; needs the chain-tier plaits image — an architecture decision, not a tuning knob) |
+| elements→clouds | 36,752 B | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 113,920+8,692 ≤ 135,168 | **ENGAGEABLE** (benched T6: 373-401 µs) |
+| rings→clouds | 58,084 B | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 126,216+8,692 = 134,908 ≤ 135,168 | **ENGAGEABLE** (T6b; budget clamp below) |
+| plaits→clouds | 14,132 B (chain-tier) | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 21,840+8,692 = 30,532 ≤ 135,168 | **ENGAGEABLE** (T6b chain-tier, user-approved; flash-engine budget = bench gate) |
 
-Rejected pairs print the exact numbers on `chain plaits clouds` and stay
-single-module. The T6b geometry (dead-mode demotion 79,744 → 56,992 B +
-0xE400 A slot + 132 KiB object arena) is what made rings→clouds resident;
-the bench must still measure the engage (budget below).
+The T6b geometry (clouds dead-mode demotion 79,744 → 56,992 B + 0xE400 A
+slot + 132 KiB object arena) made rings→clouds resident; the user-approved
+plaits chain-tier (09-plaits-chain-tier.patch: tc_plaits 108,732 → 14,132 B
+— the rack's window image keeps ONLY the voice path + engine 0 + lut_sine)
+made plaits→clouds resident. The benches must still measure the engages
+(budgets below).
 
 **Per-pair budget math (standalone numbers, sustained):**
 elements 101-207 µs @16-sample blocks (≈150-310 @24) + clouds granular
@@ -248,9 +263,14 @@ elements 101-207 µs @16-sample blocks (≈150-310 @24) + clouds granular
 750 (51-74%)** — benched at 373-401 µs sustained (T6). rings typical
 270-320 µs + clouds ≈ 500-565 µs (67-75%) — but rings' sympathetic-string
 models measured **511 µs ALONE** (standalone T5a sweep) → 756 µs with
-clouds+mod: over budget, hence the chained-rings clamp below. plaits@32k
-≈ 268/1.5 ≈ 179 µs (worst sustained, 48k basis) + clouds ≈ 420-470 µs
-(56-63%) — blocked on residency, not budget.
+clouds+mod: over budget, hence the chained-rings clamp below. plaits@32k:
+engine 0 (SRAM) ≈ 25-35 µs → pair ≈ 260-280 µs (35-37%); flash engines =
+T5b sustained ÷1.5 (32 kHz) × an XIP factor ~1.5-3× (bench to measure) —
+the T5b sustained worst 268 µs (48k SRAM basis) bounds 179 µs at 32k SRAM,
+i.e. **270-540 µs from flash** + clouds 245 ≈ **515-785 µs of 750**: the
+worst engines may exceed the pair budget from flash — the bench sweep
+decides, and any offender gets a one-line token promotion (window slack
+44 KB) or a documented rejection.
 
 ### Chain-mode behavior (documented choices)
 
@@ -286,8 +306,9 @@ clouds+mod: over budget, hence the chained-rings clamp below. plaits@32k
     exceeded its poly-1 sympathetic worst (511 µs), so no measured
     combination puts poly > 2 over the pair budget beyond what the model
     clamp already removes.
-  Elements A needs no clamp (193-207 µs benched); plaits cannot be chain A
-  in this build (window).
+  Elements A needs no clamp (193-207 µs benched); plaits A has no CC clamp
+  either (its chained cost is engine-dependent — the bench sweep + the
+  per-engine promotion path govern it, see the pair-table budget math).
 - **Routing scale**: the route passes A's floats at **gain 1.0** — the
   adapters' outputs are the same ±1.0 class the I2S write path Clip16s, and
   the standalone test exciter produced 0.6-0.8 peaks, so routed material

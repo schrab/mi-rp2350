@@ -1,0 +1,305 @@
+diff -ruN a/plaits/dsp/engine/chord_engine.cc b/plaits/dsp/engine/chord_engine.cc
+--- a/plaits/dsp/engine/chord_engine.cc	2026-11-06 04:25:16.756577928 +0700
++++ b/plaits/dsp/engine/chord_engine.cc	2026-11-06 04:39:23.744399698 +0700
+@@ -134,7 +134,7 @@
+ }
+ #endif
+ 
+-PLAITS_RAM_CODE(chord_render) void ChordEngine::Render(
++PLAITS_RAM_CODE_DEMOTABLE(chord_render) void ChordEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/modal_engine.cc b/plaits/dsp/engine/modal_engine.cc
+--- a/plaits/dsp/engine/modal_engine.cc	2026-11-06 04:25:16.757420272 +0700
++++ b/plaits/dsp/engine/modal_engine.cc	2026-11-06 04:39:36.482487563 +0700
+@@ -53,7 +53,7 @@
+   voice_.Init();
+ }
+ 
+-PLAITS_RAM_CODE(modal_render) void ModalEngine::Render(
++PLAITS_RAM_CODE_DEMOTABLE(modal_render) void ModalEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/particle_engine.cc b/plaits/dsp/engine/particle_engine.cc
+--- a/plaits/dsp/engine/particle_engine.cc	2026-11-06 04:25:16.758033200 +0700
++++ b/plaits/dsp/engine/particle_engine.cc	2026-11-06 04:39:36.458487397 +0700
+@@ -86,7 +86,7 @@
+ // that the diffuser receives the particles at their mono level.
+ const float kStereoToMonoGain = 0.7708f;
+ 
+-PLAITS_RAM_CODE(particle_render) void ParticleEngine::Render(
++PLAITS_RAM_CODE_DEMOTABLE(particle_render) void ParticleEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine/string_engine.cc b/plaits/dsp/engine/string_engine.cc
+--- a/plaits/dsp/engine/string_engine.cc	2026-11-06 04:25:16.758676587 +0700
++++ b/plaits/dsp/engine/string_engine.cc	2026-11-06 04:39:36.519487819 +0700
+@@ -68,7 +68,7 @@
+   0.387298346f, 0.707106769f, 0.921954453f
+ };
+ 
+-PLAITS_RAM_CODE(string_render) void StringEngine::Render(
++PLAITS_RAM_CODE_DEMOTABLE(string_render) void StringEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine2/chiptune_engine.cc b/plaits/dsp/engine2/chiptune_engine.cc
+--- a/plaits/dsp/engine2/chiptune_engine.cc	2026-11-06 04:25:16.759953716 +0700
++++ b/plaits/dsp/engine2/chiptune_engine.cc	2026-11-06 04:39:53.862608187 +0700
+@@ -79,7 +79,7 @@
+   chords_.Reset();
+ }
+ 
+-PLAITS_RAM_CODE(chiptune_render) void ChiptuneEngine::Render(
++PLAITS_RAM_CODE_DEMOTABLE(chiptune_render) void ChiptuneEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine2/scanned_engine.cc b/plaits/dsp/engine2/scanned_engine.cc
+--- a/plaits/dsp/engine2/scanned_engine.cc	2026-11-06 04:25:16.760763689 +0700
++++ b/plaits/dsp/engine2/scanned_engine.cc	2026-11-06 04:40:06.943699520 +0700
+@@ -81,7 +81,7 @@
+   }
+ }
+ 
+-PLAITS_RAM_CODE(scanned_step) void ScannedEngine::Step(
++PLAITS_RAM_CODE_DEMOTABLE(scanned_step) void ScannedEngine::Step(
+     float inharmonicity,
+     float structure,
+     float damping,
+@@ -167,7 +167,7 @@
+ // One virtual pickup: the interpolated readout blended toward its own spatial
+ // derivative by TIMBRE, then sine-wavefolded by MORPH. Stereo mode reads a
+ // second pickup on the same string, a quarter of the scan span away.
+-PLAITS_RAM_CODE(scanned_read_pickup) float ScannedEngine::ReadPickup(
++PLAITS_RAM_CODE_DEMOTABLE(scanned_read_pickup) float ScannedEngine::ReadPickup(
+     float phase,
+     float timbre,
+     float fold_amount,
+@@ -201,7 +201,7 @@
+   return scanned + (folded - scanned) * fold_amount;
+ }
+ 
+-PLAITS_RAM_CODE(scanned_render) void ScannedEngine::Render(
++PLAITS_RAM_CODE_DEMOTABLE(scanned_render) void ScannedEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/engine2/six_op_engine.cc b/plaits/dsp/engine2/six_op_engine.cc
+--- a/plaits/dsp/engine2/six_op_engine.cc	2026-11-06 04:25:16.761563848 +0700
++++ b/plaits/dsp/engine2/six_op_engine.cc	2026-11-06 04:39:53.954608828 +0700
+@@ -93,11 +93,11 @@
+ // in each hot path, but inlining the same transfer function into all three mono
+ // loops costs several kilobytes of flash. Keep one shared copy;
+ // the call overhead is tiny beside the floating-point divide inside SoftClip.
+-PLAITS_RAM_CODE(six_op_soft_clip) static float __attribute__((noinline)) SixOpSoftClip(float sample) {
++PLAITS_RAM_CODE_DEMOTABLE(six_op_soft_clip) static float __attribute__((noinline)) SixOpSoftClip(float sample) {
+   return SoftClip(sample);
+ }
+ 
+-PLAITS_RAM_CODE(six_op_render_mono) void SixOpEngine::RenderMonoOutput(
++PLAITS_RAM_CODE_DEMOTABLE(six_op_render_mono) void SixOpEngine::RenderMonoOutput(
+     float gain,
+     float macro,
+     float* out,
+@@ -191,7 +191,7 @@
+   }
+ }
+ 
+-PLAITS_RAM_CODE(six_op_render) void SixOpEngine::Render(
++PLAITS_RAM_CODE_DEMOTABLE(six_op_render) void SixOpEngine::Render(
+     const EngineParameters& parameters,
+     float* out,
+     float* aux,
+diff -ruN a/plaits/dsp/fm/operator.h b/plaits/dsp/fm/operator.h
+--- a/plaits/dsp/fm/operator.h	2026-11-06 04:25:16.762301888 +0700
++++ b/plaits/dsp/fm/operator.h	2026-11-06 04:40:22.865811304 +0700
+@@ -68,7 +68,7 @@
+     size_t size);
+ 
+ template<int n, int modulation_source, bool additive>
+-PLAITS_RAM_CODE(fm_render_operators) void RenderOperators(
++PLAITS_RAM_CODE_DEMOTABLE(fm_render_operators) void RenderOperators(
+     Operator* ops,
+     const float* f,
+     const float* a,
+diff -ruN a/plaits/dsp/fm/voice.h b/plaits/dsp/fm/voice.h
+--- a/plaits/dsp/fm/voice.h	2026-11-06 04:25:16.763028119 +0700
++++ b/plaits/dsp/fm/voice.h	2026-11-06 04:40:22.897811530 +0700
+@@ -180,7 +180,7 @@
+     Render(parameters, buffers, size);
+   }
+ 
+-  PLAITS_RAM_CODE(fm_voice_render) inline void Render(
++  PLAITS_RAM_CODE_DEMOTABLE(fm_voice_render) inline void Render(
+       const Parameters& parameters,
+       float* buffers[4],
+       size_t size) {
+diff -ruN a/plaits/dsp/physical_modelling/modal_voice.cc b/plaits/dsp/physical_modelling/modal_voice.cc
+--- a/plaits/dsp/physical_modelling/modal_voice.cc	2026-11-06 04:25:16.763952563 +0700
++++ b/plaits/dsp/physical_modelling/modal_voice.cc	2026-11-06 04:40:34.799895521 +0700
+@@ -51,7 +51,7 @@
+   resonator_.Init(0.015f, kMaxNumModes);
+ }
+ 
+-PLAITS_RAM_CODE(modal_voice_render) void ModalVoice::Render(
++PLAITS_RAM_CODE_DEMOTABLE(modal_voice_render) void ModalVoice::Render(
+     bool sustain,
+     bool trigger,
+     float accent,
+@@ -100,7 +100,7 @@
+   resonator_.Process(f0, structure, brightness, damping, temp, out, size);
+ }
+ 
+-PLAITS_RAM_CODE(modal_voice_render_stereo) void ModalVoice::RenderStereo(
++PLAITS_RAM_CODE_DEMOTABLE(modal_voice_render_stereo) void ModalVoice::RenderStereo(
+     bool sustain,
+     bool trigger,
+     float accent,
+diff -ruN a/plaits/dsp/physical_modelling/resonator.cc b/plaits/dsp/physical_modelling/resonator.cc
+--- a/plaits/dsp/physical_modelling/resonator.cc	2026-11-06 04:25:16.764749424 +0700
++++ b/plaits/dsp/physical_modelling/resonator.cc	2026-11-06 04:40:34.731895040 +0700
+@@ -80,7 +80,7 @@
+   return f[0] >= 0.499f && f[1] >= 0.499f && f[2] >= 0.499f && f[3] >= 0.499f;
+ }
+ 
+-PLAITS_RAM_CODE(resonator_process) void Resonator::Process(
++PLAITS_RAM_CODE_DEMOTABLE(resonator_process) void Resonator::Process(
+     float f0,
+     float structure,
+     float brightness,
+@@ -145,7 +145,7 @@
+   }
+ }
+ 
+-PLAITS_RAM_CODE(resonator_process_stereo) void Resonator::ProcessStereo(
++PLAITS_RAM_CODE_DEMOTABLE(resonator_process_stereo) void Resonator::ProcessStereo(
+     float f0,
+     float structure,
+     float brightness,
+diff -ruN a/plaits/dsp/physical_modelling/string.cc b/plaits/dsp/physical_modelling/string.cc
+--- a/plaits/dsp/physical_modelling/string.cc	2026-11-06 04:25:16.765584715 +0700
++++ b/plaits/dsp/physical_modelling/string.cc	2026-11-06 04:40:34.683894700 +0700
+@@ -64,7 +64,7 @@
+   src_phase_ = 0.0f;
+ }
+ 
+-PLAITS_RAM_CODE(string_process) void String::Process(
++PLAITS_RAM_CODE_DEMOTABLE(string_process) void String::Process(
+     float f0,
+     float non_linearity_amount,
+     float brightness,
+@@ -82,7 +82,7 @@
+ }
+ 
+ template<StringNonLinearity non_linearity>
+-PLAITS_RAM_CODE(string_process_internal) void String::ProcessInternal(
++PLAITS_RAM_CODE_DEMOTABLE(string_process_internal) void String::ProcessInternal(
+     float f0,
+     float non_linearity_amount,
+     float brightness,
+diff -ruN a/plaits/dsp/physical_modelling/string.h b/plaits/dsp/physical_modelling/string.h
+--- a/plaits/dsp/physical_modelling/string.h	2026-11-06 04:25:16.766322589 +0700
++++ b/plaits/dsp/physical_modelling/string.h	2026-11-06 04:40:22.834811086 +0700
+@@ -67,12 +67,13 @@
+       size_t size);
+ 
+  private:
+-  // The section attribute must sit on this in-class declaration: GCC drops
++  // Any section attribute must sit on this in-class declaration: GCC drops
+   // section attributes placed on the out-of-line .cc definition of a member
+-  // template (the instantiations then land in .text and are reached from
+-  // SRAM String::Process through veneers into XIP flash).
++  // template. T6b chain-tier: DEMOTABLE — in the rack the instantiations
++  // land in .text (XIP; their only callers, the string engines + StringVoice,
++  // are demoted too); in the standalone the SRAM mark applies here.
+   template<StringNonLinearity non_linearity>
+-  PLAITS_RAM_CODE(string_process_internal) void ProcessInternal(
++  PLAITS_RAM_CODE_DEMOTABLE(string_process_internal) void ProcessInternal(
+       float f0,
+       float non_linearity_amount,
+       float brightness,
+diff -ruN a/plaits/dsp/physical_modelling/string_voice.cc b/plaits/dsp/physical_modelling/string_voice.cc
+--- a/plaits/dsp/physical_modelling/string_voice.cc	2026-11-06 04:25:16.766739790 +0700
++++ b/plaits/dsp/physical_modelling/string_voice.cc	2026-11-06 04:40:34.753895195 +0700
+@@ -52,7 +52,7 @@
+   string_.Reset();
+ }
+ 
+-PLAITS_RAM_CODE(string_voice_render) void StringVoice::Render(
++PLAITS_RAM_CODE_DEMOTABLE(string_voice_render) void StringVoice::Render(
+     bool sustain,
+     bool trigger,
+     float accent,
+diff -ruN a/plaits/dsp/ram_code.h b/plaits/dsp/ram_code.h
+--- a/plaits/dsp/ram_code.h	2026-11-06 04:25:16.751744163 +0700
++++ b/plaits/dsp/ram_code.h	2026-11-06 04:38:47.439151894 +0700
+@@ -19,6 +19,20 @@
+ // LMA = the reserved flash region) and copies the SELECTED module's section
+ // into the window at boot — standalone builds keep .time_critical.* (the
+ // core's crt0 copy path) unchanged.
++//
++// PLAITS_RAM_CODE_DEMOTABLE(token): the T6b chain-tier (user-approved). In
++// the rack the tc_plaits window image must ALSO leave room for the chain
++// B slot (clouds) beside the A slot, so the rack keeps ONLY the voice path +
++// engine 0 (VirtualAnalog, boot default) + lut_sine SRAM-resident; everything
++// else this port had marked (the fork-flagged hot engines chord/particle/
++// modal/string/chiptune/six_op/scanned, the physical-modelling + fm support
++// DSP, wav_integrated_waves — chord is their only SRAM-resident reader) is
++// DEMOTED to flash: under RACK_RP2350_TC the mark expands to NOTHING so the
++// section lands in .text/.rodata. Switched AND chained plaits then run those
++// bodies through the XIP cache (sound-neutral, slower sustained — re-sweep
++// on the bench; per-engine promotion back = one token line). Standalone
++// builds expand it to the plain PLAITS_RAM_CODE mark: byte-identical
++// firmware, every kept body still SRAM-resident.
+ #ifndef PLAITS_DSP_RAM_CODE_H_
+ #define PLAITS_DSP_RAM_CODE_H_
+ 
+@@ -30,8 +44,14 @@
+ #endif
+ #define PLAITS_RAM_CODE(token) \
+   __attribute__((section(PLAITS_RAM_CODE_PREFIX #token)))
++#if defined(RACK_RP2350_TC)
++#define PLAITS_RAM_CODE_DEMOTABLE(token)
++#else
++#define PLAITS_RAM_CODE_DEMOTABLE(token) PLAITS_RAM_CODE(token)
++#endif
+ #else
+ #define PLAITS_RAM_CODE(token)
++#define PLAITS_RAM_CODE_DEMOTABLE(token)
+ #endif
+ 
+ #endif  // PLAITS_DSP_RAM_CODE_H_
+diff -ruN a/plaits/resources.cc b/plaits/resources.cc
+--- a/plaits/resources.cc	2026-11-06 04:25:16.773953827 +0700
++++ b/plaits/resources.cc	2026-11-06 04:40:46.615979258 +0700
+@@ -4202,7 +4202,7 @@
+   lut_lpc_excitation_pulse,
+ };
+ 
+-PLAITS_RAM_CODE(wav_integrated_waves_1) const int16_t wav_integrated_waves_1[] = {
++PLAITS_RAM_CODE_DEMOTABLE(wav_integrated_waves_1) const int16_t wav_integrated_waves_1[] = {
+   -20556, -20706, -20806, -20857,
+   -20857, -20806, -20706, -20556,
+   -20356, -20107, -19810, -19465,
+@@ -6316,7 +6316,7 @@
+       14,   -233,   -723,  -1484,
+    -2455,  -3479,  -4342,  -4836,
+ };
+-PLAITS_RAM_CODE(wav_integrated_waves_2) const int16_t wav_integrated_waves_2[] = {
++PLAITS_RAM_CODE_DEMOTABLE(wav_integrated_waves_2) const int16_t wav_integrated_waves_2[] = {
+   -24465, -24934, -25303, -25650,
+   -25650, -25303, -24934, -24465,
+   -23963, -23391, -22788, -22130,
+@@ -8430,7 +8430,7 @@
+    -1649,  -1649,  -1649,  -1650,
+    -1892,  -1892,  -1892,  -1892,
+ };
+-PLAITS_RAM_CODE(wav_integrated_waves_3) const int16_t wav_integrated_waves_3[] = {
++PLAITS_RAM_CODE_DEMOTABLE(wav_integrated_waves_3) const int16_t wav_integrated_waves_3[] = {
+   -11705, -12211, -12571, -12800,
+   -12800, -12571, -12211, -11705,
+   -11057, -10270,  -9392,  -8442,

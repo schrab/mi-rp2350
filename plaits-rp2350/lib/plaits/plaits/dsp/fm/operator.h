@@ -68,7 +68,7 @@ typedef void (*RenderFn)(
     size_t size);
 
 template<int n, int modulation_source, bool additive>
-PLAITS_RAM_CODE(fm_render_operators) void RenderOperators(
+PLAITS_RAM_CODE_DEMOTABLE(fm_render_operators) void RenderOperators(
     Operator* ops,
     const float* f,
     const float* a,

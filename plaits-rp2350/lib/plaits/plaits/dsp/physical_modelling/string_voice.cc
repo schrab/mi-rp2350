@@ -52,7 +52,7 @@ void StringVoice::Reset() {
   string_.Reset();
 }
 
-PLAITS_RAM_CODE(string_voice_render) void StringVoice::Render(
+PLAITS_RAM_CODE_DEMOTABLE(string_voice_render) void StringVoice::Render(
     bool sustain,
     bool trigger,
     float accent,

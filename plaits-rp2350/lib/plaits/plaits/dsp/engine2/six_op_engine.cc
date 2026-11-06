@@ -93,11 +93,11 @@ const float kSixOpTailThreshold = 0.00001f;  // -100 dB carrier amplitude
 // in each hot path, but inlining the same transfer function into all three mono
 // loops costs several kilobytes of flash. Keep one shared copy;
 // the call overhead is tiny beside the floating-point divide inside SoftClip.
-PLAITS_RAM_CODE(six_op_soft_clip) static float __attribute__((noinline)) SixOpSoftClip(float sample) {
+PLAITS_RAM_CODE_DEMOTABLE(six_op_soft_clip) static float __attribute__((noinline)) SixOpSoftClip(float sample) {
   return SoftClip(sample);
 }
 
-PLAITS_RAM_CODE(six_op_render_mono) void SixOpEngine::RenderMonoOutput(
+PLAITS_RAM_CODE_DEMOTABLE(six_op_render_mono) void SixOpEngine::RenderMonoOutput(
     float gain,
     float macro,
     float* out,
@@ -191,7 +191,7 @@ void SixOpEngine::LoadUserData(const uint8_t* user_data, size_t length) {
   }
 }
 
-PLAITS_RAM_CODE(six_op_render) void SixOpEngine::Render(
+PLAITS_RAM_CODE_DEMOTABLE(six_op_render) void SixOpEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,

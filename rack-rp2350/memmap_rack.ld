@@ -80,14 +80,19 @@
    tools/patches/clouds/clouds-tc-demote-dead-modes.patch moved the excluded
    spectral code/LUTs + dead-KEEP'd tables (measured 22,752 B of output
    section; 22,676 B by input-section sum) out of tc_clouds):
-     A slot: 0xE400 = 58,368 B >= tc_rings 58,084 B (the largest chain A;
-       tc_elements 36,752 fits with room to spare; tc_plaits 108,732 stays
-       OVER it — plaits->clouds remains rejected at runtime with those
-       numbers; single-module use is unaffected, plaits simply spans into
-       the stale B-slot region and is re-copied from flash on any switch)
+     A slot: 0xE400 = 58,368 B >= tc_rings 58,084 B (the largest chain A
+       with its full hot set; tc_elements 36,752 fits with room to spare)
      B slot: 0xE400 + tc_clouds 56,992 = 115,360 <= 0x1D000 (118,784 B)
        — window slack 3,424 B (>= the 2 KiB gate)
-   The window KEEPS its T6 size 0x1D000: the demotion bought the wider A
+   T6b chain-tier (user-approved): tc_plaits 108,732 -> ~14.1 KB
+   (tools/patches/plaits/09-plaits-chain-tier.patch demotes the fork-hot
+   engines + support DSP + wav_integrated_waves to flash; the rack keeps
+   ONLY the voice path + engine 0 + lut_sine window-resident), so plaits
+   ALSO fits the A slot and `chain plaits clouds` passes the runtime
+   residency checks (the 09 patch is rack-conditional — the standalone
+   keeps the full hot set, byte-identical firmware). Chained-plaits budget
+   is a separate gate (see the README bench sheet).
+   The window KEEPS its T6 size 0x1D000: the demotions bought the wider A
    slot without growing the window. The ASSERTs below enforce both slot
    invariants at link time. Heap accounting: the OBJECT arena grew
    128 -> 132 KiB (rack_arena.h) for the rings+clouds chain states
@@ -126,10 +131,10 @@ ENTRY(_entry_point)
 
 /* T6 chain mode: tc_clouds' VMA sits at this FIXED offset above the window
    origin (the "B slot"). Sized to the chain A set (T6b): >= tc_rings
-   (58,084 B, the largest chain A); tc_elements (36,752) fits below it, and
-   tc_plaits (108,732) exceeds it and is therefore rejected as chain A at
-   runtime (the ASSERT below fires if the A-slot invariant is ever violated
-   at link time). */
+   (58,084 B, the largest chain A with its full hot set); tc_elements
+   (36,752) and tc_plaits (~14.1 KB after the chain-tier demotion) fit below
+   it — all three are chain-A-capable (the asserts below fire if that
+   invariant is ever violated at link time). */
 RACK_CLOUDS_B_OFFSET = 0xE400;
 
 SECTIONS
@@ -438,12 +443,14 @@ SECTIONS
     /* T6 chain-residency invariants (B slot must not reach the A slot, and
        both slots must fit the window). The asserts pin the chain A set to
        modules whose hot image fits below the B slot — today tc_elements
-       36,752 and tc_rings 58,084 <= 0xE400; tc_plaits (108,732) does not
-       fit and is rejected as chain A at runtime with those numbers. */
+       36,752, tc_rings 58,084 and tc_plaits ~14.1 KB (chain-tier) are all
+       <= 0xE400. */
     ASSERT(SIZEOF(tc_elements) <= RACK_CLOUDS_B_OFFSET,
         "ERROR: elements hot section overlaps the chain B slot (raise RACK_CLOUDS_B_OFFSET)")
     ASSERT(SIZEOF(tc_rings) <= RACK_CLOUDS_B_OFFSET,
         "ERROR: rings hot section overlaps the chain B slot (raise RACK_CLOUDS_B_OFFSET)")
+    ASSERT(SIZEOF(tc_plaits) <= RACK_CLOUDS_B_OFFSET,
+        "ERROR: plaits hot section overlaps the chain B slot (raise RACK_CLOUDS_B_OFFSET)")
     ASSERT(RACK_CLOUDS_B_OFFSET + SIZEOF(tc_clouds) <= LENGTH(RACK_WINDOW),
         "ERROR: chain B slot (clouds) exceeds the rack SRAM window")
     /* The window must end exactly where the core's scratch banks begin —

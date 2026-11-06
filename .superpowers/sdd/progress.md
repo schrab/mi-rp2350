@@ -1126,7 +1126,7 @@ after each task).
 | T4 RP2350 DIN 31250 parser + serial console | done (code-complete; DIN-jack bench pending wiring) | 67d6f77 | parser 109/109 host asserts; dintest proves parser→funnel→module on hardware (+3 notes, CC, 24/25 clock stamps); console full; findings below |
 | T4a Presets (serialization + console dump/load + last-state autosave) | pending | — | bank lands on C3 flash in T5 |
 | T5 C3 UI + UART link (after DSP acceptance AND hardware) | pending | — | encoder+button menus, HC4067, ST7789, BLE-MIDI, preset bank |
-| T6 Chain mode v2 (plaits@32k patch, pair table) | done (2 of 3 pairs) | 972c58a + c106458 | elements→clouds (52% of 750 µs) AND rings→clouds (36-48%) benched; runtime-rate plaits patch; clouds dead-mode demotion freed 22.7 KB; plaits→clouds = chain-tier decision pending (findings); user dropped Plaits→Elements |
+| T6 Chain mode v2 (plaits@32k patch, pair table) | done (3 of 3 pairs) | 972c58a + c106458 + (T6c commit) | ALL THREE pairs benched: elements→clouds 52%, rings→clouds 36-48%, plaits→clouds 36% (flash engines); switched-plaits engines now flash (~3× T5b numbers, sustained ≤ 269 µs of 500, change spikes bank-absorbed); user dropped Plaits→Elements |
 | T7 Hardware bring-up + sweeps + user acceptance + soak | pending | — | |
 
 Findings (append per task below):
@@ -1477,3 +1477,28 @@ three are metrics-verified (ears at the DSP-acceptance checkpoint).
   for SWITCHED plaits (T5b sustained numbers were all-SRAM; flash engines
   need a re-sweep). That is a sound/performance tradeoff on an accepted
   port — user must opt in.
+
+### Rack T6c — plaits→clouds chain-tier (2026-11-06, user-approved)
+
+- **`09-plaits-chain-tier.patch`** (applies last; `PLAITS_RAM_CODE_DEMOTABLE`
+  macro = no-op under RACK_RP2350_TC): demotes the fork-hot engines (chord/
+  particle/modal/string/chiptune/six_op/scanned), support DSP (fm operators/
+  voice, string, resonator, string/modal voices) and wav_integrated_waves ×3
+  (50.7 KB — chord their only window reader, chord itself now runs from
+  flash). KEPT: voice path + engine 0 (va_render) + lut_sine.
+  **tc_plaits 108,732 → 14,132 B.** Standalone plaits byte-identical
+  (sha256 00a12fc2…). No geometry change: 14,132 ≤ A slot 58,368; all three
+  pairs pass residency by construction; heap unchanged 33,120 B.
+- **Bench (hardware):** `chain plaits clouds` engaged 38 ms (copies 71,316 B
+  — the lightest pair); chained sustained **236-269 µs of 750 (32-36%)**
+  across engine 0 (SRAM) AND the flash-engine sweep (vosim 59 / dx7 22 /
+  speech 9) with notes; zero stalls. **Switched-plaits regression (48 kHz,
+  budget 500):** flash engines run ~3× their T5b all-SRAM numbers (dx7
+  221-269 µs = 54% of budget sustained; vosim ~210-244; speech 178-244;
+  engine 0 unchanged 39-42 µs SRAM) — ALL sustained under budget across
+  25 reports, stalls 0; the engine-CHANGE spikes (1009/538 µs, one block
+  each: Reset+LoadUserData+cold XIP) are 16 ms-bank-absorbed. Any future
+  offending engine = one-token promotion (44 KB window slack).
+- **Remaining bench debt for T7:** chained/switched plaits per-engine ear
+  pass by the user; the 30-min soak; full re-sweep if the user wants a
+  per-engine ledger table update.

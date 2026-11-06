@@ -67,12 +67,13 @@ class String {
       size_t size);
 
  private:
-  // The section attribute must sit on this in-class declaration: GCC drops
+  // Any section attribute must sit on this in-class declaration: GCC drops
   // section attributes placed on the out-of-line .cc definition of a member
-  // template (the instantiations then land in .text and are reached from
-  // SRAM String::Process through veneers into XIP flash).
+  // template. T6b chain-tier: DEMOTABLE — in the rack the instantiations
+  // land in .text (XIP; their only callers, the string engines + StringVoice,
+  // are demoted too); in the standalone the SRAM mark applies here.
   template<StringNonLinearity non_linearity>
-  PLAITS_RAM_CODE(string_process_internal) void ProcessInternal(
+  PLAITS_RAM_CODE_DEMOTABLE(string_process_internal) void ProcessInternal(
       float f0,
       float non_linearity_amount,
       float brightness,
