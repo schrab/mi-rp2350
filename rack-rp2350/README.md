@@ -295,27 +295,21 @@ decides, and any offender gets a one-line token promotion (window slack
   REJECTED** with a console line, no crash (belt-and-braces: the adapter's
   apply-time clamp lands anything illegal on granular). Stretch stays
   available in single-module mode; spectral is excluded everywhere (T2).
-- **Chained-rings budget clamp (T6b)**: while rings is the chain A slot, the
-  CCs that select combinations the standalone sweep measured over the
-  pair's headroom are REJECTED with a console line (single-module rings is
-  fully unclamped):
-  - **CC 18 = 1 or 4** (RESONATOR_MODEL_SYMPATHETIC_STRING /
-    SYMPATHETIC_STRING_QUANTIZED) in modes 0-3: the sweep (standalone T5a,
-    19 combos, all under the 750 µs single budget) measured model 1 at
-    **511 µs alone** — 511 + clouds-B ~195 + mod ≤50 = 756 > 750. Model 4
-    runs the same string bank (the sweep's string-family range 461-511 tops
-    out there). Everything else keeps ≥ 44 µs of pair headroom (string
-    floor 461 + 195 + 50 = 706 ≤ 750; modal 279; MiniElements modes 271-274;
-    easter egg 300-320 across fx 1-5 — CC 18 is NOT clamped in mode 4, where
-    it selects the FxType).
-  - **CC 20 → modes 0-3 while a sympathetic model byte (1/4) is applied**:
-    rejected — in mode 4 the same byte is an FxType index, so entering a
-    Part mode with fx 1/4 set would silently become a sympathetic model.
-    Change CC 18 first (the reject line says so).
-  - **Polyphony (CC 19) is NOT clamped**: the sweep's poly-4 rows never
-    exceeded its poly-1 sympathetic worst (511 µs), so no measured
-    combination puts poly > 2 over the pair budget beyond what the model
-    clamp already removes.
+- **Chained-rings budget clamp (T6d, re-measured)**: while rings is the
+  chain A slot, the T6b blanket model clamp is GONE — the sympathetic pair
+  was MEASURED on hardware at **692 µs of 750 (92%)**, well under the
+  predicted 756. One narrow guard remains (single-module rings is fully
+  unclamped):
+  - **CC 19 (polyphony) > 2 while a sympathetic model (1/4) is live in a
+    Part mode**: rejected with a console line — the sympathetic+high-poly
+    corner is the only combination whose pair cost is unmeasured (the T5a
+    sweep bounded poly-4 by the poly-1 sympathetic worst ALONE; the pair
+    adds clouds+mod). Poly 1-2 sympathetic plays: measured 655-692 µs,
+    zero stalls.
+  - Everything else is open while chained: all models in all Part modes
+    (incl. sympathetic 1/4), mode 4 easter egg across fx 1-5, poly 1-4 on
+    non-sympathetic models (the sweep's poly-4 rows never exceeded the
+    poly-1 sympathetic worst, which the poly guard now covers).
   Elements A needs no clamp (193-207 µs benched); plaits A has no CC clamp
   either (its chained cost is engine-dependent — the bench sweep + the
   per-engine promotion path govern it, see the pair-table budget math).

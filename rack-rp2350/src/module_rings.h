@@ -454,19 +454,21 @@ void control_change(uint8_t cc, uint8_t val) {
 // Benign cross-core read: applied_mode/applied_model are core-1-written
 // aligned int32s; the load is atomic and at most one block stale.
 bool chain_rejects_cc(uint8_t cc, uint8_t val) {
+  // T6d re-measurement (hardware): the sympathetic PAIR costs 692 us of 750
+  // (92%) — the T6b blanket model clamp was over-conservative and is REMOVED
+  // (sympathetic models are allowed while chained). The one corner still
+  // unmeasured is sympathetic + high POLYphony (the T5a sweep only bounded
+  // poly-4 by poly-1 ALONE; the pair adds clouds+mod), so polyphony is
+  // capped at 2 while a sympathetic model is live and chained — measured-
+  // conservative, single-module rings unaffected.
   if (!s) return false;
   const bool part_mode = s->applied_mode != rings::MODE_EASTER_EGG;
-  if (cc == 18 && part_mode && (val == 1 || val == 4)) {
-    Serial.printf("rack: chain: rings model %u rejected while chained "
-                  "(sympathetic string = 511 us standalone; pair budget "
-                  "750 us incl. clouds+mod)\r\n", val);
-    return true;
-  }
-  if (cc == 20 && val <= 3 &&
-      (s->applied_model == 1 || s->applied_model == 4)) {
-    Serial.printf("rack: chain: rings mode %u rejected while chained "
-                  "(sympathetic model %u is live - change CC 18 first)\r\n",
-                  val, (unsigned)s->applied_model);
+  const bool sympathetic =
+      part_mode && (s->applied_model == 1 || s->applied_model == 4);
+  if (cc == 19 && sympathetic && (1 + val / 32) > 2) {
+    Serial.printf("rack: chain: rings poly %u rejected while chained "
+                  "(sympathetic pair = 692 us at poly 1; budget 750 us "
+                  "incl. clouds+mod)\r\n", (unsigned)(1 + val / 32));
     return true;
   }
   return false;
