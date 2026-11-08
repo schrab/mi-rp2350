@@ -174,7 +174,22 @@ namespace CTAG {
 
             void potTask(void *) {
                 uint8_t ch = 0;
+                bool pushActive = false;
                 while (true) {
+                    // ENCODER PUSH (time-share, 2026-11-09): once per sweep,
+                    // flip the SIG pad to a digital input with a pull-up and
+                    // read the push switch directly (pressed = 0), then
+                    // restore the ADC path. High-Z during the read — no
+                    // current through the mux, no pot stress, deterministic.
+                    if (ch == 0) {
+                        gpio_set_direction((gpio_num_t)PIN_ADC,
+                                           GPIO_MODE_INPUT);
+                        gpio_pullup_en((gpio_num_t)PIN_ADC);
+                        esp_rom_delay_us(5);
+                        pushActive = gpio_get_level((gpio_num_t)PIN_ADC) == 0;
+                        gpio_reset_pin((gpio_num_t)PIN_ADC);  // analog back
+                        UserInput::SetPushRaw(pushActive);
+                    }
                     // Address settle: the HC4067 switches in ~ns; a short
                     // delay + the ADC's own sampling window is plenty.
                     addrSet(ch);
@@ -184,6 +199,16 @@ namespace CTAG {
                     // scan rate stays ~700 sweeps/s.
                     adc_oneshot_read(s_adc, ADC_CH, &raw);
                     const int64_t now = esp_timer_get_time();
+
+                    if (pushActive) {
+                        // Push held: the pad is shorted to GND by the switch
+                        // — the readings are meaningless. Suppress all sends
+                        // and value updates; on release everything resumes
+                        // from the unchanged state.
+                        ch = (uint8_t)((ch + 1) & 15);
+                        vTaskDelay(1);
+                        continue;
+                    }
 
                     if (calRunning) {
                         // Calibration sweep: widen the per-pot window; end
@@ -251,26 +276,6 @@ namespace CTAG {
                     }
 
                     ch = (uint8_t)((ch + 1) & 15);
-
-                    // ENCODER PUSH (GPIO3, shared with the SIG line through
-                    // 220R): a press pulls EVERY channel's reading down
-                    // ~40% simultaneously (the divider: pad = SIG x
-                    // 220/(220+mux-Ron)) while a real pot turn moves ONE
-                    // channel — a full-sweep comparison detects it.
-                    if (ch == 0) {
-                        static uint16_t prevSweep[NPOTS];
-                        static bool prevValid = false;
-                        int dropped = 0;
-                        for (int i = 0; i < NPOTS; ++i) {
-                            if (prevValid && prevSweep[i] > 40 &&
-                                lastValue[i] < prevSweep[i] -
-                                               prevSweep[i] / 4)
-                                ++dropped;
-                            prevSweep[i] = lastValue[i];
-                        }
-                        prevValid = true;
-                        UserInput::SetPushRaw(dropped >= 14);
-                    }
 
                     // One FULL tick per complete 16-channel sweep. TRAP
                     // (bench-caught 2026-11-08): CONFIG_FREERTOS_HZ=100
