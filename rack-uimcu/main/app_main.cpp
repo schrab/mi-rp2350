@@ -35,25 +35,22 @@ static const char *TAG = "uimcu";
 extern "C" void app_main() {
     ESP_LOGI(TAG, "rack ui controller boot (C3, T5 stages 2-6)");
 
-    // 0. PANEL BUS HOUSEKEEPING (2026-11-09, Claude-review finding): the
-    // ST7789's serial bit counter only resets on a CS rising edge. SCK/MOSI
-    // (GPIO0/1) FLOAT from power-on until the SPI init below; any noise edge
-    // in that window desyncs the panel's byte framing. Drive the data pads
-    // LOW from the first instruction, and hold CS HIGH (panel unselected =
-    // immune to boot noise) + RST HIGH until Init() pulses them properly.
+    // 0. PANEL BUS HOUSEKEEPING (2026-11-09): hold the display bus quiet
+    // from the first instruction — data pads LOW, RST released until
+    // Init() pulses it. Pins: SCK=10, MOSI=20, DC=21, RST=7 (GPIO6 is the
+    // mux S0 address line — RackPots owns it).
     {
         gpio_config_t io = {};
-        io.pin_bit_mask = (1ULL << 0) | (1ULL << 1) | (1ULL << 2);
+        io.pin_bit_mask = (1ULL << 10) | (1ULL << 20) | (1ULL << 21);
         io.mode = GPIO_MODE_OUTPUT;
         io.pull_down_en = GPIO_PULLDOWN_ENABLE;
         gpio_config(&io);
-        gpio_set_level((gpio_num_t)0, 0);   // SCK idle low
-        gpio_set_level((gpio_num_t)1, 0);   // MOSI low
-        gpio_set_level((gpio_num_t)2, 0);   // DC low (command)
-        io.pin_bit_mask = (1ULL << 6) | (1ULL << 7);
+        gpio_set_level((gpio_num_t)10, 0);  // SCK idle low
+        gpio_set_level((gpio_num_t)20, 0);  // MOSI low
+        gpio_set_level((gpio_num_t)21, 0);  // DC low (command)
+        io.pin_bit_mask = 1ULL << 7;
         io.pull_down_en = GPIO_PULLDOWN_DISABLE;
         gpio_config(&io);
-        gpio_set_level((gpio_num_t)6, 1);   // CS idle HIGH (unselected)
         gpio_set_level((gpio_num_t)7, 1);   // RST released
     }
 

@@ -10,6 +10,7 @@ MOD pages) — RackPots stays a dumb scanner/sender.
 
 #include "RackLink.hpp"
 #include "RackUI.hpp"
+#include "input/UserInput.hpp"
 #include "esp_adc/adc_oneshot.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
@@ -38,20 +39,25 @@ namespace CTAG {
             // strap (worst case, a pot at min weakly pulls the JTAG-source
             // strap low — USB console + flashing are unaffected, only
             // OpenOCD-over-USB-JTAG would, which we never use).
-            constexpr int PIN_ADC = 3;    // ADC1_CH3 (mux SIG, common)
+            constexpr int PIN_ADC = 3;    // ADC1_CH3 (mux SIG, common) —
+                                          // also the ENCODER PUSH line (4.7k
+                                          // series): pressed pins the pad
+                                          // low, detected in the scan task
             constexpr adc_channel_t ADC_CH = ADC_CHANNEL_3;
             // esp_adc oneshot handle (the legacy adc1_get_raw hung on its
             // done-flag poll at task priority — bench-caught 2026-11-08:
             // rack_pots starved CPU 0, the TWDT fired every 5 s and every
             // lower-priority task — link, console, UI — never ran).
             adc_oneshot_unit_handle_t s_adc = nullptr;
-            constexpr int PIN_S0 = 10;
-            constexpr int PIN_S1 = 20;
-            constexpr int PIN_S2 = 21;
-            constexpr int PIN_S3 = 8;     // strapping pin — took this FROM
-                                          // encoder B (user call: A/B off
-                                          // straps); don't-care in normal
-                                          // boot, pull-up fitted anyway
+            constexpr int PIN_S0 = 8;
+            constexpr int PIN_S1 = 9;
+            constexpr int PIN_S2 = 2;     // strapping pin — floats harmlessly
+                                          // at boot (mux picks an arbitrary
+                                          // channel; nothing reads it)
+            constexpr int PIN_S3 = 6;     // ex display-CS (the display CS
+                                          // moved back to GND: the desync
+                                          // is fixed by the firmware RST
+                                          // pulse on GPIO7)
 
             constexpr uint8_t NPOTS = 16;
             constexpr int DEADBAND = 2;            // counts vs last SENT
@@ -245,6 +251,26 @@ namespace CTAG {
                     }
 
                     ch = (uint8_t)((ch + 1) & 15);
+
+                    // ENCODER PUSH (GPIO3, shared with the SIG line through
+                    // 220R): a press pulls EVERY channel's reading down
+                    // ~40% simultaneously (the divider: pad = SIG x
+                    // 220/(220+mux-Ron)) while a real pot turn moves ONE
+                    // channel — a full-sweep comparison detects it.
+                    if (ch == 0) {
+                        static uint16_t prevSweep[NPOTS];
+                        static bool prevValid = false;
+                        int dropped = 0;
+                        for (int i = 0; i < NPOTS; ++i) {
+                            if (prevValid && prevSweep[i] > 40 &&
+                                lastValue[i] < prevSweep[i] -
+                                               prevSweep[i] / 4)
+                                ++dropped;
+                            prevSweep[i] = lastValue[i];
+                        }
+                        prevValid = true;
+                        UserInput::SetPushRaw(dropped >= 14);
+                    }
 
                     // One FULL tick per complete 16-channel sweep. TRAP
                     // (bench-caught 2026-11-08): CONFIG_FREERTOS_HZ=100

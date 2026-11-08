@@ -96,6 +96,14 @@ namespace CTAG {
             // test on the same pads — SLPOUT..DISPON + a white top band, no
             // SPI peripheral involved. Decides "SPI setup vs wires/panel".
             static void BitBangTest();
+            // `spiflood` bisect test: full-GRAM color flood through the SPI
+            // path with the MINIMAL init (Display.cpp).
+            static void SpiFlood();
+
+            // `osweep` bench command: MADCTL × window-mirror sweep through
+            // the SPI path (16 combos × 4-quadrant pattern, 2.5 s each) —
+            // the correct combo = quadrants land as drawn.
+            static void OrientationSweep();
 
         private:
             static uint16_t fb[W * H];

@@ -122,11 +122,17 @@ namespace CTAG {
                                     printf("testpat %d (0 = back to the UI)\r\n",
                                            m);
                                 }
-                            } else if (!strcasecmp(line, "bbtest")) {
-                                CTAG::DRIVERS::Display::BitBangTest();
-                                printf("bbtest done - REBOOT the board before "
-                                       "the SPI display path works again "
-                                       "(bit-bang detaches the pads)\r\n");
+                            } else if (!strcasecmp(line, "spiflood")) {
+                                printf("spiflood: minimal init + color flood "
+                                       "via SPI, ~90 s\r\n");
+                                CTAG::DRIVERS::Display::SpiFlood();
+                                printf("spiflood done\r\n");
+                            } else if (!strcasecmp(line, "osweep")) {
+                                printf("osweep: 16 digits, 2.5 s each - read "
+                                       "them\r\n");
+                                CTAG::DRIVERS::Display::OrientationSweep();
+                                printf("osweep done - REBOOT before the SPI "
+                                       "display path works again\r\n");
                             } else if (!strcasecmp(line, "heap")) {
                                 printf("heap free=%u largest=%u (internal "
                                        "8-bit; FB=%u B)\r\n",

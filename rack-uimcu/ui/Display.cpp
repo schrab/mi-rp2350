@@ -47,19 +47,20 @@ static const char *TAG = "Display";
 #define ST7789_INVERT 1        // IPS panel: inversion ON (0x21). Set 0 if
                                // the hue bars render as their negatives.
 
-// Wiring v2 (2026-11-09, user call "only the panel is wired — use spare
-// pins"): SCL/SDA/DC STAY on 0/1/2 (verified live at the panel). The change
-// is ONLY the two lines that were never real signals: CS moves GND -> GPIO6
-// (the ST7789 bit counter only resets on a CS rising edge — with CS
-// hard-tied GND the panel desyncs at boot and NO protocol/init/offset can
-// recover it) and RST drops the RC -> GPIO7 (firmware-controlled reset
-// pulse after the pads are configured). GPIO6/7 were the unwired encoder
-// pads; the encoder/mux remap is a later task.
-#define ST7789_PIN_SCK  0
-#define ST7789_PIN_MOSI 1
-#define ST7789_PIN_DC   2
+// Wiring FINAL (2026-11-09, user-accepted 3-wire move): the display on the
+// non-RTC pads (the SPI hardware drives them properly), CS/RST on real
+// GPIOs. The freed RTC pads 0/1 go to the encoder; the mux addr takes
+// 6/8/9/2. Geometry: the bborient gradient proved the visible window =
+// native cols 82-157 (screen Y, MIRRORED: y=0 -> col 157) x native rows
+// 18-301 (screen X, MIRRORED: x=0 -> row 301), native MADCTL 0x00 — the
+// mirrors live in Flush's addressing, not in MADCTL.
+#define ST7789_PIN_SCK  10
+#define ST7789_PIN_MOSI 20
+#define ST7789_PIN_DC   21
 #define ST7789_PIN_CS   6     // real CS: the SPI hardware pulses it per frame
 #define ST7789_PIN_RST  7     // real RST: pulsed by firmware in Init()
+#define ST7789_COLSTART 82    // native column range of the visible window
+#define ST7789_ROWCLOSEST 301 // native row range: 18..301 (284 rows)
 
 // Bring-up clock: 8 MHz (the panel-ignores-everything mystery was the
 // MISSING INIT REGISTERS, not signal integrity — the verbatim TFT_eSPI
@@ -79,11 +80,18 @@ uint16_t Display::fb[Display::W * Display::H];
 bool Display::dirty[Display::H];
 int Display::s_testpat = -1;
 
+// The display driver uses the STANDARD SPI peripheral — on NON-RTC pads
+// (SCK=10, MOSI=20, DC=21): the C3's SPI hardware output does not reach
+// the RTC-domain pads GPIO0/1/2 (bench-proven 2026-11-09: the same-pads
+// direct-GPIO test delivered data while every SPI transfer delivered
+// nothing). CS=6 is pulsed by the SPI hardware per transaction; RST=7 is
+// pulsed by Init().
+
 static spi_device_handle_t s_spi = nullptr;
 
 bool Display::sendCommand(uint8_t cmd, const uint8_t *data, size_t len) {
     // One polling transaction per phase (DC toggles between them; CS is
-    // hard-wired low so no chip-select bookkeeping).
+    // pulsed by the SPI hardware per transaction).
     spi_transaction_t t = {};
     t.length = 8;
     t.tx_buffer = &cmd;
@@ -190,6 +198,119 @@ void Display::BitBangTest() {
              ST7789_PIN_SCK, ST7789_PIN_MOSI, ST7789_PIN_DC);
 }
 
+// ---- spiflood: the bisect test — full-GRAM color flood through the SPI
+// path with the MINIMAL init (the only init that ever landed). If colors
+// cycle: SPI + minimal = good, and the register block gets bisected. If
+// white: the SPI path itself broke after 8911819 — bisect its changes.
+void Display::SpiFlood() {
+    s_testpat = 5;                        // hold the UI off
+    // hardware reset, then MINIMAL init via the SPI path
+    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 0);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 1);
+    vTaskDelay(pdMS_TO_TICKS(120));
+    sendCommand(0x11);                    // SLPOUT
+    vTaskDelay(pdMS_TO_TICKS(120));
+    sendCommand(0x13);                    // NORON
+    sendCommand(0x21);                    // INVON (v1 parity)
+    sendCommand(0x29);                    // DISPON
+    vTaskDelay(pdMS_TO_TICKS(60));
+    static const uint16_t kFlood[4] = {0xF800, 0x07E0, 0x001F, 0xFFFF};
+    for (int rep = 0; rep < 6; ++rep) {
+        for (int c = 0; c < 4; ++c) {
+            const uint16_t col = kFlood[c];
+            const uint8_t hi = col >> 8, lo = col & 0xFF;
+            const uint8_t caset[4] = {0, 0, 0, 239};   // full native columns
+            const uint8_t raset[4] = {0, 0, 1, 63};    // full native rows
+            sendCommand(0x2A, caset, 4);
+            sendCommand(0x2B, raset, 4);
+            sendCommand(0x2C);
+            // stream the color directly (no fb, no window math)
+            gpio_set_level((gpio_num_t)ST7789_PIN_DC, 1);
+            for (int px = 0; px < 240 * 320; px += W) {
+                static uint16_t line[W];
+                for (int i = 0; i < W; ++i) line[i] = col;
+                spi_transaction_t t = {};
+                t.length = W * 16;
+                t.tx_buffer = line;
+                spi_device_polling_transmit(s_spi, &t);
+            }
+            gpio_set_level((gpio_num_t)ST7789_PIN_DC, 0);
+            vTaskDelay(pdMS_TO_TICKS(1500));   // hold each color
+        }
+    }
+    s_testpat = -1;
+    ESP_LOGI(TAG, "spiflood done");
+}
+
+// ---- osweep: MADCTL × window-mirror sweep through the PROVEN SPI path ----
+// 16 combos: MADCTL 0x00..0xE0 (step 0x20) × {direct, mirrored} window.
+// Each combo draws a GIANT 7-SEGMENT DIGIT (combo 0 = "0", 1 = "1", ...,
+// 10-15 = A b C d E F) filling the bar — the user reads the digit aloud;
+// the readable, fully-visible digit IS the combo index. No counting.
+void Display::OrientationSweep() {
+    s_testpat = 5;                        // hold the UI off while probing
+    // 7-seg segment rects for 284x76: a top, b tr, c br, d bottom,
+    // e bl, f tl, g middle.
+    enum Seg { A = 1 << 0, B = 1 << 1, C = 1 << 2, D = 1 << 3,
+               E = 1 << 4, F = 1 << 5, G = 1 << 6 };
+    static const uint8_t kDigits[16] = {
+        A | B | C | D | E | F,            // 0
+        B | C,                            // 1
+        A | B | G | E | D,                // 2
+        A | B | G | C | D,                // 3
+        F | G | B | C,                    // 4
+        A | F | G | C | D,                // 5
+        A | F | G | E | C | D,            // 6
+        A | B | C,                        // 7
+        A | B | C | D | E | F | G,        // 8
+        A | B | C | D | F | G,            // 9
+        A | B | C | E | F | G,            // A
+        C | D | E | F | G,                // b
+        A | D | E | F,                    // C
+        B | C | D | E | G,                // d
+        A | D | E | F | G,                // E
+        A | E | F | G,                    // F
+    };
+    struct SegRect { int x, y, w, h; };
+    static const SegRect kSeg[7] = {
+        {42, 4, 200, 10},    // a
+        {244, 6, 12, 28},    // b
+        {244, 42, 12, 28},   // c
+        {42, 62, 200, 10},   // d
+        {28, 42, 12, 28},    // e
+        {28, 6, 12, 28},     // f
+        {42, 33, 200, 10},   // g
+    };
+
+    for (int combo = 0; combo < 16; ++combo) {
+        const uint8_t madctl = (uint8_t)(combo / 2) * 0x20;
+        const bool mirrored = (combo % 2) != 0;
+        ESP_LOGI(TAG, "osweep combo %2d: madctl=0x%02x mirror=%d",
+                 combo, madctl, mirrored);
+        Clear(kBlack);
+        const uint8_t segs = kDigits[combo];
+        for (int s = 0; s < 7; ++s)
+            if (segs & (1 << s))
+                FillRect(kSeg[s].x, kSeg[s].y, kSeg[s].w, kSeg[s].h, kWhite);
+        for (int y = 0; y < H; ++y) dirty[y] = true;
+        sendCommand(0x36, &madctl, 1);
+        uint8_t c0 = 82, c1 = 157, r0 = 18, r1 = 301;
+        if (mirrored) { c0 = 157; c1 = 82; r0 = 301; r1 = 18; }
+        const uint8_t caset[4] = {(uint8_t)(c0 >> 8), (uint8_t)(c0 & 0xFF),
+                                  (uint8_t)(c1 >> 8), (uint8_t)(c1 & 0xFF)};
+        const uint8_t raset[4] = {(uint8_t)(r0 >> 8), (uint8_t)(r0 & 0xFF),
+                                  (uint8_t)(r1 >> 8), (uint8_t)(r1 & 0xFF)};
+        sendCommand(0x2A, caset, 4);
+        sendCommand(0x2B, raset, 4);
+        sendCommand(0x2C);
+        writePixels(fb, W * H);
+        vTaskDelay(pdMS_TO_TICKS(2500));  // hold for the user
+    }
+    s_testpat = -1;
+    ESP_LOGI(TAG, "osweep: 16 combos done");
+}
+
 // ---- ST7789 init sequence — VERBATIM from TFT_eSPI ST7789_Init.h (the
 // driver verified working on this exact 76x284 P3 panel). The old 7-command
 // sketch missed the analog registers (PORCTRL/VCOMS/LCMCTRL/gammas/RAMCTRL)
@@ -198,7 +319,12 @@ void Display::BitBangTest() {
 // (rotation-1 landscape). SLPOUT/NORON/DISPON ride outside the table (they
 // carry the datasheet delays).
 static const uint8_t kSt7789InitSeq[] = {
-    0x36, 1, ST7789_MADCTL,           // MADCTL: define-driven (0x60)
+    0x36, 1, 0x00,                    // MADCTL: NATIVE (no transforms) — the
+                                      // bborient gradient proved the visible
+                                      // window sits at native cols 82-157 ×
+                                      // rows 18-301 with BOTH axes mirrored;
+                                      // the mirrors live in Flush's loop
+                                      // order, not in MADCTL.
     0xB6, 2, 0x0A, 0x82,              // DISCTRL
     0xB0, 2, 0x00, 0xE0,              // RAMCTRL (5-6 bit conversion)
     0x3A, 1, 0x55,                    // COLMOD 16bpp
@@ -215,9 +341,9 @@ static const uint8_t kSt7789InitSeq[] = {
           0x44, 0x42, 0x06, 0x0E, 0x12, 0x14, 0x17,   // PVGAMCTRL
     0xE1, 14, 0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x31,
           0x54, 0x47, 0x0E, 0x1C, 0x17, 0x1B, 0x1E,   // NVGAMCTRL
-    (uint8_t)(ST7789_INVERT ? 0x21 : 0x20),  // INVON/INVOFF — define-driven
-                                      // (the PR test sketch used INVOFF; flip
-                                      // ST7789_INVERT if black renders white)
+    0x21, 0,                          // INVON — the fork's init sends INVON
+                                      // (INVOFF here inverted black->white =
+                                      // the solid white we chased)
     0xFF, 0,                          // end
 };
 
@@ -360,30 +486,29 @@ int Display::StringWidth(const char *s, Font f) {
 }
 
 void Display::Flush() {
-    // Coalesce consecutive dirty rows into single window transfers (a
-    // page change redraws everything = one 43 KB burst; a delta touches
-    // a few rows). CAPPED at kMaxFlushPixels per transaction: the C3's
-    // GPSPI DMA limit is 2^18 bits (SPI_LL_DMA_MAX_BIT_LEN, spi_ll.h:42)
-    // = 32768 B — a whole-page window is 284*76 = 21584 px = 345344 bits
-    // and check_trans_valid rejects it (bench-caught 2026-11-08: every
-    // full-page redraw silently failed, "txdata transfer > hardware max
-    // supported len"). 16000 px = 256000 bits, safely under the cap; W
-    // = 284 does not divide it evenly, so chunks end on row boundaries.
-    constexpr size_t kMaxFlushPixels = 16000;
-    for (int y = 0; y < H;) {
-        if (!dirty[y]) { ++y; continue; }
-        int y1 = y;
-        while (y1 + 1 < H && dirty[y1 + 1]) ++y1;
-        int run = y;
-        while (run <= y1) {
-            int chunkEnd = run + (int)(kMaxFlushPixels / W) - 1;
-            if (chunkEnd > y1) chunkEnd = y1;
-            setWindow(0, run, W - 1, chunkEnd);
-            writePixels(&fb[run * W], (size_t)W * (chunkEnd - run + 1));
-            run = chunkEnd + 1;
+    // TRANSPOSED panel addressing (bborient-derived 2026-11-09): the
+    // visible window = native cols 82..157 x native rows 18..301, BOTH
+    // axes mirrored (screen x=0 -> native row 301, screen y=0 -> native
+    // col 157), MADCTL 0x00 native. Each dirty screen-ROW y = ONE native
+    // column: CASET (col, col) x RASET (18, 301), and the row's pixels
+    // streamed with the x-mirror folded into the order. Per-column
+    // transactions also keep every frame CS-delimited (the bit counter
+    // resyncs constantly) and stay far under the SPI DMA bit cap.
+    static uint16_t line[W];              // byte-swapped + x-mirrored row
+    for (int y = 0; y < H; ++y) {
+        if (!dirty[y]) continue;
+        const uint8_t col = (uint8_t)(157 - y);
+        const uint8_t caset[4] = {0, col, 0, col};
+        const uint8_t raset[4] = {0, 18, 1, 45};   // 18..301
+        sendCommand(0x2A, caset, 4);
+        sendCommand(0x2B, raset, 4);
+        sendCommand(0x2C);
+        for (int x = 0; x < W; ++x) {
+            line[x] = fb[y * W + (W - 1 - x)];   // x-mirror only; writePixels
+                                                 // does the byte swap
         }
-        for (int k = y; k <= y1; ++k) dirty[k] = false;
-        y = y1 + 1;
+        writePixels(line, W);
+        dirty[y] = false;
     }
 }
 

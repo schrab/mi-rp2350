@@ -48,6 +48,9 @@ namespace CTAG {
             // True while the push is physically down (the renderer shows
             // the armed state; the gesture logic keys off PUSH_HOLD).
             static bool IsPressed();
+            // The push button's raw state, fed by RackPots's mux-scan press
+            // detection (the push shares the mux SIG line through 4.7k).
+            static void SetPushRaw(bool pressed);
             static bool GetEvent(InputEvent &ev, uint32_t timeoutMs = 10);
             static bool PeekEvent(InputEvent &ev);
             // Debug support: push a synthetic event straight into the same

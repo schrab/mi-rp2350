@@ -30,15 +30,18 @@ namespace CTAG {
         namespace {
             QueueHandle_t evQueue = nullptr;
             volatile bool s_pressed = false;
+            volatile bool s_pushRaw = false;   // fed by RackPots (mux-scan
+                                               // push detection, GPIO3)
 
             // ---- encoder hardware map (rack GPIO allocation, README) ----
-            // A/B off the strapping pins (user call 2026-11-08): the mux
-            // address lines take the straps instead (don't-care levels in
-            // normal boot). Push stays on GPIO9 — a push is only ever low
-            // while deliberately pressed (never hold it at power-on).
-            constexpr gpio_num_t ENC_A = GPIO_NUM_6;
-            constexpr gpio_num_t ENC_B = GPIO_NUM_7;
-            constexpr gpio_num_t ENC_PUSH = GPIO_NUM_9;  // strapping pin
+            // 2026-11-09 final map: the display took GPIO10/20/21 (the SPI
+            // path) and CS=6/RST=7 — the encoder lands on the freed RTC
+            // pads 0/1 (inputs work fine there) + push on GPIO3 SHARED with
+            // the mux SIG line via a 4.7k series resistor (RackPots detects
+            // the press as an all-channels dip and injects the events).
+            constexpr gpio_num_t ENC_A = GPIO_NUM_0;
+            constexpr gpio_num_t ENC_B = GPIO_NUM_1;
+            constexpr gpio_num_t ENC_PUSH = GPIO_NUM_3;  // shared w/ mux SIG
 
             // Quadrature detent transitions: index (prev<<2)|cur of the 2-bit
             // AB state. Full detents move two steps of the gray code, so the
@@ -126,8 +129,9 @@ namespace CTAG {
                         xQueueSend(evQueue, &ev, 0);
                     }
 
-                    // Push button: active low (external + internal pull-up).
-                    const bool raw = gpio_get_level(ENC_PUSH) == 0;
+                    // Push button: active low, fed by RackPots's mux-scan
+                    // press detection (GPIO3 shared with the mux SIG).
+                    const bool raw = s_pushRaw;
                     if (raw != s_pressed && !debouncing) {
                         debouncing = true;
                         lastEdgeTs = now;
@@ -167,6 +171,8 @@ namespace CTAG {
 
         bool UserInput::IsPressed() { return s_pressed; }
 
+        void UserInput::SetPushRaw(bool pressed) { s_pushRaw = pressed; }
+
         void UserInput::Init() {
             evQueue = xQueueCreate(64, sizeof(InputEvent));
 
@@ -174,14 +180,12 @@ namespace CTAG {
             ESP_ERROR_CHECK(gpio_install_isr_service(0));
             encoderInit(s_enc);
 
-            // Push button (GPIO9, strapping — see the file header).
-            gpio_config_t io = {};
-            io.pin_bit_mask = 1ULL << ENC_PUSH;
-            io.mode = GPIO_MODE_INPUT;
-            io.pull_up_en = GPIO_PULLUP_ENABLE;
-            io.pull_down_en = GPIO_PULLDOWN_DISABLE;
-            io.intr_type = GPIO_INTR_DISABLE;   // polled
-            gpio_config(&io);
+            // The push button lives on GPIO3 SHARED with the mux SIG line
+            // (through a 4.7k series resistor) — RackPots's scan detects
+            // the press (an all-channels dip signature) and feeds the raw
+            // state here via SetPushRaw; this task keeps the debounce +
+            // hold/short timing. NO gpio_config here: GPIO3 is the ADC pad.
+            s_pushRaw = false;
 
             if (xTaskCreate(inputTask, "input_task", 2048, nullptr,
                             tskIDLE_PRIORITY + 3, nullptr) != pdPASS) {
