@@ -35,8 +35,14 @@ static const char *TAG = "Display";
 // masked windows; typical values 0-4 for Y, 0-36 for the 320-axis). If the
 // image is ROTATED/mirrored: try the four MADCTL candidates. Document the
 // found values back here + in rack-uimcu/README.md (bring-up step 1).
-#define ST7789_XOFF   2        // CASET start offset (0..36, 320-wide axis)
-#define ST7789_YOFF   0        // RASET start offset (0..4, 240 axis)
+#define ST7789_XOFF   2        // CASET start offset — RESTORED 2026-11-09:
+                               // the v1 bench (XOFF=2/YOFF=0) is the only
+                               // configuration that ever showed data (the
+                               // "static noise" = the UI's own SPI writes
+                               // landing, interleaved with the bit-bang).
+                               // The TFT_eSPI fork's 18/82 belongs to its
+                               // rotation convention, not this driver's.
+#define ST7789_YOFF   0        // RASET start offset — same reasoning.
 #define ST7789_MADCTL 0x60     // candidates: 0x00 / 0x60 / 0xA0 / 0xC0
 #define ST7789_INVERT 1        // IPS panel: inversion ON (0x21). Set 0 if
                                // the hue bars render as their negatives.
@@ -44,13 +50,14 @@ static const char *TAG = "Display";
 // Wiring (README table): SCK=0 MOSI=1 DC=2 (user call 2026-11-08: display
 // onto the 0-4 header — mux COM moved to GPIO3, the last free ADC1 pin, and
 // the mux address lines took GPIO10/20/21); CS->GND, RST->3V3 RC, BL->3V3.
+// (2026-11-09 A/B: SCK/MOSI swap ruled OUT — no panel reaction either way.)
 #define ST7789_PIN_SCK  0
 #define ST7789_PIN_MOSI 1
 #define ST7789_PIN_DC   2
 
-// Bring-up clock: modest until the wiring is proven (long jumpers corrupt
-// fast SPI — the seed OLED lesson). 8 MHz = a full-screen flush in ~22 ms;
-// raise to 26-40 MHz (GPIO-matrix SPI) once mounted.
+// Bring-up clock: 8 MHz (the panel-ignores-everything mystery was the
+// MISSING INIT REGISTERS, not signal integrity — the verbatim TFT_eSPI
+// init sequence fixed it; raise to 26-40 MHz once mounted).
 #define ST7789_SPI_CLOCK_HZ (8 * 1000 * 1000)
 
 // ===================== RGB565 palette (conversion arithmetic) ============
@@ -112,6 +119,104 @@ void Display::writePixels(const uint16_t *px, size_t n) {
     }
 }
 
+// ---- bbtest: raw-GPIO panel sanity test (2026-11-09 bench) ----
+// Bit-bangs the ST7789 init + a white top band on the SAME three pads,
+// bypassing the SPI peripheral entirely (no matrix routing, no DMA, no
+// clock source). Panel responds -> pads/wires/panel are good and the SPI
+// setup is the fault. Panel ignores it -> no SPI config can help; the
+// fault is the wires/panel. ~100-200 kHz effective via gpio_set_level.
+static void bbBit(int v) {
+    gpio_set_level((gpio_num_t)ST7789_PIN_SCK, 0);
+    gpio_set_level((gpio_num_t)ST7789_PIN_MOSI, v);
+    gpio_set_level((gpio_num_t)ST7789_PIN_SCK, 1);
+}
+// 4-WIRE protocol (2026-11-09: 3-wire 9-bit frames ruled out with a live
+// SDA — white through the full flood): D/C as a real GPIO per byte.
+static void bbCmd(uint8_t cmd) {
+    gpio_set_level((gpio_num_t)ST7789_PIN_DC, 0);
+    for (int i = 7; i >= 0; --i) bbBit((cmd >> i) & 1);
+    gpio_set_level((gpio_num_t)ST7789_PIN_DC, 1);
+}
+static void bbData(uint8_t d) {
+    gpio_set_level((gpio_num_t)ST7789_PIN_DC, 1);
+    for (int i = 7; i >= 0; --i) bbBit((d >> i) & 1);
+    gpio_set_level((gpio_num_t)ST7789_PIN_DC, 1);
+}
+void Display::BitBangTest() {
+    // pads as plain outputs (the SPI bus also claims 0/1 — gpio matrix
+    // re-route to plain GPIO overrides it while this test runs).
+    gpio_config_t io = {};
+    io.pin_bit_mask = (1ULL << ST7789_PIN_SCK) | (1ULL << ST7789_PIN_MOSI) |
+                      (1ULL << ST7789_PIN_DC);
+    io.mode = GPIO_MODE_OUTPUT;
+    gpio_config(&io);
+    gpio_set_level((gpio_num_t)ST7789_PIN_SCK, 0);
+    gpio_set_level((gpio_num_t)ST7789_PIN_DC, 0);
+
+    // LIVE-PROBE MODE v5 — RESET BLINK: the minimal listening test. A panel
+    // that hears ANY command blinks visibly on every SWRESET (sleep = dark,
+    // SLPOUT+DISPON = bright). Independent of offsets, init registers,
+    // colour order and inversion. 20 blinks ≈ 17 s.
+    for (int rep = 0; rep < 20; ++rep) {
+        bbCmd(0x01);                          // SWRESET -> sleep = dark
+        vTaskDelay(pdMS_TO_TICKS(400));
+        bbCmd(0x11);                          // SLPOUT
+        vTaskDelay(pdMS_TO_TICKS(120));
+        bbCmd(0x29);                          // DISPON -> bright
+        vTaskDelay(pdMS_TO_TICKS(400));
+    }
+    ESP_LOGI(TAG, "bbtest done: 20 reset blinks on %d/%d/%d",
+             ST7789_PIN_SCK, ST7789_PIN_MOSI, ST7789_PIN_DC);
+}
+
+// ---- ST7789 init sequence — VERBATIM from TFT_eSPI ST7789_Init.h (the
+// driver verified working on this exact 76x284 P3 panel). The old 7-command
+// sketch missed the analog registers (PORCTRL/VCOMS/LCMCTRL/gammas/RAMCTRL)
+// — the panel stayed white with every byte path until this went in.
+// Format: {cmd, n, data...}, {0xFF} = end. MADCTL 0x60 = MX|MV, RGB order
+// (rotation-1 landscape). SLPOUT/NORON/DISPON ride outside the table (they
+// carry the datasheet delays).
+static const uint8_t kSt7789InitSeq[] = {
+    0x36, 1, 0x60,                    // MADCTL: MX|MV, RGB order
+    0xB6, 2, 0x0A, 0x82,              // DISCTRL
+    0xB0, 2, 0x00, 0xE0,              // RAMCTRL (5-6 bit conversion)
+    0x3A, 1, 0x55,                    // COLMOD 16bpp
+    0xB2, 5, 0x0C, 0x0C, 0x00, 0x33, 0x33,   // PORCTRL
+    0xB7, 1, 0x35,                    // GCTRL
+    0xBB, 1, 0x28,                    // VCOMS
+    0xC0, 1, 0x0C,                    // LCMCTRL
+    0xC2, 2, 0x01, 0xFF,              // VDVVRHEN
+    0xC3, 1, 0x10,                    // VRHS
+    0xC4, 1, 0x20,                    // VDVSET
+    0xC6, 1, 0x0F,                    // FRCTR2
+    0xD0, 2, 0xA4, 0xA1,              // PWCTRL1
+    0xE0, 14, 0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x32,
+          0x44, 0x42, 0x06, 0x0E, 0x12, 0x14, 0x17,   // PVGAMCTRL
+    0xE1, 14, 0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x31,
+          0x54, 0x47, 0x0E, 0x1C, 0x17, 0x1B, 0x1E,   // NVGAMCTRL
+    0x20, 0,                          // INVOFF — this panel is NOT inverted
+                                      // (the PR test sketch explicitly calls
+                                      // invertDisplay(false); with INVON a
+                                      // black GRAM renders as solid white —
+                                      // the exact symptom we chased)
+    0xFF, 0,                          // end
+};
+
+// bitbang=false: through the SPI peripheral (sendCommand). true: raw GPIO.
+void Display::runInitSeq(bool bitbang) {
+    for (const uint8_t *p = kSt7789InitSeq; p[0] != 0xFF;) {
+        const uint8_t cmd = *p++;
+        const uint8_t n = *p++;
+        if (bitbang) {
+            bbCmd(cmd);
+            for (uint8_t i = 0; i < n; ++i) bbData(*p++);
+        } else {
+            sendCommand(cmd, p, n);
+            p += n;
+        }
+    }
+}
+
 void Display::Init() {
     spi_bus_config_t bus = {};
     bus.mosi_io_num = ST7789_PIN_MOSI;
@@ -140,16 +245,10 @@ void Display::Init() {
     vTaskDelay(pdMS_TO_TICKS(150));
     sendCommand(0x11);                        // SLPOUT
     vTaskDelay(pdMS_TO_TICKS(120));
-    const uint8_t colmod = 0x55;              // 16 bpp RGB565
-    sendCommand(0x3A, &colmod, 1);
-    const uint8_t madctl = ST7789_MADCTL;
-    sendCommand(0x36, &madctl, 1);
-#if ST7789_INVERT
-    sendCommand(0x21);                        // INVON (IPS)
-#else
-    sendCommand(0x20);                        // INVOFF (TN)
-#endif
     sendCommand(0x13);                        // NORON
+    runInitSeq(false);                        // the VERBATIM TFT_eSPI sequence
+    sendCommand(0x29);                        // DISPON
+    vTaskDelay(pdMS_TO_TICKS(120));
     // Wait for the first flush to light the panel with real content.
     std::memset(fb, 0, sizeof(fb));
     for (int y = 0; y < H; ++y) dirty[y] = true;

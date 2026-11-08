@@ -122,6 +122,9 @@ namespace CTAG {
                                     printf("testpat %d (0 = back to the UI)\r\n",
                                            m);
                                 }
+                            } else if (!strcasecmp(line, "bbtest")) {
+                                CTAG::DRIVERS::Display::BitBangTest();
+                                printf("bbtest done (white band bit-banged)\r\n");
                             } else if (!strcasecmp(line, "heap")) {
                                 printf("heap free=%u largest=%u (internal "
                                        "8-bit; FB=%u B)\r\n",

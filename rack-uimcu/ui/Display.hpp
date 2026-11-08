@@ -92,6 +92,11 @@ namespace CTAG {
             static void TestPattern(int mode);
             static bool TestPatternActive();
 
+            // `bbtest` bench command (2026-11-09): raw-GPIO bit-banged panel
+            // test on the same pads — SLPOUT..DISPON + a white top band, no
+            // SPI peripheral involved. Decides "SPI setup vs wires/panel".
+            static void BitBangTest();
+
         private:
             static uint16_t fb[W * H];
             static bool dirty[H];
@@ -99,6 +104,9 @@ namespace CTAG {
             static bool sendCommand(uint8_t cmd, const uint8_t *data = nullptr,
                                     size_t len = 0);
             static void setWindow(int x0, int y0, int x1, int y1);
+            // kSt7789InitSeq walker (bitbang=false -> SPI, true -> raw GPIO);
+            // shared by Init() and BitBangTest() — Display.cpp.
+            static void runInitSeq(bool bitbang);
             static void writePixels(const uint16_t *px, size_t n);
             static void markDirty(int y);
         };
