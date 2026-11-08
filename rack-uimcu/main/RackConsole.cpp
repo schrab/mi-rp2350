@@ -124,7 +124,9 @@ namespace CTAG {
                                 }
                             } else if (!strcasecmp(line, "bbtest")) {
                                 CTAG::DRIVERS::Display::BitBangTest();
-                                printf("bbtest done (white band bit-banged)\r\n");
+                                printf("bbtest done - REBOOT the board before "
+                                       "the SPI display path works again "
+                                       "(bit-bang detaches the pads)\r\n");
                             } else if (!strcasecmp(line, "heap")) {
                                 printf("heap free=%u largest=%u (internal "
                                        "8-bit; FB=%u B)\r\n",

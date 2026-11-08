@@ -47,13 +47,19 @@ static const char *TAG = "Display";
 #define ST7789_INVERT 1        // IPS panel: inversion ON (0x21). Set 0 if
                                // the hue bars render as their negatives.
 
-// Wiring (README table): SCK=0 MOSI=1 DC=2 (user call 2026-11-08: display
-// onto the 0-4 header — mux COM moved to GPIO3, the last free ADC1 pin, and
-// the mux address lines took GPIO10/20/21); CS->GND, RST->3V3 RC, BL->3V3.
-// (2026-11-09 A/B: SCK/MOSI swap ruled OUT — no panel reaction either way.)
+// Wiring v2 (2026-11-09, user call "only the panel is wired — use spare
+// pins"): SCL/SDA/DC STAY on 0/1/2 (verified live at the panel). The change
+// is ONLY the two lines that were never real signals: CS moves GND -> GPIO6
+// (the ST7789 bit counter only resets on a CS rising edge — with CS
+// hard-tied GND the panel desyncs at boot and NO protocol/init/offset can
+// recover it) and RST drops the RC -> GPIO7 (firmware-controlled reset
+// pulse after the pads are configured). GPIO6/7 were the unwired encoder
+// pads; the encoder/mux remap is a later task.
 #define ST7789_PIN_SCK  0
 #define ST7789_PIN_MOSI 1
 #define ST7789_PIN_DC   2
+#define ST7789_PIN_CS   6     // real CS: the SPI hardware pulses it per frame
+#define ST7789_PIN_RST  7     // real RST: pulsed by firmware in Init()
 
 // Bring-up clock: 8 MHz (the panel-ignores-everything mystery was the
 // MISSING INIT REGISTERS, not signal integrity — the verbatim TFT_eSPI
@@ -108,15 +114,28 @@ void Display::setWindow(int x0, int y0, int x1, int y1) {
 }
 
 void Display::writePixels(const uint16_t *px, size_t n) {
+    // ST7789 wants the colour HIGH byte first on the wire; the framebuffer
+    // is little-endian uint16 — swap through a one-row staging buffer
+    // (Claude-review bug 1: colours were byte-swapped on the wire).
+    static uint16_t line[W];
     gpio_set_level((gpio_num_t)ST7789_PIN_DC, 1);
-    spi_transaction_t t = {};
-    t.length = n * 16;
-    t.tx_buffer = px;
-    esp_err_t err = spi_device_polling_transmit(s_spi, &t);
-    gpio_set_level((gpio_num_t)ST7789_PIN_DC, 0);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "spi pixel tx: %s", esp_err_to_name(err));
+    while (n) {
+        const size_t chunk = n < W ? n : W;
+        for (size_t i = 0; i < chunk; ++i) {
+            const uint16_t v = px[i];
+            line[i] = (uint16_t)((v >> 8) | (v << 8));
+        }
+        spi_transaction_t t = {};
+        t.length = chunk * 16;
+        t.tx_buffer = line;
+        esp_err_t err = spi_device_polling_transmit(s_spi, &t);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "spi pixel tx: %s", esp_err_to_name(err));
+        }
+        px += chunk;
+        n -= chunk;
     }
+    gpio_set_level((gpio_num_t)ST7789_PIN_DC, 0);
 }
 
 // ---- bbtest: raw-GPIO panel sanity test (2026-11-09 bench) ----
@@ -128,7 +147,9 @@ void Display::writePixels(const uint16_t *px, size_t n) {
 static void bbBit(int v) {
     gpio_set_level((gpio_num_t)ST7789_PIN_SCK, 0);
     gpio_set_level((gpio_num_t)ST7789_PIN_MOSI, v);
+    esp_rom_delay_us(2);                  // 10x edge-margin insurance
     gpio_set_level((gpio_num_t)ST7789_PIN_SCK, 1);
+    esp_rom_delay_us(2);
 }
 // 4-WIRE protocol (2026-11-09: 3-wire 9-bit frames ruled out with a live
 // SDA — white through the full flood): D/C as a real GPIO per byte.
@@ -177,7 +198,7 @@ void Display::BitBangTest() {
 // (rotation-1 landscape). SLPOUT/NORON/DISPON ride outside the table (they
 // carry the datasheet delays).
 static const uint8_t kSt7789InitSeq[] = {
-    0x36, 1, 0x60,                    // MADCTL: MX|MV, RGB order
+    0x36, 1, ST7789_MADCTL,           // MADCTL: define-driven (0x60)
     0xB6, 2, 0x0A, 0x82,              // DISCTRL
     0xB0, 2, 0x00, 0xE0,              // RAMCTRL (5-6 bit conversion)
     0x3A, 1, 0x55,                    // COLMOD 16bpp
@@ -194,11 +215,9 @@ static const uint8_t kSt7789InitSeq[] = {
           0x44, 0x42, 0x06, 0x0E, 0x12, 0x14, 0x17,   // PVGAMCTRL
     0xE1, 14, 0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x31,
           0x54, 0x47, 0x0E, 0x1C, 0x17, 0x1B, 0x1E,   // NVGAMCTRL
-    0x20, 0,                          // INVOFF — this panel is NOT inverted
-                                      // (the PR test sketch explicitly calls
-                                      // invertDisplay(false); with INVON a
-                                      // black GRAM renders as solid white —
-                                      // the exact symptom we chased)
+    (uint8_t)(ST7789_INVERT ? 0x21 : 0x20),  // INVON/INVOFF — define-driven
+                                      // (the PR test sketch used INVOFF; flip
+                                      // ST7789_INVERT if black renders white)
     0xFF, 0,                          // end
 };
 
@@ -229,20 +248,27 @@ void Display::Init() {
     spi_device_interface_config_t dev = {};
     dev.clock_speed_hz = ST7789_SPI_CLOCK_HZ;
     dev.mode = 0;
-    dev.spics_io_num = -1;                    // CS tied GND
+    dev.spics_io_num = ST7789_PIN_CS;         // REAL CS: the hardware pulses
+                                              // it per transaction — the
+                                              // bit counter resyncs every
+                                              // frame (the desync fix)
     dev.queue_size = 1;
     ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &dev, &s_spi));
 
     gpio_config_t io = {};
-    io.pin_bit_mask = 1ULL << ST7789_PIN_DC;
+    io.pin_bit_mask = (1ULL << ST7789_PIN_DC) | (1ULL << ST7789_PIN_RST);
     io.mode = GPIO_MODE_OUTPUT;
     gpio_config(&io);
     gpio_set_level((gpio_num_t)ST7789_PIN_DC, 0);
+    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 1);
 
-    // ST7789P3 init (IPS bar). RST is hardware (RC) — no SWRESET pin dance;
-    // SWRESET command still sent for a warm re-init path.
-    sendCommand(0x01);                        // SWRESET
-    vTaskDelay(pdMS_TO_TICKS(150));
+    // ST7789P3 init (IPS bar): HARDWARE reset via the real RST line now —
+    // the panel's serial framing starts from a known state after every
+    // boot, no RC timing involved.
+    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 0);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 1);
+    vTaskDelay(pdMS_TO_TICKS(120));
     sendCommand(0x11);                        // SLPOUT
     vTaskDelay(pdMS_TO_TICKS(120));
     sendCommand(0x13);                        // NORON

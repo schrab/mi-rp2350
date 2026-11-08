@@ -3,7 +3,7 @@ Rack UI controller (ESP32-C3) — T5 stages 2-6 entry point. Seeded from
 ctag-tbd/uimcu (the ctag menu/DspProxy/net stack was excluded from the
 build — see main/CMakeLists.txt); the rack UI owns this flow:
 
-  1. Display (ST7789P3 284x76, SPI2 GPIO10/20/21)
+  1. Display (ST7789P3 284x76, SPI2 SCK=0 MOSI=1 DC=2)
   2. RackLink (RP2350 framed UART, GPIO4/5 @921600, boot self-tests)
   3. RackConsole (USB-Serial-JTAG line console: ui/page/pots/calib/testpat)
   4. RackUI render task (fixed pages, TELEM-driven, ~60 Hz)
@@ -26,6 +26,7 @@ C3's ~320 KB).
 #include "input/UserInput.hpp"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -33,6 +34,28 @@ static const char *TAG = "uimcu";
 
 extern "C" void app_main() {
     ESP_LOGI(TAG, "rack ui controller boot (C3, T5 stages 2-6)");
+
+    // 0. PANEL BUS HOUSEKEEPING (2026-11-09, Claude-review finding): the
+    // ST7789's serial bit counter only resets on a CS rising edge. SCK/MOSI
+    // (GPIO0/1) FLOAT from power-on until the SPI init below; any noise edge
+    // in that window desyncs the panel's byte framing. Drive the data pads
+    // LOW from the first instruction, and hold CS HIGH (panel unselected =
+    // immune to boot noise) + RST HIGH until Init() pulses them properly.
+    {
+        gpio_config_t io = {};
+        io.pin_bit_mask = (1ULL << 0) | (1ULL << 1) | (1ULL << 2);
+        io.mode = GPIO_MODE_OUTPUT;
+        io.pull_down_en = GPIO_PULLDOWN_ENABLE;
+        gpio_config(&io);
+        gpio_set_level((gpio_num_t)0, 0);   // SCK idle low
+        gpio_set_level((gpio_num_t)1, 0);   // MOSI low
+        gpio_set_level((gpio_num_t)2, 0);   // DC low (command)
+        io.pin_bit_mask = (1ULL << 6) | (1ULL << 7);
+        io.pull_down_en = GPIO_PULLDOWN_DISABLE;
+        gpio_config(&io);
+        gpio_set_level((gpio_num_t)6, 1);   // CS idle HIGH (unselected)
+        gpio_set_level((gpio_num_t)7, 1);   // RST released
+    }
 
     // 1. Display backend (ST7789P3 bar; init + first flush inside).
     CTAG::DRIVERS::Display::Init();
