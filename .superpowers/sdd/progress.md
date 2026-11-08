@@ -1124,8 +1124,8 @@ after each task).
 | T2 Arena + live swap (bench switching via switch-CC + serial console) | done | 50d0489 | CC 32 + console swaps among all 4, 19-44 ms mutes, zero stalls, user ear-clean; plaits re-tiered 272→109 KB, clouds CMSIS tables to flash (spectral excluded v1); crash fix: I2S reconfig moved to core 0; findings below |
 | T3 Mod engine + clock bus (internal BPM / MIDI 24 PPQ, 1-32-step euclid+gate, bench settings via CC/console) | done | 238b4d0 | 12 sources; u: ≤ 45 µs observed (gate 50, 31 µs under 12-source load); ext-clock verified (48/s @ 120 BPM, tempo-follow 120→100, START re-phase / STOP freeze); phase survives swaps; findings below |
 | T4 RP2350 DIN 31250 parser + serial console | done (code-complete; DIN-jack bench pending wiring) | 67d6f77 | parser 109/109 host asserts; dintest proves parser→funnel→module on hardware (+3 notes, CC, 24/25 clock stamps); console full; findings below |
-| T4a Presets (serialization + console dump/load + last-state autosave) | pending | — | bank lands on C3 flash in T5 |
-| T5 C3 UI + UART link (after DSP acceptance AND hardware) | pending | — | encoder+button menus, HC4067, ST7789, BLE-MIDI, preset bank |
+| T4a Presets (serialization + console dump/load + last-state autosave) | pending | — | bank lands on C3 flash in T5; PRESET_* frame constants reserved in the T5 protocol |
+| T5 C3 UI + UART link (after DSP acceptance AND hardware) | in progress — stage 1 (framed link) done + benched 2026-11-08; stages 2-6 next, benches pending wiring | d901e76 (rack-uimcu) + e278d69 (rack-rp2350) | seed rack-uimcu/ from ctag-tbd/uimcu; protocol docs/ui-protocol.md; RP2350 side strictly additive (+1.0 KB RAM / +6.2 KB flash); uitest 6/6 + C3 hw-loop 32/32 @921600; cross-board echo waits for 3 wires (C3 GPIO4→GP17, GPIO5←GP16, GND) |
 | T6 Chain mode v2 (plaits@32k patch, pair table) | done (3 of 3 pairs) | 972c58a + c106458 + (T6c commit) | ALL THREE pairs benched: elements→clouds 52%, rings→clouds 36-48%, plaits→clouds 36% (flash engines); switched-plaits engines now flash (~3× T5b numbers, sustained ≤ 269 µs of 500, change spikes bank-absorbed); user dropped Plaits→Elements |
 | T7 Hardware bring-up + sweeps + user acceptance + soak | pending | — | |
 
@@ -1547,3 +1547,56 @@ three are metrics-verified (ears at the DSP-acceptance checkpoint).
   on-demand window extension possible someday, ~1.1 KB window slack),
   switched-plaits flash engines = the user-approved T6c trade (targeted
   promotions possible, 44 KB A-slot slack).
+
+### Rack T5 stage 1 — C3↔RP2350 framed link (2026-11-08, benched)
+
+- **Seed copy** `rack-uimcu/` from ctag-tbd/uimcu (read-only; IDF v5.5.4 —
+  the seed's exact compiler is
+  `~/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20260121`; export.sh alone
+  does NOT put the riscv toolchain on PATH). STOPGAP: the copy's
+  `EXTRA_COMPONENT_DIRS` points at the READ-ONLY seed's `protocol` +
+  `components/rapidjson` by absolute path (build reads, never writes);
+  stages 2+ must vendor rapidjson and drop the protocol dep.
+- **Protocol** `docs/ui-protocol.md` = the byte-exact contract:
+  `[0x7E][len:u8][type:u8][payload…][crc8]` (CRC-8/ATM 0x07/0x00 over
+  type+payload, no stuffing, len-bounded resync). Types: MIDI/SWITCH/
+  MOD_SET/UI_CMD/CHAIN_ROUTE/TELEM + PRESET_* reserved (T4a). TELEM =
+  `[page][module][mode][count][count×(cc,val,flags)][labels]`, flags
+  mod-routed/chain-B/inert; deltas = same format count=1. MOD_SET param ids
+  = `kModParamNames` indexes, values quantized exactly like the CC 33-35
+  bench mux.
+- **RP2350 side strictly additive**: `src/ui_link.h` (header-only, single-TU
+  like midi.h) + `ui_link_observe_cc` observation call at the top of
+  midiControlChange + `mod_engine_apply_ui_set` (the bench-mux setter
+  verbatim) + 3 console rows (`ui`/`uitest`/`uisend`). MIDI frames →
+  midiHandleEventPacket (the SAME funnel); SWITCH/CHAIN_ROUTE reuse the
+  console paths verbatim. Audio path untouched — 2 s report byte-identical,
+  elements report unchanged (130-176 µs of 496, zero stalls through the
+  bench). All 4 envs: RAM +1056 B (512 B CC cache 4×128 + rx/tx), flash
+  +6.2 KB each.
+- **PINS (corrected at bench prep):** RP2350A UART0 pads — TX valid
+  {0,2,12,14,16,18,28}, RX valid {1,3,13,15,17,19,29}, so **TX=GP16,
+  RX=GP17** (the brief's TX=17/RX=16 would have panicked). C3: UART0
+  TX=GPIO4, RX=GPIO5 (console is USB-Serial-JTAG → UART0 free). 921600 8N1,
+  3V3 direct. WIRING: C3 GPIO4→RP2350 GP17, C3 GPIO5←RP2350 GP16, GND↔GND.
+- **Bench (hardware, 2026-11-08):** RP2350 `uitest` = 6/6 codec PASS (MIDI,
+  MOD_SET, 0x7E-in-payload, max-len 255, corrupt-CRC reject, resync); NO hw
+  loopback exists on the RP2350's PL011-style UART (no LBM bit — checked the
+  pico-sdk register headers). C3 boot selftest: `codec OK | hw-loop 32/32 |
+  rtt ~205 µs` — REAL UART peripheral loopback (uart_set_loop_back) incl.
+  one max-len frame at 921600. Cross-board echo NOT yet run: the UART wires
+  are not connected (RP2350 `ui` rx=0 while the C3 probes every 5 s — the
+  probe stream doubles as the wire test the moment the 3 conductors land).
+- **Bench-caught fixes** (why hardware benches exist): (1) BOTH parsers'
+  body-index counter was uint8_t — a len=255 frame body is 256 bytes, the
+  counter wrapped and the parser stalled mid-frame swallowing everything
+  downstream (uitest 4-6 all failed on the first flash); fixed to uint16_t
+  on both ends. (2) C3 selftest case-1 assert was shifted by one payload
+  byte (checked buf[1]==0x12 instead of buf[1]==kCmdEcho) — codec FAIL on a
+  healthy codec; fixed. (3) The 1200-baud touch flash re-verified fine with
+  the additive build.
+- Commits: d901e76 (rack-uimcu), e278d69 (rack-rp2350); docs/ui-protocol.md
+  + this ledger land in the stage-1 docs commit.
+  Stages 2-6 (display backend, HC4067, encoder, gestures, BLE-MIDI) land
+  next; their benches wait for the user's wiring (screen, pots, encoder,
+  UART link, BLE central).
