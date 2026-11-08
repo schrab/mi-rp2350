@@ -175,21 +175,9 @@ namespace CTAG {
             void potTask(void *) {
                 uint8_t ch = 0;
                 bool pushActive = false;
+                static uint16_t prevSweep[NPOTS];
+                static bool prevValid = false;
                 while (true) {
-                    // ENCODER PUSH (time-share, 2026-11-09): once per sweep,
-                    // flip the SIG pad to a digital input with a pull-up and
-                    // read the push switch directly (pressed = 0), then
-                    // restore the ADC path. High-Z during the read — no
-                    // current through the mux, no pot stress, deterministic.
-                    if (ch == 0) {
-                        gpio_set_direction((gpio_num_t)PIN_ADC,
-                                           GPIO_MODE_INPUT);
-                        gpio_pullup_en((gpio_num_t)PIN_ADC);
-                        esp_rom_delay_us(5);
-                        pushActive = gpio_get_level((gpio_num_t)PIN_ADC) == 0;
-                        gpio_reset_pin((gpio_num_t)PIN_ADC);  // analog back
-                        UserInput::SetPushRaw(pushActive);
-                    }
                     // Address settle: the HC4067 switches in ~ns; a short
                     // delay + the ADC's own sampling window is plenty.
                     addrSet(ch);
@@ -199,16 +187,6 @@ namespace CTAG {
                     // scan rate stays ~700 sweeps/s.
                     adc_oneshot_read(s_adc, ADC_CH, &raw);
                     const int64_t now = esp_timer_get_time();
-
-                    if (pushActive) {
-                        // Push held: the pad is shorted to GND by the switch
-                        // — the readings are meaningless. Suppress all sends
-                        // and value updates; on release everything resumes
-                        // from the unchanged state.
-                        ch = (uint8_t)((ch + 1) & 15);
-                        vTaskDelay(1);
-                        continue;
-                    }
 
                     if (calRunning) {
                         // Calibration sweep: widen the per-pot window; end
@@ -252,9 +230,15 @@ namespace CTAG {
                                     if (RackUI::AssignModeActive()) {
                                         // Assign gesture: the pot move cycles
                                         // the cell's mod source; direction =
-                                        // the move.
+                                        // the move. The readings during the
+                                        // press are 0.6x-scaled by the push's
+                                        // divider — valid for DIRECTION,
+                                        // never sent as parameter values.
                                         sendAssign(ch, v > prev);
-                                    }
+                                    } else if (pushActive) {
+                                        // Pressed but not armed: the readings
+                                        // are scaled — suppress parameters.
+                                    } else {
                                     RackUI::PotTarget t;
                                     if (RackUI::GetPotTarget(ch, t) &&
                                         t.kind == RackUI::PotTarget::kCC &&
@@ -267,8 +251,9 @@ namespace CTAG {
                                             (uint8_t)(t.routedSrc - 1);
                                         RackLink::SendModSet(
                                             src, rideParam(src), v);
-                                    } else {
-                                        sendTarget(ch, v);
+                                        } else {
+                                            sendTarget(ch, v);
+                                        }
                                     }
                                 }
                             }
@@ -276,6 +261,30 @@ namespace CTAG {
                     }
 
                     ch = (uint8_t)((ch + 1) & 15);
+
+                    // ENCODER PUSH detection (GPIO3 shared with the SIG line
+                    // through the 220R divider): a press scales EVERY
+                    // channel's reading to ~0.6x simultaneously (the divider:
+                    // pad = SIG x 220/(220+mux-Ron)) while a real pot turn
+                    // moves ONE channel — a full-sweep comparison detects it.
+                    // pushActive then suppresses parameter sends (scaled
+                    // readings are never parameter-safe) while keeping the
+                    // assign-direction tracking live.
+                    if (ch == 0) {
+                        int dropped = 0, alive = 0;
+                        for (int i = 0; i < NPOTS; ++i) {
+                            if (prevSweep[i] > 40) {
+                                ++alive;
+                                if (lastValue[i] < prevSweep[i] -
+                                                   prevSweep[i] / 4)
+                                    ++dropped;
+                            }
+                            prevSweep[i] = lastValue[i];
+                        }
+                        prevValid = true;
+                        pushActive = alive >= 10 && dropped >= alive * 3 / 4;
+                        UserInput::SetPushRaw(pushActive);
+                    }
 
                     // One FULL tick per complete 16-channel sweep. TRAP
                     // (bench-caught 2026-11-08): CONFIG_FREERTOS_HZ=100
