@@ -1,495 +1,299 @@
 /***************
-CTAG TBD >>to be determined<< is an open source eurorack synthesizer module.
+Rack UI controller — ST7789P3 284x76 RGB565 backend implementation (see
+Display.hpp for the backend-choice justification + wiring).
 
-A project conceived within the Creative Technologies Arbeitsgruppe of
-Kiel University of Applied Sciences: https://www.creative-technologies.de
-
-(c) 2020 by Robert Manzke. All rights reserved.
-
-The CTAG TBD software is licensed under the GNU General Public License
-(GPL 3.0), available here: https://www.gnu.org/licenses/gpl-3.0.txt
-
-The CTAG TBD hardware design is released under the Creative Commons
-Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0).
-Details here: https://creativecommons.org/licenses/by-nc-sa/4.0/
-
-CTAG TBD is provided "as is" without any express or implied warranties.
-
-License and copyright details for specific submodules are included in their
-respective component folders / files if different from this license.
+SPI transaction shape: DC=GPIO low for commands, high for data; CS tied
+GND (single device). Commands used: SWRESET/SLPOUT/COLMOD/MADCTL/INVON/
+NORON/DISPON + the windowing trio CASET(0x2A)/RASET(0x2B)/RAMWR(0x2C).
+The 284x76 bar is a masked window on the 240x320 controller: the driver
+addresses ONLY the configured window — every flush sets
+CASET = [XOFF .. XOFF+283], RASET = [YOFF+row .. YOFF+row].
 ***************/
 
-// C3 panel display: framebuffer primitives are the A1S Display.cpp code
-// (page-major framebuffer, dirty-page Flush, per-glyph font advances); the
-// backend is a direct SSD1309 SPI driver replacing the A1S I²C ssd1306
-// component.
+#include "Display.hpp"
 
-#include <string>
 #include <cstring>
 #include <cstdio>
 
-#include "Display.hpp"
-#include "font5x7.h"
-#include "font8x8_basic.h"
 #include "fonts/digi_slim_3x6.h"
 #include "fonts/digi_one_5x6.h"
-#include "fonts/norns_6x7.h"
-#include "fonts/norns_ext_6x7.h"
-#include "version.hpp"
-#include "esp_log.h"
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 using namespace CTAG::DRIVERS;
 
-// Panel wiring (SDD §2.1). RST is tied to 3V3 via RC on the carrier.
-// Canonical SDD §2.1 pins. (A crossed SCLK/SDA mapping was "proven" by the
-// bench scan while the panel was misconfigured (I²C jumpers) and finally
-// dying (reversed-power damage) — it lit all-white at power-on, which is
-// not firmware behavior. With a healthy panel, wire canonically.)
-#define OLED_SCK_GPIO 6
-#define OLED_MOSI_GPIO 7
-#define OLED_CS_GPIO 2
-#define OLED_DC_GPIO 8 // remapped from 3: GPIO8 was a strap pin hosting encoder E1
-
-// 10 MHz start (SDD §2.1: 10–20 MHz); raise to 20 after the wiring is proven.
-// 1 MHz bring-up clock: long jumper wires corrupt 10 MHz SPI — raise
-// once the display is proven (5, then 10 MHz).
-#define OLED_SPI_CLOCK_HZ (1 * 1000 * 1000)
-
-// Some 128x64 SSD1309 modules sit on a 132-column controller with a 2-column
-// offset. If the image is shifted 2px left/right at bring-up, set this to 2.
-#define OLED_COLUMN_OFFSET 0
-
-// COM scan + segment remap match the A1S panel orientation (0xC8 scan).
 static const char *TAG = "Display";
 
-static spi_device_handle_t spiHandle = nullptr;
+// ===================== bring-up knobs (discovery) =====================
+// The 284x76 bar on an ST7789 (240x320 controller, 16 bpp RGB565):
+// START with the documented guess below and use `testpat 4` (1-px frame at
+// the window edges + ruler marks every 20 px + hue bars) to verify. If the
+// image is SHIFTED: raise/lower XOFF/YOFF (controllers center or edge-align
+// masked windows; typical values 0-4 for Y, 0-36 for the 320-axis). If the
+// image is ROTATED/mirrored: try the four MADCTL candidates. Document the
+// found values back here + in rack-uimcu/README.md (bring-up step 1).
+#define ST7789_XOFF   2        // CASET start offset (0..36, 320-wide axis)
+#define ST7789_YOFF   0        // RASET start offset (0..4, 240 axis)
+#define ST7789_MADCTL 0x60     // candidates: 0x00 / 0x60 / 0xA0 / 0xC0
+#define ST7789_INVERT 1        // IPS panel: inversion ON (0x21). Set 0 if
+                               // the hue bars render as their negatives.
 
-uint8_t Display::fb[1024];
-bool Display::dirtyPages[8] {false};
-int Display::userContrast = 0xFF;
+// Wiring (README table): SCK=10 MOSI=20 DC=21; CS->GND, RST->3V3 RC, BL->3V3.
+#define ST7789_PIN_SCK  10
+#define ST7789_PIN_MOSI 20
+#define ST7789_PIN_DC   21
 
-// CS is driven as a plain GPIO (software CS) and DC pin is runtime — the
-// panel's CS/DC pin assignment was the last bring-up unknown (the bit-bang
-// scan is symmetric under a CS/DC swap, hardware CS is not). Defaults =
-// SDD §2.1; /debug/displayPins retargets them on the bench.
-// Canonical CS/DC (SDD §2.1); see the SCLK/SDA note above — the crossed
-// assignments were artifacts of the failing panel. /debug/displayPins can
-// still retarget them at runtime if a wiring variant ever needs it.
-static int oledCsGpio = OLED_CS_GPIO;
-static int oledDcGpio = OLED_DC_GPIO;
+// Bring-up clock: modest until the wiring is proven (long jumpers corrupt
+// fast SPI — the seed OLED lesson). 8 MHz = a full-screen flush in ~22 ms;
+// raise to 26-40 MHz (GPIO-matrix SPI) once mounted.
+#define ST7789_SPI_CLOCK_HZ (8 * 1000 * 1000)
 
-static void csLow() { gpio_set_level((gpio_num_t)oledCsGpio, 0); }
-static void csHigh() { gpio_set_level((gpio_num_t)oledCsGpio, 1); }
-static void dcCmd() { gpio_set_level((gpio_num_t)oledDcGpio, 0); }
-static void dcData() { gpio_set_level((gpio_num_t)oledDcGpio, 1); }
+// ===================== RGB565 palette (conversion arithmetic) ============
+// RGB565 = (R8>>3)<<11 | (G8>>2)<<5 | (B8>>3):
+//   #e4e4e4: R228->28, G228->57, B228->28  -> 28<<11|57<<5|28 = 0xE73C
+//   #e6295e: R230->28, G 41->10, B 94->11  -> 28<<11|10<<5|11 = 0xE14B
+//   #17a3bd: R 23-> 2, G163->40, B189->23  ->  2<<11|40<<5|23 = 0x1517
+//   #f2d21f: R242->30, G210->52, B 31-> 3  -> 30<<11|52<<5| 3 = 0xF683
+// (kWhite/kRed/kTeal/kYellow constants live in Display.hpp, verified here.)
 
-bool Display::sendCommand(uint8_t cmd) {
-    dcCmd();
-    csLow();
+// ===================== state =====================
+uint16_t Display::fb[Display::W * Display::H];
+bool Display::dirty[Display::H];
+int Display::s_testpat = -1;
+
+static spi_device_handle_t s_spi = nullptr;
+
+bool Display::sendCommand(uint8_t cmd, const uint8_t *data, size_t len) {
+    // One polling transaction per phase (DC toggles between them; CS is
+    // hard-wired low so no chip-select bookkeeping).
     spi_transaction_t t = {};
     t.length = 8;
     t.tx_buffer = &cmd;
-    bool ok = spi_device_polling_transmit(spiHandle, &t) == ESP_OK;
-    csHigh();
-    return ok;
-}
-
-bool Display::sendData(const uint8_t *data, size_t len) {
-    dcData();
-    csLow();
-    spi_transaction_t t = {};
-    t.length = len * 8;
-    t.tx_buffer = data;
-    esp_err_t err = spi_device_polling_transmit(spiHandle, &t);
-    csHigh();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "spi data tx: %s", esp_err_to_name(err));
-        return false;
+    if (spi_device_polling_transmit(s_spi, &t) != ESP_OK) return false;
+    if (len) {
+        gpio_set_level((gpio_num_t)ST7789_PIN_DC, 1);
+        t.length = len * 8;
+        t.tx_buffer = data;
+        if (spi_device_polling_transmit(s_spi, &t) != ESP_OK) return false;
     }
+    gpio_set_level((gpio_num_t)ST7789_PIN_DC, 0);
     return true;
 }
 
+void Display::setWindow(int x0, int y0, int x1, int y1) {
+    // CASET/RASET in the CONTROLLER's coordinate space (offsets added).
+    const uint8_t caset[4] = {
+        (uint8_t)((ST7789_XOFF + x0) >> 8), (uint8_t)(ST7789_XOFF + x0),
+        (uint8_t)((ST7789_XOFF + x1) >> 8), (uint8_t)(ST7789_XOFF + x1),
+    };
+    const uint8_t raset[4] = {
+        (uint8_t)((ST7789_YOFF + y0) >> 8), (uint8_t)(ST7789_YOFF + y0),
+        (uint8_t)((ST7789_YOFF + y1) >> 8), (uint8_t)(ST7789_YOFF + y1),
+    };
+    sendCommand(0x2A, caset, 4);
+    sendCommand(0x2B, raset, 4);
+    sendCommand(0x2C);                      // RAMWR: DC rises for the data
+}
+
+void Display::writePixels(const uint16_t *px, size_t n) {
+    gpio_set_level((gpio_num_t)ST7789_PIN_DC, 1);
+    spi_transaction_t t = {};
+    t.length = n * 16;
+    t.tx_buffer = px;
+    esp_err_t err = spi_device_polling_transmit(s_spi, &t);
+    gpio_set_level((gpio_num_t)ST7789_PIN_DC, 0);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "spi pixel tx: %s", esp_err_to_name(err));
+    }
+}
+
 void Display::Init() {
-    // Bus setup runs once; Reinit() (bench diagnostics) re-sends the panel
-    // init commands only — spi_bus_initialize on an already-claimed bus
-    // aborts the device.
-    static bool busReady = false;
-    if (!busReady) {
-        spi_bus_config_t bus = {};
-        bus.mosi_io_num = OLED_MOSI_GPIO;
-        bus.sclk_io_num = OLED_SCK_GPIO;
-        bus.miso_io_num = -1;
-        bus.quadwp_io_num = -1;
-        bus.max_transfer_sz = 128;
-        ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO));
+    spi_bus_config_t bus = {};
+    bus.mosi_io_num = ST7789_PIN_MOSI;
+    bus.sclk_io_num = ST7789_PIN_SCK;
+    bus.miso_io_num = -1;
+    bus.quadwp_io_num = -1;
+    bus.max_transfer_sz = FRAMEBUFFER_SIZE;   // one full-screen window fits
+    ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO));
 
-        spi_device_interface_config_t dev = {};
-        dev.clock_speed_hz = OLED_SPI_CLOCK_HZ;
-        dev.mode = 0;
-        dev.spics_io_num = -1; // software CS (see above)
-        dev.queue_size = 1;
-        ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &dev, &spiHandle));
+    spi_device_interface_config_t dev = {};
+    dev.clock_speed_hz = ST7789_SPI_CLOCK_HZ;
+    dev.mode = 0;
+    dev.spics_io_num = -1;                    // CS tied GND
+    dev.queue_size = 1;
+    ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &dev, &s_spi));
 
-        gpio_config_t io = {};
-        io.pin_bit_mask = (1ULL << OLED_DC_GPIO) | (1ULL << OLED_CS_GPIO);
-        io.mode = GPIO_MODE_OUTPUT;
-        gpio_config(&io);
-        busReady = true;
-        }
-
-    // SSD1309 init, page addressing mode (matches the dirty-page Flush).
-    sendCommand(0xAE); // display off
-    sendCommand(0xD5); sendCommand(0x80); // clock divide
-    sendCommand(0xA8); sendCommand(0x3F); // multiplex 1/64
-    sendCommand(0xD3); sendCommand(0x00); // display offset
-    sendCommand(0x40);                    // start line 0
-    sendCommand(0x8D); sendCommand(0x14); // charge pump on
-    sendCommand(0x20); sendCommand(0x02); // page addressing mode
-    sendCommand(0xA1);                    // segment remap
-    sendCommand(0xC8);                    // COM scan direction
-    sendCommand(0xDA); sendCommand(0x12); // COM pins
-    sendCommand(0x81); sendCommand((uint8_t)userContrast);
-    sendCommand(0xD9); sendCommand(0xF1); // precharge
-    sendCommand(0xDB); sendCommand(0x40); // VCOMH
-    sendCommand(0xA4);                    // display from RAM
-    sendCommand(0xA6);                    // normal (not inverted)
-    sendCommand(0xAF);                    // display on
-
-
-    std::memset(fb, 0, sizeof(fb));
-    for (int i = 0; i < 8; i++) dirtyPages[i] = true;
-    Flush();
-}
-
-void Display::RawCommand(uint8_t cmd) {
-    sendCommand(cmd);
-}
-
-// ---- bench pin-permutation scan (bit-banged; bring-up diagnostic only) ----
-namespace {
-    void bbOut(int pin) {
-        gpio_config_t io = {};
-        io.pin_bit_mask = 1ULL << pin;
-        io.mode = GPIO_MODE_OUTPUT;
-        gpio_config(&io);
-    }
-    void bbByte(int sck, int mosi, uint8_t b) {
-        for (int i = 7; i >= 0; i--) {
-            gpio_set_level((gpio_num_t)mosi, (b >> i) & 1);
-            gpio_set_level((gpio_num_t)sck, 1);
-            gpio_set_level((gpio_num_t)sck, 0);
-        }
-    }
-    void bbCmd(int sck, int mosi, int dc, int cs, uint8_t c) {
-        gpio_set_level((gpio_num_t)dc, 0);
-        gpio_set_level((gpio_num_t)cs, 0);
-        bbByte(sck, mosi, c);
-        gpio_set_level((gpio_num_t)cs, 1);
-    }
-    void bbDataN(int sck, int mosi, int dc, int cs, uint8_t v, int n) {
-        gpio_set_level((gpio_num_t)dc, 1);
-        gpio_set_level((gpio_num_t)cs, 0);
-        for (int i = 0; i < n; i++) bbByte(sck, mosi, v);
-        gpio_set_level((gpio_num_t)cs, 1);
-    }
-    void bbPanelInit(int sck, int mosi, int cs, int dc) {
-        for (int pin : {sck, mosi, cs, dc}) bbOut(pin);
-        gpio_set_level((gpio_num_t)cs, 1);
-        gpio_set_level((gpio_num_t)dc, 1);
-        gpio_set_level((gpio_num_t)sck, 0);
-        gpio_set_level((gpio_num_t)mosi, 0);
-        static const uint8_t initSeq[] = {
-            0xAE, 0xD5, 0x80, 0xA8, 0x3F, 0xD3, 0x00, 0x40,
-            0x8D, 0x14,             // charge pump on — without this: dark
-            0x20, 0x02, 0xA1, 0xC8, 0xDA, 0x12,
-            0x81, 0xCF, 0xD9, 0xF1, 0xDB, 0x40,
-            0xA4, 0xA6, 0xAF,
-        };
-        for (uint8_t c : initSeq) bbCmd(sck, mosi, dc, cs, c);
-        // fill every page white, then force all-on (0xA5)
-        for (int p = 0; p < 8; p++) {
-            bbCmd(sck, mosi, dc, cs, (uint8_t)(0xB0 | p));
-            bbCmd(sck, mosi, dc, cs, 0x00);
-            bbCmd(sck, mosi, dc, cs, 0x10);
-            bbDataN(sck, mosi, dc, cs, 0xFF, 128);
-        }
-        bbCmd(sck, mosi, dc, cs, 0xA5);
-    }
-}
-
-void Display::BenchPins(int cs, int dc) {
-    oledCsGpio = cs;
-    oledDcGpio = dc;
     gpio_config_t io = {};
-    io.pin_bit_mask = (1ULL << cs) | (1ULL << dc);
+    io.pin_bit_mask = 1ULL << ST7789_PIN_DC;
     io.mode = GPIO_MODE_OUTPUT;
     gpio_config(&io);
-    Init(); // re-sends the panel init + flushes with the new assignment
-}
+    gpio_set_level((gpio_num_t)ST7789_PIN_DC, 0);
 
-void Display::BenchScan(int mode) {
-    // 0: SCK=6 MOSI=7 CS=2 DC=8 (as documented)
-    // 1: SDA/SCLK swapped, 2: CS/DC swapped, 3: both swapped
-    int sck = 6, mosi = 7, cs = 2, dc = 8;
-    if (mode == 1) { sck = 7; mosi = 6; }
-    else if (mode == 2) { cs = 8; dc = 2; }
-    else if (mode == 3) { sck = 7; mosi = 6; cs = 8; dc = 2; }
-    bbPanelInit(sck, mosi, cs, dc);
-}
-
-void Display::Reinit() {
-    Init();
-}
-
-void Display::Sleep() {
-    sendCommand(0xAE);
-}
-
-void Display::Wake() {
-    sendCommand(0xAF);
-    sendCommand(0x81);
-    sendCommand((uint8_t)userContrast);
-}
-
-void Display::Contrast(int val) {
-    if (val < 0) val = 0;
-    if (val > 255) val = 255;
-    userContrast = val;
-    sendCommand(0x81);
-    sendCommand((uint8_t)userContrast);
-}
-
-void Display::Clear() {
+    // ST7789P3 init (IPS bar). RST is hardware (RC) — no SWRESET pin dance;
+    // SWRESET command still sent for a warm re-init path.
+    sendCommand(0x01);                        // SWRESET
+    vTaskDelay(pdMS_TO_TICKS(150));
+    sendCommand(0x11);                        // SLPOUT
+    vTaskDelay(pdMS_TO_TICKS(120));
+    const uint8_t colmod = 0x55;              // 16 bpp RGB565
+    sendCommand(0x3A, &colmod, 1);
+    const uint8_t madctl = ST7789_MADCTL;
+    sendCommand(0x36, &madctl, 1);
+#if ST7789_INVERT
+    sendCommand(0x21);                        // INVON (IPS)
+#else
+    sendCommand(0x20);                        // INVOFF (TN)
+#endif
+    sendCommand(0x13);                        // NORON
+    // Wait for the first flush to light the panel with real content.
     std::memset(fb, 0, sizeof(fb));
-    for (int i = 0; i < 8; i++) dirtyPages[i] = true;
-}
-
-void Display::ShowFWVersion() {
-    Clear();
-    DrawString(0, 10, "TBD fw:", FONT_5X7);
-    DrawString(0, 20, TBD_FW_VERSION.c_str(), FONT_5X7);
-    DrawString(0, 34, "TBD hw:", FONT_5X7);
-    DrawString(0, 44, TBD_HW_VERSION.c_str(), FONT_5X7);
+    for (int y = 0; y < H; ++y) dirty[y] = true;
     Flush();
+    sendCommand(0x29);                        // DISPON
+    ESP_LOGI(TAG, "st7789p3 %dx76 window (%u,%u) madctl 0x%02x ready",
+             W, (unsigned)ST7789_XOFF, (unsigned)ST7789_YOFF,
+             (unsigned)ST7789_MADCTL);
 }
 
-void Display::MarkDirty(int page) {
-    if (page >= 0 && page < 8) dirtyPages[page] = true;
+void Display::markDirty(int y) {
+    if (y >= 0 && y < H) dirty[y] = true;
+}
+
+void Display::Clear(uint16_t color) {
+    for (int y = 0; y < H; ++y) {
+        uint16_t *row = &fb[y * W];
+        for (int x = 0; x < W; ++x) row[x] = color;
+        dirty[y] = true;
+    }
+}
+
+void Display::DrawPixel(int x, int y, uint16_t c) {
+    if (x < 0 || x >= W || y < 0 || y >= H) return;
+    fb[y * W + x] = c;
+    markDirty(y);
+}
+
+void Display::DrawHLine(int x, int y, int w, uint16_t c) {
+    if (y < 0 || y >= H) return;
+    int x0 = x < 0 ? 0 : x;
+    int x1 = x + w;
+    if (x1 > W) x1 = W;
+    for (int i = x0; i < x1; ++i) fb[y * W + i] = c;
+    markDirty(y);
+}
+
+void Display::FillRect(int x, int y, int w, int h, uint16_t c) {
+    for (int j = 0; j < h; ++j) DrawHLine(x, y + j, w, c);
+}
+
+// ---- fonts: column-major, LSB = top pixel, 1 byte per row (6 rows) ----
+void Display::DrawString(int x, int y, const char *s, Font f, uint16_t c) {
+    if (!s) return;
+    while (*s) {
+        const uint8_t ch = (uint8_t)*s++;
+        if (ch >= 127) continue;              // the fonts cover 0-126
+        const uint8_t *glyph = (f == FONT_LABEL) ? font_digi_slim[ch]
+                                                 : font_digi_one[ch];
+        const uint8_t gh = (f == FONT_LABEL) ? FONT_DIGI_SLIM_H
+                                             : FONT_DIGI_ONE_H;
+        const uint8_t adv = (f == FONT_LABEL) ? font_digi_slim_advances[ch]
+                                              : font_digi_one_advances[ch];
+        for (int col = 0; col < 6; ++col) {
+            const uint8_t bits = glyph[col];
+            if (!bits) continue;
+            const int px = x + col;
+            if (px < 0 || px >= W) continue;
+            for (int row = 0; row < gh; ++row) {
+                if ((bits >> row) & 1) {
+                    const int py = y + row;
+                    if (py >= 0 && py < H) {
+                        fb[py * W + px] = c;
+                        markDirty(py);
+                    }
+                }
+            }
+        }
+        x += adv;
+    }
+}
+
+int Display::StringWidth(const char *s, Font f) {
+    if (!s) return 0;
+    int w = 0;
+    while (*s) {
+        const uint8_t ch = (uint8_t)*s++;
+        if (ch >= 127) continue;
+        w += (f == FONT_LABEL) ? font_digi_slim_advances[ch]
+                               : font_digi_one_advances[ch];
+    }
+    return w;
 }
 
 void Display::Flush() {
-    for (int p = 0; p < 8; p++) {
-        if (!dirtyPages[p]) continue;
-        sendCommand(0xB0 | p);                                        // page address
-        sendCommand(0x00 | ((OLED_COLUMN_OFFSET) & 0x0F));            // column low
-        sendCommand(0x10 | (((OLED_COLUMN_OFFSET) >> 4) & 0x0F));     // column high
-        sendData(&fb[p * 128], 128);
-        dirtyPages[p] = false;
+    // Coalesce consecutive dirty rows into single window transfers (a
+    // page change redraws everything = one 43 KB burst; a delta touches
+    // a few rows).
+    for (int y = 0; y < H;) {
+        if (!dirty[y]) { ++y; continue; }
+        int y1 = y;
+        while (y1 + 1 < H && dirty[y1 + 1]) ++y1;
+        setWindow(0, y, W - 1, y1);
+        writePixels(&fb[y * W], (size_t)W * (y1 - y + 1));
+        for (int k = y; k <= y1; ++k) dirty[k] = false;
+        y = y1 + 1;
     }
 }
 
-void Display::CopyFramebuffer(uint8_t *dst) {
-    if (dst == nullptr) return;
-    memcpy(dst, fb, FRAMEBUFFER_SIZE);
-}
+// ===================== test patterns =====================
+bool Display::TestPatternActive() { return s_testpat >= 0; }
 
-void Display::DrawPixel(int x, int y, bool on) {
-    if (x < 0 || x >= 128 || y < 0 || y >= 64) return;
-    int page = y >> 3;
-    int bit = y & 7;
-    int idx = page * 128 + x;
-    if (on)
-        fb[idx] |= (1 << bit);
-    else
-        fb[idx] &= ~(1 << bit);
-    MarkDirty(page);
-}
-
-void Display::DrawHLine(int x, int y, int w, bool on) {
-    for (int i = 0; i < w; i++) DrawPixel(x + i, y, on);
-}
-
-void Display::DrawVLine(int x, int y, int h, bool on) {
-    for (int i = 0; i < h; i++) DrawPixel(x, y + i, on);
-}
-
-void Display::DrawRect(int x, int y, int w, int h, bool fill, bool on) {
-    if (fill) {
-        for (int row = 0; row < h; row++)
-            DrawHLine(x, y + row, w, on);
-    } else {
-        DrawHLine(x, y, w, on);
-        DrawHLine(x, y + h - 1, w, on);
-        DrawVLine(x, y, h, on);
-        DrawVLine(x + w - 1, y, h, on);
-    }
-}
-
-void Display::InvertRect(int x, int y, int w, int h) {
-    for (int row = 0; row < h; row++) {
-        for (int col = 0; col < w; col++) {
-            int px = x + col, py = y + row;
-            if (px < 0 || px >= 128 || py < 0 || py >= 64) continue;
-            int page = py >> 3;
-            int bit = py & 7;
-            int idx = page * 128 + px;
-            fb[idx] ^= (1 << bit);
-            MarkDirty(page);
+void Display::TestPattern(int mode) {
+    s_testpat = mode;
+    switch (mode) {
+        case 1:  // full white
+            Clear(kWhite);
+            break;
+        case 2:  // full black
+            Clear(kBlack);
+            break;
+        case 3: {  // the 4 hue bars (horizontal quarters)
+            Clear(kBlack);
+            const int q = H / 4;
+            FillRect(0, 0, W, q, kWhite);
+            FillRect(0, q, W, q, kRed);
+            FillRect(0, 2 * q, W, q, kTeal);
+            FillRect(0, 3 * q, W, H - 3 * q, kYellow);
+            break;
         }
-    }
-}
-
-static void drawGlyph(int &x, int y, const uint8_t *glyph, int gw, int gh, int advance,
-                void (*pixel)(int, int, bool)) {
-    for (int col = 0; col < gw; col++) {
-        uint8_t byte = glyph[col];
-        for (int row = 0; row < gh; row++) {
-            pixel(x + col, y + row, (byte >> row) & 1);
-        }
-    }
-    x += advance;
-}
-
-// Decode a single UTF-8 codepoint from str, advance pointer past it
-static uint16_t utf8_decode(const char *&s) {
-    uint8_t b0 = (uint8_t)*s;
-    if (b0 < 0x80) {
-        s++;
-        return b0;
-    }
-    if ((b0 & 0xE0) == 0xC0) {
-        // 2-byte sequence
-        if ((s[1] & 0xC0) != 0x80) { s++; return b0; }
-        uint16_t cp = ((uint16_t)(b0 & 0x1F) << 6) | (s[1] & 0x3F);
-        s += 2;
-        return cp;
-    }
-    if ((b0 & 0xF0) == 0xE0) {
-        // 3-byte sequence
-        if ((s[1] & 0xC0) != 0x80 || (s[2] & 0xC0) != 0x80) { s++; return b0; }
-        uint16_t cp = ((uint16_t)(b0 & 0x0F) << 12) | ((uint16_t)(s[1] & 0x3F) << 6) | (s[2] & 0x3F);
-        s += 3;
-        return cp;
-    }
-    // 4-byte or invalid lead byte — skip 1 byte
-    s++;
-    return b0;
-}
-
-void Display::DrawString(int x, int y, const char *str, Font font) {
-    if (!str) return;
-    while (*str) {
-        const char *next = str;
-        uint16_t c = utf8_decode(next);
-        str = next;
-        switch (font) {
-        case FONT_8X8:
-            if (c < 32 || c > 127) continue;
-            drawGlyph(x, y, font8x8_basic_tr[c - 32], 8, 8, 8, DrawPixel);
-            break;
-        case FONT_5X7:
-            if (c > 127) continue;
-            drawGlyph(x, y, font5x7[c], 5, 7, 6, DrawPixel);
-            break;
-        case FONT_DIGI_SLIM_3X6:
-            if (c >= FONT_DIGI_SLIM_N_CHARS) continue;
-            drawGlyph(x, y, font_digi_slim[c], FONT_DIGI_SLIM_W, FONT_DIGI_SLIM_H,
-                      font_digi_slim_advances[c], DrawPixel);
-            break;
-        case FONT_DIGI_ONE_5X6:
-            if (c >= FONT_DIGI_ONE_N_CHARS) continue;
-            drawGlyph(x, y, font_digi_one[c], FONT_DIGI_ONE_W, FONT_DIGI_ONE_H,
-                      font_digi_one_advances[c], DrawPixel);
-            break;
-        case FONT_NORNS_6X7:
-            if (c < FONT_NORNS_N_CHARS) {
-                drawGlyph(x, y, font_norns[c], FONT_NORNS_W, FONT_NORNS_H,
-                          font_norns_advances[c], DrawPixel);
-            } else {
-                int idx = FontNornsExtLookup(c);
-                if (idx < FONT_NORNS_EXT_N_CHARS) {
-                    drawGlyph(x, y, font_norns_ext_data[idx], FONT_NORNS_EXT_W,
-                              FONT_NORNS_EXT_H, font_norns_ext_advances[idx], DrawPixel);
-                }
+        case 4: {  // border + ruler marks every 20 px (offset discovery)
+            Clear(kBlack);
+            // 1-px frame exactly at the CONFIGURED window edges: if the
+            // offsets are wrong the frame is clipped on one side / wraps.
+            DrawHLine(0, 0, W, kWhite);
+            DrawHLine(0, H - 1, W, kWhite);
+            FillRect(0, 0, 1, H, kWhite);
+            FillRect(W - 1, 0, 1, H, kWhite);
+            // Ruler ticks every 20 px along the top (long) edge, taller
+            // every 100 px.
+            for (int x = 0; x < W; x += 20) {
+                FillRect(x, 0, 1, (x % 100 == 0) ? 9 : 5, kYellow);
             }
+            // Vertical ticks every 20 px on the left edge.
+            for (int y = 0; y < H; y += 20) {
+                FillRect(0, y, 5, 1, kYellow);
+            }
+            // Corner labels (both digi fonts visible for the font check).
+            DrawString(2, 12, "RACK TESTPAT 4", FONT_LABEL, kWhite);
+            DrawString(2, 22, "284x76 0123456789", FONT_VALUE, kTeal);
+            DrawString(W - 58, 22, "RGB565", FONT_VALUE, kRed);
             break;
         }
+        default:  // 0 = back to the UI
+            s_testpat = -1;
+            break;
     }
-}
-
-int Display::FontAdvance(Font f) {
-    switch (f) {
-    case FONT_8X8: return 8;
-    case FONT_5X7: return 6;
-    case FONT_DIGI_SLIM_3X6: return FONT_DIGI_SLIM_ADVANCE;
-    case FONT_DIGI_ONE_5X6: return FONT_DIGI_ONE_ADVANCE;
-    case FONT_NORNS_6X7: return FONT_NORNS_ADVANCE;
-    }
-    return 6;
-}
-
-int Display::FontAdvance(Font f, unsigned char c) {
-    switch (f) {
-    case FONT_DIGI_SLIM_3X6:
-        if (c < FONT_DIGI_SLIM_N_CHARS) return font_digi_slim_advances[c];
-        return FONT_DIGI_SLIM_ADVANCE;
-    case FONT_DIGI_ONE_5X6:
-        if (c < FONT_DIGI_ONE_N_CHARS) return font_digi_one_advances[c];
-        return FONT_DIGI_ONE_ADVANCE;
-    case FONT_NORNS_6X7:
-        if (c < FONT_NORNS_N_CHARS) return font_norns_advances[c];
-        if (c >= 0x80) {
-            int idx = FontNornsExtLookup(c);
-            if (idx < FONT_NORNS_EXT_N_CHARS)
-                return font_norns_ext_advances[idx];
-        }
-        return FONT_NORNS_ADVANCE;
-    default:
-        return FontAdvance(f);
-    }
-}
-
-void Display::DrawStringRight(int x, int y, const char *str, Font font) {
-    if (!str) return;
-    int len = strlen(str);
-    int strWidth = len * FontAdvance(font);
-    DrawString(x - strWidth, y, str, font);
-}
-
-void Display::DrawVUMeter(int x, int y, int w, int h, float level) {
-    if (level < 0.0f) level = 0.0f;
-    if (level > 1.0f) level = 1.0f;
-    int fillW = (int)(level * w);
-    if (fillW > w) fillW = w;
-    DrawRect(x, y, w, h, false, true);
-    if (fillW > 0) {
-        DrawRect(x + 1, y + 1, fillW, h - 2, true, true);
-    }
-}
-
-void Display::DrawVUMeterV(int x, int y, int w, int h, float level) {
-    if (level < 0.0f) level = 0.0f;
-    if (level > 1.0f) level = 1.0f;
-    DrawRect(x, y, w, h, false, true);
-    int fillH = (int)(level * (h - 2));
-    if (fillH > h - 2) fillH = h - 2;
-    if (fillH > 0) {
-        // fill upwards from the bottom edge
-        DrawRect(x + 1, y + h - 1 - fillH, w - 2, fillH, true, true);
-    }
-}
-
-void Display::DrawScrollbar(int x, int y, int h, int totalItems, int cursorPos) {
-    if (totalItems <= 1) return;
-    int visibleItems = h / LINE_H;
-    if (visibleItems >= totalItems) return;
-    int thumbH = h * visibleItems / totalItems;
-    if (thumbH < 4) thumbH = 4;
-    int thumbY = y + (h - thumbH) * cursorPos / (totalItems - visibleItems);
-    DrawVLine(x, y, h);                           // 1px track
-    DrawRect(x - 1, thumbY, 3, thumbH, true, true); // 3px thumb overlaps right edge
+    if (s_testpat >= 0) Flush();
 }

@@ -68,6 +68,13 @@ namespace CTAG {
             volatile bool s_probe_pending = false;
             int64_t s_last_rx_us = 0;
 
+            // ---- TELEM cache (renderer side; link task writes, UI task
+            // reads — single core, guarded by a critical section) ----
+            portMUX_TYPE telemMux = portMUX_INITIALIZER_UNLOCKED;
+            RackTelemPage s_telem = {};
+            volatile bool s_telem_dirty = false;
+            volatile uint32_t s_last_midi_ms = 0;
+
             // ---- codec (byte-exact duplicate of ui_link.h) ----
             uint8_t RackLinkCrc8(const uint8_t *data, size_t n) {
                 uint8_t crc = 0x00;
@@ -155,7 +162,106 @@ namespace CTAG {
                               "confirmed)");
             }
 
-            // ---- RX dispatch (stage 1: logs only; stages 2-6 consume) ----
+            // ---- RX dispatch ----
+            // TELEM v2 parse into the cache (see RackLink.hpp / docs §5):
+            //   [page][module][mode][count]
+            //   [count x (cc, value, flags, color)]   4-byte cells
+            //   [count x NUL-terminated labels]
+            //   mode 0 only: [bpm][clocksrc][chain][link]
+            // Mode 1 (delta) = the same format with count=1: patches ONE
+            // cell of the cached page, matched by cc (ignored when the page
+            // differs or the cc is unknown — the next page request heals).
+            void parseTelem(const uint8_t *pl, uint8_t len) {
+                if (len < 4) {
+                    ESP_LOGW(TAG, "telem short (len=%u)", len);
+                    return;
+                }
+                const uint8_t page = pl[0], mod = pl[1], mode = pl[2],
+                               count = pl[3];
+                if (count > 16 || count == 0) {
+                    ESP_LOGW(TAG, "telem count %u invalid", count);
+                    return;
+                }
+                const size_t cells_end = 4 + (size_t)count * 4;
+                if (len < cells_end) {
+                    ESP_LOGW(TAG, "telem truncated cells (len=%u)", len);
+                    return;
+                }
+                taskENTER_CRITICAL(&telemMux);
+                if (mode == RackLink::kTelemDelta) {
+                    // Delta: patch one cell of the cached page.
+                    if (!s_telem.valid || s_telem.page != page) {
+                        taskEXIT_CRITICAL(&telemMux);
+                        ESP_LOGW(TAG, "telem delta for page %u with no "
+                                      "cached snapshot", page);
+                        return;
+                    }
+                    const uint8_t cc = pl[4];
+                    int8_t idx = -1;
+                    for (uint8_t i = 0; i < s_telem.count; i++) {
+                        if (s_telem.cell[i].cc == cc) { idx = (int8_t)i; break; }
+                    }
+                    if (idx < 0) {
+                        taskEXIT_CRITICAL(&telemMux);
+                        ESP_LOGW(TAG, "telem delta cc=%u not on cached page %u",
+                                 cc, page);
+                        return;
+                    }
+                    RackTelemCell &c = s_telem.cell[idx];
+                    c.value = pl[5];
+                    c.flags = pl[6];
+                    c.color = pl[7];
+                    size_t off = cells_end;
+                    size_t n = 0;
+                    while (off + n < len && pl[off + n] != 0 && n < 15) n++;
+                    if (off + n < len) {
+                        memcpy(c.label, &pl[off], n);
+                        c.label[n] = '\0';
+                    }
+                    s_telem.module = mod;
+                    taskEXIT_CRITICAL(&telemMux);
+                    s_telem_dirty = true;
+                    return;
+                }
+                // Full snapshot: replace the cache wholesale.
+                s_telem.page = page;
+                s_telem.module = mod;
+                s_telem.mode = mode;
+                s_telem.count = count;
+                for (uint8_t i = 0; i < count; i++) {
+                    RackTelemCell &c = s_telem.cell[i];
+                    c.cc = pl[4 + i * 4];
+                    c.value = pl[5 + i * 4];
+                    c.flags = pl[6 + i * 4];
+                    c.color = pl[7 + i * 4];
+                }
+                size_t off = cells_end;
+                for (uint8_t i = 0; i < count && off < len; i++) {
+                    RackTelemCell &c = s_telem.cell[i];
+                    size_t n = 0;
+                    while (off + n < len && pl[off + n] != 0 && n < 15) n++;
+                    if (off + n < len) {           // found the NUL
+                        memcpy(c.label, &pl[off], n);
+                        c.label[n] = '\0';
+                        off += n + 1;
+                    } else {
+                        break;                     // truncated label block
+                    }
+                }
+                s_telem.valid = true;
+                // Status tail: the 4 bytes after the label block.
+                if (len >= off + 4) {
+                    s_telem.bpm = pl[off];
+                    s_telem.clocksrc = pl[off + 1];
+                    s_telem.chain = pl[off + 2];
+                    s_telem.link = pl[off + 3];
+                    s_telem.tail_valid = true;
+                }
+                taskEXIT_CRITICAL(&telemMux);
+                s_telem_dirty = true;
+            }
+
+
             void dispatchFrame(RackParser &p) {
                 const uint8_t type = p.buf[0];
                 const uint8_t *pl = &p.buf[1];
@@ -167,36 +273,26 @@ namespace CTAG {
 
                 switch (type) {
                     case RackLink::kTypeTelem: {
-                        // [page][module][mode][count][count x (cc,val,flags)]
-                        // [count x NUL-terminated labels]. Mode 0 = full
-                        // snapshot, 1 = single-cell delta (same format).
-                        if (len < 4) {
-                            ESP_LOGW(TAG, "telem short (len=%u)", len);
-                            break;
-                        }
-                        const uint8_t page = pl[0], mod = pl[1],
-                                       mode = pl[2], count = pl[3];
-                        if (s_probe_pending) {
+                        // v2 payload -> the renderer's cache (parseTelem).
+                        // Full snapshots log one line (bring-up evidence);
+                        // the delta stream would spam at <= 20 Hz and logs
+                        // nothing.
+                        const bool is_delta =
+                            len >= 4 && pl[2] == RackLink::kTelemDelta;
+                        if (s_probe_pending && !is_delta) {
                             s_probe_pending = false;
                             const int64_t rtt_us =
                                 esp_timer_get_time() - s_probe_time_us;
                             ESP_LOGI(TAG, "page request RTT ~%lld us",
                                      (long long)rtt_us);
                         }
-                        ESP_LOGI(TAG, "telem page=%u mod=%u mode=%u count=%u",
-                                 page, mod, mode, count);
-                        // First few cell values (cc=value).
-                        char vals[96];
-                        size_t n = 0;
-                        const uint8_t shown =
-                            count < 5 ? count : 5;
-                        for (uint8_t i = 0; i < shown; i++) {
-                            n += (size_t)snprintf(
-                                vals + n, sizeof(vals) - n, " %u=%u",
-                                pl[4 + i * 3], pl[5 + i * 3]);
-                            if (n >= sizeof(vals) - 1) break;
+                        if (!is_delta) {
+                            ESP_LOGI(TAG, "telem page=%u mod=%u mode=%u "
+                                          "count=%u",
+                                     pl[0], pl[1], pl[2],
+                                     len >= 4 ? pl[3] : 0);
                         }
-                        ESP_LOGI(TAG, "telem cells:%s", vals);
+                        parseTelem(pl, len);
                         break;
                     }
                     case RackLink::kTypeUiCmd: {
@@ -294,8 +390,6 @@ namespace CTAG {
                     vTaskDelay(1);
                 }
             }
-
-            // ---- boot self-test ----
 
             // ---- boot self-test ----
             bool selftestCodec() {
@@ -437,8 +531,16 @@ namespace CTAG {
 
         bool RackLink::IsOnline() { return s_online; }
 
+        void RackLink::Stats(uint32_t *tx, uint32_t *rx, uint32_t *crc) {
+            if (tx) *tx = s_tx_frames;
+            if (rx) *rx = s_rx_frames;
+            if (crc) *crc = s_crc_errors;
+        }
+
         bool RackLink::SendMidi(const uint8_t pkt[4]) {
             sendFrame(kTypeMidi, pkt, 4);
+            s_last_midi_ms = (uint32_t)(xTaskGetTickCount() *
+                                        portTICK_PERIOD_MS);
             return true;
         }
 
@@ -463,6 +565,41 @@ namespace CTAG {
         bool RackLink::SendPageRequest(uint8_t page) {
             return SendUiCmd(kCmdPageRequest, page, 0);
         }
+
+        bool RackLink::SendSysToggle(uint8_t item) {
+            return SendUiCmd(kCmdSysToggle, item, 0);
+        }
+
+        bool RackLink::SendAssignCycle(uint8_t cell, uint8_t dir) {
+            if (cell > 15 || dir > 1) return false;
+            return SendUiCmd(kCmdAssignCycle, cell, dir);
+        }
+
+        bool RackLink::SendChainRoute(uint8_t a, uint8_t b, uint8_t engage) {
+            if (a > 3 || b > 3 || engage > 1) return false;
+            const uint8_t p[3] = { a, b, engage };
+            sendFrame(kTypeChainRoute, p, 3);
+            return true;
+        }
+
+        bool RackLink::SendPresetReq(uint8_t slot) {
+            const uint8_t p[1] = { slot };
+            sendFrame(kTypePresetReq, p, 1);
+            return true;
+        }
+
+        bool RackLink::TelemGet(RackTelemPage &out) {
+            taskENTER_CRITICAL(&telemMux);
+            out = s_telem;
+            taskEXIT_CRITICAL(&telemMux);
+            return out.valid;
+        }
+
+        bool RackLink::TelemDirty() { return s_telem_dirty; }
+
+        void RackLink::TelemClearDirty() { s_telem_dirty = false; }
+
+        uint32_t RackLink::LastMidiMs() { return s_last_midi_ms; }
 
         void RackLink::Start() {
             if (hLinkTask != nullptr) return;

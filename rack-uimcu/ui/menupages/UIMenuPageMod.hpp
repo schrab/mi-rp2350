@@ -1,3 +1,5 @@
+// SEED REFERENCE, NOT BUILT (T5 stages 2-6): the ctag DspProxy/menu
+// framework was replaced by the rack's fixed-page ui/RackUI renderer.
 #pragma once
 
 #include "UIMenuPage.hpp"

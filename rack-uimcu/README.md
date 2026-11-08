@@ -1,0 +1,125 @@
+# rack-uimcu — T5 rack UI controller (ESP32-C3)
+
+Firmware for the rack's UI panel MCU: ST7789P3 284x76 bar display, 16
+HC4067-scanned pots, one encoder (+push), BLE-MIDI peripheral, and the
+framed UART link to the rack RP2350 (`docs/ui-protocol.md` is the byte-
+exact wire contract; the RP2350 twin lives in `rack-rp2350/src/ui_link.h`).
+
+Seeded from ctag-tbd/uimcu (READ-ONLY upstream); the seed's link/menu/net
+stack is excluded from the build — `main/CMakeLists.txt` lists what runs
+(`RackLink`, `RackPots`, `RackConsole`, `input/UserInput`, `ui/Display`,
+`ui/RackUI`, `BtMidiReceiver`). RapidJSON is vendored under
+`components/rapidjson` (kept for the T4a preset bank; nothing includes it
+yet).
+
+Build/flash:
+
+```sh
+# toolchain (export.sh alone does NOT put the riscv toolchain on PATH)
+export PATH="$HOME/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20260121/riscv32-esp-elf/bin:$PATH"
+. /home/schrab/esp/esp-idf-v5.5.4/export.sh
+idf.py build && idf.py -p PORT flash     # console = USB-Serial-JTAG
+```
+
+## C3 GPIO allocation (the full table)
+
+| GPIO | Function | Notes |
+|------|----------|-------|
+| 0 | HC4067 mux COM -> ADC1_CH0 | ADC1 only (ADC2 dead while NimBLE holds the radio; GPIO4 = the other ADC1 pin is the UART link TX) |
+| 1 | HC4067 addr S0 | |
+| 2 | HC4067 addr S1 | STRAPPING — external 10k pull-up (must read 1 at boot) |
+| 3 | HC4067 addr S2 | |
+| 4 | UART link TX -> RP2350 GP17 | 921600 8N1 (stage 1) |
+| 5 | UART link RX <- RP2350 GP16 | 921600 8N1 (stage 1) |
+| 6 | HC4067 addr S3 | |
+| 7 | encoder A | external pull-up |
+| 8 | encoder B | STRAPPING — external pull-up REQUIRED, never held low at reset (seed E1 lesson) |
+| 9 | encoder push | STRAPPING — external pull-up; holding push at power-on reads 0 = download mode, do not hold while powering on |
+| 10 | display SPI SCK | |
+| 11-17 | flash on this module | DO NOT USE |
+| 18/19 | native USB D-/D+ (console) | DO NOT USE |
+| 20 | display SPI MOSI | |
+| 21 | display SPI DC | |
+
+Pin-saving tricks (13 signals needed beyond the UART vs 11 free pins —
+shortfall resolved, nothing silently dropped):
+
+- display CS tied GND — the SPI bus is exclusive to the panel (no sharing).
+- display RST tied 3V3 through an RC — firmware cannot reset the panel;
+  power-cycle to recover a confused panel (the seed OLED carrier did the
+  same).
+- display BL tied 3V3 — always backlit, no PWM dimming.
+- mux E (enable) tied GND — always enabled.
+
+## Wiring summary
+
+| From | To |
+|------|----|
+| C3 GPIO4 | RP2350 GP17 (UART0 RX) |
+| C3 GPIO5 | RP2350 GP16 (UART0 TX) |
+| C3 GPIO0 | HC4067 COM (Z pin) through nothing — direct; pots 0-15 on CH0-15 |
+| C3 GPIO1/2/3/6 | HC4067 S0/S1/S2/S3 |
+| C3 GPIO10/20/21 | ST7789P3 SCK/MOSI/DC; panel CS->GND, RST->3V3 RC, BL->3V3, VCC 3V3, GND |
+| C3 GPIO7/8/9 | encoder A/B/push (all external pull-ups) |
+
+All 3V3 logic, no level shifting.
+
+## Gestures (the whole UI: turn pots + one encoder)
+
+| Gesture | Action |
+|---------|--------|
+| Rotate | page cycle P1 -> P2 -> MOD-A -> MOD-B -> MOD-C -> SYS (wraps); the C3 requests the page, dashes render until the TELEM snapshot lands |
+| Short push (< 600 ms) on MOD-C | toggle global clock source (UI_CMD sys id 2) |
+| Short push on SYS | the SYS action ring, one action per push, next action marked with the yellow underline: chain-pair cycle -> chain engage toggle -> preset slot cycle + PRESET_REQ (T4a stub) -> telemetry-deltas toggle -> telemetry-full toggle -> wrap |
+| Push-hold >= 600 ms | arms MOD-ASSIGN mode (strip shows `>MOD<` in yellow) |
+| Hold + turn a POT | sends UI_CMD ASSIGN_CYCLE [pot][dir] — the RP2350 cycles that cell's mod source [off, src0..src11] and the full TELEM reply re-renders the result (invalid targets are inert on the RP2350 and the cell blinks via TELEM flags bit2) |
+| Hold + ROTATE | module-select overlay (strip shows `>ELEM/CLDS/PLTS/RNGS<`); releasing the hold CONFIRMS (sends SWITCH); releasing without rotating cancels |
+| Short push on P1/P2/MOD-A/MOD-B | no action (parameters live on the pots) |
+
+Gesture timings: short < 600 ms <= hold; debounce 20 ms; encoder = one
+event per detent (GPIO-ISR quadrature, seed detent table).
+
+## Pot behavior
+
+- HC4067 round-robin at ~700 sweeps/s (8 us address settle + one ADC read
+  per channel); 0-127 mapped through the per-pot NVS min/max calibration.
+- Send-on-move: 2-count deadband vs the last SENT value, aggregate rate
+  limit 200 msgs/s. P1/P2 -> MIDI CC (the ACTIVE page cell's CC), MOD
+  pages -> MOD_SET [src][param] (the fixed map in ui/RackUI.cpp — MUST
+  MATCH the RP2350's kUiMod*Cells, docs/ui-protocol.md §6), MOD-C BPM pot
+  -> UI_CMD SET_GLOBAL, SYS -> inert.
+
+## Bench procedures (no wiring beyond the stage)
+
+- `testpat 4` — ST7789P3 offset/orientation discovery: a 1-px frame at the
+  configured window edges + ruler ticks every 20 px + the 4 hue bars.
+  If the frame is clipped on one side / wraps, adjust `ST7789_XOFF` /
+  `ST7789_YOFF` / `ST7789_MADCTL` at the top of `ui/Display.cpp`
+  (candidates documented there) and re-flash; document the found values
+  back into those #defines. `testpat 1/2/3` = full white / full black /
+  hue bars (dead-pixel + inversion check, `ST7789_INVERT` flips it).
+- `calib` — 8 s min/max sweep on all 16 pots (sweep each pot end-to-end
+  once or twice), stored to NVS (`rpots/cal`); `calib clear` resets;
+  `pots` dumps raw + mapped values. Uncalibrated pots work full-range.
+- `ui` — link + page state; `page <0-5>` — page switch without the
+  encoder; `heap` — free-heap report (NimBLE + 43 KB FB + link rings).
+
+## Bring-up stages 2-6 (what still needs the user's wiring)
+
+1. **Stage 2 (display)**: wire SCK/MOSI/DC + CS->GND/RST/BL; flash; watch
+   the dash placeholder page + strip render; `testpat 4` to lock the
+   window offsets; raise `ST7789_SPI_CLOCK_HZ` (8 MHz -> 26-40 MHz) once
+   mounted.
+2. **Stage 3 (pots + encoder)**: wire the HC4067 (COM->GPIO0, S0-S3,
+   pots) + encoder; `calib`; verify `pots` tracks and page rotation works;
+   pot moves on P1 send MIDI CC (visible in the RP2350 console `ui`
+   counters).
+3. **Stage 4 (TELEM pages)**: needs the cross-board link (stage-1 wiring):
+   P1/P2/MOD pages render live values; verify colors/dims/blink against a
+   routed + inert mod destination.
+4. **Stage 5 (gestures)**: hold+pot assignment round-trip (RP2350 `mod`
+   console shows the acks), hold+rotate module swap, SYS ring + MOD-C
+   clock toggle.
+5. **Stage 6 (BLE-MIDI)**: a BLE central connects to "Rack UI"; notes land
+   in the RP2350 funnel (its 2 s report's note-on counter moves). Watch
+   `heap` before/after NimBLE for the RAM budget.

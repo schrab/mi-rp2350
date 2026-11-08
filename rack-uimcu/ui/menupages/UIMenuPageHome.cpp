@@ -1,3 +1,5 @@
+// SEED REFERENCE, NOT BUILT (T5 stages 2-6): the ctag DspProxy/menu
+// framework was replaced by the rack's fixed-page ui/RackUI renderer.
 /***************
 CTAG TBD >>to be determined<< is an open source eurorack synthesizer module.
 

@@ -1,79 +1,70 @@
 /***************
-CTAG TBD >>to be determined<< is an open source eurorack synthesizer module.
+Rack UI controller (ESP32-C3) — T5 stages 2-6 entry point. Seeded from
+ctag-tbd/uimcu (the ctag menu/DspProxy/net stack was excluded from the
+build — see main/CMakeLists.txt); the rack UI owns this flow:
 
-A project conceived within the Creative Technologies Arbeitsgruppe of
-Kiel University of Applied Sciences: https://www.creative-technologies.de
+  1. Display (ST7789P3 284x76, SPI2 GPIO10/20/21)
+  2. RackLink (RP2350 framed UART, GPIO4/5 @921600, boot self-tests)
+  3. RackConsole (USB-Serial-JTAG line console: ui/page/pots/calib/testpat)
+  4. RackUI render task (fixed pages, TELEM-driven, ~60 Hz)
+  5. RackPots (HC4067 scan task, send-on-move -> MIDI/MOD_SET/ASSIGN)
+  6. BtMidiReceiver (NimBLE PERIPHERAL — BLE-MIDI -> RackLink::SendMidi)
 
-(c) 2020 by Robert Manzke. All rights reserved.
-
-The CTAG TBD software is licensed under the GNU General Public License
-(GPL 3.0), available here: https://www.gnu.org/licenses/gpl-3.0.txt
-
-The CTAG TBD hardware design is released under the Creative Commons
-Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0).
-Details here: https://creativecommons.org/licenses/by-nc-sa/4.0/
-
-CTAG TBD is provided "as is" without any express or implied warranties.
-
-License and copyright details for specific submodules are included in their
-respective component folders / files if different from this license.
+Ordering notes kept from the seed: the UI task starts before NimBLE so the
+render task's stack + the framebuffer come off the fattest heap first; the
+console's USJ driver takes over the boot log wire early. Heap before/after
+NimBLE is logged (README bring-up: NimBLE + 43 KB FB + link rings in the
+C3's ~320 KB).
 ***************/
 
-// Panel controller entry point (P2 bring-up, SDD §8): SPI display, stub
-// DspProxy, menu task, input task, USB bench channel. The link to the DSP
-// replaces the stub in P3; UIMenu/UserInput are unchanged by that swap.
-
 #include "Display.hpp"
-#include "UIMenu.hpp"
-#include "DebugLink.hpp"
-#include "DspProxy.hpp"
-#include "MidiLink.hpp"
-#include "NetRest.hpp"
+#include "RackUI.hpp"
 #include "RackLink.hpp"
+#include "RackPots.hpp"
+#include "RackConsole.hpp"
 #include "BtMidiReceiver.hpp"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 static const char *TAG = "uimcu";
 
 extern "C" void app_main() {
-    ESP_LOGI(TAG, "panel controller boot (C3)");
+    ESP_LOGI(TAG, "rack ui controller boot (C3, T5 stages 2-6)");
 
+    // 1. Display backend (ST7789P3 bar; init + first flush inside).
     CTAG::DRIVERS::Display::Init();
-    CTAG::DRIVERS::Display::ShowFWVersion();
 
-    CTAG::CTRL::DspProxy::Init();
-
-    // T5 stage 1 (rack): the RP2350 link REPLACES the seed LinkClient::Start()
-    // (which DspProxy::Init no longer calls — see DspProxyLink.cpp). Rack
-    // frame protocol on UART0 GPIO4/5 @ 921600, boot self-tests (codec +
-    // uart_set_loop_back hardware loopback) log once below, and the task
-    // probes P1 page requests every 5 s until the cross-board link is
-    // confirmed. RackLink::Start is idempotent.
+    // 2. The RP2350 link (stage 1, extended): UART0 GPIO4/5 @921600, boot
+    // self-tests (codec + uart_set_loop_back) log once; the task probes P1
+    // page requests every 5 s until the cross-board link is confirmed.
     CTAG::CTRL::RackLink::Start();
 
-    // UIMenu::Init creates the pages, seeds the ROOT view and draws it;
-    // the task then starts input (UserInput::Init inside TaskFunction, the
-    // same ordering the A1S uses) and runs the 20 ms loop.
-    CTAG::CTRL::UIMenu::Init();
-    CTAG::CTRL::DebugLink::Start();
+    // 3. Console (USJ driver + log hand-off) — bring-up commands live here.
+    CTAG::CTRL::RackConsole::Start();
 
-    // UI task FIRST: WiFi + NimBLE eat a big chunk of the heap; the 8 KB
-    // ui_menu stack must be allocated before those go up.
-    if (xTaskCreatePinnedToCore(CTAG::CTRL::UIMenu::TaskFunction, "ui_menu", 8192,
-                                nullptr, tskIDLE_PRIORITY + 3, nullptr, 0) != pdPASS) {
-        ESP_LOGE(TAG, "could not create ui_menu task");
+    // 4. UI task FIRST (before NimBLE eats the heap; the seed's ordering
+    // lesson): Init draws the dash placeholder page + status strip and
+    // sends the first P1 page request; the task serves gestures + TELEM
+    // renders at ~60 Hz.
+    CTAG::CTRL::RackUI::Init();
+    if (xTaskCreatePinnedToCore(CTAG::CTRL::RackUI::TaskFunction, "rack_ui",
+                                8192, nullptr, tskIDLE_PRIORITY + 3, nullptr,
+                                0) != pdPASS) {
+        ESP_LOGE(TAG, "could not create rack_ui task");
     }
 
-    // P4: TRS MIDI jacks live on the panel; bytes relay over the link.
-    CTAG::CTRL::MidiLink::Start();
-    // P4: BLE-MIDI central (NimBLE) BEFORE WiFi — the BT controller+host
-    // take ~90KB from the fattest heap; coex then arbitrates the radio.
+    // 5. HC4067 pot scan (ADC1_CH0 + 4 addr lines; NVS calibration).
+    CTAG::CTRL::RackPots::Start();
+
+    // 6. BLE-MIDI peripheral (NimBLE) LAST — it takes the big heap chunk.
+    ESP_LOGI(TAG, "heap before NimBLE: free=%u largest=%u",
+             (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL |
+                                                MALLOC_CAP_8BIT),
+             (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL |
+                                                         MALLOC_CAP_8BIT));
     CTAG::DRIVERS::BtMidiReceiver::Init();
-    // P5: WiFi + REST bridge DISABLED for now — NimBLE with default
-    // buffers plus the AP don't fit the C3's ~215KB internal RAM together
-    // with the UI/link tasks (BLE-MIDI is required, WiFi is optional).
-    // Re-enable NetRest::Start() if the radio budget ever allows it.
-    // CTAG::CTRL::NetRest::Start();
+    // WiFi/REST: OFF (same verdict as the seed — NimBLE + FB + tasks do not
+    // leave room for the AP; BLE-MIDI is the requirement).
 }

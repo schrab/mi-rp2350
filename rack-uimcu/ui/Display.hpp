@@ -1,125 +1,106 @@
 /***************
-CTAG TBD >>to be determined<< is an open source eurorack synthesizer module.
+Rack UI controller — T5 stage 2 display backend (ST7789P3 IPS 284x76 bar).
 
-A project conceived within the Creative Technologies Arbeitsgruppe of
-Kiel University of Applied Sciences: https://www.creative-technologies.de
+REPLACES the seed's SSD1309 128x64 mono backend wholesale (the seed
+Display.cpp is the A1S framebuffer shape; none of it fits a 16-bpp color
+bar). The class NAME stays `CTAG::DRIVERS::Display` so the renderer and
+console read naturally.
 
-(c) 2020 by Robert Manzke. All rights reserved.
+Backend choice: HAND-ROLLED SPI driver (CASET/RASET/RAMWR), NOT esp_lcd.
+Justification: this panel is a masked/cropped wide bar on an ST7789
+controller (native 240x320 portrait) — the real window + orientation are
+bring-up DISCOVERY items (284 > 240, so the panel must be scanning the
+320-wide axis; the offsets/madctl below are the documented starting guess).
+esp_lcd's st7789 panel driver assumes the standard panel geometry and makes
+arbitrary window offsets/scan direction awkward, while the hand-rolled
+CASET/RASET path is ~120 lines, gives exact control of the window (the
+discovery knobs are the #defines below) and coalesces dirty rows into
+single window transfers.
 
-The CTAG TBD software is licensed under the GNU General Public License
-(GPL 3.0), available here: https://www.gnu.org/licenses/gpl-3.0.txt
+Wiring (rack-uimcu/README.md has the full C3 GPIO allocation table):
+  SCK = GPIO10, MOSI = GPIO20 (GPIO-matrix SPI — keep the clock modest
+        until the wiring is proven; raise ST7789_SPI_CLOCK_HZ after),
+  DC  = GPIO21, CS = tied GND (bus exclusive — one device, saves a pin),
+  RST = tied 3V3 through an RC (firmware cannot reset the panel; power-cycle
+        to recover a confused panel — the standard pin-saving trick),
+  BL  = tied 3V3 (always backlit; no PWM dimming — pin budget).
 
-The CTAG TBD hardware design is released under the Creative Commons
-Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0).
-Details here: https://creativecommons.org/licenses/by-nc-sa/4.0/
+Framebuffer: full 284x76 RGB565 (~43 KB internal RAM, affordable on the C3
+per the plan) with PER-ROW dirty flags; Flush() coalesces consecutive dirty
+rows into one windowed SPI transfer. The renderer redraws at 30-60 Hz.
 
-CTAG TBD is provided "as is" without any express or implied warranties.
-
-License and copyright details for specific submodules are included in their
-respective component folders / files if different from this license.
+Bring-up discovery (docs/ui-protocol.md §8.5 + rack-uimcu/README.md):
+`testpat` on the console draws the 1-px frame at the CONFIGURED window
+edges + ruler marks every 20 px + the 4 hue bars; if the image is shifted,
+wrap, or mirrored, adjust the #defines below (XOFF/YOFF/MADCTL) and re-flash.
 ***************/
-
-// Panel display driver, C3 port (SDD §5.1): SSD1309 128x64 over SPI, behind
-// the exact same framebuffer API the A1S I²C backend served. All drawing
-// primitives and fonts are shared with the A1S copy; only Init/Flush/
-// Sleep/Wake/Contrast touch hardware.
-//
-// Wiring (SDD §2.1, DC remapped): SCK=GPIO6, MOSI=GPIO7, CS=GPIO2,
-// DC=GPIO8, RST tied to 3V3 through an RC. Verify against the physical
-// board revision before bring-up.
 
 #pragma once
 
-#include <string>
-#include <vector>
 #include <cstdint>
 #include <cstddef>
-
-// Layout constants — change these when swapping fonts
-static constexpr int FONT_H = 7;
-static constexpr int LINE_H = FONT_H + 1;
-static constexpr int ITEM_Y0 = 5;
-static constexpr int ITEM_Y0_HDR = ITEM_Y0 + FONT_H + 1;
-static constexpr int VISIBLE_ITEMS = 7;
-static constexpr int VISIBLE_ITEMS_HDR = 6;
-static constexpr int SCROLLBAR_X = 126;
-
-#define ROW(n)     (ITEM_Y0 + (n) * LINE_H)
-#define ROW_HDR(n) (ITEM_Y0_HDR + (n) * LINE_H)
-
-inline void ClampScroll(int cursor, int &scrollOffset, int total, int visible) {
-    if (cursor - scrollOffset < 0) scrollOffset = cursor;
-    if (cursor - scrollOffset >= visible) scrollOffset = cursor - (visible - 1);
-    if (scrollOffset > total - visible) scrollOffset = total - visible;
-    if (scrollOffset < 0) scrollOffset = 0;
-}
-
-inline int ClampVisible(int total, int scrollOff, int maxVis) {
-    int v = total - scrollOff;
-    return v > maxVis ? maxVis : v;
-}
 
 namespace CTAG {
     namespace DRIVERS {
         class Display final {
         public:
-            // Font selection
-            enum Font { FONT_8X8, FONT_5X7, FONT_DIGI_SLIM_3X6, FONT_DIGI_ONE_5X6, FONT_NORNS_6X7 };
+            // Logical framebuffer (what the renderer draws into).
+            static constexpr int W = 284;
+            static constexpr int H = 76;
+            static constexpr int FRAMEBUFFER_SIZE = W * H * 2;
 
-            static void Flush();
+            // Fonts: labels = digi-slim (6 px), values = digi-one (5 px).
+            enum Font : uint8_t { FONT_LABEL = 0, FONT_VALUE = 1 };
 
-            static void Sleep();
-            static void Wake();
-            static void Contrast(int val);
+            // RGB565 palette — conversions shown in Display.cpp (the trio is
+            // the Mutable panel palette; yellow = STATE accent only).
+            static constexpr uint16_t kWhite  = 0xE73C;  // #e4e4e4-class
+            static constexpr uint16_t kRed    = 0xE14B;  // #e6295e
+            static constexpr uint16_t kTeal   = 0x1517;  // #17a3bd
+            static constexpr uint16_t kYellow = 0xF683;  // #f2d21f (accent)
+            static constexpr uint16_t kBlack  = 0x0000;
+
+            // 50% dim (blend toward black; used for the chain-B tint).
+            static constexpr uint16_t Dim(uint16_t c) {
+                return (uint16_t)((c & 0xF7DE) >> 1);
+            }
 
             Display() = delete;
-            static void Init();
-            // Bench diagnostics (doc/uimcu-bringup.md): send one raw SSD1309
-            // command byte (e.g. 0xA5 all-pixels-on, 0xA4 back to RAM) and
-            // re-run the whole init after a re-wire.
-            static void RawCommand(uint8_t cmd);
-            static void Reinit();
-            // Bench bring-up: bit-bang the SSD1309 init + all-pixels-on
-            // through one of the plausible pin permutations (SCK/MOSI/CS/DC
-            // swap variants), leaving the panel lit if that mapping is the
-            // right one. mode 0 = as documented, 1 = SDA/SCLK swapped,
-            // 2 = CS/DC swapped, 3 = both swapped. Diagnostic only.
-            static void BenchScan(int mode);
-            // Retarget CS/DC GPIOs + reinit (CS/DC swap diagnostic).
-            static void BenchPins(int cs, int dc);
-            // framebuffer size in bytes: 128x64 mono, page-major (page = y>>3)
-            static constexpr int FRAMEBUFFER_SIZE = 1024;
-            // Copy the current framebuffer out. Must be called from the task
-            // that draws (UIMenu), otherwise the copy can be torn.
-            static void CopyFramebuffer(uint8_t *dst);
-            static void Clear();
-            static void ShowFWVersion();
 
-            // Framebuffer drawing primitives
-            static void DrawPixel(int x, int y, bool on = true);
-            static void DrawHLine(int x, int y, int w, bool on = true);
-            static void DrawVLine(int x, int y, int h, bool on = true);
-            static void DrawRect(int x, int y, int w, int h, bool fill = false, bool on = true);
-            static void InvertRect(int x, int y, int w, int h);
-            static void DrawString(int x, int y, const char *str, Font font = FONT_8X8);
-            static void DrawStringRight(int x, int y, const char *str, Font font = FONT_8X8);
-            static void DrawVUMeter(int x, int y, int w, int h, float level);
-            static void DrawVUMeterV(int x, int y, int w, int h, float level);
-            static void DrawScrollbar(int x, int y, int h, int totalItems, int cursorPos);
-            static int FontAdvance(Font f);
-            static int FontAdvance(Font f, unsigned char c);
+            static void Init();
+            static void Clear(uint16_t color = kBlack);
+
+            // Drawing primitives (into the framebuffer; mark rows dirty).
+            static void DrawPixel(int x, int y, uint16_t c);
+            static void DrawHLine(int x, int y, int w, uint16_t c);
+            static void FillRect(int x, int y, int w, int h, uint16_t c);
+
+            // Text: digi-slim (labels) / digi-one (values), column-major
+            // LSB-top glyphs, per-char advances from the font headers.
+            static void DrawString(int x, int y, const char *s, Font f,
+                                   uint16_t c);
+            static int StringWidth(const char *s, Font f);
+
+            // Push dirty rows (coalesced windows) over SPI.
+            static void Flush();
+
+            // ---- bring-up test patterns (console `testpat [0-4]`) ----
+            // 0 = off (back to the UI), 1 = full white, 2 = full black,
+            // 3 = the 4 hue bars, 4 = border + ruler (offset discovery).
+            // While a pattern is active the renderer holds off (the UI does
+            // not paint over the diagnostic).
+            static void TestPattern(int mode);
+            static bool TestPatternActive();
 
         private:
-            // framebuffer: page-major, column-minor
-            static uint8_t fb[1024];
-            static bool dirtyPages[8];
-
-            static void MarkDirty(int page);
-            static int userContrast;
-
-            // SPI SSD1309 backend
-            static bool sendCommand(uint8_t cmd);
-            static bool sendData(const uint8_t *data, size_t len);
+            static uint16_t fb[W * H];
+            static bool dirty[H];
+            static int s_testpat;      // -1 = UI owns the screen
+            static bool sendCommand(uint8_t cmd, const uint8_t *data = nullptr,
+                                    size_t len = 0);
+            static void setWindow(int x0, int y0, int x1, int y1);
+            static void writePixels(const uint16_t *px, size_t n);
+            static void markDirty(int y);
         };
     }
 }

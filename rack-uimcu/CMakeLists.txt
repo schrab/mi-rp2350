@@ -1,24 +1,18 @@
-# Rack UI controller firmware (ESP32-C3) — rack-rp2350's T5 UI MCU (STAGE 1:
-# framed UART link bring-up only). Seeded from ctag-tbd/uimcu 2026-11-08
-# (cp -a; the seed tree is READ-ONLY — see the rack ledger findings).
-# The menu/panel UI runs here; the DSP (rack RP2350) is reached over the rack
-# frame protocol (docs/ui-protocol.md) via main/RackLink.
+# Rack UI controller firmware (ESP32-C3) — rack-rp2350's T5 UI MCU (stages
+# 2-6: ST7789P3 bar display, HC4067 pots, encoder gestures, BLE-MIDI). Seeded
+# from ctag-tbd/uimcu 2026-11-08 (cp -a; the seed tree is READ-ONLY — see the
+# rack ledger findings). The rack UI runs here; the DSP (rack RP2350) is
+# reached over the rack frame protocol (docs/ui-protocol.md) via main/RackLink.
+# The seed's `protocol` component dependency is GONE (stage 2-6 cleanup): the
+# seed link sources that needed it are excluded from the build (see
+# main/CMakeLists.txt), and RapidJSON is VENDORED under components/rapidjson
+# (kept available for the T4a preset bank; header-only).
 cmake_minimum_required(VERSION 3.13)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(IDF_TARGET esp32c3)
-
-# Shared code from the seed repo: the link protocol (still referenced by the
-# untouched seed sources NetRest/DebugLink/DspProxyLink/LinkClient — they
-# keep compiling until T5 stages 2+ rework them) and RapidJSON (needed by
-# the ported menupages). STAGE-1 STOPGAP: these point at the READ-ONLY seed
-# tree by absolute path because only the uimcu dir itself was copied; later
-# stages vendor rapidjson and drop the seed-protocol dependency.
-list(APPEND EXTRA_COMPONENT_DIRS
-        "/home/schrab/Projects/ctag-tbd/protocol"
-        "/home/schrab/Projects/ctag-tbd/components/rapidjson")
 
 # pull in idf specific items, config vars etc.
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)

@@ -1,3 +1,7 @@
+// SEED REFERENCE, NOT BUILT (T5 stages 2-6): excluded from the build
+// (main/CMakeLists.txt) — it includes the seed's ctag/link/protocol.hpp and
+// the seed `protocol` component dependency was dropped; the rack has no TRS
+// jacks on the panel (BLE-MIDI + pots feed main/RackLink directly).
 /***************
 CTAG TBD >>to be determined<< is an open source eurorack synthesizer module.
 
