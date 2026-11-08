@@ -57,7 +57,10 @@ static const char *TAG = "Display";
 #define ST7789_PIN_SCK  10
 #define ST7789_PIN_MOSI 20
 #define ST7789_PIN_DC   21
-#define ST7789_PIN_CS   6     // real CS: the SPI hardware pulses it per frame
+// CS is TIED GND (as wired): GPIO6 went to the mux S3 address line. The
+// bit-counter desync that motivated CS-on-GPIO is handled by the firmware
+// RST pulse (GPIO7) — a hardware reset clears the serial framing at every
+// boot, after the bus pads are already driven.
 #define ST7789_PIN_RST  7     // real RST: pulsed by firmware in Init()
 #define ST7789_COLSTART 82    // native column range of the visible window
 #define ST7789_ROWCLOSEST 301 // native row range: 18..301 (284 rows)
@@ -374,10 +377,9 @@ void Display::Init() {
     spi_device_interface_config_t dev = {};
     dev.clock_speed_hz = ST7789_SPI_CLOCK_HZ;
     dev.mode = 0;
-    dev.spics_io_num = ST7789_PIN_CS;         // REAL CS: the hardware pulses
-                                              // it per transaction — the
-                                              // bit counter resyncs every
-                                              // frame (the desync fix)
+    dev.spics_io_num = -1;                    // CS tied GND (single device);
+                                              // the desync fix = the firmware
+                                              // RST pulse on GPIO7, not CS
     dev.queue_size = 1;
     ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &dev, &s_spi));
 
