@@ -16,10 +16,16 @@
 // dispatch semantics), 0x02 SWITCH (module id -> the console `switch` path),
 // 0x03 MOD_SET ([src][param][value] -> the mod engine's bench setters),
 // 0x04 UI_CMD ([action][arg][arg2]: 1 = page request -> TELEM snapshot,
-// 2 = echo -> echo back + RTT, 3 = sys toggle -> log-only in stage 1),
+// 2 = echo -> echo back + RTT, 3 = sys toggle -> arg = item id (0 telemetry
+// deltas gate, 1 full-snapshot gate, 2 global clock source toggle; semantics
+// = TOGGLE, arg2 reserved 0), 4 = ASSIGN_CYCLE [cell 0-15][dir 1 up/0 down]
+// -> cycles that ACTIVE-page cell's mod source through [off, src0..src11]
+// via mod_set_dest (the RP2350 owns routing + validation; invalid targets
+// are inert and show as TELEM flags bit2) and replies a full TELEM snapshot),
 // 0x05 CHAIN_ROUTE ([a][b][engage] -> the console `chain` path). Types
-// 0x11/0x12/0x13 (PRESET_REQ/PART/APPLY) are RESERVED for T4a — received
-// frames are logged only. RP2350 -> C3: 0x10 TELEM.
+// 0x11/0x12/0x13 (PRESET_REQ/PART/APPLY) are RESERVED for T4a — PRESET_REQ
+// carries [slot:u8] for the T4a bank, all are received-and-logged.
+// RP2350 -> C3: 0x10 TELEM.
 //
 // UART choice: Serial1 = HW UART0, TX = GP16, RX = GP17. Pin validity was
 // verified against the earlephilhower core's SerialUART tables (RP2350A
@@ -53,8 +59,11 @@
 // #e6295e group, 2 = teal #17a3bd group; the panels' yellow #f2d21f is a
 // STATE accent, never a param class. P2: elements = CC 28/29 selectors +
 // the alt-layout duplicates of its acoustic params; clouds/plaits/rings =
-// duplicate of P1 (page id differs). MOD-A/B/C and SYS report count=0 in
-// stage 1 (stage 4 fills them from mod_engine.h / chain state).
+// duplicate of P1 (page id differs). MOD-A/B/C: real cells from the mod
+// engine (stage 4) — the C3's pot turns on these pages arrive as MOD_SET
+// [src][param][value] with the SAME (src, param) map as the tables below
+// (docs/ui-protocol.md §6). SYS: 8 cells (4 modules, chain pair/engage,
+// telem gates); the C3's preset slot is C3-local (T4a).
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
@@ -80,7 +89,17 @@ static const uint8_t kUiTypePresetApply = 0x13;  // reserved, T4a
 // UI_CMD actions.
 static const uint8_t kUiCmdPageRequest = 1;      // arg = page id
 static const uint8_t kUiCmdEcho        = 2;      // arg/arg2 = 16-bit seq
-static const uint8_t kUiCmdSysToggle   = 3;      // log-only in stage 1
+static const uint8_t kUiCmdSysToggle   = 3;      // arg = sys item id (below)
+static const uint8_t kUiCmdAssignCycle = 4;      // arg = cell 0-15, arg2 = dir
+static const uint8_t kUiCmdSetGlobal   = 5;      // arg = global item, arg2 = val
+
+// Sys toggle item ids (UI_CMD action 3; semantics = TOGGLE, arg2 reserved 0).
+static const uint8_t kUiSysTelemDelta  = 0;  // throttled CC-delta stream gate
+static const uint8_t kUiSysTelemFull   = 1;  // RP2350-pushed full snapshots gate
+static const uint8_t kUiSysClockToggle = 2;  // global clock internal <-> midi
+
+// SET_GLOBAL item ids (UI_CMD action 5, [item][value 0-127]).
+static const uint8_t kUiGlobalBpm = 0;       // value -> 20 + v*280/127 BPM
 
 // Page ids.
 static const uint8_t kUiPageP1   = 0;
@@ -99,6 +118,18 @@ static const uint8_t kUiTelemDelta = 1;
 static const uint8_t kUiFlagModRouted = 1 << 0;  // a mod source drives this CC
 static const uint8_t kUiFlagChainB    = 1 << 1;  // cell belongs to the chain B slot
 static const uint8_t kUiFlagInert     = 1 << 2;  // routing exists but is inert/rejected
+// Flags bits 3-6 = the FIRST mod source routed to this CC, +1 (0 = unrouted;
+// 1-12 = source 0-11). The mod-assign gesture needs to know WHICH source
+// drives the cell; the summary bit0 stays "any route exists" (multiple
+// sources may share a destination — the cycle tracks the first).
+static const uint8_t kUiFlagSrcShift  = 3;
+static const uint8_t kUiFlagSrcMask   = 0x0F << kUiFlagSrcShift;  // bit7 reserved 0
+
+// MOD/SYS TELEM cell ids: the `cc` field of MOD-A/B/C and SYS cells is an
+// OPAQUE cell id = kUiModCellBase + cell index (they are not MIDI CCs). The
+// C3 uses the CELL INDEX for rendering and MOD_SET addressing; the cc byte
+// is informational (and lets a delta name its cell unambiguously).
+static const uint8_t kUiModCellBase = 200;
 
 // Param color classes (tools/rack_panel.html trio).
 static const uint8_t kUiColorWhite = 0;
@@ -232,7 +263,90 @@ static const UiPageTable kUiPages[RACK_MODULE_COUNT][2] = {
     { {kUiPagePlaitsP1, 13},   {kUiPagePlaitsP1, 13} },    // plaits
     { {kUiPageRingsP1, 11},    {kUiPageRingsP1, 11} },     // rings
 };
-static const UiPageTable kUiPageEmpty = { nullptr, 0 };   // MOD-A/B/C, SYS
+static const UiPageTable kUiPageEmpty = { nullptr, 0 };   // unused fallback
+
+// ===================== MOD-A/B/C + SYS aux cells (stage 4) =====================
+// Cell order = physical pot order (the C3's MOD-page pot map sends MOD_SET
+// with exactly these (src, param) pairs — MUST MATCH the C3's kModPotMap).
+// `cc` in TELEM = kUiModCellBase + index. Special src 0xFF = a SYS-style
+// selector in `param` (values read from chain/telem/clock state, not the
+// mod engine): 0-3 module-id cells (value 0; the active module is the TELEM
+// header), 4 chain pair index, 5 chain engaged, 6 telem-delta gate,
+// 7 telem-full gate, 8 BPM pot, 9 global clock source.
+struct UiAuxCell {
+  const char* label;
+  uint8_t color;      // kUiColor*
+  uint8_t src;        // mod source 0-11, or 0xFF = selector (see above)
+  uint8_t param;      // kModParamNames index, or the selector id
+};
+static const uint8_t kUiAuxSelModule    = 0;   // param selectors for src 0xFF
+static const uint8_t kUiAuxSelChainPair = 4;
+static const uint8_t kUiAuxSelChainOn   = 5;
+static const uint8_t kUiAuxSelTelemD    = 6;
+static const uint8_t kUiAuxSelTelemF    = 7;
+static const uint8_t kUiAuxSelBpm       = 8;
+static const uint8_t kUiAuxSelClkSrc    = 9;
+
+// MOD-A: 4x LFO (rate, level, wave, phase per source), src-major. Red =
+// continuous modulators (the panels' perf-mod group).
+static const UiAuxCell kUiModACells[] = {
+    {"L1 RATE",  kUiColorRed, 0, 1}, {"L1 LEV",   kUiColorRed, 0, 4},
+    {"L1 WAVE",  kUiColorRed, 0, 2}, {"L1 PHASE", kUiColorRed, 0, 3},
+    {"L2 RATE",  kUiColorRed, 1, 1}, {"L2 LEV",   kUiColorRed, 1, 4},
+    {"L2 WAVE",  kUiColorRed, 1, 2}, {"L2 PHASE", kUiColorRed, 1, 3},
+    {"L3 RATE",  kUiColorRed, 2, 1}, {"L3 LEV",   kUiColorRed, 2, 4},
+    {"L3 WAVE",  kUiColorRed, 2, 2}, {"L3 PHASE", kUiColorRed, 2, 3},
+    {"L4 RATE",  kUiColorRed, 3, 1}, {"L4 LEV",   kUiColorRed, 3, 4},
+    {"L4 WAVE",  kUiColorRed, 3, 2}, {"L4 PHASE", kUiColorRed, 3, 3},
+};
+// MOD-B: 4x EUclid (steps/pulses/rot) + gate1 len/gate-length + ADSR1 mode +
+// clock div (EU1's division — the page's sequencer division; the plan's
+// "clock div" pot, mapped to the first sequenced source, documented §6).
+// Teal = trigger/sequenced sources.
+static const UiAuxCell kUiModBCells[] = {
+    {"E1 STPS",  kUiColorTeal, 4, 0},  {"E1 PULS", kUiColorTeal, 4, 1},
+    {"E1 ROT",   kUiColorTeal, 4, 2},  {"E2 STPS", kUiColorTeal, 5, 0},
+    {"E2 PULS",  kUiColorTeal, 5, 1},  {"E2 ROT",  kUiColorTeal, 5, 2},
+    {"E3 STPS",  kUiColorTeal, 6, 0},  {"E3 PULS", kUiColorTeal, 6, 1},
+    {"E3 ROT",   kUiColorTeal, 6, 2},  {"E4 STPS", kUiColorTeal, 7, 0},
+    {"E4 PULS",  kUiColorTeal, 7, 1},  {"E4 ROT",  kUiColorTeal, 7, 2},
+    {"G1 LEN",   kUiColorTeal, 8, 0},  {"G1 GLEN", kUiColorTeal, 8, 2},
+    {"A1 MODE",  kUiColorTeal, 10, 0}, {"DIV",     kUiColorTeal, 4, 4},
+};
+// MOD-C: gate2 + ADSR1/2 (A/D/S/R) + BPM pot + clock-source cell (3 pots
+// empty). BPM/CLKSRC are global-clock selectors (src 0xFF), not engine
+// params — the C3's CLKSRC push/short-gesture toggles via UI_CMD sys id 2.
+static const UiAuxCell kUiModCCells[] = {
+    {"G2 LEN",   kUiColorTeal, 9, 0},  {"G2 MASK", kUiColorTeal, 9, 1},
+    {"G2 GLEN",  kUiColorTeal, 9, 2},
+    {"A1 ATK",   kUiColorTeal, 10, 1}, {"A1 DEC",  kUiColorTeal, 10, 2},
+    {"A1 SUS",   kUiColorTeal, 10, 3}, {"A1 REL",  kUiColorTeal, 10, 4},
+    {"A2 ATK",   kUiColorTeal, 11, 1}, {"A2 DEC",  kUiColorTeal, 11, 2},
+    {"A2 SUS",   kUiColorTeal, 11, 3}, {"A2 REL",  kUiColorTeal, 11, 4},
+    {"BPM",      kUiColorWhite, 0xFF, kUiAuxSelBpm},
+    {"CLKSRC",   kUiColorWhite, 0xFF, kUiAuxSelClkSrc},
+};
+// SYS: 4 module cells (push = activate via SWITCH), chain pair + engage,
+// the two telemetry gates. The C3's preset slot is C3-local UI (T4a stub:
+// PRESET_REQ [slot] send only); DIN/UART status rides the status tail.
+static const UiAuxCell kUiSysCells[] = {
+    {"ELEMENTS", kUiColorWhite, 0xFF, kUiAuxSelModule},
+    {"CLOUDS",   kUiColorWhite, 0xFF, kUiAuxSelModule + 1},
+    {"PLAITS",   kUiColorWhite, 0xFF, kUiAuxSelModule + 2},
+    {"RINGS",    kUiColorWhite, 0xFF, kUiAuxSelModule + 3},
+    {"CHAIN PR", kUiColorWhite, 0xFF, kUiAuxSelChainPair},
+    {"CHAIN ON", kUiColorWhite, 0xFF, kUiAuxSelChainOn},
+    {"TELEM D",  kUiColorWhite, 0xFF, kUiAuxSelTelemD},
+    {"TELEM F",  kUiColorWhite, 0xFF, kUiAuxSelTelemF},
+};
+
+// ===================== telemetry gates (sys toggles 0/1) =====================
+// Defaults ON (stage-1 behavior preserved). Toggled by UI_CMD action 3.
+static uint8_t g_ui_telem_deltas_en = 1;   // throttled CC-delta stream
+static uint8_t g_ui_telem_full_en = 1;     // RP2350-pushed full snapshots
+                                           // (module/chain change events)
+// Last verified RX frame (for the status tail's link bit) — core 0 only.
+static uint32_t g_ui_last_rx_ms = 0;
 
 // ===================== CC-value cache (TELEM source) =====================
 // Observed at the single dispatch point (midiControlChange -> the hook below).
@@ -292,14 +406,17 @@ static void ui_link_send_frame(uint8_t type, const uint8_t* payload,
   ++g_ui_tx_frames;
 }
 
-// TELEM flags for one cell (see kUiFlag*).
+// TELEM flags for one cell (see kUiFlag*). Bits 3-6 carry the FIRST routed
+// source id + 1 so the C3's assign gesture knows what it is cycling from.
 static uint8_t ui_link_cell_flags(uint8_t cc, uint8_t mod) {
   uint8_t flags = 0;
   bool routed = false, inert = false;
+  int8_t first_src = -1;
   const RackModDestinations* d = kRackModules[mod].mod_destinations;
   for (uint8_t i = 0; i < MOD_SOURCE_COUNT; ++i) {
     const ModSource& s = g_mod_engine.src[i];
     if (s.dest_cc != cc) continue;
+    if (first_src < 0) first_src = (int8_t)i;
     routed = true;
     const bool want_continuous = (s.type == MOD_LFO || s.type == MOD_ADSR);
     bool ok = false;
@@ -315,62 +432,282 @@ static uint8_t ui_link_cell_flags(uint8_t cc, uint8_t mod) {
     if (!ok) inert = true;
   }
   if (routed) flags |= kUiFlagModRouted;
+  if (first_src >= 0) {
+    flags |= (uint8_t)((first_src + 1) << kUiFlagSrcShift) & kUiFlagSrcMask;
+  }
   if (g_chain.active && mod == g_chain.b) flags |= kUiFlagChainB;
   if (inert) flags |= kUiFlagInert;
   return flags;
 }
 
-// Full TELEM snapshot (mode 0) or a 1-cell delta (mode 1, delta_cc = the cell).
-// Format: [page][module][mode][count][count x (cc,value,flags)][count x
-// NUL-terminated labels in cell order]. Max payload: 4 + 16*3 + labels ~110
-// = ~162 B — comfortably inside the 255-byte len.
+// ===================== aux cell value readers =====================
+// Inverse of mod_apply_cc_value's quantization (mod_engine.h) — a MOD_SET
+// round-trip of a displayed value is stable. Rounding is nearest; the
+// quantizer truncates, so re-applying a round-tripped value can land one
+// count below the exact float (documented; imperceptible on pots).
+
+// log-domain helpers without libm round-trips.
+static uint8_t ui_mod_lfo_rate_val(float hz) {   // 0.02 Hz .. 20 Hz exp
+  if (hz < 0.02f) hz = 0.02f;
+  if (hz > 20.0f) hz = 20.0f;
+  // v = 127 * log(hz/0.02)/log(1000), log(1000) = 3*ln10
+  float v = 127.0f * logf(hz / 0.02f) / (3.0f * logf(10.0f));
+  if (v < 0) v = 0;
+  if (v > 127) v = 127;
+  return (uint8_t)(v + 0.5f);
+}
+static uint8_t ui_mod_adsr_s_val(float s) {      // 1 ms .. 10 s exponential
+  if (s < 1e-3f) s = 1e-3f;
+  if (s > 10.0f) s = 10.0f;
+  // mod_adsr_s_from_cc: s = 10^(-3 + 4v/127) -> v = 127*(log10(s)+3)/4
+  float v = 127.0f * (log10f(s) + 3.0f) / 4.0f;
+  if (v < 0) v = 0;
+  if (v > 127) v = 127;
+  return (uint8_t)(v + 0.5f);
+}
+// ceil(a/b) for positive ints — inverts the quantizer's floor().
+static inline uint8_t ui_ceil_div(uint16_t a, uint16_t b) {
+  return (uint8_t)((a + b - 1) / b);
+}
+
+// Value byte for one aux cell (0-127). The C3 renders the number; it never
+// interprets beyond the documented per-cell semantics (docs §6).
+static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
+  if (c.src != 0xFF) {
+    const ModSource& s = g_mod_engine.src[c.src % MOD_SOURCE_COUNT];
+    switch (s.type) {
+      case MOD_LFO:
+        switch (c.param) {
+          case 1: return ui_mod_lfo_rate_val(s.p.lfo.rate_hz);
+          case 2: return ui_ceil_div((uint16_t)s.p.lfo.wave * 128u, 5u);
+          case 3: return (uint8_t)(s.p.lfo.phase_off * 127.0f + 0.5f);
+          case 4: return (uint8_t)(s.p.lfo.level * 127.0f + 0.5f);
+          default: return 0;
+        }
+      case MOD_EUCLID:
+        switch (c.param) {
+          case 0: return (uint8_t)(((uint16_t)(s.p.eu.steps - 1) * 127) / 31);
+          case 1: return (uint8_t)(((uint16_t)s.p.eu.pulses * 127) / 32);
+          case 2: return (uint8_t)(((uint16_t)s.p.eu.rot * 127) / 31);
+          default: return 0;
+        }
+      case MOD_GATE:
+        switch (c.param) {
+          case 0: return (uint8_t)(((uint16_t)(s.p.gate.len - 1) * 127) / 31);
+          case 1: {
+            // Display value = the density-fill equivalent: pulses within the
+            // pattern length (raw console masks show as their fill ratio).
+            uint8_t k = 0;
+            for (uint8_t b = 0; b < s.p.gate.len; ++b) {
+              if (s.p.gate.mask & (1u << b)) ++k;
+            }
+            return (uint8_t)(((uint16_t)k * 127) / (s.p.gate.len ? s.p.gate.len : 1));
+          }
+          case 2: {
+            int v = (int)(s.p.gate.gate_len * 128.0f) - 1;
+            if (v < 0) v = 0;
+            if (v > 127) v = 127;
+            return (uint8_t)v;
+          }
+          default: return 0;
+        }
+      default:  // MOD_ADSR
+        switch (c.param) {
+          case 0: return s.p.adsr.retrig ? 64 : 0;
+          case 1: return ui_mod_adsr_s_val(s.p.adsr.a_s);
+          case 2: return ui_mod_adsr_s_val(s.p.adsr.d_s);
+          case 3: return (uint8_t)(s.p.adsr.s_lvl * 127.0f + 0.5f);
+          case 4: return ui_mod_adsr_s_val(s.p.adsr.r_s);
+          default: return 0;
+        }
+    }
+  }
+  // SYS-style selectors (src 0xFF).
+  switch (c.param) {
+    case kUiAuxSelChainPair:
+      // Configured pair index (1 elements->clouds / 2 plaits->clouds /
+      // 3 rings->clouds) — shown even while disengaged so the C3 knows what
+      // the next engage will do.
+      if (g_chain.a == RACK_MODULE_ELEMENTS) return 1;
+      if (g_chain.a == RACK_MODULE_PLAITS) return 2;
+      if (g_chain.a == RACK_MODULE_RINGS) return 3;
+      return 0;
+    case kUiAuxSelChainOn: return g_chain.active ? 127 : 0;
+    case kUiAuxSelTelemD: return g_ui_telem_deltas_en ? 127 : 0;
+    case kUiAuxSelTelemF: return g_ui_telem_full_en ? 127 : 0;
+    case kUiAuxSelBpm: {
+      // 20-300 BPM -> 0-127.
+      float b = g_mod_engine.bpm;
+      if (b < 20.0f) b = 20.0f;
+      if (b > 300.0f) b = 300.0f;
+      return (uint8_t)((b - 20.0f) * 127.0f / 280.0f + 0.5f);
+    }
+    case kUiAuxSelClkSrc: return g_mod_engine.global_clock ? 127 : 0;
+    default: return 0;   // module-id cells: value 0 (active = TELEM header)
+  }
+}
+
+// Status tail (full snapshots, mode 0 only): [bpm][clocksrc][chain][link].
+static void ui_link_status_tail(uint8_t* out) {
+  // bpm: internal BPM 20-300 rounded to 1 BPM; 0 = external MIDI clock.
+  if (g_mod_engine.global_clock == 1) {
+    out[0] = 0;
+  } else {
+    float b = g_mod_engine.bpm;
+    if (b < 20.0f) b = 20.0f;
+    if (b > 300.0f) b = 300.0f;
+    out[0] = (uint8_t)(b + 0.5f);
+  }
+  out[1] = g_mod_engine.global_clock ? 1 : 0;
+  // chain: 0 off / 1-3 engaged pair index (elements/plaits/rings -> clouds).
+  if (!g_chain.active) {
+    out[2] = 0;
+  } else if (g_chain.a == RACK_MODULE_ELEMENTS) {
+    out[2] = 1;
+  } else if (g_chain.a == RACK_MODULE_PLAITS) {
+    out[2] = 2;
+  } else if (g_chain.a == RACK_MODULE_RINGS) {
+    out[2] = 3;
+  } else {
+    out[2] = 0;                      // not a table pair (cannot happen)
+  }
+  // link: bit0 = the DIN parser has seen bytes since boot; bit1 = this UART
+  // link verified a frame within the last 3 s.
+  out[3] = (uint8_t)((din_parser.rx_bytes > 0 ? 0x01 : 0x00) |
+                     ((millis() - g_ui_last_rx_ms < 3000) ? 0x02 : 0x00));
+}
+
+// Full TELEM snapshot (mode 0) or a 1-cell delta (mode 1, delta_cc = the
+// cell id). Format (docs/ui-protocol.md §5 — the C3 parser mirrors it):
+//   [page][module][mode][count]
+//   [count x (cc:u8, value:u8, flags:u8, color:u8)]      <- cell = 4 bytes
+//   [count x NUL-terminated label strings, in cell order]
+//   mode 0 only: [bpm:u8][clocksrc:u8][chain:u8][link:u8]  (status tail)
+// Color = the registry class byte (0 white / 1 red / 2 teal) — the C3 does
+// NOT duplicate the registry. Max payload: 4 + 16*4 + labels + 4 < 255.
 static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
   const uint8_t mod = g_active_module;
-  const UiPageTable* t = &kUiPageEmpty;
-  if (page <= kUiPageP2) t = &kUiPages[mod][page];
-  const UiPageCell* cells = t->cells;
-  uint8_t count = t->count;
-
   uint8_t pl[256];
   size_t n = 0;
+
   if (mode == kUiTelemFull) {
+    uint8_t count = 0;
+    // Cell pass: build the (cc,value,flags,color) quads for the page kind.
+    uint8_t cc[16], val[16], flg[16], col[16];
+    if (page <= kUiPageP2) {
+      const UiPageTable& t = kUiPages[mod][page];
+      count = t.count;
+      for (uint8_t i = 0; i < count; ++i) {
+        cc[i] = t.cells[i].cc;
+        val[i] = g_ui_cc_cache[mod][t.cells[i].cc];
+        flg[i] = ui_link_cell_flags(cc[i], mod);
+        col[i] = t.cells[i].color;
+      }
+    } else {
+      const UiAuxCell* a = nullptr;
+      if (page == kUiPageModA) { a = kUiModACells; count = 16; }
+      else if (page == kUiPageModB) { a = kUiModBCells; count = 16; }
+      else if (page == kUiPageModC) { a = kUiModCCells; count = 13; }
+      else if (page == kUiPageSys) { a = kUiSysCells; count = 8; }
+      if (a != nullptr) {
+        for (uint8_t i = 0; i < count; ++i) {
+          cc[i] = (uint8_t)(kUiModCellBase + i);   // opaque MOD/SYS cell id
+          val[i] = ui_aux_cell_value(a[i]);
+          flg[i] = 0;   // routing/chain flags are CC-cell concepts
+          col[i] = a[i].color;
+        }
+      }
+    }
     pl[n++] = page;
     pl[n++] = mod;
     pl[n++] = mode;
     pl[n++] = count;
     for (uint8_t i = 0; i < count; ++i) {
-      pl[n++] = cells[i].cc;
-      pl[n++] = g_ui_cc_cache[mod][cells[i].cc];
-      pl[n++] = ui_link_cell_flags(cells[i].cc, mod);
+      pl[n++] = cc[i]; pl[n++] = val[i]; pl[n++] = flg[i]; pl[n++] = col[i];
     }
+    // Labels in cell order.
     for (uint8_t i = 0; i < count; ++i) {
-      const char* lab = cells[i].label;
-      size_t l = strlen(lab) + 1;               // include the NUL
+      const char* lab = (page <= kUiPageP2)
+          ? kUiPages[mod][page].cells[i].label
+          : (page == kUiPageModA ? kUiModACells[i].label
+         : page == kUiPageModB ? kUiModBCells[i].label
+         : page == kUiPageModC ? kUiModCCells[i].label
+                               : kUiSysCells[i].label);
+      size_t l = strlen(lab) + 1;                 // include the NUL
       memcpy(&pl[n], lab, l);
       n += l;
     }
+    // Status tail (mode 0 only): the C3 status strip renders from this.
+    uint8_t tail[4];
+    ui_link_status_tail(tail);
+    memcpy(&pl[n], tail, 4);
+    n += 4;
   } else {
-    // Delta: reuse the full format with count = 1 (documented in
-    // docs/ui-protocol.md) — the C3 parser is identical for both modes.
-    int8_t idx = -1;
-    for (uint8_t i = 0; i < count; ++i) {
-      if (cells[i].cc == delta_cc) { idx = (int8_t)i; break; }
+    // Delta: reuse the cell format with count = 1, NO status tail (the C3
+    // keeps its last tail). delta_cc = the cell's cc byte (a real CC on
+    // P1/P2, kUiModCellBase+index on MOD/SYS pages).
+    const char* lab = nullptr;
+    uint8_t c = 0, v = 0, f = 0, k = 0;
+    if (page <= kUiPageP2) {
+      const UiPageTable& t = kUiPages[mod][page];
+      int8_t idx = -1;
+      for (uint8_t i = 0; i < t.count; ++i) {
+        if (t.cells[i].cc == delta_cc) { idx = (int8_t)i; break; }
+      }
+      if (idx < 0) return;                        // not a cell of this page
+      c = t.cells[idx].cc;
+      v = g_ui_cc_cache[mod][c];
+      f = ui_link_cell_flags(c, mod);
+      k = t.cells[idx].color;
+      lab = t.cells[idx].label;
+    } else {
+      const UiAuxCell* a = nullptr; uint8_t cnt = 0;
+      if (page == kUiPageModA) { a = kUiModACells; cnt = 16; }
+      else if (page == kUiPageModB) { a = kUiModBCells; cnt = 16; }
+      else if (page == kUiPageModC) { a = kUiModCCells; cnt = 13; }
+      else if (page == kUiPageSys) { a = kUiSysCells; cnt = 8; }
+      if (a == nullptr) return;
+      // delta_cc names the cell index (kUiModCellBase + i).
+      if (delta_cc < kUiModCellBase || delta_cc - kUiModCellBase >= cnt) return;
+      const uint8_t idx = (uint8_t)(delta_cc - kUiModCellBase);
+      c = delta_cc;
+      v = ui_aux_cell_value(a[idx]);
+      f = 0;
+      k = a[idx].color;
+      lab = a[idx].label;
     }
-    if (idx < 0) return;                        // not a cell of this page
     pl[n++] = page;
     pl[n++] = mod;
     pl[n++] = mode;
     pl[n++] = 1;
-    pl[n++] = cells[idx].cc;
-    pl[n++] = g_ui_cc_cache[mod][delta_cc];
-    pl[n++] = ui_link_cell_flags(delta_cc, mod);
-    const char* lab = cells[idx].label;
+    pl[n++] = c; pl[n++] = v; pl[n++] = f; pl[n++] = k;
     size_t l = strlen(lab) + 1;
     memcpy(&pl[n], lab, l);
     n += l;
   }
   if (n > 255) return;                          // cannot happen; guard anyway
   ui_link_send_frame(kUiTypeTelem, pl, (uint8_t)n);
+}
+
+// MOD/SYS delta after a MOD_SET: find the ACTIVE page's cell for (src, param)
+// and emit a single-cell TELEM delta so the C3 renders the applied result.
+// Called from the MOD_SET dispatch below (mod_engine.h cannot call back into
+// this header — it is included earlier in the TU).
+static void ui_link_send_mod_delta(uint8_t src, uint8_t param) {
+  const uint8_t page = g_ui_active_page;
+  if (page < kUiPageModA) return;
+  const UiAuxCell* a = nullptr; uint8_t cnt = 0;
+  if (page == kUiPageModA) { a = kUiModACells; cnt = 16; }
+  else if (page == kUiPageModB) { a = kUiModBCells; cnt = 16; }
+  else if (page == kUiPageModC) { a = kUiModCCells; cnt = 13; }
+  else return;                                  // SYS cells are not mod params
+  for (uint8_t i = 0; i < cnt; ++i) {
+    if (a[i].src == src && a[i].param == param) {
+      ui_link_send_telem(page, kUiTelemDelta,
+                         (uint8_t)(kUiModCellBase + i));
+      return;
+    }
+  }
 }
 
 // ===================== CC-value observation hook =====================
@@ -381,10 +718,13 @@ void ui_link_observe_cc(uint8_t cc, uint8_t val) {
   const uint8_t mod = g_active_module;
   g_ui_cc_cache[mod][cc] = val;
   // Throttled delta after control_change on the active module (>= 50 ms
-  // spacing). Chain-B CCs (23/24/65/66 + the clouds grain bank while
-  // chained) are B-slot writes — not cells of the A slot's page, skip.
+  // spacing), gated by the C3's telemetry-deltas toggle (UI_CMD sys id 0).
+  // Chain-B CCs (23/24/65/66 + the clouds grain bank while chained) are
+  // B-slot writes — not cells of the A slot's page, skip.
+  if (!g_ui_telem_deltas_en) return;
   if (rack_chain_wants_cc(cc)) return;
-  if (g_ui_active_page > kUiPageP2) return;     // MOD/SYS pages: no CC cells (stage 1)
+  if (g_ui_active_page > kUiPageP2) return;     // MOD/SYS deltas come from the
+                                                // MOD_SET / gesture ack paths
   static uint32_t last_delta_ms = 0;
   const uint32_t now = millis();
   if (now - last_delta_ms < 50) return;
@@ -469,9 +809,12 @@ static void ui_link_dispatch() {
     case kUiTypeModSet:
       // [src][param][value] -> the mod engine's bench setters with the same
       // validation/quantization as the console `mod` command (see
-      // mod_engine_apply_ui_set in mod_engine.h).
+      // mod_engine_apply_ui_set in mod_engine.h). After applying, a
+      // single-cell TELEM delta for the matching ACTIVE-page cell (if any)
+      // shows the C3 the result ("the firmware acks drive the UI").
       if (g_ui_rx_len == 3) {
         mod_engine_apply_ui_set(pl[0], pl[1], pl[2]);
+        ui_link_send_mod_delta(pl[0], pl[1]);
       } else {
         Serial.printf("ui: MOD_SET frame bad len %u (want 3)\r\n", g_ui_rx_len);
       }
@@ -499,10 +842,99 @@ static void ui_link_dispatch() {
         ui_link_send_frame(kUiTypeUiCmd, p, 3);
         g_ui_last_rtt_us = time_us_32() - t0;
       } else if (action == kUiCmdSysToggle) {
-        // Log-only in stage 1 (SYS toggles are wired to real state in a
-        // later stage).
-        Serial.printf("ui: SYS toggle arg=%u arg2=%u (log-only in stage 1)\r\n",
-                      arg, arg2);
+        // Sys toggles (semantics = TOGGLE; arg2 reserved 0). Wired: 0 =
+        // telemetry-deltas gate, 1 = full-snapshot gate, 2 = global clock
+        // source. Other ids log-only (reserved for future sys items).
+        bool handled = true;
+        switch (arg) {
+          case kUiSysTelemDelta:
+            g_ui_telem_deltas_en = !g_ui_telem_deltas_en;
+            Serial.printf("ui: telemetry deltas %s\r\n",
+                          g_ui_telem_deltas_en ? "ON" : "OFF");
+            break;
+          case kUiSysTelemFull:
+            g_ui_telem_full_en = !g_ui_telem_full_en;
+            Serial.printf("ui: pushed full snapshots %s\r\n",
+                          g_ui_telem_full_en ? "ON" : "OFF");
+            break;
+          case kUiSysClockToggle:
+            g_mod_engine.global_clock = g_mod_engine.global_clock ? 0 : 1;
+            Serial.printf("ui: global clock = %s\r\n",
+                          g_mod_engine.global_clock ? "midi" : "internal");
+            break;
+          default:
+            Serial.printf("ui: SYS toggle arg=%u arg2=%u (id reserved, "
+                          "log-only)\r\n", arg, arg2);
+            handled = false;
+            break;
+        }
+        // Echo the result when the toggled state is on the C3's active page
+        // (SYS cells 6/7, MOD-C cell CLKSRC) — acks drive the UI.
+        if (handled && (g_ui_active_page == kUiPageSys ||
+                        (g_ui_active_page == kUiPageModC &&
+                         arg == kUiSysClockToggle))) {
+          ui_link_send_telem(g_ui_active_page, kUiTelemFull, 0);
+        }
+      } else if (action == kUiCmdAssignCycle) {
+        // [cell 0-15][dir 1 up / 0 down]: cycle the ACTIVE page cell's mod
+        // source through [off, src0..src11]. The RP2350 owns the routing
+        // table + validation ("the C3 never enforces") — the C3 gesture
+        // would otherwise need off-protocol knowledge of which source drives
+        // each cell. Invalid targets pass through mod_set_dest's one-shot
+        // validation (inert + TELEM flags bit2) and the full-snapshot reply
+        // re-renders the result on the C3.
+        if (arg2 > 1) {
+          Serial.printf("ui: ASSIGN_CYCLE dir=%u (want 0|1)\r\n", arg2);
+          break;
+        }
+        if (g_ui_active_page > kUiPageP2) {
+          Serial.printf("ui: ASSIGN_CYCLE inert on page %u (no CC cells)\r\n",
+                        g_ui_active_page);
+          break;
+        }
+        const UiPageTable& t = kUiPages[g_active_module][g_ui_active_page];
+        if (arg >= t.count) {
+          Serial.printf("ui: ASSIGN_CYCLE cell %u >= count %u (empty pot)\r\n",
+                        arg, t.count);
+          break;
+        }
+        const uint8_t cc = t.cells[arg].cc;
+        int8_t cur = -1;                       // first source routing this CC
+        for (uint8_t i = 0; i < MOD_SOURCE_COUNT; ++i) {
+          if (g_mod_engine.src[i].dest_cc == cc) { cur = (int8_t)i; break; }
+        }
+        // Cycle position: 0 = off, 1-12 = src 0-11.
+        const uint8_t pos = (cur < 0) ? 0 : (uint8_t)(cur + 1);
+        const uint8_t np =
+            (uint8_t)((arg2 ? pos + 1 : pos + MOD_SOURCE_COUNT) %
+                      (MOD_SOURCE_COUNT + 1));
+        if (np == 0) {
+          if (cur >= 0) {
+            mod_set_dest((uint8_t)cur, 0);     // unassign (ack log inside)
+          } else {
+            Serial.printf("ui: ASSIGN_CYCLE cell %u (CC %u): already off\r\n",
+                          arg, cc);
+          }
+        } else {
+          mod_set_dest(np - 1, cc);            // validation + ack log inside
+        }
+        ui_link_send_telem(g_ui_active_page, kUiTelemFull, 0);
+      } else if (action == kUiCmdSetGlobal) {
+        // [item][value 0-127]: global state the C3 pots address but MOD_SET
+        // cannot express (MOD_SET is per-source). Wired: item 0 = BPM
+        // (20-300, the same quantization family as the `bpm` console cmd).
+        // Other items log-only. Ack: full TELEM when the affected cell is
+        // on the active page (MOD-C BPM / SYS).
+        if (arg == kUiGlobalBpm) {
+          const float bpm = 20.0f + (float)arg2 * 280.0f / 127.0f;
+          g_mod_engine.bpm = roundf(bpm * 10.0f) / 10.0f;
+          Serial.printf("ui: bpm <- %.1f (SET_GLOBAL)\r\n", (double)bpm);
+          if (g_ui_active_page == kUiPageModC || g_ui_active_page == kUiPageSys) {
+            ui_link_send_telem(g_ui_active_page, kUiTelemFull, 0);
+          }
+        } else {
+          Serial.printf("ui: SET_GLOBAL item %u (reserved, log-only)\r\n", arg);
+        }
       } else {
         Serial.printf("ui: UI_CMD unknown action %u\r\n", action);
       }
@@ -559,6 +991,7 @@ static void ui_link_feed(uint8_t b) {
     return;
   }
   ++g_ui_rx_frames;
+  g_ui_last_rx_ms = millis();   // status tail link bit (3 s freshness window)
   ui_link_dispatch();
 }
 
@@ -566,6 +999,20 @@ static void ui_link_feed(uint8_t b) {
 // With the link absent this costs one ring-empty check per loop().
 static void ui_link_pump() {
   if (Serial1.overflow()) ++g_ui_rx_overflow;   // SW ring overflow (IRQ side)
+  // Full-snapshot push on module/chain changes, gated by the C3's
+  // full-snapshot toggle (UI_CMD sys id 1): the C3 re-renders without a
+  // page request ("the firmware acks drive the UI"). Fires once per change
+  // (also once at boot — last_* start at 0xFF).
+  static uint8_t last_mod = 0xFF;
+  static uint8_t last_chain = 0xFF;
+  const uint8_t chain_now =
+      (uint8_t)((g_chain.active ? 0x10 : 0x00) | g_chain.a);
+  if (g_ui_telem_full_en &&
+      (g_active_module != last_mod || chain_now != last_chain)) {
+    last_mod = g_active_module;
+    last_chain = chain_now;
+    ui_link_send_telem(g_ui_active_page, kUiTelemFull, 0);
+  }
   while (Serial1.available() > 0) {
     const int c = Serial1.read();
     if (c < 0) break;
