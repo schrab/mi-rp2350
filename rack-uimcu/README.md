@@ -31,10 +31,10 @@ idf.py build && idf.py -p PORT flash     # console = USB-Serial-JTAG
 | 3 | HC4067 **SIG** (the common pin — datasheet Z, breakouts silk SIG/COM) -> ADC1_CH3 | the last free ADC1 pin (ADC1 = only GPIO0-4: 0/1/2 are the display, 4 is the UART TX); ADC2 dead while NimBLE holds the radio; a pot here is high-Z at reset, the ROM pull-up holds the JTAG-source strap |
 | 4 | UART link TX -> RP2350 GP17 | 921600 8N1 (stage 1) |
 | 5 | UART link RX <- RP2350 GP16 | 921600 8N1 (stage 1) |
-| 6 | encoder A | external + internal pull-up |
-| 7 | encoder B | external + internal pull-up |
-| 8 | HC4067 addr S3 | STRAPPING — took this from encoder B (user call: A/B off straps); don't-care in normal boot, 10k pull-up fitted anyway |
-| 9 | encoder push | STRAPPING — external pull-up; holding push at power-on reads 0 = download mode, do not hold while powering on |
+| 6 | encoder A | switch to GND: firmware enables the internal pull-up; fit a 10k external pull-up for rack-grade robustness (the one resistor that matters) |
+| 7 | encoder B | same as A |
+| 8 | HC4067 addr S3 | STRAPPING — took this from encoder B (user call: A/B off straps); push-pull output, NO pull-up needed (the strap only matters for the manual BOOT-button path we never use) |
+| 9 | encoder push | switch to GND: internal pull-up in firmware + 10k external recommended; STRAPPING — holding push at power-on reads 0 = download mode, do not hold while powering on |
 | 10 | HC4067 addr S0 | |
 | 11-17 | flash on this module | DO NOT USE |
 | 18/19 | native USB D-/D+ (console) | DO NOT USE |
@@ -60,7 +60,7 @@ shortfall resolved, nothing silently dropped):
 | C3 GPIO0 | HC4067 COM (Z pin) through nothing — direct; pots 0-15 on CH0-15 |
 | C3 GPIO0/1/2 | ST7789P3 SCK/MOSI/DC; panel CS->GND, RST->3V3 RC, BL->3V3, VCC 3V3, GND |
 | C3 GPIO3 | HC4067 SIG (common; datasheet Z) — direct; pots 0-15 on CH0-15 |
-| C3 GPIO10/20/21/8 | HC4067 S0/S1/S2/S3 (pull-up on 8) |
+| C3 GPIO10/20/21/8 | HC4067 S0/S1/S2/S3 — push-pull outputs, no pull-ups |
 | C3 GPIO6/7/9 | encoder A/B/push (all external pull-ups; push = strapping, never held at power-on) |
 
 All 3V3 logic, no level shifting.
