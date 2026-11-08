@@ -27,12 +27,15 @@
 // carries [slot:u8] for the T4a bank, all are received-and-logged.
 // RP2350 -> C3: 0x10 TELEM.
 //
-// UART choice: Serial1 = HW UART0, TX = GP16, RX = GP17. Pin validity was
-// verified against the earlephilhower core's SerialUART tables (RP2350A
-// branch, SerialUART.cpp): UART0 TX valid = {0,2,12,14,16,18,28}, RX valid =
-// {1,3,13,15,17,19,29} — GP16/GP17 are the pair (the brief's TX=17/RX=16
-// guess was REVERSED; both pins are free: used pins are 4/5 DIN, 6/7/8 I2S,
-// 14/15 PIO-USB host, 22 LED, 24/25 native USB). Hardware UART claims no
+// UART choice: Serial1 = HW UART0, TX = GP0, RX = GP1 (2026-11-08 user
+// call: the RP2350 nano board only populates GPIO 0-5 + 26-29; GP16/17 —
+// the first pick after correcting the brief's TX=17/RX=16 pad swap — are
+// not on the header). Validity per the earlephilhower core's RP2350A
+// SerialUART tables: TX = {0,2,12,14,16,18,28}, RX = {1,3,13,15,17,19,29};
+// from the populated set GP0/GP1 is the clean pair (GP2/3 also valid;
+// GP28/29 kept free as the only ADC-capable pins). Free pins: 4/5 DIN,
+// 6/7/8 I2S, 14/15 PIO-USB host, 22 LED, 24/25 native USB. Hardware UART
+// claims no
 // PIO/alarm/DMA, so the init position is unconstrained by the PIO-USB/I2S
 // order law (same argument as DIN UART1). NOTE: no internal loopback exists
 // on the RP2350's PL011-style UART (no LBM bit in UARTLCR_H — checked the
@@ -366,9 +369,14 @@ static volatile uint32_t g_ui_rx_overflow = 0;
 static volatile uint32_t g_ui_last_rtt_us = 0;
 
 // ===================== UART (Serial1 = HW UART0) =====================
-static const uint8_t kPinUiTx = 16;   // UART0 TX — valid per the core's
-                                      // RP2350A table {0,2,12,14,16,18,28}
-static const uint8_t kPinUiRx = 17;   // UART0 RX — valid {1,3,13,15,17,19,29}
+// 2026-11-08 user call: the RP2350 nano board only POPULATES GPIO 0-5 +
+// 26-29 — GP16/17 (the first choice) don't exist on the header. From the
+// populated set the valid UART0 pads are TX {0,2,28} / RX {1,3,29}; GP0/GP1
+// is the clean adjacent pair (GP2/3 also valid; GP28/29 kept free as the
+// only ADC-capable pins). GP0/1 are unused by the rack (DIN 4/5, I2S 6/7/8,
+// host 14/15, LED 22).
+static const uint8_t kPinUiTx = 0;    // UART0 TX — valid {0,2,12,14,16,18,28}
+static const uint8_t kPinUiRx = 1;    // UART0 RX — valid {1,3,13,15,17,19,29}
 
 static void ui_link_uart_init() {
   // ORDER (all three before begin, same as the DIN init): FIFO size + pinout

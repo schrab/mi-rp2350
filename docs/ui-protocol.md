@@ -347,19 +347,20 @@ state preserved) -> chain engage toggle (CHAIN_ROUTE) -> preset slot cycle
 
 | Signal | ESP32-C3 (UI MCU) | RP2350 (rack) |
 |--------|-------------------|---------------|
-| C3 TX -> RP2350 RX | GPIO4 (UART0 TX) | GP17 (UART0/Serial1 RX) |
-| RP2350 TX -> C3 RX | GPIO5 (UART0 RX) | GP16 (UART0/Serial1 TX) |
+| C3 TX -> RP2350 RX | GPIO4 (UART0 TX) | **GP1** (UART0/Serial1 RX) |
+| RP2350 TX -> C3 RX | GPIO5 (UART0 RX) | **GP0** (UART0/Serial1 TX) |
 | GND | GND | GND |
 
 - Both 3V3 logic — direct wiring, no level shifting.
 - **921600 8N1**, no flow control.
-- RP2350 pin validity was verified against the earlephilhower core's
-  SerialUART tables (RP2350A branch): UART0 TX valid pins =
-  {0, 2, 12, 14, 14, 16, 18, 28}, RX valid = {1, 3, 13, 15, 17, 19, 29}.
-  NOTE: the original brief's TX=GP17/RX=GP16 was reversed — **GP16 is the
-  UART0 TX pad, GP17 the RX pad**; the wiring above is the corrected pair.
-  Both pins are free (used: 4/5 DIN, 6/7/8 I2S, 14/15 PIO-USB host,
-  22 LED, 24/25 native USB).
+- RP2350 pad validity (earlephilhower core's RP2350A tables): UART0 TX
+  valid = {0, 2, 12, 14, 16, 18, 28}, RX valid = {1, 3, 13, 15, 17, 19,
+  29}. HISTORY: the first pick was GP16/GP17 (after correcting a TX/RX
+  pad swap in the original brief), but the user's RP2350 nano board only
+  POPULATES GPIO 0-5 + 26-29 — the link moved to **TX=GP0, RX=GP1**
+  (2026-11-08), the clean adjacent pair from the populated set (GP2/3
+  also valid; GP28/29 kept free as the only ADC-capable pins). GP0/1 are
+  unused by the rack (4/5 DIN, 6/7/8 I2S, 14/15 host, 22 LED, 24/25 USB).
 - C3 console: USB-Serial-JTAG (`CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG`), so
   UART0 is free for the link (GPIO20/21 stay unused).
 - No hardware loopback exists on the RP2350's PL011-style UART (no LBM bit
@@ -398,7 +399,7 @@ selftest: codec OK | hw-loop 32/32 | rtt ~NN us
 
 ### 8.3 Cross-board check (wire 3 conductors)
 
-Wire per §7 (C3 GPIO4 -> RP2350 GP17, C3 GPIO5 <- RP2350 GP16, GND-GND).
+Wire per §7 (C3 GPIO4 -> RP2350 GP1, C3 GPIO5 <- RP2350 GP0, GND-GND).
 Power both. Expected:
 
 - C3 console: `rack link on UART0 GPIO4/5 @921600`, then

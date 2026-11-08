@@ -42,7 +42,8 @@
 //
 // T5 stage 1 (src/ui_link.h — same header-only, single-TU pattern): the
 // ESP32-C3 UI MCU exchanges framed 921600 8N1 packets on HW UART0
-// (TX GP16 / RX GP17): MIDI/SWITCH/MOD_SET/UI_CMD/CHAIN_ROUTE frames in ->
+// (TX GP0 / RX GP1 — the board only populates GPIO 0-5 + 26-29):
+// MIDI/SWITCH/MOD_SET/UI_CMD/CHAIN_ROUTE frames in ->
 // the SAME funnel/console paths, TELEM page snapshots out (full snapshot on
 // a UI_CMD page request + a >= 50 ms throttled 1-cell delta after
 // control_change on the active module). Frame format + protocol contract:
@@ -1809,7 +1810,7 @@ void setup() {
   // module init and BEFORE the PIO-USB host init so the link is live before
   // audio starts. No print (boot-wedge law: no unconditional early CDC).
   din_uart_init();
-  // T5 stage 1 UI-MCU link (UART0 @ 921600, GP16/GP17): hardware UART as
+  // T5 stage 1 UI-MCU link (UART0 @ 921600, GP0/GP1): hardware UART as
   // well — same no-PIO argument, same unconstrained position, same no-print
   // rule. Absent/unwired link costs nothing (pump = one ring-empty check).
   ui_link_uart_init();

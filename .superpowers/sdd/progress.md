@@ -1715,3 +1715,13 @@ three are metrics-verified (ears at the DSP-acceptance checkpoint).
   encoder pins, README tables. Build SUCCESS (app 570,400 B, 82% free),
   C3 reflashed + boot verified. Final wiring table = rack-uimcu/README.md
   (the single source for the user's wiring pass).
+- **RP2350 link pins moved to GP0/GP1** (user call): the RP2350 nano only
+  POPULATES GPIO 0-5 + 26-29 — GP16/17 don't exist on the header. Valid
+  UART0 pads from the populated set: TX {0,2,28} / RX {1,3,29}; picked
+  TX=GP0, RX=GP1 (GP2/3 also valid; GP28/29 kept free as the only
+  ADC-capable pins). Wiring: C3 GPIO4 (TX) → GP1, C3 GPIO5 (RX) ← GP0.
+  Verified on hardware: `ui` prints `TX GP0 (-> C3 RX), RX GP1 (<- C3
+  TX)`; all 4 envs rebuilt green; RP2350 reflashed. The whole GP16/17
+  history in one line: brief said TX=17/RX=16 (reversed), bench prep
+  corrected to TX=16/RX=17, the board then removed both — **TX=GP0,
+  RX=GP1 is final**. docs/ui-protocol.md §7/§8.3 updated.
