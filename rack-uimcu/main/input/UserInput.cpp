@@ -32,8 +32,12 @@ namespace CTAG {
             volatile bool s_pressed = false;
 
             // ---- encoder hardware map (rack GPIO allocation, README) ----
-            constexpr gpio_num_t ENC_A = GPIO_NUM_7;
-            constexpr gpio_num_t ENC_B = GPIO_NUM_8;     // strapping pin
+            // A/B off the strapping pins (user call 2026-11-08): the mux
+            // address lines take the straps instead (don't-care levels in
+            // normal boot). Push stays on GPIO9 — a push is only ever low
+            // while deliberately pressed (never hold it at power-on).
+            constexpr gpio_num_t ENC_A = GPIO_NUM_6;
+            constexpr gpio_num_t ENC_B = GPIO_NUM_7;
             constexpr gpio_num_t ENC_PUSH = GPIO_NUM_9;  // strapping pin
 
             // Quadrature detent transitions: index (prev<<2)|cur of the 2-bit

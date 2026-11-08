@@ -11,9 +11,11 @@ the second encoder are GONE (the rack has no button ladder; one encoder).
 The push button is a polled GPIO with the same 20 ms debounce discipline.
 
 Hardware (rack-uimcu/README.md GPIO table):
-  ENC A    = GPIO7      (external + internal pull-up)
-  ENC B    = GPIO8      (STRAPPING pin — external pull-up REQUIRED, never
-                         hold low at reset; the seed learned this on E1)
+  ENC A    = GPIO6      (external + internal pull-up)
+  ENC B    = GPIO7      (external + internal pull-up)
+                         — A/B moved OFF the strapping pins 2026-11-08 (user
+                         call); the mux S3 address line took GPIO8 instead —
+                         strap levels are don't-care in normal boot.
   ENC PUSH = GPIO9      (STRAPPING pin — external pull-up; holding push at
                          power-on reads 0 = download mode, do not)
 

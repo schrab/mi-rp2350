@@ -25,21 +25,21 @@ idf.py build && idf.py -p PORT flash     # console = USB-Serial-JTAG
 
 | GPIO | Function | Notes |
 |------|----------|-------|
-| 0 | HC4067 mux COM -> ADC1_CH0 | ADC1 only (ADC2 dead while NimBLE holds the radio; GPIO4 = the other ADC1 pin is the UART link TX) |
-| 1 | HC4067 addr S0 | |
-| 2 | HC4067 addr S1 | STRAPPING — external 10k pull-up (must read 1 at boot) |
-| 3 | HC4067 addr S2 | |
+| 0 | display SPI SCK | |
+| 1 | display SPI MOSI | |
+| 2 | display SPI DC | STRAPPING — output floats at reset: no SCK edges, the panel idles (harmless) |
+| 3 | HC4067 **SIG** (the common pin — datasheet Z, breakouts silk SIG/COM) -> ADC1_CH3 | the last free ADC1 pin (ADC1 = only GPIO0-4: 0/1/2 are the display, 4 is the UART TX); ADC2 dead while NimBLE holds the radio; a pot here is high-Z at reset, the ROM pull-up holds the JTAG-source strap |
 | 4 | UART link TX -> RP2350 GP17 | 921600 8N1 (stage 1) |
 | 5 | UART link RX <- RP2350 GP16 | 921600 8N1 (stage 1) |
-| 6 | HC4067 addr S3 | |
-| 7 | encoder A | external pull-up |
-| 8 | encoder B | STRAPPING — external pull-up REQUIRED, never held low at reset (seed E1 lesson) |
+| 6 | encoder A | external + internal pull-up |
+| 7 | encoder B | external + internal pull-up |
+| 8 | HC4067 addr S3 | STRAPPING — took this from encoder B (user call: A/B off straps); don't-care in normal boot, 10k pull-up fitted anyway |
 | 9 | encoder push | STRAPPING — external pull-up; holding push at power-on reads 0 = download mode, do not hold while powering on |
-| 10 | display SPI SCK | |
+| 10 | HC4067 addr S0 | |
 | 11-17 | flash on this module | DO NOT USE |
 | 18/19 | native USB D-/D+ (console) | DO NOT USE |
-| 20 | display SPI MOSI | |
-| 21 | display SPI DC | |
+| 20 | HC4067 addr S1 | |
+| 21 | HC4067 addr S2 | |
 
 Pin-saving tricks (13 signals needed beyond the UART vs 11 free pins —
 shortfall resolved, nothing silently dropped):
@@ -58,9 +58,10 @@ shortfall resolved, nothing silently dropped):
 | C3 GPIO4 | RP2350 GP17 (UART0 RX) |
 | C3 GPIO5 | RP2350 GP16 (UART0 TX) |
 | C3 GPIO0 | HC4067 COM (Z pin) through nothing — direct; pots 0-15 on CH0-15 |
-| C3 GPIO1/2/3/6 | HC4067 S0/S1/S2/S3 |
-| C3 GPIO10/20/21 | ST7789P3 SCK/MOSI/DC; panel CS->GND, RST->3V3 RC, BL->3V3, VCC 3V3, GND |
-| C3 GPIO7/8/9 | encoder A/B/push (all external pull-ups) |
+| C3 GPIO0/1/2 | ST7789P3 SCK/MOSI/DC; panel CS->GND, RST->3V3 RC, BL->3V3, VCC 3V3, GND |
+| C3 GPIO3 | HC4067 SIG (common; datasheet Z) — direct; pots 0-15 on CH0-15 |
+| C3 GPIO10/20/21/8 | HC4067 S0/S1/S2/S3 (pull-up on 8) |
+| C3 GPIO6/7/9 | encoder A/B/push (all external pull-ups; push = strapping, never held at power-on) |
 
 All 3V3 logic, no level shifting.
 
@@ -126,10 +127,10 @@ event per detent (GPIO-ISR quadrature, seed detent table).
    the dash placeholder page + strip render; `testpat 4` to lock the
    window offsets; raise `ST7789_SPI_CLOCK_HZ` (8 MHz -> 26-40 MHz) once
    mounted.
-2. **Stage 3 (pots + encoder)**: wire the HC4067 (COM->GPIO0, S0-S3,
-   pots) + encoder; `calib`; verify `pots` tracks and page rotation works;
-   pot moves on P1 send MIDI CC (visible in the RP2350 console `ui`
-   counters).
+2. **Stage 3 (pots + encoder)**: wire the HC4067 (SIG->GPIO3, S0-S3 =
+   GPIO10/20/21/8, pots) + encoder (A/B/push = GPIO6/7/9); `calib`; verify
+   `pots` tracks and page rotation works; pot moves on P1 send MIDI CC
+   (visible in the RP2350 console `ui` counters).
 3. **Stage 4 (TELEM pages)**: needs the cross-board link (stage-1 wiring):
    P1/P2/MOD pages render live values; verify colors/dims/blink against a
    routed + inert mod destination.

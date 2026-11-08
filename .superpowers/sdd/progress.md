@@ -1693,3 +1693,25 @@ three are metrics-verified (ears at the DSP-acceptance checkpoint).
   untouched. Build SUCCESS (app 570,512 B, 82% free), C3 reflashed
   (selftest codec OK | hw-loop 32/32 | rtt ~205 µs). Benches with the
   rest of stage 3-5 once pots/screen/UART are wired.
+
+### Rack T5 — C3 pinout rearranged (2026-11-08, user-directed, pre-wiring)
+
+- **Encoder A/B off the strapping pins** (user call): A=GPIO6, B=GPIO7;
+  push stays GPIO9 (a push is only ever low while deliberately pressed;
+  never hold at power-on). The mux S3 address line took GPIO8 — strap
+  levels are don't-care in normal boot.
+- **Display onto the 0-4 header** (user call): SCK=GPIO0, MOSI=GPIO1,
+  DC=GPIO2. The mux SIG (the common pin — datasheet Z, breakouts silk
+  SIG/COM; the user caught the naming) moved to **GPIO3 = ADC1_CH3**, the
+  last free ADC1 pin (ADC1 = only GPIO0-4; GPIO4 = UART TX; ADC2 dead
+  under NimBLE), and the address lines took the freed GPIO10/20/21
+  (S0=10, S1=20, S2=21, S3=8).
+- Strap audit of the final map: GPIO2 (DC out, floats at reset — no SCK
+  edges, panel idles: harmless), GPIO3 (ADC input, high-Z at reset; ROM
+  pull-up holds the JTAG-source strap; worst case a pot at min weakly
+  pulls it low → only OpenOCD-over-USB-JTAG would break, which we never
+  use), GPIO8 (S3 out, pull-up), GPIO9 (push, behavioral rule).
+- Firmware: RackPots pins + ADC1_CHANNEL_3, Display SPI pins, UserInput
+  encoder pins, README tables. Build SUCCESS (app 570,400 B, 82% free),
+  C3 reflashed + boot verified. Final wiring table = rack-uimcu/README.md
+  (the single source for the user's wiring pass).

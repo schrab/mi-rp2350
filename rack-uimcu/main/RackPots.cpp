@@ -27,11 +27,26 @@ namespace CTAG {
 
         namespace {
 
-            constexpr int PIN_ADC = 0;    // ADC1_CH0 (mux COM)
-            constexpr int PIN_S0 = 1;
-            constexpr int PIN_S1 = 2;     // strapping pin (external pull-up)
-            constexpr int PIN_S2 = 3;
-            constexpr int PIN_S3 = 6;
+            // 2026-11-08 user call: display onto GPIO0/1/2 (the 0-4 header);
+            // the mux SIG (common pin, datasheet Z) takes GPIO3 — the last
+            // free ADC1 pin (ADC1 = only GPIO0-4, GPIO4 is the UART TX) —
+            // and the address lines take the freed GPIO10/20/21. Strapping
+            // pins 2 (display DC, floats at reset: no SCK edges, panel
+            // idles) and 8 (S3, don't-care in normal boot) carry outputs
+            // that are safe there; a pot on SIG (GPIO3, JTAG-source strap)
+            // is high-impedance at reset and the ROM pull-up holds the
+            // strap (worst case, a pot at min weakly pulls the JTAG-source
+            // strap low — USB console + flashing are unaffected, only
+            // OpenOCD-over-USB-JTAG would, which we never use).
+            constexpr int PIN_ADC = 3;    // ADC1_CH3 (mux SIG, common)
+            constexpr adc1_channel_t ADC_CH = ADC1_CHANNEL_3;
+            constexpr int PIN_S0 = 10;
+            constexpr int PIN_S1 = 20;
+            constexpr int PIN_S2 = 21;
+            constexpr int PIN_S3 = 8;     // strapping pin — took this FROM
+                                          // encoder B (user call: A/B off
+                                          // straps); don't-care in normal
+                                          // boot, pull-up fitted anyway
 
             constexpr uint8_t NPOTS = 16;
             constexpr int DEADBAND = 2;            // counts vs last SENT
@@ -153,7 +168,7 @@ namespace CTAG {
                     // delay + the ADC's own sampling window is plenty.
                     addrSet(ch);
                     esp_rom_delay_us(8);
-                    const int raw = adc1_get_raw(ADC1_CHANNEL_0);
+                    const int raw = adc1_get_raw(ADC_CH);
                     const int64_t now = esp_timer_get_time();
 
                     if (calRunning) {
@@ -268,7 +283,7 @@ namespace CTAG {
             if (pot >= NPOTS) return -1;
             addrSet(pot);
             esp_rom_delay_us(8);
-            return adc1_get_raw(ADC1_CHANNEL_0);
+            return adc1_get_raw(ADC_CH);
         }
 
         int RackPots::DebugValue(uint8_t pot) {
@@ -347,7 +362,7 @@ namespace CTAG {
 
             // ADC1_CH0, 12 bit, 11 dB atten (full 0..~3.3 V swing).
             adc1_config_width(ADC_WIDTH_BIT_12);
-            adc1_config_channel_atten(ADC1_CHANNEL_0, ADC_ATTEN_DB_11);
+            adc1_config_channel_atten(ADC_CH, ADC_ATTEN_DB_11);
 
             loadCal();
             for (int i = 0; i < NPOTS; ++i) {

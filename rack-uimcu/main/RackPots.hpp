@@ -3,12 +3,14 @@ Rack UI controller — T5 stage 3: 16 analog pots on one HC4067 (1x ADC1 +
 4 address lines), send-on-move with NVS calibration.
 
 Hardware (rack-uimcu/README.md has the full GPIO allocation + wiring):
-  mux COM -> GPIO0 = ADC1_CH0 (ADC1 only: ADC2 is unusable while NimBLE
-             holds the radio; GPIO4 (ADC1_CH4) is the UART link TX).
-  addr S0..S3 = GPIO1 / GPIO2 / GPIO3 / GPIO6 (GPIO2 is a strapping pin:
-             external pull-up required; the line floats harmlessly until
-             firmware drives it — a floating mux address only picks which
-             pot the ADC sees, never a boot risk).
+  mux SIG (the common pin; datasheet Z) -> GPIO3 = ADC1_CH3 (ADC1 only =
+             GPIO0-4: ADC2 is unusable while
+             NimBLE holds the radio; GPIO0/1/2 went to the display SPI and
+             GPIO4 is the UART link TX — user call 2026-11-08).
+  addr S0..S3 = GPIO10 / GPIO20 / GPIO21 / GPIO8 (GPIO8 is a strapping
+             pin: don't-care level in normal boot, external pull-up fitted
+             anyway. S3 took GPIO8 from encoder B — user call 2026-11-08:
+             encoder A/B off the strapping pins).
   mux E (enable, active low) tied GND; 16 pots on CH0..CH15, physically
   3 rows: top 6 (pots 0-5) / middle 4 (pots 6-9) / bottom 6 (pots 10-15)
   — the screen mirrors this 6/4/6 layout, pot index == cell index.

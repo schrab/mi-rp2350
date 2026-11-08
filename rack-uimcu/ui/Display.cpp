@@ -41,10 +41,12 @@ static const char *TAG = "Display";
 #define ST7789_INVERT 1        // IPS panel: inversion ON (0x21). Set 0 if
                                // the hue bars render as their negatives.
 
-// Wiring (README table): SCK=10 MOSI=20 DC=21; CS->GND, RST->3V3 RC, BL->3V3.
-#define ST7789_PIN_SCK  10
-#define ST7789_PIN_MOSI 20
-#define ST7789_PIN_DC   21
+// Wiring (README table): SCK=0 MOSI=1 DC=2 (user call 2026-11-08: display
+// onto the 0-4 header — mux COM moved to GPIO3, the last free ADC1 pin, and
+// the mux address lines took GPIO10/20/21); CS->GND, RST->3V3 RC, BL->3V3.
+#define ST7789_PIN_SCK  0
+#define ST7789_PIN_MOSI 1
+#define ST7789_PIN_DC   2
 
 // Bring-up clock: modest until the wiring is proven (long jumpers corrupt
 // fast SPI — the seed OLED lesson). 8 MHz = a full-screen flush in ~22 ms;
