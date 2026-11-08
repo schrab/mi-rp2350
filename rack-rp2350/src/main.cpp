@@ -40,6 +40,15 @@
 // extra code). The serial console table below drives every bench flow:
 // switch/module/mod/mod?/route/bpm/clock/status/din/dintest/telemetry/panic.
 //
+// T5 stage 1 (src/ui_link.h — same header-only, single-TU pattern): the
+// ESP32-C3 UI MCU exchanges framed 921600 8N1 packets on HW UART0
+// (TX GP16 / RX GP17): MIDI/SWITCH/MOD_SET/UI_CMD/CHAIN_ROUTE frames in ->
+// the SAME funnel/console paths, TELEM page snapshots out (full snapshot on
+// a UI_CMD page request + a >= 50 ms throttled 1-cell delta after
+// control_change on the active module). Frame format + protocol contract:
+// docs/ui-protocol.md. Link loss never affects audio or MIDI (the C3 is
+// strictly additive; the pump costs one ring-empty check when absent).
+//
 // Wiring (identical to the four standalone ports): PCM5102A BCK GP6 /
 // DIN GP8 / LRCK GP7, XSMT 3V3; USB-A host D+ GP14 / D- GP15, VBUS 5V;
 // WS2812 GP22.
@@ -1100,6 +1109,9 @@ static void cmd_din(const char* args);
 static void cmd_dintest(const char* args);
 static void cmd_telemetry(const char* args);
 static void cmd_panic(const char* args);
+static void cmd_ui(const char* args);
+static void cmd_uitest(const char* args);
+static void cmd_uisend(const char* args);
 static void cmd_help(const char* args);
 // T3 mod-engine commands (defined in mod_engine.h, core 0 only).
 //   mod <src> <param> <value> | mod? | bpm <20-300> | clock <internal|midi> [src]
@@ -1107,6 +1119,13 @@ extern void mod_engine_cmd_mod(const char* args);
 extern void mod_engine_cmd_modq(const char* args);
 extern void mod_engine_cmd_bpm(const char* args);
 extern void mod_engine_cmd_clock(const char* args);
+
+// T5 stage 1: UI-MCU link (ESP32-C3 <-> RP2350, 921600 framed UART). Included
+// HERE — after the console forward declarations above (its SWITCH /
+// CHAIN_ROUTE dispatches call cmd_switch / cmd_chain, one behavior, two
+// entrances) and after the registry/adapters/chain state it dispatches
+// through. Header-only, single-TU (the midi.h pattern).
+#include "ui_link.h"
 
 static const ConsoleCommand kConsoleCommands[] = {
     {"switch",    cmd_switch},
@@ -1121,6 +1140,9 @@ static const ConsoleCommand kConsoleCommands[] = {
     {"din",       cmd_din},
     {"dintest",   cmd_dintest},
     {"telemetry", cmd_telemetry},
+    {"ui",        cmd_ui},
+    {"uitest",    cmd_uitest},
+    {"uisend",    cmd_uisend},
     {"panic",     cmd_panic},
     {"help",      cmd_help},
 };
@@ -1500,6 +1522,145 @@ static void cmd_panic(const char* args) {
                 (unsigned)n, kRackModules[g_active_module].name);
 }
 
+// ui — T5 stage 1 link status: frame counters, CRC errors, last RTT. The
+// rtt field is the RP2350's ECHO TURNAROUND (UI_CMD echo received -> echo
+// written); the C3 measures the full wire RTT of its own echo probes.
+static void cmd_ui(const char* args) {
+  (void)args;
+  Serial.printf("ui: tx=%lu rx=%lu crc_err=%lu rx_overflow=%lu rtt=%lu us "
+                "(echo turnaround) | page=%u | uart0 @921600 8N1: TX GP%u "
+                "(-> C3 RX), RX GP%u (<- C3 TX), irq + 512B ring\r\n",
+                (unsigned long)g_ui_tx_frames,
+                (unsigned long)g_ui_rx_frames,
+                (unsigned long)g_ui_crc_errors,
+                (unsigned long)g_ui_rx_overflow,
+                (unsigned long)g_ui_last_rtt_us,
+                g_ui_active_page, kPinUiTx, kPinUiRx);
+}
+
+// uitest — codec self-test. Runs the IN-MEMORY encode->parse round-trip
+// (including a corrupted-CRC rejection + resync check and a 0x7E-inside-
+// payload case). NO hardware loopback leg: the RP2350's PL011-style UART has
+// no LBM/loopback bit (checked the pico-sdk UART register headers) — wire
+// verification is the C3's own hardware-loopback self-test (uart_set_loop_
+// back) plus the cross-board echo bench.
+static void cmd_uitest(const char* args) {
+  (void)args;
+  const uint32_t crc0 = g_ui_crc_errors;
+  uint8_t frame[260];
+  uint8_t payload[255];
+  uint32_t fails = 0;
+
+  // 1) MIDI frame round-trip: 4-byte USB-MIDI event packet payload.
+  {
+    const uint8_t p[4] = { 0x09, 0x90, 0x3C, 0x64 };
+    const size_t n = ui_link_build_frame(kUiTypeMidi, p, 4, frame);
+    bool completed = false;
+    for (size_t i = 0; i < n; ++i) completed |= ui_link_step(frame[i]);
+    const bool ok = completed && g_ui_rx_crc_ok && g_ui_rx_len == 4 &&
+                    g_ui_rx_buf[0] == kUiTypeMidi &&
+                    g_ui_rx_buf[1] == 0x09 && g_ui_rx_buf[2] == 0x90 &&
+                    g_ui_rx_buf[3] == 0x3C && g_ui_rx_buf[4] == 0x64;
+    Serial.println(ok ? "uitest: 1/6 MIDI frame round-trip PASS"
+                      : "uitest: 1/6 MIDI frame round-trip FAIL");
+    if (!ok) ++fails;
+  }
+  // 2) MOD_SET frame round-trip (3-byte payload; NOT dispatched — no engine
+  //    side effects, the parser only assembles).
+  {
+    const uint8_t p[3] = { 3, 1, 90 };
+    const size_t n = ui_link_build_frame(kUiTypeModSet, p, 3, frame);
+    bool completed = false;
+    for (size_t i = 0; i < n; ++i) completed |= ui_link_step(frame[i]);
+    const bool ok = completed && g_ui_rx_crc_ok && g_ui_rx_len == 3 &&
+                    g_ui_rx_buf[0] == kUiTypeModSet &&
+                    g_ui_rx_buf[1] == 3 && g_ui_rx_buf[2] == 1 &&
+                    g_ui_rx_buf[3] == 90;
+    Serial.println(ok ? "uitest: 2/6 MOD_SET frame round-trip PASS"
+                      : "uitest: 2/6 MOD_SET frame round-trip FAIL");
+    if (!ok) ++fails;
+  }
+  // 3) 0x7E INSIDE a payload (no byte stuffing — len is known up front).
+  {
+    const uint8_t p[3] = { 0x7E, 0x7E, 0x55 };
+    const size_t n = ui_link_build_frame(0x40, p, 3, frame);
+    bool completed = false;
+    for (size_t i = 0; i < n; ++i) completed |= ui_link_step(frame[i]);
+    const bool ok = completed && g_ui_rx_crc_ok && g_ui_rx_len == 3 &&
+                    g_ui_rx_buf[1] == 0x7E && g_ui_rx_buf[2] == 0x7E &&
+                    g_ui_rx_buf[3] == 0x55;
+    Serial.println(ok ? "uitest: 3/6 0x7E-in-payload PASS"
+                      : "uitest: 3/6 0x7E-in-payload FAIL");
+    if (!ok) ++fails;
+  }
+  // 4) Max-length frame (255-byte payload).
+  {
+    for (uint16_t i = 0; i < 255; ++i) payload[i] = (uint8_t)(i & 0xFF);
+    const size_t n = ui_link_build_frame(kUiTypeTelem, payload, 255, frame);
+    bool completed = false;
+    for (size_t i = 0; i < n; ++i) completed |= ui_link_step(frame[i]);
+    bool ok = completed && g_ui_rx_crc_ok && g_ui_rx_len == 255 &&
+              g_ui_rx_buf[0] == kUiTypeTelem;
+    for (uint16_t i = 0; ok && i < 255; ++i) ok = g_ui_rx_buf[1 + i] == (uint8_t)(i & 0xFF);
+    Serial.println(ok ? "uitest: 4/6 max-len (255 B) round-trip PASS"
+                      : "uitest: 4/6 max-len (255 B) round-trip FAIL");
+    if (!ok) ++fails;
+  }
+  // 5) Corrupted CRC: the frame must be REJECTED (crc_err counter +1) and the
+  //    parser resynced to HUNT.
+  {
+    const uint8_t p[3] = { 0x11, 0x22, 0x33 };
+    const size_t n = ui_link_build_frame(0x40, p, 3, frame);
+    frame[n - 1] ^= 0xFF;                     // corrupt ONLY the crc byte
+    bool completed = false;
+    for (size_t i = 0; i < n; ++i) completed |= ui_link_step(frame[i]);
+    const bool ok = completed && !g_ui_rx_crc_ok &&
+                    (g_ui_crc_errors == crc0 + 1) &&
+                    g_ui_rx_state == UI_RX_HUNT;
+    Serial.println(ok ? "uitest: 5/6 corrupted-CRC rejection PASS"
+                      : "uitest: 5/6 corrupted-CRC rejection FAIL");
+    if (!ok) ++fails;
+  }
+  // 6) Resync: the SAME frame (uncorrupted) completes cleanly right after the
+  //    rejected one (the parser hunted past the dropped frame's bytes).
+  {
+    const uint8_t p[3] = { 0x11, 0x22, 0x33 };
+    const size_t n = ui_link_build_frame(0x40, p, 3, frame);
+    bool completed = false;
+    for (size_t i = 0; i < n; ++i) completed |= ui_link_step(frame[i]);
+    const bool ok = completed && g_ui_rx_crc_ok && g_ui_rx_len == 3;
+    Serial.println(ok ? "uitest: 6/6 post-rejection resync PASS"
+                      : "uitest: 6/6 post-rejection resync FAIL");
+    if (!ok) ++fails;
+  }
+  g_ui_rx_state = UI_RX_HUNT;                 // leave the pump a clean parser
+  Serial.printf("uitest: codec %s (%u corrupt-CRC case(s) counted in crc_err) | "
+                "hw loopback: n/a on RP2350 UART (no LBM bit) - wire check = "
+                "C3 selftest + cross-board echo\r\n",
+                fails ? "FAIL" : "OK", (unsigned)(g_ui_crc_errors - crc0));
+}
+
+// uisend — send ONE full TELEM snapshot for the C3's active page (default P1)
+// and print the sizes (payload bytes inside the len field + the whole frame).
+static void cmd_uisend(const char* args) {
+  while (*args == ' ') ++args;
+  uint8_t page = g_ui_active_page;
+  if (*args >= '0' && *args <= '9') {
+    long v = atol(args);
+    if (v >= 0 && v < kUiPageCount) page = (uint8_t)v;
+  }
+  const uint32_t tx0 = g_ui_tx_frames;
+  ui_link_send_telem(page, kUiTelemFull, 0);
+  if (g_ui_tx_frames == tx0 + 1) {
+    Serial.printf("uisend: TELEM page %u sent (%u payload bytes, %u frame "
+                  "bytes incl. mark+len+crc)\r\n",
+                  page, (unsigned)g_ui_tx_buf[1],
+                  (unsigned)(g_ui_tx_buf[1] + 4));
+  } else {
+    Serial.println("uisend: no frame sent (link send failed?)");
+  }
+}
+
 static void cmd_help(const char* args) {
   (void)args;
   Serial.println("rack console commands:");
@@ -1527,6 +1688,13 @@ static void cmd_help(const char* args) {
   Serial.println("  din [clear]        DIN MIDI counters + last message (UART1 GP5)");
   Serial.println("  dintest            inject a canned MIDI stream into the DIN parser");
   Serial.println("                     -> funnel (notes/CC/clock; UART1 bypassed)");
+  Serial.println("  ui                 T5 UI-MCU link status (tx/rx frames, crc errs,");
+  Serial.println("                     last echo turnaround)");
+  Serial.println("  uitest             UI-link codec self-test (in-memory round-trip");
+  Serial.println("                     incl. corrupted-CRC rejection; RP2350 UART has");
+  Serial.println("                     no hw loopback — wire check = C3 selftest)");
+  Serial.println("  uisend [page]      send one full TELEM snapshot (0-5, default =");
+  Serial.println("                     the C3's active page) + print sizes");
   Serial.println("  telemetry on|off   mute/unmute the 2 s report (default on)");
   Serial.println("  panic              all notes off (release held notes + clear stack)");
   Serial.println("MIDI bench: CC 32 = switch | CC 33/34/35 = mod source/param/value mux");
@@ -1641,6 +1809,10 @@ void setup() {
   // module init and BEFORE the PIO-USB host init so the link is live before
   // audio starts. No print (boot-wedge law: no unconditional early CDC).
   din_uart_init();
+  // T5 stage 1 UI-MCU link (UART0 @ 921600, GP16/GP17): hardware UART as
+  // well — same no-PIO argument, same unconstrained position, same no-print
+  // rule. Absent/unwired link costs nothing (pump = one ring-empty check).
+  ui_link_uart_init();
   statusLed.Init();  // 3 white self-test flashes, then dark
 
   // --- USB host (PIO-USB, rhport 1): MUST init BEFORE i2s.begin() ---
@@ -1716,6 +1888,11 @@ void loop() {
   // IRQ (core 0) keeps the 256 B ring fed; even at the 31250-baud maximum of
   // 3125 B/s this needs a drain every ~82 ms, and loop() iterates far faster.
   din_pump();
+
+  // --- T5 UI-MCU link: drain the UART0 ring -> frame parser -> dispatch ---
+  // Same IRQ+ring pattern as DIN; with the C3 absent this is one ring-empty
+  // check per loop().
+  ui_link_pump();
 
   // --- serial console (non-blocking; T2/T3/T4 table) ---
   pumpConsole();

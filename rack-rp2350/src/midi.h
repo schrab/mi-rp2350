@@ -123,6 +123,13 @@ void rack_chain_control_change(uint8_t cc, uint8_t val);
 // midiHandleEventPacket to join. Defined in mod_engine.h.
 void rack_mod_clock_realtime(uint8_t status);
 
+// T5 UI-link CC-value observer (defined in ui_link.h, main.cpp TU): records
+// the wire CC under the active module for the TELEM value cache and, when
+// the CC is a cell of the C3's active page, emits a throttled TELEM delta.
+// PURE OBSERVATION — called at the top of midiControlChange before any
+// routing decision; dispatch semantics are untouched.
+void ui_link_observe_cc(uint8_t cc, uint8_t val);
+
 // --- note stack: last-note priority (single TU: main.cpp -> static storage) ---
 struct NoteStack {
   static const uint8_t kMaxNotes = 8;
@@ -201,6 +208,7 @@ inline void midiPitchBend(int16_t bend14) {  // -8192..8191, 0 = centered
 }
 
 inline void midiControlChange(uint8_t cc, uint8_t val) {
+  ui_link_observe_cc(cc, val);   // T5: TELEM value cache (pure observation)
   if (cc == kRackSwitchCc) {
     rack_request_switch(val);     // CC 32 = live module switch / chain-slot
                                   // semantics while chained (T6 decision 5)

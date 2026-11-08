@@ -803,6 +803,30 @@ void rack_mod_bench_cc(uint8_t cc, uint8_t val) {
   mod_apply_cc_value(sel_source, sel_param, val);
 }
 
+// ===================== T5 stage 1: UI-link MOD_SET entry =====================
+// Called by ui_link.h (main.cpp TU) for 0x03 MOD_SET frames [src:u8][param:u8]
+// [value:u8]. The param id IS the kModParamNames index — the SAME tables the
+// console `mod` command names and the CC 34 mux uses — and the value is
+// applied through mod_apply_cc_value, i.e. the bench-mux validation and
+// 0-127 quantization verbatim (dest changes still ack through mod_set_dest's
+// one-shot validation log). One log line per set: the C3 gesture rate is low
+// and the acks are the stage-1 bring-up evidence.
+void mod_engine_apply_ui_set(uint8_t src, uint8_t param, uint8_t val) {
+  if (src >= MOD_SOURCE_COUNT) {
+    Serial.printf("mod: ui set REJECTED (source %u >= %u)\r\n", src,
+                  MOD_SOURCE_COUNT);
+    return;
+  }
+  if (param >= mod_param_count_of(g_mod_engine.src[src].type)) {
+    Serial.printf("mod: ui set REJECTED (%s has no param %u; see 'mod?')\r\n",
+                  mod_src_name(src), param);
+    return;
+  }
+  Serial.printf("mod: ui set %s param %u <- %u\r\n", mod_src_name(src), param,
+                val);
+  mod_apply_cc_value(src, param, val);
+}
+
 // ===================== core 0: serial console =====================
 // mod <src> <param> <value> | mod? | bpm <20-300> | clock <internal|midi> [src]
 // All core-0 Serial prints (the established console discipline).
