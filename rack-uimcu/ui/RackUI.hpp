@@ -46,9 +46,15 @@ namespace CTAG {
                 enum Kind : uint8_t { kNone = 0, kCC = 1, kMod = 2,
                                       kGlobal = 3 };
                 Kind kind;
-                uint8_t cc;      // kCC: the cell's MIDI CC (P1/P2)
-                uint8_t src;     // kMod: mod source id (MOD-A/B/C)
-                uint8_t param;   // kMod: kModParamNames index
+                uint8_t cc;        // kCC: the cell's MIDI CC (P1/P2)
+                                   // kGlobal: the SET_GLOBAL item id
+                uint8_t src;       // kMod: mod source id (MOD-A/B/C)
+                uint8_t param;     // kMod: kModParamNames index
+                uint8_t value;     // the cell's current value (pickup target)
+                uint8_t routedSrc; // kCC + mod-routed only: source id + 1
+                                   // (0 = none). The pot then RIDES that
+                                   // source's speed param instead of writing
+                                   // this CC (RackPots.hpp).
             };
 
             static void Init();          // state + first page request

@@ -26,6 +26,20 @@ MOD pages send MOD_SET [src][param][value] (the kModPotMap, MUST MATCH the
 RP2350's kUiMod*Cells), SYS page pots are inert. While the mod-assign
 gesture is armed (RackUI::AssignModeActive), pot moves become
 UI_CMD ASSIGN_CYCLE [pot][dir from the move direction] instead.
+
+Soft takeover / pot pickup (user spec 2026-11-08): a pot whose position
+does not match its cell's value NEVER jumps the parameter — page switches
+and external changes (web panel, BLE) arm a per-pot PENDING state; while
+pending the pot sends nothing and the renderer shows a < / > arrow beside
+the value (the turn direction that picks the value up). The pot picks up
+when its position aligns with the cell value. Own TELEM echoes (values we
+just sent) never re-arm pending — mid-turn echo lag cannot stall a turn.
+
+Mod-routed cells (TELEM flags bits 3-6, source id + 1): the pot does NOT
+write the cell's CC (the mod source owns the parameter RP2350-side) — it
+RIDES the routed source's speed parameter instead (user spec: LFO rate;
+generalized LFO->rate, EUclid/GATE->clock division, ADSR->division). No
+pickup on ride cells (the pot is not writing that value).
 ***************/
 
 #pragma once
@@ -43,6 +57,18 @@ namespace CTAG {
             static bool BeginCalibration();
             static bool CalibrationRunning();
             static void ClearCalibration();
+
+            // ---- soft takeover (called from the UI task) ----
+            // Full TELEM snapshot applied (page switch / module change):
+            // recompute pending state for all 16 pots vs their cells.
+            static void PickupResync();
+            // One cell changed via a TELEM delta: value == what this pot
+            // recently sent -> own echo (never arms pending); otherwise an
+            // external change -> arm pending if the pot is misaligned.
+            static void PickupCellNote(uint8_t pot, uint8_t value);
+            // Renderer query: pending pot + which way to turn it
+            // (dir +1 = turn up, '>' right of the value; -1 = down, '<').
+            static bool PickupPending(uint8_t pot, int8_t &dir);
 
             // Debug: raw + mapped value of one pot (console `pots`).
             static int DebugRaw(uint8_t pot);

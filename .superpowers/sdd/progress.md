@@ -1664,3 +1664,32 @@ three are metrics-verified (ears at the DSP-acceptance checkpoint).
   → "Rack UI" advertising + notes funnel + heap budget.
 - Commits: feacd34 (rack-uimcu), 656aff5 (rack-rp2350); docs + this ledger
   in the stages-2-6 docs commit.
+
+### Rack T5 — pot pickup (soft takeover) + mod-ride pots (2026-11-08, user-directed)
+
+- The user caught the missing **soft takeover**: pots keep their physical
+  positions across page switches, so the first move jumped the parameter
+  to the pot position. Implemented C3-side (no protocol change): a pot
+  whose position is >1 count from its cell's value NEVER writes — page
+  switches / module changes arm pending via `PickupResync()` (full TELEM),
+  external changes via `PickupCellNote()` (deltas; a value equal to what
+  that pot sent within 400 ms = our own echo, never arms — a fast turn
+  cannot be stalled by echo lag). Pending pots send nothing until the
+  position crosses the value; the renderer shows a `<` / `>` arrow beside
+  the value (the turn direction that picks it up; the displayed value
+  stays the parameter's). Pickup crossings from the pot task get their
+  own per-pass render diff (no TELEM needed to redraw an arrow).
+- **Mod-ride pots** (user: "if modulated — pot not affecting it, but it
+  can change one modulation parameter like for LFO - its changing LFO
+  rate"): on a mod-routed cell (TELEM flags bits 3-6) the pot does NOT
+  write the cell's CC — it RIDES the routed source's SPEED parameter:
+  LFO→rate(1), Euclid→div(4), gate→div(4), ADSR→div(6) (gate-follow ADSR
+  ignores div = no-op there). MUST MATCH kModParamNames indexes. No
+  pickup on ride cells. To adjust a routed param's base, un-route first
+  (hold+pot cycle to off), then the normal pickup applies. Modulated
+  cells now render YELLOW as a whole (label + value + bar — the state
+  accent was already on value/bar; the label joined).
+- rack-uimcu only (RackPots/.hpp, RackUI/.hpp, README); rack-rp2350
+  untouched. Build SUCCESS (app 570,512 B, 82% free), C3 reflashed
+  (selftest codec OK | hw-loop 32/32 | rtt ~205 µs). Benches with the
+  rest of stage 3-5 once pots/screen/UART are wired.

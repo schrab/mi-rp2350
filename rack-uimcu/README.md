@@ -88,6 +88,22 @@ event per detent (GPIO-ISR quadrature, seed detent table).
   pages -> MOD_SET [src][param] (the fixed map in ui/RackUI.cpp — MUST
   MATCH the RP2350's kUiMod*Cells, docs/ui-protocol.md §6), MOD-C BPM pot
   -> UI_CMD SET_GLOBAL, SYS -> inert.
+- **Soft takeover / pot pickup** (user spec 2026-11-08): a pot whose
+  position does not match its cell's value never jumps the parameter.
+  Page switches and external changes (web panel, BLE) arm a per-pot
+  PENDING state: the pot sends nothing until its position aligns with the
+  cell value; the renderer shows a `<` / `>` arrow beside the value —
+  the turn direction that picks the value up. Own TELEM echoes never
+  re-arm pending (a fast turn cannot be stalled by echo lag).
+- **Mod-routed cells** (TELEM flags bits 3-6 = routed source): rendered
+  YELLOW as a whole (label + value + bar — the state accent). The pot
+  does NOT write the cell's CC (the mod source owns the parameter
+  RP2350-side) — it RIDES the routed source's speed parameter instead:
+  LFO -> rate, Euclid -> clock division, rhythmic gate -> division,
+  ADSR -> division (a no-op while the ADSR gate-follows). To adjust the
+  parameter's own base value, un-route it first (hold the encoder and
+  turn the pot until the source cycles to off) — the pot then picks the
+  base value up with the normal pending/arrow behavior.
 
 ## Bench procedures (no wiring beyond the stage)
 

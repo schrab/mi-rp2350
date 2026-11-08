@@ -8,6 +8,7 @@ acks drive the UI" — the C3 never invents values; missing TELEM = dashes).
 
 #include "Display.hpp"
 #include "RackLink.hpp"
+#include "RackPots.hpp"
 #include "input/UserInput.hpp"
 #include "BtMidiReceiver.hpp"
 #include "esp_log.h"
@@ -99,9 +100,13 @@ namespace CTAG {
         static bool s_stripDirty = true;
         static bool s_pageDirty = true;
 
-        // Rendered-cell diff snapshot (skip unchanged cells).
+        // Rendered-cell diff snapshot (skip unchanged cells). pick: the
+        // soft-takeover arrow state (0 none / 1 '<' left of value / 2 '>'
+        // right of value) — tracked so arrow flips redraw even without any
+        // TELEM traffic (alignment crossings come from the pot task).
         struct CellSnap {
             uint8_t value, flags, color;
+            uint8_t pick;
             char label[16];
             bool present;
         };
@@ -184,8 +189,12 @@ namespace CTAG {
                                   !s_blinkPhase;
             if (!blinkOff) {
                 if (s_fullArrived) {
+                    // Mod-routed cells read YELLOW as a whole (label too) —
+                    // the state accent marks "this pot rides the source's
+                    // speed param, it does not write this value".
                     Display::DrawString(x, y + LABEL_DY, snap.label,
-                                        Display::FONT_LABEL, col);
+                                        Display::FONT_LABEL,
+                                        routedSrc ? Display::kYellow : col);
                 } else {
                     // No TELEM snapshot yet: dashes, never guesses.
                     Display::DrawString(x, y + LABEL_DY, "---",
@@ -194,7 +203,20 @@ namespace CTAG {
                 }
                 char val[8];
                 if (s_fullArrived) {
-                    snprintf(val, sizeof(val), "%u", snap.value);
+                    // Soft-takeover hint (user spec): while the pot is not
+                    // aligned with this cell's value, the arrow shows the
+                    // turn direction that picks the value up. The displayed
+                    // value stays the PARAMETER's (the pot sends nothing).
+                    int8_t pdir = 0;
+                    if (RackPots::PickupPending(slot, pdir)) {
+                        if (pdir > 0) {
+                            snprintf(val, sizeof(val), "%u>", snap.value);
+                        } else {
+                            snprintf(val, sizeof(val), "<%u", snap.value);
+                        }
+                    } else {
+                        snprintf(val, sizeof(val), "%u", snap.value);
+                    }
                 } else {
                     snprintf(val, sizeof(val), "---");
                 }
@@ -244,16 +266,21 @@ namespace CTAG {
                 }
                 CellSnap &snap = s_rendered[slot];
                 const RackTelemCell &c = s_cur.cell[slot];
+                int8_t pdir = 0;
+                const uint8_t pick = RackPots::PickupPending(slot, pdir)
+                                         ? (uint8_t)(pdir > 0 ? 2 : 1)
+                                         : 0;
                 const bool changed =
                     snap.present != present ||
                     snap.value != c.value || snap.flags != c.flags ||
-                    snap.color != c.color ||
+                    snap.color != c.color || snap.pick != pick ||
                     strcmp(snap.label, c.label) != 0;
                 if (!s_pageDirty && !changed) continue;
                 snap.present = present;
                 snap.value = c.value;
                 snap.flags = c.flags;
                 snap.color = c.color;
+                snap.pick = pick;
                 snprintf(snap.label, sizeof(snap.label), "%s", c.label);
                 renderCell(slot);
             }
@@ -328,28 +355,40 @@ namespace CTAG {
 
         bool RackUI::GetPotTarget(uint8_t pot, PotTarget &out) {
             out.kind = PotTarget::kNone;
+            out.value = 0;
+            out.routedSrc = 0;
             if (pot > 15) return false;
             if (s_page <= 1) {
-                // P1/P2: the ACTIVE page cell's CC (TELEM-driven).
+                // P1/P2: the ACTIVE page cell's CC (TELEM-driven). routedSrc
+                // rides the TELEM flags bits 3-6 (source id + 1).
                 if (!s_fullArrived || pot >= s_cur.count) return false;
                 out.kind = PotTarget::kCC;
                 out.cc = s_cur.cell[pot].cc;
+                out.value = s_cur.cell[pot].value;
+                out.routedSrc = (uint8_t)(
+                    (s_cur.cell[pot].flags & RackLink::kFlagSrcMask) >>
+                    RackLink::kFlagSrcShift);
                 return true;
             }
             if (s_page >= 2 && s_page <= 4) {
                 // MOD pages: the fixed (src, param) map. BPM pot -> the
                 // SET_GLOBAL intent (UI_CMD action 5, item BPM); CLKSRC pot
-                // is push-toggled, not turned.
+                // is push-toggled, not turned. (MOD cells are never
+                // mod-routed — sources cannot route to sources.)
                 const SrcParam &sp = kModPotMap[s_page - 2][pot];
                 if (s_page == 4 && pot == 11) {
                     out.kind = PotTarget::kGlobal;
                     out.cc = 0;             // item 0 = BPM (kUiGlobalBpm)
+                    out.value = s_fullArrived && pot < s_cur.count
+                                    ? s_cur.cell[pot].value : 0;
                     return true;
                 }
                 if (sp.src == 0xFF) return false;
                 out.kind = PotTarget::kMod;
                 out.src = sp.src;
                 out.param = sp.param;
+                out.value = s_fullArrived && pot < s_cur.count
+                                ? s_cur.cell[pot].value : 0;
                 return true;
             }
             return false;                   // SYS: pots inert
@@ -445,14 +484,40 @@ namespace CTAG {
                             s_cur = tmp;
                             if (wasFull) s_fullArrived = true;
                             s_pageDirty = true;
+                            // Fresh page state: recompute pot pickup for
+                            // every pot (page switch / module change).
+                            RackPots::PickupResync();
                         } else {
                             // Delta: RackLink already patched the cache —
                             // take the whole copy (cheap, consistent).
+                            // Pickup: only the changed cells matter; our own
+                            // echoes never arm pending (RackPots.hpp).
+                            for (uint8_t i = 0; i < 16 && i < tmp.count; ++i) {
+                                if (tmp.cell[i].value != s_cur.cell[i].value ||
+                                    tmp.cell[i].flags != s_cur.cell[i].flags) {
+                                    RackPots::PickupCellNote(
+                                        i, tmp.cell[i].value);
+                                }
+                            }
                             s_cur = tmp;
                             s_pageDirty = true;
                         }
                         s_stripDirty = true;
                         RackLink::TelemClearDirty();
+                    }
+                    // Pickup arrows also flip from the pot task (alignment
+                    // crossing) with no TELEM traffic — per-pass diff.
+                    for (uint8_t slot = 0; slot < 16; ++slot) {
+                        if (!s_rendered[slot].present) continue;
+                        int8_t pdir = 0;
+                        const uint8_t pick =
+                            RackPots::PickupPending(slot, pdir)
+                                ? (uint8_t)(pdir > 0 ? 2 : 1)
+                                : 0;
+                        if (s_rendered[slot].pick != pick) {
+                            s_rendered[slot].pick = pick;
+                            renderCell(slot);
+                        }
                     }
                     // 2 Hz blink phase for inert cells.
                     const bool phase =
