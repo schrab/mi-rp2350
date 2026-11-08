@@ -1125,7 +1125,7 @@ after each task).
 | T3 Mod engine + clock bus (internal BPM / MIDI 24 PPQ, 1-32-step euclid+gate, bench settings via CC/console) | done | 238b4d0 | 12 sources; u: ≤ 45 µs observed (gate 50, 31 µs under 12-source load); ext-clock verified (48/s @ 120 BPM, tempo-follow 120→100, START re-phase / STOP freeze); phase survives swaps; findings below |
 | T4 RP2350 DIN 31250 parser + serial console | done (code-complete; DIN-jack bench pending wiring) | 67d6f77 | parser 109/109 host asserts; dintest proves parser→funnel→module on hardware (+3 notes, CC, 24/25 clock stamps); console full; findings below |
 | T4a Presets (serialization + console dump/load + last-state autosave) | pending | — | bank lands on C3 flash in T5; PRESET_* frame constants reserved in the T5 protocol |
-| T5 C3 UI + UART link (after DSP acceptance AND hardware) | in progress — stage 1 (framed link) done + benched 2026-11-08; stages 2-6 next, benches pending wiring | d901e76 (rack-uimcu) + e278d69 (rack-rp2350) | seed rack-uimcu/ from ctag-tbd/uimcu; protocol docs/ui-protocol.md; RP2350 side strictly additive (+1.0 KB RAM / +6.2 KB flash); uitest 6/6 + C3 hw-loop 32/32 @921600; cross-board echo waits for 3 wires (C3 GPIO4→GP17, GPIO5←GP16, GND) |
+| T5 C3 UI + UART link (after DSP acceptance AND hardware) | code-complete (stages 1-6): stage 1 link BENCHED 2026-11-08; stages 2-6 code-verified, benches pending wiring | d901e76 + feacd34 (rack-uimcu), e278d69 + 656aff5 (rack-rp2350) | seed rack-uimcu/ from ctag-tbd/uimcu (zero build deps on ctag-tbd now); protocol docs/ui-protocol.md (TELEM v2 + ASSIGN_CYCLE); RP2350 side strictly additive (RAM +1,060 B / flash +9.9 KB total, main.cpp untouched by stages 2-6); stage-1 bench: uitest 6/6 + C3 hw-loop 32/32 @921600; wiring list in rack-uimcu/README.md |
 | T6 Chain mode v2 (plaits@32k patch, pair table) | done (3 of 3 pairs) | 972c58a + c106458 + (T6c commit) | ALL THREE pairs benched: elements→clouds 52%, rings→clouds 36-48%, plaits→clouds 36% (flash engines); switched-plaits engines now flash (~3× T5b numbers, sustained ≤ 269 µs of 500, change spikes bank-absorbed); user dropped Plaits→Elements |
 | T7 Hardware bring-up + sweeps + user acceptance + soak | pending | — | |
 
@@ -1597,6 +1597,70 @@ three are metrics-verified (ears at the DSP-acceptance checkpoint).
   the additive build.
 - Commits: d901e76 (rack-uimcu), e278d69 (rack-rp2350); docs/ui-protocol.md
   + this ledger land in the stage-1 docs commit.
-  Stages 2-6 (display backend, HC4067, encoder, gestures, BLE-MIDI) land
-  next; their benches wait for the user's wiring (screen, pots, encoder,
-  UART link, BLE central).
+
+### Rack T5 stages 2-6 — display/pots/encoder/gestures/BLE (2026-11-08, code-verified only)
+
+- **TELEM v2** (all three places updated together: docs/ui-protocol.md +
+  ui_link.h + RackLink): cell = 4 bytes (cc, value, flags, color — the
+  registry color class rides the wire, the C3 never duplicates the
+  registry); flags bits 3-6 = first routed source id + 1; full snapshots
+  end with a status tail [bpm (0 = external MIDI clk)][clocksrc][chain
+  (0 off / 1-3 pair)][link (bit0 DIN saw bytes, bit1 UART fresh)]; deltas =
+  count=1, no tail. New UI_CMD actions: 3 wired (0 = delta gate,
+  1 = full-snapshot gate, 2 = global clock internal<->midi),
+  4 = ASSIGN_CYCLE [cell][dir] — DEVIATION from the plan's "gesture sends
+  MOD_SET": only the RP2350 knows the routing table, so the hold+pot
+  gesture sends assign-cycle and the RP2350 cycles [off, src0..11] through
+  mod_set_dest validation and replies a full TELEM; MOD_SET stays for the
+  MOD pages' direct param writes. 5 = SET_GLOBAL [item][value] (item 0 =
+  BPM, 20 + v*280/127) — MOD_SET is per-source and cannot express the
+  MOD-C BPM pot.
+- **MOD-A/B/C + SYS aux-cell tables** (RP2350-owned, labels + colors on the
+  wire): MOD-A 16 cells src-major (L1 RATE/LEV/WAVE/PHASE, L2…) — DEVIATION
+  from the design's param-major listing (rate ×4 then level ×4 …): each
+  LFO's 4 params sit adjacent on the physical row; the design's "exact
+  mapping decided during T5" clause covers this. MOD-B 16 = EU1-4
+  steps/pulses/rot + gate1 len/glen + ADSR1 mode + DIV (EU1's division —
+  the engine has per-source divisions only). MOD-C 13 = gate2 len/mask/
+  glen + ADSR1/2 A/D/S/R + BPM + CLKSRC (globals = src 0xFF selector ids;
+  CLKSRC pot turn inert by design — push toggles). SYS 8 = 4 module cells
+  + chain pair/on + the two telemetry gates; presets = C3-local UI with
+  PRESET_REQ [slot] send (T4a owns the RP2350 side). MOD cell `cc` field =
+  opaque id 200+index.
+- **C3 build stack**: RackUI fixed-page renderer REPLACES the seed
+  UIMenu/menupages framework (nav model + DspProxy content don't map);
+  Display rewritten SSD1309-mono → ST7789P3 RGB565 (configurable
+  window/offset #defines = the panel-discovery step, dirty-row flushes,
+  testpat discovery mode, hand-rolled SPI over esp_lcd — arbitrary masked
+  window needed); RackPots HC4067 ~700 sweeps/s + NVS min/max calib
+  (console `calib`, 8 s all-pot sweep) + 2-count deadband send-on-move +
+  200 msg/s token bucket; RackConsole on USB-Serial-JTAG (ui/page/pots/
+  calib/testpat/heap); BtMidiReceiver central→peripheral, BLE-MIDI →
+  4-byte packets → SendMidi. Seed link/menu/net stack EXCLUDED from build
+  (kept in tree, "seed reference, not built" headers); rapidjson vendored;
+  ZERO build-time reads from ctag-tbd (the stage-1 EXTRA_COMPONENT_DIRS
+  stopgap is gone).
+- **C3 GPIO allocation** (rack-uimcu/README.md has the full table): 0 =
+  mux COM (ADC1_CH0 — ADC2 dead while NimBLE holds the radio, GPIO4 = the
+  other ADC1 pin is the link TX), 1/2/3/6 = mux addr (GPIO2 STRAPPING —
+  ext 10k pull-up), 4/5 = UART link, 7/8/9 = encoder A/B/push (8/9
+  STRAPPING — pull-ups REQUIRED; never hold push at power-on = download
+  mode), 10/20/21 = SPI SCK/MOSI/DC. Pin-saving: CS→GND (bus exclusive),
+  RST→3V3 RC (no firmware panel reset — power-cycle), BL→3V3 (no PWM
+  dimming), mux E→GND.
+- **Builds**: rack-uimcu clean build/ delete → SUCCESS, app 569,808 B
+  (82% of the 3 MB slot free), Display FB = 43,168 B DRAM as budgeted;
+  heap measured at boot + `heap` console cmd. rack-rp2350 all 4 envs:
+  RAM 373,172 B (+4 B), flash 1,553,380 B (+3,664 B) vs stage 1 —
+  main.cpp untouched (the v2 fits inside ui_link.h's existing hooks).
+- RGB565 conversion caught + fixed during self-review: red #e6295e →
+  0xE14B (arithmetic documented in Display.cpp).
+- **NOT verified (needs wiring — benches staged per bring-up order):**
+  stage 2 panel wiring + window/offset/MADCTL discovery (`testpat 4`) +
+  SPI clock raise + IPS inversion; stage 3 HC4067 + encoder with the
+  strapping pull-ups + `calib` + pots→CC; stage 4 cross-board UART (3
+  wires) + live pages/colors/blink/status tail; stage 5 gesture
+  round-trips (assign/overlay/SYS ring/clock toggle); stage 6 BLE central
+  → "Rack UI" advertising + notes funnel + heap budget.
+- Commits: feacd34 (rack-uimcu), 656aff5 (rack-rp2350); docs + this ledger
+  in the stages-2-6 docs commit.

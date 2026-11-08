@@ -14,8 +14,11 @@ Stage scope: stage 1 = framed link bring-up (codec, self-tests, TELEM
 snapshot/delta, bench console commands). Stages 2-6 (display backend,
 HC4067 pots, encoder, gestures, BLE-MIDI) consume the sending side
 (`RackLink::SendMidi/SendSwitch/SendModSet/SendPageRequest`) and the TELEM
-renderer. MOD pages report empty (count=0) until stage 4; SYS toggles are
-log-only until a later stage wires them to real state.
+renderer. Stage 2-6 extensions (2026-11-08, all additive): TELEM cells are
+4 bytes (a `color` class byte was added) and full snapshots carry a 4-byte
+status tail; TELEM flags gained the routed-source id (bits 3-6); MOD-A/B/C
+and SYS pages report real cells; UI_CMD action 3 (sys toggle) is wired
+(ids 0/1/2) and action 4 (ASSIGN_CYCLE) is new.
 
 ## 1. Frame format
 
@@ -60,7 +63,7 @@ Max frame = 259 bytes (`0x7E` + len + type + 255 payload + crc).
 | `0x01` | MIDI | C3 -> RP2350 | 4-byte USB-MIDI event packet `[CIN<<4|cable, status, d1, d2]` — funneled into `midiHandleEventPacket()` (the SAME entry point the USB device/host/DIN paths use; zero new dispatch semantics). RP2350 rejects wrong lengths with a log line. |
 | `0x02` | SWITCH | C3 -> RP2350 | `[module_id:u8]` (0 elements / 1 clouds / 2 plaits / 3 rings) — routed through the console `switch` path verbatim (acks, chain-slot semantics, self-swap guard). |
 | `0x03` | MOD_SET | C3 -> RP2350 | `[src:u8][param:u8][value:u8]` — applied through the mod engine's bench-mux setter (same validation + 0-127 quantization as the console `mod` command / CC 33-35 mux); one ack log line per set. Param-id table: §3. |
-| `0x04` | UI_CMD | C3 -> RP2350 | `[action:u8][arg:u8][arg2:u8]`: action 1 = page request (arg = page id, §4) -> RP2350 replies a full TELEM snapshot; action 2 = echo (arg/arg2 = 16-bit seq) -> RP2350 echoes the frame back verbatim and records its turnaround (the C3 measures the full wire RTT of its own probes); action 3 = sys toggle -> **log-only in stage 1**. |
+| `0x04` | UI_CMD | C3 -> RP2350 | `[action:u8][arg:u8][arg2:u8]`: action 1 = page request (arg = page id, §4) -> RP2350 replies a full TELEM snapshot; action 2 = echo (arg/arg2 = 16-bit seq) -> RP2350 echoes the frame back verbatim and records its turnaround (the C3 measures the full wire RTT of its own probes); action 3 = sys toggle (arg = sys item id, semantics = TOGGLE, arg2 reserved 0): id 0 = telemetry-deltas gate on/off, id 1 = RP2350-pushed full-snapshot gate on/off, id 2 = global clock source internal<->midi; other ids are log-only. action 4 = **ASSIGN_CYCLE** `[cell:u8 0-15][dir:u8 1 up / 0 down]` — the RP2350 resolves `cell` against its ACTIVE page: that cell's CC's currently-routed mod source (or none) cycles through `[off, src0..src11]`, applied via `mod_set_dest` (the RP2350 owns the routing table + validation — "the C3 never enforces"; an invalid target for this module is inert and shows as TELEM flags bit2), and the RP2350 replies a full TELEM snapshot so the C3 renders the result. RATIONALE: the gesture sends ASSIGN_CYCLE, not MOD_SET (the plan's original sketch) — MOD_SET `[src][param][value]` would require the C3 to track which source drives each cell off-protocol; only the RP2350 knows. MOD_SET stays for the MOD pages' direct param writes. action 5 = **SET_GLOBAL** `[item:u8][value:u8 0-127]` — global state the C3 pots address but MOD_SET (per-source) cannot express: item 0 = BPM (`bpm = 20 + value*280/127`, the `bpm` console cmd's quantization family); other items log-only. The RP2350 acks with a full TELEM snapshot when the affected cell is on the active page (MOD-C BPM / SYS). |
 | `0x05` | CHAIN_ROUTE | C3 -> RP2350 | `[a:u8][b:u8][engage:u8]`: engage 1 -> console `chain <a> <b>` path (pair validation, window math, acks); engage 0 -> `chain off`. |
 | `0x10` | TELEM | RP2350 -> C3 | telemetry, §5. |
 | `0x11` | PRESET_REQ | reserved (T4a) | receive-and-log both ends until T4a implements the preset bank. |
@@ -96,36 +99,49 @@ and CC 33 use):
 
 ## 4. Page ids
 
-| id | page | stage-1 contents |
-|----|------|------------------|
+| id | page | contents |
+|----|------|----------|
 | 0 | P1 | the active module's primary 16 pot cells (fully implemented; tables below) |
 | 1 | P2 | elements: CC 28/29 selectors + alt-layout duplicates; clouds/plaits/rings: duplicate of P1 |
-| 2 | MOD-A | empty in stage 1 (count=0) — stage 4 fills from the mod engine |
-| 3 | MOD-B | empty in stage 1 |
-| 4 | MOD-C | empty in stage 1 |
-| 5 | SYS | empty in stage 1 |
+| 2 | MOD-A | 4x LFO (rate, level, wave, phase per source) — stage 4, tables in §6 |
+| 3 | MOD-B | 4x EUclid (steps/pulses/rot) + gate1 len/glen + ADSR1 mode + clock div |
+| 4 | MOD-C | gate2 + ADSR1/2 (A/D/S/R) + BPM pot + clock-source cell |
+| 5 | SYS | 4 module cells, chain pair + engage, telemetry gates (§6); preset slot is C3-local (T4a) |
 
 A page request (`UI_CMD` action 1) sets the RP2350's "active page" — the
 target of the throttled TELEM deltas (§5) — and replies with a full snapshot.
 
 ## 5. TELEM (RP2350 -> C3)
 
-Payload:
+Payload (v2, stage 2-6):
 
 ```
 [page:u8][module:u8][mode:u8][count:u8]
-[count x (cc:u8, value:u8, flags:u8)]
+[count x (cc:u8, value:u8, flags:u8, color:u8)]
 [count x NUL-terminated label strings, in cell order]
+[mode 0 only: bpm:u8][clocksrc:u8][chain:u8][link:u8]   (status tail)
 ```
 
 - `page` = page id (§4), `module` = the RP2350's active module id (0-3).
-- `mode`: 0 = full snapshot (all cells of the page), 1 = single-cell delta —
-  the **same format** with `count = 1` (the C3 parser is identical for both).
+- `mode`: 0 = full snapshot (all cells of the page + status tail), 1 =
+  single-cell delta — the **same cell/label format** with `count = 1` and
+  NO status tail (the C3 keeps its last tail). The delta's `cc` names the
+  cell (a real CC on P1/P2, `200+index` on MOD/SYS pages); the C3 patches
+  the matching cached cell and ignores deltas for pages it does not hold.
+- `color` = the registry color class (0 white / 1 red / 2 teal, §6) — the
+  C3 does NOT duplicate the registry; the RP2350 is the single source of
+  truth for labels AND colors.
 - `value` = the module's cached CC value (0-127) from the per-module
   per-CC observation cache (4 modules x 128 CCs, updated at the single
   control_change dispatch point). Cache starts zeroed — a cell shows its
   panel value once any controller (web panel / BLE / UI pots) has sent that
-  CC since boot.
+  CC since boot. On MOD/SYS pages `value` = the mod engine's / rack state's
+  current setting re-expressed 0-127 (the inverse of the MOD_SET
+  quantization; a MOD_SET round-trip of a displayed value is stable to
+  within the quantizer's floor — imperceptible).
+- `cc` on MOD-A/B/C and SYS pages = an **opaque cell id** `200 + cell
+  index` — these cells are not MIDI CCs. The C3 renders and addresses by
+  CELL INDEX (its pot position); the cc byte is informational.
 - `flags` bits:
   - bit0 (`0x01`) **mod-routed** — at least one mod-engine source has this
     CC as its destination (the audio value is overridden by the source; the
@@ -135,14 +151,33 @@ Payload:
   - bit2 (`0x04`) **inert/rejected** — a mod routing exists but is inert on
     this module (continuous/trigger kind mismatch vs the module's
     destination table).
+  - bits 3-6 (`0x78`) **routed source id + 1** (0 = unrouted, 1-12 = mod
+    source 0-11) — the FIRST source routed to this CC; the mod-assign
+    gesture needs to know which source drives the cell. (Multiple sources
+    may share a destination; the cycle tracks the first.) bit7 reserved 0.
+- Status tail (mode 0 only):
+  - `bpm`: internal BPM 20-300 rounded to 1 BPM; **0 = external MIDI clock**
+    (the clocksrc byte disambiguates).
+  - `clocksrc`: 0 internal / 1 MIDI.
+  - `chain`: 0 off / 1-3 = engaged pair index (1 elements->clouds,
+    2 plaits->clouds, 3 rings->clouds).
+  - `link`: bit0 = the RP2350's DIN parser has seen bytes since boot,
+    bit1 = the RP2350 verified a frame on THIS UART link within the last
+    3 s. The C3 status strip renders DIN/UART health from this byte.
 
-Send policy (stage 1):
+Send policy (stages 1 + 2-6):
 
 - Full snapshot (mode 0) on every `UI_CMD` page request.
+- Full snapshot (mode 0) pushed by the RP2350 when the active module or the
+  chain state changes, gated by the C3's telemetry-full toggle (sys id 1,
+  default on) — "the firmware acks drive the UI".
 - Throttled delta (mode 1, the changed cell only) after `control_change` on
   the active module, **>= 50 ms spacing**, only when the changed CC is a
-  cell of the C3's active page and not a chain-B write.
-- Max payload: 4 + 16x3 + labels (~110) = ~162 bytes for elements P1 —
+  cell of the C3's active page, not a chain-B write, and the telemetry-
+  deltas gate (sys id 0, default on) is set.
+- Single-cell delta after every applied MOD_SET (the matching cell of the
+  C3's active page, if any) — the MOD-pot ack path.
+- Max payload: 4 + 16x4 + labels (~130) + 4 = ~200 bytes for elements P1 —
   inside the 255-byte `len`.
 
 ## 6. Registry page tables (P1/P2 summary)
@@ -244,6 +279,70 @@ P2 = duplicate of P1.
 
 P2 = duplicate of P1.
 
+### MOD-A/B/C + SYS — aux cell tables (stage 4)
+
+Cell order = physical pot order; the TELEM `cc` field = `200 + cell index`
+(opaque cell id — not a MIDI CC). The C3's MOD-page pot map sends
+`MOD_SET [src][param][value]` with EXACTLY the (src, param) pairs below —
+MUST MATCH `kUiMod*Cells` in `ui_link.h` and `kModPotMap` in the C3's
+`ui/RackUI`. Color classes: red = continuous modulators (LFO), teal =
+trigger/sequenced sources (EUclid/gate/ADSR), white = global clock.
+Values on these pages are the mod engine's current settings re-expressed
+0-127 (inverse of the MOD_SET quantization: rate/ADSR log domains mapped
+back, wave/div/enum = `ceil(index*128/counts)`, gates = density-fill
+equivalent, BPM = `(bpm-20)*127/280`, clock src = 0/127).
+
+MOD-A — 16 cells, src-major (LFO1's 4 first):
+
+| pot | cell | src | param | label | color |
+|-----|------|-----|-------|-------|-------|
+| 1-4 | 0-3 | 0 (lfo1) | 1 rate / 4 level / 2 wave / 3 phase | L1 RATE/LEV/WAVE/PHASE | red |
+| 5-8 | 4-7 | 1 (lfo2) | same | L2 ... | red |
+| 9-12 | 8-11 | 2 (lfo3) | same | L3 ... | red |
+| 13-16 | 12-15 | 3 (lfo4) | same | L4 ... | red |
+
+MOD-B — 16 cells:
+
+| pot | cell | src | param | label |
+|-----|------|-----|-------|-------|
+| 1/2/3 | 0/1/2 | 4 (eu1) | 0 steps / 1 pulses / 2 rot | E1 STPS/PULS/ROT |
+| 4/5/6 | 3/4/5 | 5 (eu2) | same | E2 STPS/PULS/ROT |
+| 7/8/9 | 6/7/8 | 6 (eu3) | same | E3 STPS/PULS/ROT |
+| 10/11/12 | 9/10/11 | 7 (eu4) | same | E4 STPS/PULS/ROT |
+| 13 | 12 | 8 (gate1) | 0 len | G1 LEN |
+| 14 | 13 | 8 (gate1) | 2 glen | G1 GLEN |
+| 15 | 14 | 10 (adsr1) | 0 mode | A1 MODE |
+| 16 | 15 | 4 (eu1) | 4 div | DIV (the page's sequencer division — the plan's "clock div" pot, mapped to the first sequenced source) |
+
+MOD-C — 13 cells (3 pots empty):
+
+| pot | cell | src | param | label |
+|-----|------|-----|-------|-------|
+| 1/2/3 | 0/1/2 | 9 (gate2) | 0 len / 1 mask / 2 glen | G2 LEN/MASK/GLEN |
+| 4-7 | 3-6 | 10 (adsr1) | 1 atk / 2 dec / 3 sus / 4 rel | A1 ATK/DEC/SUS/REL |
+| 8-11 | 7-10 | 11 (adsr2) | same | A2 ATK/DEC/SUS/REL |
+| 12 | 11 | global | BPM (value = (bpm-20)*127/280) | BPM |
+| 13 | 12 | global | clock source (value 0 internal / 127 midi; toggled by the MOD-C short push = UI_CMD sys id 2) | CLKSRC |
+
+SYS — 8 cells:
+
+| pot | cell | value | label |
+|-----|------|-------|-------|
+| 1-4 | 0-3 | 0 (the active module = the TELEM header byte) | ELEMENTS/CLOUDS/PLAITS/RINGS |
+| 5 | 4 | configured pair index 1-3 (shown while disengaged too) | CHAIN PR |
+| 6 | 5 | 0 off / 127 engaged | CHAIN ON |
+| 7 | 6 | 0/127 telemetry-deltas gate (sys id 0) | TELEM D |
+| 8 | 7 | 0/127 pushed-full-snapshot gate (sys id 1) | TELEM F |
+
+SYS pot 8 (middle row, 3rd) is the C3's LOCAL preset slot display (push
+cycles slot 0-3 + sends `PRESET_REQ [slot]`, T4a stub — the RP2350 owns no
+slot state yet, so this value is C3-local UI, not a TELEM cell); all other
+SYS pots render placeholders. DIN/UART status lives in the status tail.
+SYS short-push ring (one action per push, the next action marked with the
+yellow underline): chain-pair cycle (CHAIN_ROUTE with the new pair, engage
+state preserved) -> chain engage toggle (CHAIN_ROUTE) -> preset slot cycle
++ PRESET_REQ -> telem-deltas toggle -> telem-full toggle -> wrap.
+
 ## 7. Pin map + UART setup
 
 | Signal | ESP32-C3 (UI MCU) | RP2350 (rack) |
@@ -317,10 +416,19 @@ Power both. Expected:
 
 ### 8.4 What NOT to expect in stage 1
 
-- No screen, no pots, no encoder, no BLE (stages 2-6).
-- MOD-A/B/C and SYS pages reply count=0.
-- The C3 logs MIDI/SWITCH/MOD_SET frames it RECEIVES; it does not yet SEND
-  them on its own (the sending functions exist for stages 3-6).
-- The seed's ctag LinkClient/DspProxyLink machinery stays compiled but the
-  seed link task does NOT start (DspProxy::Init no longer calls
-  LinkClient::Start — RackLink owns UART0).
+Historical (stage 1): no screen/pots/encoder/BLE; MOD-A/B/C + SYS replied
+count=0; the C3 only received. Stages 2-6 (2026-11-08) replace these: the
+C3 firmware now renders the ST7789P3 bar, scans the HC4067 pots, runs the
+encoder gestures, and advertises BLE-MIDI (a PERIPHERAL — a central
+connects to it). The seed's ctag LinkClient/DspProxy machinery is excluded
+from the build (headers carry "seed reference, not built" notes).
+
+### 8.5 C3 bring-up, stages 2-6 (rack-uimcu)
+
+Screen/pots/encoder/BLE bench procedures live in `rack-uimcu/README.md`
+(GPIO allocation table, wiring, gesture timings, `testpat`/`calib`/`pots`/
+`heap` console commands, the per-stage wiring checklist). The C3 console
+is the USB-Serial-JTAG wire (line-based commands; ESP_LOG shares it). The
+RP2350-side bench helpers are unchanged: `ui` (counters), `uitest`
+(codec), `uisend [page]` (one snapshot), plus the same paths the new
+frames take (`switch`/`chain`/`mod`).
