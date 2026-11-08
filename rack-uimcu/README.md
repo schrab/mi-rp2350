@@ -82,8 +82,11 @@ event per detent (GPIO-ISR quadrature, seed detent table).
 
 ## Pot behavior
 
-- HC4067 round-robin at ~700 sweeps/s (8 us address settle + one ADC read
-  per channel); 0-127 mapped through the per-pot NVS min/max calibration.
+- HC4067 round-robin at ~100 sweeps/s (8 us address settle + one ADC
+  oneshot read per channel, one full-tick yield per sweep — the scan task
+  must not free-run: pdMS_TO_TICKS(1) is ZERO ticks at FREERTOS_HZ=100,
+  the seed's documented trap); 0-127 mapped through the per-pot NVS
+  min/max calibration.
 - Send-on-move: 2-count deadband vs the last SENT value, aggregate rate
   limit 200 msgs/s. P1/P2 -> MIDI CC (the ACTIVE page cell's CC), MOD
   pages -> MOD_SET [src][param] (the fixed map in ui/RackUI.cpp — MUST

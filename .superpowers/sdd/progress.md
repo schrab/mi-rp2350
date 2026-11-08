@@ -1725,3 +1725,44 @@ three are metrics-verified (ears at the DSP-acceptance checkpoint).
   history in one line: brief said TX=17/RX=16 (reversed), bench prep
   corrected to TX=16/RX=17, the board then removed both — **TX=GP0,
   RX=GP1 is final**. docs/ui-protocol.md §7/§8.3 updated.
+
+### Rack T5 — cross-board link BENCHED (2026-11-09, wires connected)
+
+The user wired the 3 link conductors + both boards came up. Three
+bench-caught bugs between the pin move and a working link — each found by
+hardware symptoms, decoded from panic dumps + TWDT captures + addr2line:
+
+1. **UserInput::Init never called** (crash loop): the ONLY call site lived
+   in the seed UIMenu framework — excluded from the build. evQueue stayed
+   nullptr → RackUI's first GetEvent assert-crashed
+   (xQueueReceive pxQueue) ~470 ms after every boot. Fix: UserInput::Init()
+   in app_main before RackUI::Init.
+2. **Display::Flush exceeded the SPI DMA cap** (silent full-page failure):
+   whole-page coalescing = 21584 px = 345344 bits > the C3's
+   SPI_LL_DMA_MAX_BIT_LEN (2^18) — check_trans_valid rejected every
+   full-page redraw ("txdata transfer > hardware max supported len"),
+   logged + swallowed since the stages-2-6 build. Fix: chunk each coalesced
+   row-run to ≤16000 px (256000 bits).
+3. **pdMS_TO_TICKS(1) = 0 ticks** (the seed's own documented trap, re-hit):
+   CONFIG_FREERTOS_HZ=100 → the pot scan task's "1 ms" delay was ZERO →
+   the prio-3 task free-ran → IDLE starved (TWDT every 5 s) AND the
+   prio-2 link task never ran again (silent wire, no probes, dead
+   console). ADC + wire were NEVER at fault — a boot probe proved all
+   five ADC1 channels complete (ch3 raw≈775 = the mux SIG mid-pot, ch4
+   raw=4095 = idle-high UART TX). Fix: one full tick per complete sweep
+   (~100 sweeps/s, each pot sampled every ~12 ms). Also migrated RackPots
+   to esp_adc oneshot (kills the deprecation warnings; the legacy
+   adc1_get_raw hung the same way).
+
+**Bench results (both boards):** C3 boot selftest `codec OK | hw-loop
+32/32 | rtt ~205 µs`; cross-board: probe → `rack link online` → full TELEM
+`page=0 mod=0 count=16` (elements P1, 16 cells) both directions; RP2350
+`ui` counters advance at the probe cadence, crc_err=0, `uisend` pushes a
+192-byte v2 snapshot; RP2350 echo turnaround 4-8 µs, C3-measured page
+request RTT ~50 ms (the RP2350's throttled reply path — bring-up number,
+not a fault). The C3 cycles online→quiet→probe every ~5 s BY DESIGN (the
+3 s offline watchdog with no idle traffic — stages 3-6 add real traffic).
+C3 console answers `ui` (page cells + link stats). The 64 fps flood seen
+mid-bench was the crash-loop era's selftest bursts + the RP2350's verbatim
+echoes — gone with the fixes. Stages 2-6 benches (screen, pots, encoder,
+gestures, BLE) are next per the wiring table.

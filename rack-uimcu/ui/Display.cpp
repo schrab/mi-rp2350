@@ -237,13 +237,26 @@ int Display::StringWidth(const char *s, Font f) {
 void Display::Flush() {
     // Coalesce consecutive dirty rows into single window transfers (a
     // page change redraws everything = one 43 KB burst; a delta touches
-    // a few rows).
+    // a few rows). CAPPED at kMaxFlushPixels per transaction: the C3's
+    // GPSPI DMA limit is 2^18 bits (SPI_LL_DMA_MAX_BIT_LEN, spi_ll.h:42)
+    // = 32768 B — a whole-page window is 284*76 = 21584 px = 345344 bits
+    // and check_trans_valid rejects it (bench-caught 2026-11-08: every
+    // full-page redraw silently failed, "txdata transfer > hardware max
+    // supported len"). 16000 px = 256000 bits, safely under the cap; W
+    // = 284 does not divide it evenly, so chunks end on row boundaries.
+    constexpr size_t kMaxFlushPixels = 16000;
     for (int y = 0; y < H;) {
         if (!dirty[y]) { ++y; continue; }
         int y1 = y;
         while (y1 + 1 < H && dirty[y1 + 1]) ++y1;
-        setWindow(0, y, W - 1, y1);
-        writePixels(&fb[y * W], (size_t)W * (y1 - y + 1));
+        int run = y;
+        while (run <= y1) {
+            int chunkEnd = run + (int)(kMaxFlushPixels / W) - 1;
+            if (chunkEnd > y1) chunkEnd = y1;
+            setWindow(0, run, W - 1, chunkEnd);
+            writePixels(&fb[run * W], (size_t)W * (chunkEnd - run + 1));
+            run = chunkEnd + 1;
+        }
         for (int k = y; k <= y1; ++k) dirty[k] = false;
         y = y1 + 1;
     }

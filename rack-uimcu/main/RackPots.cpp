@@ -10,7 +10,7 @@ MOD pages) — RackPots stays a dumb scanner/sender.
 
 #include "RackLink.hpp"
 #include "RackUI.hpp"
-#include "driver/adc.h"
+#include "esp_adc/adc_oneshot.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
@@ -39,7 +39,12 @@ namespace CTAG {
             // strap low — USB console + flashing are unaffected, only
             // OpenOCD-over-USB-JTAG would, which we never use).
             constexpr int PIN_ADC = 3;    // ADC1_CH3 (mux SIG, common)
-            constexpr adc1_channel_t ADC_CH = ADC1_CHANNEL_3;
+            constexpr adc_channel_t ADC_CH = ADC_CHANNEL_3;
+            // esp_adc oneshot handle (the legacy adc1_get_raw hung on its
+            // done-flag poll at task priority — bench-caught 2026-11-08:
+            // rack_pots starved CPU 0, the TWDT fired every 5 s and every
+            // lower-priority task — link, console, UI — never ran).
+            adc_oneshot_unit_handle_t s_adc = nullptr;
             constexpr int PIN_S0 = 10;
             constexpr int PIN_S1 = 20;
             constexpr int PIN_S2 = 21;
@@ -168,7 +173,10 @@ namespace CTAG {
                     // delay + the ADC's own sampling window is plenty.
                     addrSet(ch);
                     esp_rom_delay_us(8);
-                    const int raw = adc1_get_raw(ADC_CH);
+                    int raw = 0;
+                    // Oneshot read blocks for the conversion (~us) — the
+                    // scan rate stays ~700 sweeps/s.
+                    adc_oneshot_read(s_adc, ADC_CH, &raw);
                     const int64_t now = esp_timer_get_time();
 
                     if (calRunning) {
@@ -238,9 +246,17 @@ namespace CTAG {
 
                     ch = (uint8_t)((ch + 1) & 15);
 
-                    // ~700 sweeps/s: 16 x (8 us settle + ~90 us ADC read)
-                    // ~= 1.4 ms/sweep; the yield keeps the idle task fed.
-                    vTaskDelay(pdMS_TO_TICKS(1));
+                    // One FULL tick per complete 16-channel sweep. TRAP
+                    // (bench-caught 2026-11-08): CONFIG_FREERTOS_HZ=100
+                    // makes pdMS_TO_TICKS(1) round to ZERO — vTaskDelay(0)
+                    // free-runs this prio-3 task, starving IDLE (the TWDT
+                    // fired every 5 s) AND the prio-2 link task (silent
+                    // wire, no probes, dead console). The seed's LinkClient
+                    // carries the same lesson in its comments. ~2 ms of
+                    // scan per 10 ms tick ~= 100 sweeps/s; each pot is
+                    // sampled every ~12 ms — well inside the send-on-move
+                    // latency budget.
+                    if (ch == 0) vTaskDelay(1);
                 }
             }
 
@@ -280,10 +296,12 @@ namespace CTAG {
         }
 
         int RackPots::DebugRaw(uint8_t pot) {
-            if (pot >= NPOTS) return -1;
+            if (pot >= NPOTS || s_adc == nullptr) return -1;
             addrSet(pot);
             esp_rom_delay_us(8);
-            return adc1_get_raw(ADC_CH);
+            int raw = 0;
+            adc_oneshot_read(s_adc, ADC_CH, &raw);
+            return raw;
         }
 
         int RackPots::DebugValue(uint8_t pot) {
@@ -360,9 +378,16 @@ namespace CTAG {
             gpio_config(&io);
             addrSet(0);
 
-            // ADC1_CH0, 12 bit, 11 dB atten (full 0..~3.3 V swing).
-            adc1_config_width(ADC_WIDTH_BIT_12);
-            adc1_config_channel_atten(ADC_CH, ADC_ATTEN_DB_11);
+            // ADC1 oneshot unit, CH3 (mux SIG), 12 bit, 12 dB atten
+            // (full 0..~3.3 V swing; DB_12 == the old DB_11 value range).
+            adc_oneshot_unit_init_cfg_t unit = {};
+            unit.unit_id = ADC_UNIT_1;
+            unit.ulp_mode = ADC_ULP_MODE_DISABLE;
+            ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit, &s_adc));
+            adc_oneshot_chan_cfg_t chan = {};
+            chan.atten = ADC_ATTEN_DB_12;
+            chan.bitwidth = ADC_BITWIDTH_12;
+            ESP_ERROR_CHECK(adc_oneshot_config_channel(s_adc, ADC_CH, &chan));
 
             loadCal();
             for (int i = 0; i < NPOTS; ++i) {

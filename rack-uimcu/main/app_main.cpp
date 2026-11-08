@@ -23,6 +23,7 @@ C3's ~320 KB).
 #include "RackPots.hpp"
 #include "RackConsole.hpp"
 #include "BtMidiReceiver.hpp"
+#include "input/UserInput.hpp"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
@@ -44,7 +45,14 @@ extern "C" void app_main() {
     // 3. Console (USJ driver + log hand-off) — bring-up commands live here.
     CTAG::CTRL::RackConsole::Start();
 
-    // 4. UI task FIRST (before NimBLE eats the heap; the seed's ordering
+    // 4. Encoder/push input (queue + gpio + poll task) BEFORE the UI task —
+    // RackUI::TaskFunction's first statement polls GetEvent; the only seed
+    // call site of UserInput::Init was in the EXCLUDED UIMenu framework, so
+    // the queue was never created and the first poll assert-crashed
+    // (bench-caught 2026-11-08: xQueueReceive(pxQueue) boot loop).
+    CTAG::CTRL::UserInput::Init();
+
+    // UI task FIRST (before NimBLE eats the heap; the seed's ordering
     // lesson): Init draws the dash placeholder page + status strip and
     // sends the first P1 page request; the task serves gestures + TELEM
     // renders at ~60 Hz.
