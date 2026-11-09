@@ -273,10 +273,10 @@ struct UiAuxCell {
 static const uint8_t kUiAuxSelModule    = 0;   // param selectors for src 0xFF
 static const uint8_t kUiAuxSelChainPair = 4;
 static const uint8_t kUiAuxSelChainOn   = 5;
-static const uint8_t kUiAuxSelTelemD    = 6;
-static const uint8_t kUiAuxSelTelemF    = 7;
-static const uint8_t kUiAuxSelBpm       = 8;
-static const uint8_t kUiAuxSelClkSrc    = 9;
+static const uint8_t kUiAuxSelBpm       = 6;
+static const uint8_t kUiAuxSelClkSrc    = 7;
+static const uint8_t kUiAuxSelTelemD    = 14;
+static const uint8_t kUiAuxSelTelemF    = 15;
 
 // MOD-LFO 1/2: 2x LFO with full 6 params (Row 0 = LFO 1, Row 2 = LFO 2)
 static const UiAuxCell kUiModLfo12Cells[16] = {
@@ -393,8 +393,8 @@ static const UiAuxCell kUiModEnvCells[16] = {
     {"A2 DIV",  kUiColorTeal, 9, 6},
 };
 
-// SYS: 4 module cells, chain pair + engage, telemetry gates, preset slot,
-// master BPM pot, and master clock source toggle.
+// SYS: 4 module cells, chain pair + engage, master BPM pot,
+// master clock source toggle, preset slot, telemetry gates.
 static const UiAuxCell kUiSysCells[16] = {
     {"ELEMENTS", kUiColorWhite, 0xFF, kUiAuxSelModule},
     {"CLOUDS",   kUiColorWhite, 0xFF, kUiAuxSelModule + 1},
@@ -402,16 +402,16 @@ static const UiAuxCell kUiSysCells[16] = {
     {"RINGS",    kUiColorWhite, 0xFF, kUiAuxSelModule + 3},
     {"CHAIN PR", kUiColorWhite, 0xFF, kUiAuxSelChainPair},
     {"CHAIN ON", kUiColorWhite, 0xFF, kUiAuxSelChainOn},
-    {"TELEM D",  kUiColorWhite, 0xFF, kUiAuxSelTelemD},
-    {"TELEM F",  kUiColorWhite, 0xFF, kUiAuxSelTelemF},
-    {"PRESET",   kUiColorWhite, 0xFF, 0xFF},
-    {"",         kUiColorWhite, 0xFF, 0xFF},
     {"BPM",      kUiColorWhite, 0xFF, kUiAuxSelBpm},
     {"CLKSRC",   kUiColorWhite, 0xFF, kUiAuxSelClkSrc},
+    {"PRESET",   kUiColorWhite, 0xFF, 0xFF},
     {"",         kUiColorWhite, 0xFF, 0xFF},
     {"",         kUiColorWhite, 0xFF, 0xFF},
     {"",         kUiColorWhite, 0xFF, 0xFF},
     {"",         kUiColorWhite, 0xFF, 0xFF},
+    {"",         kUiColorWhite, 0xFF, 0xFF},
+    {"TELEM D",  kUiColorWhite, 0xFF, kUiAuxSelTelemD},
+    {"TELEM F",  kUiColorWhite, 0xFF, kUiAuxSelTelemF},
 };
 
 // ===================== telemetry gates (sys toggles 0/1) =====================

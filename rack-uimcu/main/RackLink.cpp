@@ -286,10 +286,10 @@ namespace CTAG {
                             rawBpm += 256;
                         }
                     }
-                    if (page == 7 && count > 10) {
-                        s_telem.bpm = (uint16_t)(20 + ((uint32_t)s_telem.cell[10].value * 280 + 63) / 127);
+                    if (page == 7 && count > 6) {
+                        s_telem.bpm = (uint16_t)(20 + ((uint32_t)s_telem.cell[6].value * 280 + 63) / 127);
                     } else if (!(page == 7 && samePageAndMod &&
-                                 RackPots::RecentlyMoved(10))) {
+                                 RackPots::RecentlyMoved(6))) {
                         s_telem.bpm = rawBpm;
                     }
                     s_telem.chain = pl[off + 2];
@@ -653,7 +653,7 @@ namespace CTAG {
             taskENTER_CRITICAL(&telemMux);
             if (s_telem.valid && slot < s_telem.count) {
                 s_telem.cell[slot].value = value;
-                if (s_telem.page == 7 && slot == 10) {
+                if (s_telem.page == 7 && slot == 6) {
                     s_telem.bpm = (uint16_t)(20 + ((int)value * 280 + 63) / 127);
                 }
                 s_telem_dirty = true;

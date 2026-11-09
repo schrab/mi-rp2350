@@ -1894,7 +1894,13 @@ gestures, BLE) are next per the wiring table.
    - `ELEMENTS P2`: Reduced to only 2 cells — `MODEL` (CC 28) on pot 0 and `OMINOUS` (CC 29) on pot 1. Pots 2..15 are blank.
    - `CLOUDS`, `PLAITS`, `RINGS`: Set P2 cell count to 0 (no duplicate parameters).
 
-5. **Clamped Page Navigation:**
+5. **Clamped Page Navigation & Empty P2 Skip:**
    - Rotary encoder page navigation clamped to `[0..7]`: CCW stops at `P1` (no wrap to `SYSTEM`); CW stops at `SYSTEM` (no wrap to `P1`).
+   - Plugins without a secondary page (`CLOUDS`, `PLAITS`, `RINGS`) automatically skip `P2` during navigation — `P1` advances directly to `MOD-LFO 1/2`, and `MOD-LFO 1/2` steps directly back to `P1`. If the active module changes to one without P2 while on page 1, the UI auto-resets to `P1` (page 0).
+
+6. **SYSTEM Page Layout Refinement:**
+   - Moved `BPM` (20..300) to Pot 7 (slot 6) and `CLKSRC` (INT/MIDI) to Pot 8 (slot 7) in Row 1, alongside `PRESET` (Pot 9, slot 8).
+   - Moved `TELEM D` to Pot 15 (slot 14) and `TELEM F` to Pot 16 (slot 15) in the bottom-right corner of Row 2.
+   - Updated C3 `RackLink` telemetry BPM extraction, local cell writes, `RackUI` soft takeover bucket logic, discrete toggle mappings, and the push-ring cycle indicator (`ringCell: 4, 5, 8, 14, 15`).
 
 

@@ -138,6 +138,10 @@ namespace CTAG {
             "GAT1", "GAT2", "ADS1", "ADS2",
         };
 
+        static inline bool ModuleHasP2(uint8_t mod) {
+            return (mod & 3) == 0; // Only Elements (module 0) has P2
+        }
+
         // Return discrete option count N (2..98) if (page, mod, slot, cc) is
         // a stepped selector on P1/P2 whose wire byte is 0..N-1 (or 0/127 for
         // 2-state triggers/toggles); 0 if continuous 0..127.
@@ -205,12 +209,11 @@ namespace CTAG {
                     if (wireVal == 2) return 64;
                     return 127;
                 }
-                if (slot >= 5 && slot <= 7) {
+                if (slot == 5 || slot == 7 || slot == 14 || slot == 15) {
                     return wireVal ? 127 : 0;
                 }
-                if (slot == 11) {
-                    // SYS CLKSRC: 0 or 127
-                    return wireVal >= 64 ? 127 : 0;
+                if (slot == 6) {
+                    return wireVal;
                 }
             }
             return wireVal;
@@ -387,8 +390,9 @@ namespace CTAG {
                 return potVal;
             }
             if (page == 7) {
-                // SYS: 0..3 modules (0..1), 4 CHAIN PR (1..3),
-                // 5..7 toggles (0..1), 8 PRESET (0..3), 10 BPM (20..300), 11 CLKSRC (0..1)
+                // SYS: 0..3 modules (0..1), 4 CHAIN PR (1..3), 5 CHAIN ON (0..1),
+                // 6 BPM (20..300), 7 CLKSRC (0..1), 8 PRESET (0..3),
+                // 14 TELEM D (0..1), 15 TELEM F (0..1)
                 if (slot == 4) {
                     int v = 1 + ((int)potVal * 3) / 128;
                     if (v > 3) v = 3;
@@ -396,23 +400,23 @@ namespace CTAG {
                     barMax = 2;
                     return v;
                 }
-                if (slot == 8) {
-                    int v = ((int)potVal * 4) / 128;
-                    if (v > 3) v = 3;
-                    barVal = v;
-                    barMax = 3;
-                    return v;
-                }
-                if (slot == 10) {
+                if (slot == 6) {
                     int v = 20 + ((int)potVal * 280 + 63) / 127;
                     barVal = potVal;
                     barMax = 127;
                     return v;
                 }
-                if (slot == 11) {
+                if (slot == 7) {
                     int v = potVal >= 64 ? 1 : 0;
                     barVal = v;
                     barMax = 1;
+                    return v;
+                }
+                if (slot == 8) {
+                    int v = ((int)potVal * 4) / 128;
+                    if (v > 3) v = 3;
+                    barVal = v;
+                    barMax = 3;
                     return v;
                 }
                 int v = potVal >= 64 ? 1 : 0;
@@ -619,8 +623,8 @@ namespace CTAG {
             if (s_page == 7 && s_fullArrived) {
                 for (int slot = 0; slot < 16; ++slot) {
                     // ring: 0 chain-pair(cell 4) 1 engage(5) 2 preset(8,
-                    // C3-local) 3 telem-d(6) 4 telem-f(7)
-                    static const int ringCell[5] = { 4, 5, 8, 6, 7 };
+                    // C3-local) 3 telem-d(14) 4 telem-f(15)
+                    static const int ringCell[5] = { 4, 5, 8, 14, 15 };
                     const bool marked = ringCell[s_sysRing] == slot;
                     const int x = cellX(slot), y = cellY(slot);
                     Display::FillRect(x, y + BAR_DY + 3, cellW(slot) - 2, 1,
@@ -694,7 +698,7 @@ namespace CTAG {
             } else if (s_page == 7) {
                 if (pot == 4) n = 3;          // CHAIN PR (1..3)
                 else if (pot == 8) n = 4;     // PRESET (0..3)
-                else if (pot < 8 || pot == 11) n = 2; // Modules 0..3, toggles 5..7, CLKSRC 11
+                else if (pot < 4 || pot == 5 || pot == 7 || pot == 14 || pot == 15) n = 2; // Modules 0..3, CHAIN ON 5, CLKSRC 7, TELEM D 14, TELEM F 15
             }
             if (n >= 2 && n <= 12) {
                 int k = ((int)t.value * n) / 128;
@@ -768,9 +772,21 @@ namespace CTAG {
             }
             if (s_page == 7) {
                 if (!s_fullArrived) return false;
-                if (pot < 8 && pot < s_cur.count) {
+                if (pot < 6 && pot < s_cur.count) {
                     out.kind = PotTarget::kSys;
                     out.cc = pot;
+                    out.value = s_cur.cell[pot].value;
+                    return true;
+                }
+                if (pot == 6 && pot < s_cur.count) {
+                    out.kind = PotTarget::kGlobal;
+                    out.cc = 0;             // item 0 = BPM (kUiGlobalBpm)
+                    out.value = s_cur.cell[pot].value;
+                    return true;
+                }
+                if (pot == 7 && pot < s_cur.count) {
+                    out.kind = PotTarget::kSys;
+                    out.cc = 7;            // CLKSRC on SYS
                     out.value = s_cur.cell[pot].value;
                     return true;
                 }
@@ -780,15 +796,9 @@ namespace CTAG {
                     out.value = (uint8_t)(((uint16_t)s_presetSlot * 127) / 3);
                     return true;
                 }
-                if (pot == 10 && pot < s_cur.count) {
-                    out.kind = PotTarget::kGlobal;
-                    out.cc = 0;             // item 0 = BPM (kUiGlobalBpm)
-                    out.value = s_cur.cell[pot].value;
-                    return true;
-                }
-                if (pot == 11 && pot < s_cur.count) {
+                if ((pot == 14 || pot == 15) && pot < s_cur.count) {
                     out.kind = PotTarget::kSys;
-                    out.cc = 11;            // CLKSRC on SYS
+                    out.cc = pot;          // TELEM D (14), TELEM F (15)
                     out.value = s_cur.cell[pot].value;
                     return true;
                 }
@@ -823,7 +833,7 @@ namespace CTAG {
                     break;
                 }
                 case PotTarget::kSys: {
-                    if (s_page == 7 && pot == 11) {
+                    if (s_page == 7 && pot == 7) {
                         // SYS CLKSRC (0 = INT, 1 = MIDI)
                         const uint8_t wantClk = potVal >= 64 ? 1 : 0;
                         RackLink::TelemLocalCellWrite(pot, potVal);
@@ -898,10 +908,10 @@ namespace CTAG {
                                 s_pendingRefreshUs =
                                     esp_timer_get_time() + 45000;
                             }
-                        } else if (pot == 6) {
+                        } else if (pot == 14) {
                             const uint8_t wantOn = potVal >= 64 ? 1 : 0;
                             const uint8_t curOn =
-                                s_cur.cell[6].value >= 64 ? 1 : 0;
+                                s_cur.cell[14].value >= 64 ? 1 : 0;
                             RackLink::TelemLocalCellWrite(pot, potVal);
                             if (s_lastWireSent[pot] != wantOn) {
                                 s_lastWireSent[pot] = wantOn;
@@ -912,10 +922,10 @@ namespace CTAG {
                                         esp_timer_get_time() + 45000;
                                 }
                             }
-                        } else if (pot == 7) {
+                        } else if (pot == 15) {
                             const uint8_t wantOn = potVal >= 64 ? 1 : 0;
                             const uint8_t curOn =
-                                s_cur.cell[7].value >= 64 ? 1 : 0;
+                                s_cur.cell[15].value >= 64 ? 1 : 0;
                             RackLink::TelemLocalCellWrite(pot, potVal);
                             if (s_lastWireSent[pot] != wantOn) {
                                 s_lastWireSent[pot] = wantOn;
@@ -989,9 +999,24 @@ namespace CTAG {
                                     (s_overlaySel + ev.delta + 4) & 3);
                                 s_stripDirty = true;
                             } else {
-                                int p = (int)s_page + ev.delta;
-                                if (p < 0) p = 0;
-                                if (p > 7) p = 7;
+                                int p = (int)s_page;
+                                int steps = ev.delta;
+                                while (steps > 0) {
+                                    p++;
+                                    if (p == 1 && !ModuleHasP2(s_cur.module)) {
+                                        p++; // skip empty P2
+                                    }
+                                    if (p > 7) { p = 7; break; }
+                                    steps--;
+                                }
+                                while (steps < 0) {
+                                    p--;
+                                    if (p == 1 && !ModuleHasP2(s_cur.module)) {
+                                        p--; // skip empty P2
+                                    }
+                                    if (p < 0) { p = 0; break; }
+                                    steps++;
+                                }
                                 if (p != (int)s_page) {
                                     SetPage((uint8_t)p);
                                 }
@@ -1016,6 +1041,9 @@ namespace CTAG {
                                     esp_timer_get_time() + 45000;
                                 s_overlay = false;
                                 s_assignArmed = false;
+                                if (s_page == 1 && !ModuleHasP2(s_overlaySel)) {
+                                    SetPage(0);
+                                }
                             } else {
                                 s_assignArmed = false;   // release cancels
                             }
@@ -1058,6 +1086,9 @@ namespace CTAG {
                             (s_page <= 1 && tmp.module != s_cur.module);
                         if (pageOrModChanged) {
                             s_cur = tmp;
+                            if (s_page == 1 && !ModuleHasP2(s_cur.module)) {
+                                SetPage(0);
+                            }
                             if (wasFull) s_fullArrived = true;
                             s_pageDirty = true;
                             // Fresh page state: recompute pot pickup for

@@ -280,7 +280,7 @@ P2 = duplicate of P1.
 | 10 | 23 | CHORD |
 | 11 | 64 | STRUM (momentary) |
 
-P2 = elements has 2 unique parameters (MODEL CC 28, OMINOUS CC 29); clouds, plaits, rings have count = 0 (no duplicate parameters).
+P2 = elements has 2 unique parameters (MODEL CC 28, OMINOUS CC 29); clouds, plaits, rings have count = 0 (no duplicate parameters). Page navigation automatically skips P2 when the active module has no secondary parameter page (P1 navigates directly to/from MOD-LFO 1/2).
 
 ### Dedicated Modulation + SYS — aux cell tables
 
@@ -335,18 +335,18 @@ MOD-ENV — 2x ADSR: Row 0 = ADSR 1 (pots 0-5), Row 2 = ADSR 2 (pots 10-15):
 | 1 | 6-9 | 6-9 | - | - | (empty) | - |
 | 2 | 10-15 | 10-15 | 9 (adsr2) | same | A2 ATK/DEC/SUS/REL/MODE/DIV | teal |
 
-SYS — 16 cells (Row 0 modules & chain, Row 1 telem & preset, Row 2 master BPM & CLKSRC):
+SYS — 16 cells (Row 0 modules & chain, Row 1 BPM, CLKSRC & preset, Row 2 telemetry gates):
 
 | row | pot | cell | value | label |
 |-----|-----|------|-------|-------|
 | 0 | 0-3 | 0-3 | 0 (the active module = the TELEM header byte) | ELEMENTS/CLOUDS/PLAITS/RINGS |
 | 0 | 4 | 4 | configured pair index 1-3 | CHAIN PR |
 | 0 | 5 | 5 | 0 off / 127 engaged | CHAIN ON |
-| 1 | 6 | 6 | 0/127 telemetry-deltas gate (sys id 0) | TELEM D |
-| 1 | 7 | 7 | 0/127 pushed-full-snapshot gate (sys id 1) | TELEM F |
+| 1 | 6 | 6 | 20-300 master tempo (UI_CMD action 5 BPM) | BPM |
+| 1 | 7 | 7 | 0 internal / 127 midi (UI_CMD action 3 sys id 2) | CLKSRC |
 | 1 | 8 | 8 | preset slot 0-3 | PRESET |
-| 2 | 10 | 10 | 20-300 master tempo (UI_CMD action 5 BPM) | BPM |
-| 2 | 11 | 11 | 0 internal / 127 midi (UI_CMD action 3 sys id 2) | CLKSRC |
+| 2 | 14 | 14 | 0/127 telemetry-deltas gate (sys id 0) | TELEM D |
+| 2 | 15 | 15 | 0/127 pushed-full-snapshot gate (sys id 1) | TELEM F |
 
 SYS short-push ring (one action per push, marked with yellow underline):
 chain-pair cycle -> chain engage toggle -> preset slot cycle + PRESET_REQ ->
