@@ -376,7 +376,12 @@ void Display::Init() {
 
     spi_device_interface_config_t dev = {};
     dev.clock_speed_hz = ST7789_SPI_CLOCK_HZ;
-    dev.mode = 0;
+    dev.mode = 3;                             // CPOL=1/CPHA=1: REQUIRED with CS
+                                              // tied GND — mode 0 is only safe
+                                              // when a real CS frames each byte
+                                              // (white since c17d54c removed CS;
+                                              // bbtest worked because bbBit
+                                              // leaves SCK idling HIGH = mode 3)
     dev.spics_io_num = -1;                    // CS tied GND (single device);
                                               // the desync fix = the firmware
                                               // RST pulse on GPIO7, not CS

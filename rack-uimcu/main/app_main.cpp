@@ -45,7 +45,7 @@ extern "C" void app_main() {
         io.mode = GPIO_MODE_OUTPUT;
         io.pull_down_en = GPIO_PULLDOWN_ENABLE;
         gpio_config(&io);
-        gpio_set_level((gpio_num_t)10, 0);  // SCK idle low
+        gpio_set_level((gpio_num_t)10, 1);  // SCK idle HIGH (SPI mode 3)
         gpio_set_level((gpio_num_t)20, 0);  // MOSI low
         gpio_set_level((gpio_num_t)21, 0);  // DC low (command)
         io.pin_bit_mask = 1ULL << 7;
