@@ -31,27 +31,31 @@ namespace CTAG {
         // — the pot index IS the cell index on these pages.
         struct SrcParam { uint8_t src, param; };
         static const SrcParam kNoSet = { 0xFF, 0xFF };
-        static const SrcParam kModPotMap[3][16] = {
-            {   // MOD-A: 4x LFO (rate, level, wave, phase per source)
-                {0, 1}, {0, 4}, {0, 2}, {0, 3},
-                {1, 1}, {1, 4}, {1, 2}, {1, 3},
-                {2, 1}, {2, 4}, {2, 2}, {2, 3},
-                {3, 1}, {3, 4}, {3, 2}, {3, 3},
+        static const SrcParam kModPotMap[5][16] = {
+            {   // MOD-LFO 1/2 (page 2): LFO 1 (pots 0..5), LFO 2 (pots 10..15)
+                {0, 1}, {0, 2}, {0, 3}, {0, 4}, {0, 0}, {0, 6},
+                kNoSet, kNoSet, kNoSet, kNoSet,
+                {1, 1}, {1, 2}, {1, 3}, {1, 4}, {1, 0}, {1, 6},
             },
-            {   // MOD-B: 4x EUclid + gate1 len/glen + adsr1 mode + div (EU1)
-                {4, 0}, {4, 1}, {4, 2},
-                {5, 0}, {5, 1}, {5, 2},
-                {6, 0}, {6, 1}, {6, 2},
-                {7, 0}, {7, 1}, {7, 2},
-                {8, 0}, {8, 2}, {10, 0}, {4, 4},
+            {   // MOD-LFO 3/4 (page 3): LFO 3 (pots 0..5), LFO 4 (pots 10..15)
+                {2, 1}, {2, 2}, {2, 3}, {2, 4}, {2, 0}, {2, 6},
+                kNoSet, kNoSet, kNoSet, kNoSet,
+                {3, 1}, {3, 2}, {3, 3}, {3, 4}, {3, 0}, {3, 6},
             },
-            {   // MOD-C: gate2 + ADSR1/2 + BPM pot (UI_CMD SET_GLOBAL) +
-                // CLKSRC (push toggles, pot inert)
-                {9, 0}, {9, 1}, {9, 2},
-                {10, 1}, {10, 2}, {10, 3}, {10, 4},
-                {11, 1}, {11, 2}, {11, 3}, {11, 4},
-                kNoSet /* BPM -> kGlobal */, kNoSet /* CLKSRC: push only */,
-                kNoSet, kNoSet, kNoSet,
+            {   // MOD-TRIG (page 4): EUCLID 1 (pots 0..4), EUCLID 2 (pots 10..14)
+                {4, 0}, {4, 1}, {4, 2}, {4, 3}, {4, 4}, kNoSet,
+                kNoSet, kNoSet, kNoSet, kNoSet,
+                {5, 0}, {5, 1}, {5, 2}, {5, 3}, {5, 4}, kNoSet,
+            },
+            {   // MOD-GATE (page 5): GATE 1 (pots 0..4), GATE 2 (pots 10..14)
+                {6, 0}, {6, 1}, {6, 2}, {6, 3}, {6, 4}, kNoSet,
+                kNoSet, kNoSet, kNoSet, kNoSet,
+                {7, 0}, {7, 1}, {7, 2}, {7, 3}, {7, 4}, kNoSet,
+            },
+            {   // MOD-ENV (page 6): ADSR 1 (pots 0..5), ADSR 2 (pots 10..15)
+                {8, 1}, {8, 2}, {8, 3}, {8, 4}, {8, 0}, {8, 6},
+                kNoSet, kNoSet, kNoSet, kNoSet,
+                {9, 1}, {9, 2}, {9, 3}, {9, 4}, {9, 0}, {9, 6},
             },
         };
 
@@ -93,7 +97,7 @@ namespace CTAG {
         }
 
         // ===================== state =====================
-        static uint8_t s_page = 0;            // 0-5
+        static uint8_t s_page = 0;            // 0-7
         static bool s_assignArmed = false;    // push held (assign/overlay)
         static bool s_overlay = false;        // module-select overlay live
         static uint8_t s_overlaySel = 0;      // 0-3
@@ -103,7 +107,7 @@ namespace CTAG {
         static bool s_blinkPhase = false;     // 2 Hz inert-cell blink
         static uint8_t s_activePot = 0xFF;    // last moved pot (0-15)
         static uint8_t s_assignPot = 0xFF;    // pot being mapped while held
-        static uint8_t s_assignSrc = 0;       // 0 = OFF, 1..12 = LFO1..ADS2
+        static uint8_t s_assignSrc = 0;       // 0 = OFF, 1..10 = LFO1..ADS2
         static uint16_t s_lastWireSent[16];   // dedup discrete wire sends
         static int64_t s_pendingRefreshUs = 0;
         static bool s_bootModCleaned = false;
@@ -124,13 +128,13 @@ namespace CTAG {
         };
         static CellSnap s_rendered[16];
 
-        static const char *kPageNames[6] = {
-            "P1", "P2", "MOD-A", "MOD-B", "MOD-C", "SYS",
+        static const char *kPageNames[8] = {
+            "P1", "P2", "MOD-LFO 1/2", "MOD-LFO 3/4", "MOD-TRIG", "MOD-GATE", "MOD-ENV", "SYS",
         };
-        static const char *kModNames[4] = { "ELEM", "CLDS", "PLTS", "RNGS" };
-        static const char *kSrcNames[13] = {
+        static const char *kModNames[4] = { "ELEMENTS", "CLOUDS", "PLAITS", "RINGS" };
+        static const char *kSrcNames[11] = {
             "OFF",  "LFO1", "LFO2", "LFO3", "LFO4",
-            "EUC1", "EUC2", "EUC3", "EUC4",
+            "EUC1", "EUC2",
             "GAT1", "GAT2", "ADS1", "ADS2",
         };
 
@@ -189,15 +193,11 @@ namespace CTAG {
                 }
                 return wireVal;
             }
-            if (page == 3 && slot == 14) {
-                // MOD-B A1 MODE: RP2350 sends 0 or 64
+            if ((page == 2 || page == 3 || page == 6) && (slot == 4 || slot == 14)) {
+                // LFO/ENV MODE: 0 or 127
                 return wireVal >= 64 ? 127 : 0;
             }
-            if (page == 4 && slot == 12) {
-                // MOD-C CLKSRC: 0 or 127
-                return wireVal >= 64 ? 127 : 0;
-            }
-            if (page == 5) {
+            if (page == 7) {
                 if (slot < 4) return (mod == slot) ? 127 : 0;
                 if (slot == 4) {
                     // CHAIN PR: wire is 1..3
@@ -207,6 +207,10 @@ namespace CTAG {
                 }
                 if (slot >= 5 && slot <= 7) {
                     return wireVal ? 127 : 0;
+                }
+                if (slot == 11) {
+                    // SYS CLKSRC: 0 or 127
+                    return wireVal >= 64 ? 127 : 0;
                 }
             }
             return wireVal;
@@ -265,49 +269,24 @@ namespace CTAG {
                 }
                 return potVal;
             }
-            if (page == 2) {
-                // MOD-A: L1..L4 WAVE at slots 2, 6, 10, 14 (5 waves: 0..4)
-                if ((slot & 3) == 2) {
+            if (page == 2 || page == 3) {
+                // MOD-LFO: WAVE (1, 11) -> 5 waves (0..4)
+                if (slot == 1 || slot == 11) {
                     int idx = ((int)potVal * 5) / 128;
                     if (idx > 4) idx = 4;
                     barVal = idx;
                     barMax = 4;
                     return idx;
                 }
-                return potVal;
-            }
-            if (page == 3) {
-                // MOD-B: E1..E4 STPS (0,3,6,9) & G1 LEN (12) -> 1..32
-                if (slot == 0 || slot == 3 || slot == 6 || slot == 9 ||
-                    slot == 12) {
-                    int v = 1 + ((int)potVal * 31 + 63) / 127;
-                    barVal = v - 1;
-                    barMax = 31;
-                    return v;
-                }
-                // E1..E4 PULS (1,4,7,10) -> 0..32
-                if (slot == 1 || slot == 4 || slot == 7 || slot == 10) {
-                    int v = ((int)potVal * 32 + 63) / 127;
-                    barVal = v;
-                    barMax = 32;
-                    return v;
-                }
-                // E1..E4 ROT (2,5,8,11) -> 0..31
-                if (slot == 2 || slot == 5 || slot == 8 || slot == 11) {
-                    int v = ((int)potVal * 31 + 63) / 127;
-                    barVal = v;
-                    barMax = 31;
-                    return v;
-                }
-                // A1 MODE (14) -> 0..1
-                if (slot == 14) {
+                // MODE (4, 14) -> 0..1 (Hz vs Clocked)
+                if (slot == 4 || slot == 14) {
                     int v = potVal >= 64 ? 1 : 0;
                     barVal = v;
                     barMax = 1;
                     return v;
                 }
-                // DIV (15) -> 10 clock divisions (0..9)
-                if (slot == 15) {
+                // DIV (5, 15) -> 10 divisions (0..9)
+                if (slot == 5 || slot == 15) {
                     int v = ((int)potVal * 10) / 128;
                     if (v > 9) v = 9;
                     barVal = v;
@@ -317,38 +296,99 @@ namespace CTAG {
                 return potVal;
             }
             if (page == 4) {
-                // MOD-C: G2 LEN (0) -> 1..32, G2 MASK (1) -> 0..32
-                if (slot == 0) {
+                // MOD-TRIG: E1/E2 STPS (0, 10) -> 1..32
+                if (slot == 0 || slot == 10) {
                     int v = 1 + ((int)potVal * 31 + 63) / 127;
                     barVal = v - 1;
                     barMax = 31;
                     return v;
                 }
-                if (slot == 1) {
+                // E1/E2 PULS (1, 11) -> 0..32
+                if (slot == 1 || slot == 11) {
                     int v = ((int)potVal * 32 + 63) / 127;
                     barVal = v;
                     barMax = 32;
                     return v;
                 }
-                // BPM (11) -> 20..300
-                if (slot == 11) {
-                    int v = 20 + ((int)potVal * 280 + 63) / 127;
-                    barVal = potVal;
-                    barMax = 127;
+                // E1/E2 ROT (2, 12) -> 0..31
+                if (slot == 2 || slot == 12) {
+                    int v = ((int)potVal * 31 + 63) / 127;
+                    barVal = v;
+                    barMax = 31;
                     return v;
                 }
-                // CLKSRC (12) -> 0..1
-                if (slot == 12) {
-                    int v = potVal >= 64 ? 1 : 0;
+                // E1/E2 CLK (3, 13) -> 0..2
+                if (slot == 3 || slot == 13) {
+                    int v = ((int)potVal * 3) / 128;
+                    if (v > 2) v = 2;
                     barVal = v;
-                    barMax = 1;
+                    barMax = 2;
+                    return v;
+                }
+                // E1/E2 DIV (4, 14) -> 0..9
+                if (slot == 4 || slot == 14) {
+                    int v = ((int)potVal * 10) / 128;
+                    if (v > 9) v = 9;
+                    barVal = v;
+                    barMax = 9;
                     return v;
                 }
                 return potVal;
             }
             if (page == 5) {
+                // MOD-GATE: G1/G2 LEN (0, 10) -> 1..32
+                if (slot == 0 || slot == 10) {
+                    int v = 1 + ((int)potVal * 31 + 63) / 127;
+                    barVal = v - 1;
+                    barMax = 31;
+                    return v;
+                }
+                // G1/G2 MASK (1, 11) -> 0..32
+                if (slot == 1 || slot == 11) {
+                    int v = ((int)potVal * 32 + 63) / 127;
+                    barVal = v;
+                    barMax = 32;
+                    return v;
+                }
+                // G1/G2 CLK (3, 13) -> 0..2
+                if (slot == 3 || slot == 13) {
+                    int v = ((int)potVal * 3) / 128;
+                    if (v > 2) v = 2;
+                    barVal = v;
+                    barMax = 2;
+                    return v;
+                }
+                // G1/G2 DIV (4, 14) -> 0..9
+                if (slot == 4 || slot == 14) {
+                    int v = ((int)potVal * 10) / 128;
+                    if (v > 9) v = 9;
+                    barVal = v;
+                    barMax = 9;
+                    return v;
+                }
+                return potVal;
+            }
+            if (page == 6) {
+                // MOD-ENV: A1/A2 MODE (4, 14) -> 0..1 (gate / retrig)
+                if (slot == 4 || slot == 14) {
+                    int v = potVal >= 64 ? 1 : 0;
+                    barVal = v;
+                    barMax = 1;
+                    return v;
+                }
+                // A1/A2 DIV (5, 15) -> 0..9
+                if (slot == 5 || slot == 15) {
+                    int v = ((int)potVal * 10) / 128;
+                    if (v > 9) v = 9;
+                    barVal = v;
+                    barMax = 9;
+                    return v;
+                }
+                return potVal;
+            }
+            if (page == 7) {
                 // SYS: 0..3 modules (0..1), 4 CHAIN PR (1..3),
-                // 5..7 toggles (0..1), 8 PRESET (0..3)
+                // 5..7 toggles (0..1), 8 PRESET (0..3), 10 BPM (20..300), 11 CLKSRC (0..1)
                 if (slot == 4) {
                     int v = 1 + ((int)potVal * 3) / 128;
                     if (v > 3) v = 3;
@@ -363,6 +403,18 @@ namespace CTAG {
                     barMax = 3;
                     return v;
                 }
+                if (slot == 10) {
+                    int v = 20 + ((int)potVal * 280 + 63) / 127;
+                    barVal = potVal;
+                    barMax = 127;
+                    return v;
+                }
+                if (slot == 11) {
+                    int v = potVal >= 64 ? 1 : 0;
+                    barVal = v;
+                    barMax = 1;
+                    return v;
+                }
                 int v = potVal >= 64 ? 1 : 0;
                 barVal = v;
                 barMax = 1;
@@ -375,9 +427,13 @@ namespace CTAG {
         static void renderStrip() {
             Display::FillRect(0, 0, Display::W, STRIP_H, Display::kBlack);
             int x = 2;
-            // module + page (TELEM header; dashes before the first snapshot)
+            // module + page (TELEM header; dashes before the first snapshot; SYS is global)
             char buf[24];
-            if (s_cur.valid) {
+            if (s_page == 7) {
+                snprintf(buf, sizeof(buf), "SYSTEM");
+            } else if (s_page >= 2 && s_page <= 6) {
+                snprintf(buf, sizeof(buf), "%s", kPageNames[s_page]);
+            } else if (s_cur.valid) {
                 snprintf(buf, sizeof(buf), "%s %s",
                          kModNames[s_cur.module & 3], kPageNames[s_page]);
             } else {
@@ -412,7 +468,7 @@ namespace CTAG {
             } else if (s_assignArmed) {
                 if (s_assignPot < 16) {
                     snprintf(buf, sizeof(buf), ">MOD %s<",
-                             kSrcNames[s_assignSrc <= 12 ? s_assignSrc : 0]);
+                             kSrcNames[s_assignSrc <= 10 ? s_assignSrc : 0]);
                 } else {
                     snprintf(buf, sizeof(buf), ">MOD<");
                 }
@@ -422,7 +478,7 @@ namespace CTAG {
                 const uint8_t rsrc = (uint8_t)(
                     (s_cur.cell[s_activePot].flags & RackLink::kFlagSrcMask) >>
                     RackLink::kFlagSrcShift);
-                if (rsrc > 0 && rsrc <= 12) {
+                if (rsrc > 0 && rsrc <= 10) {
                     snprintf(buf, sizeof(buf), "MOD:%s", kSrcNames[rsrc]);
                     Display::DrawString(x, 1, buf, Display::FONT_VALUE,
                                         Display::kYellow);
@@ -509,7 +565,7 @@ namespace CTAG {
             for (int slot = 0; slot < 16; ++slot) {
                 // SYS pot 8 = the C3-LOCAL preset slot cell (no TELEM cell
                 // exists — the RP2350 owns no slot state until T4a).
-                if (s_page == 5 && slot == 8 && s_fullArrived) {
+                if (s_page == 7 && slot == 8 && s_fullArrived) {
                     const uint8_t presetPotVal =
                         (uint8_t)(((uint16_t)s_presetSlot * 127) / 3);
                     int8_t pdir = 0;
@@ -560,7 +616,7 @@ namespace CTAG {
             }
             // SYS page: the push-ring marker (yellow 1-px underline under
             // the cell the NEXT short push will act on).
-            if (s_page == 5 && s_fullArrived) {
+            if (s_page == 7 && s_fullArrived) {
                 for (int slot = 0; slot < 16; ++slot) {
                     // ring: 0 chain-pair(cell 4) 1 engage(5) 2 preset(8,
                     // C3-local) 3 telem-d(6) 4 telem-f(7)
@@ -625,17 +681,20 @@ namespace CTAG {
                 if (n == 0 && (s_cur.module & 3) == 1 && t.cc == 13) n = 5;
                 if (n == 0 && (s_cur.module & 3) == 3 && t.cc == 19) n = 4;
                 if (n > 12) n = 0; // 98-engine selector behaves as continuous
-            } else if (s_page == 2) {
-                if ((pot & 3) == 2) n = 5;    // LFO WAVE (0..4)
-            } else if (s_page == 3) {
-                if (pot == 14) n = 2;         // A1 MODE (0..1)
-                if (pot == 15) n = 10;        // DIV (0..9)
-            } else if (s_page == 4) {
-                if (pot == 12) n = 2;         // CLKSRC (0..1)
-            } else if (s_page == 5) {
+            } else if (s_page == 2 || s_page == 3) {
+                if (pot == 1 || pot == 11) n = 5;    // LFO WAVE (0..4)
+                if (pot == 4 || pot == 14) n = 2;    // LFO MODE (0..1)
+                if (pot == 5 || pot == 15) n = 10;   // LFO DIV (0..9)
+            } else if (s_page == 4 || s_page == 5) {
+                if (pot == 3 || pot == 13) n = 3;    // CLK (0..2)
+                if (pot == 4 || pot == 14) n = 10;   // DIV (0..9)
+            } else if (s_page == 6) {
+                if (pot == 4 || pot == 14) n = 2;    // ADSR MODE (0..1)
+                if (pot == 5 || pot == 15) n = 10;   // ADSR DIV (0..9)
+            } else if (s_page == 7) {
                 if (pot == 4) n = 3;          // CHAIN PR (1..3)
                 else if (pot == 8) n = 4;     // PRESET (0..3)
-                else if (pot < 8) n = 2;      // Modules 0..3 & toggles 5..7
+                else if (pot < 8 || pot == 11) n = 2; // Modules 0..3, toggles 5..7, CLKSRC 11
             }
             if (n >= 2 && n <= 12) {
                 int k = ((int)t.value * n) / 128;
@@ -669,7 +728,7 @@ namespace CTAG {
         }
 
         void RackUI::SetPage(uint8_t page) {
-            if (page > 5 || page == s_page) return;
+            if (page > 7 || page == s_page) return;
             s_page = page;
             s_fullArrived = false;      // dashes until the snapshot lands
             s_activePot = 0xFF;
@@ -697,22 +756,8 @@ namespace CTAG {
                     RackLink::kFlagSrcShift);
                 return true;
             }
-            if (s_page >= 2 && s_page <= 4) {
+            if (s_page >= 2 && s_page <= 6) {
                 const SrcParam &sp = kModPotMap[s_page - 2][pot];
-                if (s_page == 4 && pot == 11) {
-                    out.kind = PotTarget::kGlobal;
-                    out.cc = 0;             // item 0 = BPM (kUiGlobalBpm)
-                    out.value = s_fullArrived && pot < s_cur.count
-                                    ? s_cur.cell[pot].value : 0;
-                    return true;
-                }
-                if (s_page == 4 && pot == 12) {
-                    out.kind = PotTarget::kSys;
-                    out.cc = 12;            // CLKSRC on MOD-C
-                    out.value = s_fullArrived && pot < s_cur.count
-                                    ? s_cur.cell[pot].value : 0;
-                    return true;
-                }
                 if (sp.src == 0xFF) return false;
                 out.kind = PotTarget::kMod;
                 out.src = sp.src;
@@ -721,7 +766,7 @@ namespace CTAG {
                                 ? s_cur.cell[pot].value : 0;
                 return true;
             }
-            if (s_page == 5) {
+            if (s_page == 7) {
                 if (!s_fullArrived) return false;
                 if (pot < 8 && pot < s_cur.count) {
                     out.kind = PotTarget::kSys;
@@ -733,6 +778,18 @@ namespace CTAG {
                     out.kind = PotTarget::kSys;
                     out.cc = 8;
                     out.value = (uint8_t)(((uint16_t)s_presetSlot * 127) / 3);
+                    return true;
+                }
+                if (pot == 10 && pot < s_cur.count) {
+                    out.kind = PotTarget::kGlobal;
+                    out.cc = 0;             // item 0 = BPM (kUiGlobalBpm)
+                    out.value = s_cur.cell[pot].value;
+                    return true;
+                }
+                if (pot == 11 && pot < s_cur.count) {
+                    out.kind = PotTarget::kSys;
+                    out.cc = 11;            // CLKSRC on SYS
+                    out.value = s_cur.cell[pot].value;
                     return true;
                 }
             }
@@ -766,8 +823,8 @@ namespace CTAG {
                     break;
                 }
                 case PotTarget::kSys: {
-                    if (s_page == 4 && pot == 12) {
-                        // MOD-C CLKSRC (0 = INT, 1 = MIDI)
+                    if (s_page == 7 && pot == 11) {
+                        // SYS CLKSRC (0 = INT, 1 = MIDI)
                         const uint8_t wantClk = potVal >= 64 ? 1 : 0;
                         RackLink::TelemLocalCellWrite(pot, potVal);
                         if (s_lastWireSent[pot] != wantClk) {
@@ -781,7 +838,7 @@ namespace CTAG {
                         }
                         break;
                     }
-                    if (s_page == 5) {
+                    if (s_page == 7) {
                         if (pot < 4) {
                             // Module selector radio buttons (0..3): turning
                             // any module pot >= 64 activates that module;
@@ -888,15 +945,13 @@ namespace CTAG {
         }
 
         void RackUI::DebugState() {
-            const char *names[6] = { "P1", "P2", "MOD-A", "MOD-B", "MOD-C",
-                                     "SYS" };
             if (!s_fullArrived) {
                 ESP_LOGI(TAG, "page %s: no TELEM snapshot yet (dashes)",
-                         names[s_page]);
+                         kPageNames[s_page]);
                 return;
             }
             ESP_LOGI(TAG, "page %s mod=%u cells=%u tail(bpm=%u clk=%u "
-                          "chain=%u link=%02x)", names[s_page],
+                          "chain=%u link=%02x)", kPageNames[s_page],
                      s_cur.module, s_cur.count, (unsigned)s_cur.bpm,
                      s_cur.clocksrc, s_cur.chain, s_cur.link);
             for (uint8_t i = 0; i < s_cur.count && i < 16; ++i) {
@@ -935,8 +990,11 @@ namespace CTAG {
                                 s_stripDirty = true;
                             } else {
                                 int p = (int)s_page + ev.delta;
-                                while (p < 0) p += 6;
-                                SetPage((uint8_t)(p % 6));
+                                if (p < 0) p = 0;
+                                if (p > 7) p = 7;
+                                if (p != (int)s_page) {
+                                    SetPage((uint8_t)p);
+                                }
                             }
                             break;
                         case InputEvent::PUSH_HOLD:
@@ -945,14 +1003,9 @@ namespace CTAG {
                             s_stripDirty = true;
                             break;
                         case InputEvent::PUSH_SHORT:
-                            if (s_page == 4) {
-                                // MOD-C: toggle the global clock source.
-                                RackLink::SendSysToggle(
-                                    RackLink::kSysClockToggle);
-                            } else if (s_page == 5) {
+                            if (s_page == 7) {
                                 sysRingAction();
                             }
-                            // P1/P2/MOD-A/MOD-B: no short-push action.
                             break;
                         case InputEvent::PUSH_RELEASE:
                             if (s_overlay) {

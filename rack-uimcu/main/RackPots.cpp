@@ -103,10 +103,10 @@ namespace CTAG {
             }
 
             // Per-source `dest` param index in rack-rp2350/src/mod_engine.h:
-            // LFO(0..3) = 7, EUCLID(4..7) = 5, GATE(8..9) = 5, ADSR(10..11) = 7.
+            // LFO(0..3) = 7, EUCLID(4..5) = 5, GATE(6..7) = 5, ADSR(8..9) = 7.
             uint8_t destParam(uint8_t src) {
                 if (src <= 3) return 7;
-                if (src <= 9) return 5;
+                if (src <= 7) return 5;
                 return 7;
             }
 
@@ -195,11 +195,11 @@ namespace CTAG {
 
                 if (modChoice == 0) {
                     s_potWantUnmap[pot] = true;
-                    if (localSrc >= 1 && localSrc <= 12) {
+                    if (localSrc >= 1 && localSrc <= 10) {
                         const uint8_t oldIdx = (uint8_t)(localSrc - 1);
                         RackLink::SendModSet(oldIdx, destParam(oldIdx), 0);
                     }
-                    if (curSrc >= 1 && curSrc <= 12 && curSrc != localSrc) {
+                    if (curSrc >= 1 && curSrc <= 10 && curSrc != localSrc) {
                         const uint8_t prevIdx = (uint8_t)(curSrc - 1);
                         RackLink::SendModSet(prevIdx, destParam(prevIdx), 0);
                     }
@@ -210,11 +210,11 @@ namespace CTAG {
                 s_potWantUnmap[pot] = false;
                 if (modChoice == localSrc && modChoice == curSrc) return;
 
-                if (localSrc >= 1 && localSrc <= 12 && localSrc != modChoice) {
+                if (localSrc >= 1 && localSrc <= 10 && localSrc != modChoice) {
                     const uint8_t oldIdx = (uint8_t)(localSrc - 1);
                     RackLink::SendModSet(oldIdx, destParam(oldIdx), 0);
                 }
-                if (curSrc >= 1 && curSrc <= 12 && curSrc != modChoice &&
+                if (curSrc >= 1 && curSrc <= 10 && curSrc != modChoice &&
                     curSrc != localSrc) {
                     const uint8_t prevIdx = (uint8_t)(curSrc - 1);
                     RackLink::SendModSet(prevIdx, destParam(prevIdx), 0);
@@ -356,12 +356,12 @@ namespace CTAG {
                                     const uint8_t pos = pressedPosFromRaw(r);
 
                                     // Fully CCW: raw <= 80 or pos <= 10 -> 0 (OFF / unmap)
-                                    // CW: pos 11..127 -> 1..12 (LFO1..ADS2)
+                                    // CW: pos 11..127 -> 1..10 (LFO1..ADS2)
                                     uint8_t choice = 0;
                                     if (r > 80 && pos > 10) {
                                         choice = (uint8_t)(
-                                            1 + ((int)(pos - 11) * 12) / 117);
-                                        if (choice > 12) choice = 12;
+                                            1 + ((int)(pos - 11) * 10) / 117);
+                                        if (choice > 10) choice = 10;
                                     }
 
                                     // Immediately update the top bar so user sees the live choice

@@ -105,7 +105,15 @@ namespace CTAG {
             // MOD/SYS opaque cell id base (cc field = base + cell index).
             static constexpr uint8_t kModCellBase = 200;
             // Page ids.
-            static constexpr uint8_t kPageP1 = 0;
+            static constexpr uint8_t kPageP1        = 0;
+            static constexpr uint8_t kPageP2        = 1;
+            static constexpr uint8_t kPageModLfo12  = 2;
+            static constexpr uint8_t kPageModLfo34  = 3;
+            static constexpr uint8_t kPageModTrig   = 4;
+            static constexpr uint8_t kPageModGate   = 5;
+            static constexpr uint8_t kPageModEnv    = 6;
+            static constexpr uint8_t kPageSys       = 7;
+            static constexpr uint8_t kPageCount     = 8;
 
             // UART_NUM_0 GPIO4(TX)/GPIO5(RX) @ 921600 8N1 + boot self-tests
             // (codec round-trip + uart_set_loop_back hardware loopback) +

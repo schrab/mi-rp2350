@@ -75,15 +75,15 @@ newer/older than themselves).
 
 ## 3. MOD_SET param-id table
 
-`src` = mod-engine source id 0-11 (the same ids the console `mod` command
+`src` = mod-engine source id 0-9 (the same ids the console `mod` command
 and CC 33 use):
 
 | src | source | params (id: name) |
 |-----|--------|-------------------|
 | 0-3 | LFO 1-4 | 0 mode (0-63 Hz-mode / 64+ clocked), 1 rate (0.02-20 Hz exp), 2 wave (0 sine / 1 tri / 2 saw / 3 square / 4 S&H), 3 phase (0-127 -> 0-360 deg), 4 level, 5 clk (global/internal/midi), 6 div (10 divisions), 7 dest (CC 0-127, 0 = off) |
-| 4-7 | EU 1-4 | 0 steps (1-32), 1 pulses (0-32), 2 rot, 3 clk, 4 div, 5 dest |
-| 8-9 | GATE 1-2 | 0 len (1-32), 1 mask (density fill 0-127), 2 glen, 3 clk, 4 div, 5 dest |
-| 10-11 | ADSR 1-2 | 0 mode (gate/retrig), 1 atk, 2 dec, 3 sus, 4 rel, 5 clk, 6 div, 7 dest |
+| 4-5 | EU 1-2 | 0 steps (1-32), 1 pulses (0-32), 2 rot, 3 clk, 4 div, 5 dest |
+| 6-7 | GATE 1-2 | 0 len (1-32), 1 mask (density fill 0-127), 2 glen, 3 clk, 4 div, 5 dest |
+| 8-9 | ADSR 1-2 | 0 mode (gate/retrig), 1 atk, 2 dec, 3 sus, 4 rel, 5 clk, 6 div, 7 dest |
 
 - `value` is always 0-127 and quantized exactly like CC 35 (the bench mux's
   `mod_apply_cc_value`): rates/sus/glen exponential/linear mappings, steps =
@@ -102,11 +102,13 @@ and CC 33 use):
 | id | page | contents |
 |----|------|----------|
 | 0 | P1 | the active module's primary 16 pot cells (fully implemented; tables below) |
-| 1 | P2 | elements: CC 28/29 selectors + alt-layout duplicates; clouds/plaits/rings: duplicate of P1 |
-| 2 | MOD-A | 4x LFO (rate, level, wave, phase per source) — stage 4, tables in §6 |
-| 3 | MOD-B | 4x EUclid (steps/pulses/rot) + gate1 len/glen + ADSR1 mode + clock div |
-| 4 | MOD-C | gate2 + ADSR1/2 (A/D/S/R) + BPM pot + clock-source cell |
-| 5 | SYS | 4 module cells, chain pair + engage, telemetry gates (§6); preset slot is C3-local (T4a) |
+| 1 | P2 | elements: CC 28/29 (MODEL / OMINOUS only, count = 2); clouds/plaits/rings: count = 0 (no duplicate params) |
+| 2 | MOD-LFO 1/2 | LFO 1 (Row 0 pots 0-5) & LFO 2 (Row 2 pots 10-15): 6 params each (RATE, WAVE, PHASE, LEV, MODE, DIV) |
+| 3 | MOD-LFO 3/4 | LFO 3 (Row 0 pots 0-5) & LFO 4 (Row 2 pots 10-15): 6 params each (RATE, WAVE, PHASE, LEV, MODE, DIV) |
+| 4 | MOD-TRIG | 2x Euclidean: EUC 1 (Row 0 pots 0-4) & EUC 2 (Row 2 pots 10-14): 5 params each (STPS, PULS, ROT, CLK, DIV) |
+| 5 | MOD-GATE | 2x Gate: GATE 1 (Row 0 pots 0-4) & GATE 2 (Row 2 pots 10-14): 5 params each (LEN, MASK, GLEN, CLK, DIV) |
+| 6 | MOD-ENV | 2x ADSR: ADSR 1 (Row 0 pots 0-5) & ADSR 2 (Row 2 pots 10-15): 6 params each (ATK, DEC, SUS, REL, MODE, DIV) |
+| 7 | SYSTEM | 4 module cells, chain pair + engage (Row 0 pots 0-5); telem-d, telem-f, preset (Row 1 pots 6-8); BPM (20-300) & CLKSRC (int/midi) (Row 2 pots 10-11) |
 
 A page request (`UI_CMD` action 1) sets the RP2350's "active page" — the
 target of the throttled TELEM deltas (§5) — and replies with a full snapshot.
@@ -156,9 +158,10 @@ Payload (v2, stage 2-6):
     gesture needs to know which source drives the cell. (Multiple sources
     may share a destination; the cycle tracks the first.) bit7 reserved 0.
 - Status tail (mode 0 only):
-  - `bpm`: internal BPM 20-300 rounded to 1 BPM; **0 = external MIDI clock**
-    (the clocksrc byte disambiguates).
-  - `clocksrc`: 0 internal / 1 MIDI.
+  - `bpm`: internal BPM 20-300 rounded to 1 BPM (low 8 bits: `bpm & 0xFF`);
+    **0 = external MIDI clock** (the clocksrc byte disambiguates).
+  - `clocksrc`: bit0 = 0 internal / 1 MIDI; bit7 (`0x80`) = BPM >= 256 flag
+    (unwraps 256..300 BPM cleanly without ambiguity against low 20..44 BPM).
   - `chain`: 0 off / 1-3 = engaged pair index (1 elements->clouds,
     2 plaits->clouds, 3 rings->clouds).
   - `link`: bit0 = the RP2350's DIN parser has seen bytes since boot,
@@ -277,71 +280,77 @@ P2 = duplicate of P1.
 | 10 | 23 | CHORD |
 | 11 | 64 | STRUM (momentary) |
 
-P2 = duplicate of P1.
+P2 = elements has 2 unique parameters (MODEL CC 28, OMINOUS CC 29); clouds, plaits, rings have count = 0 (no duplicate parameters).
 
-### MOD-A/B/C + SYS — aux cell tables (stage 4)
+### Dedicated Modulation + SYS — aux cell tables
 
 Cell order = physical pot order; the TELEM `cc` field = `200 + cell index`
 (opaque cell id — not a MIDI CC). The C3's MOD-page pot map sends
 `MOD_SET [src][param][value]` with EXACTLY the (src, param) pairs below —
 MUST MATCH `kUiMod*Cells` in `ui_link.h` and `kModPotMap` in the C3's
 `ui/RackUI`. Color classes: red = continuous modulators (LFO), teal =
-trigger/sequenced sources (EUclid/gate/ADSR), white = global clock.
+trigger/sequenced sources (EUclid/gate/ADSR), white = global clock & sys.
 Values on these pages are the mod engine's current settings re-expressed
 0-127 (inverse of the MOD_SET quantization: rate/ADSR log domains mapped
 back, wave/div/enum = `ceil(index*128/counts)`, gates = density-fill
 equivalent, BPM = `(bpm-20)*127/280`, clock src = 0/127).
 
-MOD-A — 16 cells, src-major (LFO1's 4 first):
+MOD-LFO 1/2 — Row 0 = LFO 1 (pots 0-5), Row 2 = LFO 2 (pots 10-15):
 
-| pot | cell | src | param | label | color |
-|-----|------|-----|-------|-------|-------|
-| 1-4 | 0-3 | 0 (lfo1) | 1 rate / 4 level / 2 wave / 3 phase | L1 RATE/LEV/WAVE/PHASE | red |
-| 5-8 | 4-7 | 1 (lfo2) | same | L2 ... | red |
-| 9-12 | 8-11 | 2 (lfo3) | same | L3 ... | red |
-| 13-16 | 12-15 | 3 (lfo4) | same | L4 ... | red |
+| row | pot | cell | src | param | label | color |
+|-----|-----|------|-----|-------|-------|-------|
+| 0 | 0-5 | 0-5 | 0 (lfo1) | 1 rate / 2 wave / 3 phase / 4 level / 0 mode / 6 div | L1 RATE/WAVE/PHASE/LEV/MODE/DIV | red |
+| 1 | 6-9 | 6-9 | - | - | (empty) | - |
+| 2 | 10-15 | 10-15 | 1 (lfo2) | same | L2 RATE/WAVE/PHASE/LEV/MODE/DIV | red |
 
-MOD-B — 16 cells:
+MOD-LFO 3/4 — Row 0 = LFO 3 (pots 0-5), Row 2 = LFO 4 (pots 10-15):
 
-| pot | cell | src | param | label |
-|-----|------|-----|-------|-------|
-| 1/2/3 | 0/1/2 | 4 (eu1) | 0 steps / 1 pulses / 2 rot | E1 STPS/PULS/ROT |
-| 4/5/6 | 3/4/5 | 5 (eu2) | same | E2 STPS/PULS/ROT |
-| 7/8/9 | 6/7/8 | 6 (eu3) | same | E3 STPS/PULS/ROT |
-| 10/11/12 | 9/10/11 | 7 (eu4) | same | E4 STPS/PULS/ROT |
-| 13 | 12 | 8 (gate1) | 0 len | G1 LEN |
-| 14 | 13 | 8 (gate1) | 2 glen | G1 GLEN |
-| 15 | 14 | 10 (adsr1) | 0 mode | A1 MODE |
-| 16 | 15 | 4 (eu1) | 4 div | DIV (the page's sequencer division — the plan's "clock div" pot, mapped to the first sequenced source) |
+| row | pot | cell | src | param | label | color |
+|-----|-----|------|-----|-------|-------|-------|
+| 0 | 0-5 | 0-5 | 2 (lfo3) | 1 rate / 2 wave / 3 phase / 4 level / 0 mode / 6 div | L3 RATE/WAVE/PHASE/LEV/MODE/DIV | red |
+| 1 | 6-9 | 6-9 | - | - | (empty) | - |
+| 2 | 10-15 | 10-15 | 3 (lfo4) | same | L4 RATE/WAVE/PHASE/LEV/MODE/DIV | red |
 
-MOD-C — 13 cells (3 pots empty):
+MOD-TRIG — 2x Euclidean: Row 0 = EUC 1 (pots 0-4), Row 2 = EUC 2 (pots 10-14):
 
-| pot | cell | src | param | label |
-|-----|------|-----|-------|-------|
-| 1/2/3 | 0/1/2 | 9 (gate2) | 0 len / 1 mask / 2 glen | G2 LEN/MASK/GLEN |
-| 4-7 | 3-6 | 10 (adsr1) | 1 atk / 2 dec / 3 sus / 4 rel | A1 ATK/DEC/SUS/REL |
-| 8-11 | 7-10 | 11 (adsr2) | same | A2 ATK/DEC/SUS/REL |
-| 12 | 11 | global | BPM (value = (bpm-20)*127/280) | BPM |
-| 13 | 12 | global | clock source (value 0 internal / 127 midi; toggled by the MOD-C short push = UI_CMD sys id 2) | CLKSRC |
+| row | pot | cell | src | param | label | color |
+|-----|-----|------|-----|-------|-------|-------|
+| 0 | 0-4 | 0-4 | 4 (eu1) | 0 steps / 1 pulses / 2 rot / 3 clk / 4 div | E1 STPS/PULS/ROT/CLK/DIV | teal |
+| 1 | 6-9 | 6-9 | - | - | (empty) | - |
+| 2 | 10-14 | 10-14 | 5 (eu2) | same | E2 STPS/PULS/ROT/CLK/DIV | teal |
 
-SYS — 8 cells:
+MOD-GATE — 2x Gate: Row 0 = GATE 1 (pots 0-4), Row 2 = GATE 2 (pots 10-14):
 
-| pot | cell | value | label |
-|-----|------|-------|-------|
-| 1-4 | 0-3 | 0 (the active module = the TELEM header byte) | ELEMENTS/CLOUDS/PLAITS/RINGS |
-| 5 | 4 | configured pair index 1-3 (shown while disengaged too) | CHAIN PR |
-| 6 | 5 | 0 off / 127 engaged | CHAIN ON |
-| 7 | 6 | 0/127 telemetry-deltas gate (sys id 0) | TELEM D |
-| 8 | 7 | 0/127 pushed-full-snapshot gate (sys id 1) | TELEM F |
+| row | pot | cell | src | param | label | color |
+|-----|-----|------|-----|-------|-------|-------|
+| 0 | 0-4 | 0-4 | 6 (gate1) | 0 len / 1 mask / 2 glen / 3 clk / 4 div | G1 LEN/MASK/GLEN/CLK/DIV | teal |
+| 1 | 6-9 | 6-9 | - | - | (empty) | - |
+| 2 | 10-14 | 10-14 | 7 (gate2) | same | G2 LEN/MASK/GLEN/CLK/DIV | teal |
 
-SYS pot 8 (middle row, 3rd) is the C3's LOCAL preset slot display (push
-cycles slot 0-3 + sends `PRESET_REQ [slot]`, T4a stub — the RP2350 owns no
-slot state yet, so this value is C3-local UI, not a TELEM cell); all other
-SYS pots render placeholders. DIN/UART status lives in the status tail.
-SYS short-push ring (one action per push, the next action marked with the
-yellow underline): chain-pair cycle (CHAIN_ROUTE with the new pair, engage
-state preserved) -> chain engage toggle (CHAIN_ROUTE) -> preset slot cycle
-+ PRESET_REQ -> telem-deltas toggle -> telem-full toggle -> wrap.
+MOD-ENV — 2x ADSR: Row 0 = ADSR 1 (pots 0-5), Row 2 = ADSR 2 (pots 10-15):
+
+| row | pot | cell | src | param | label | color |
+|-----|-----|------|-----|-------|-------|-------|
+| 0 | 0-5 | 0-5 | 8 (adsr1) | 1 atk / 2 dec / 3 sus / 4 rel / 0 mode / 6 div | A1 ATK/DEC/SUS/REL/MODE/DIV | teal |
+| 1 | 6-9 | 6-9 | - | - | (empty) | - |
+| 2 | 10-15 | 10-15 | 9 (adsr2) | same | A2 ATK/DEC/SUS/REL/MODE/DIV | teal |
+
+SYS — 16 cells (Row 0 modules & chain, Row 1 telem & preset, Row 2 master BPM & CLKSRC):
+
+| row | pot | cell | value | label |
+|-----|-----|------|-------|-------|
+| 0 | 0-3 | 0-3 | 0 (the active module = the TELEM header byte) | ELEMENTS/CLOUDS/PLAITS/RINGS |
+| 0 | 4 | 4 | configured pair index 1-3 | CHAIN PR |
+| 0 | 5 | 5 | 0 off / 127 engaged | CHAIN ON |
+| 1 | 6 | 6 | 0/127 telemetry-deltas gate (sys id 0) | TELEM D |
+| 1 | 7 | 7 | 0/127 pushed-full-snapshot gate (sys id 1) | TELEM F |
+| 1 | 8 | 8 | preset slot 0-3 | PRESET |
+| 2 | 10 | 10 | 20-300 master tempo (UI_CMD action 5 BPM) | BPM |
+| 2 | 11 | 11 | 0 internal / 127 midi (UI_CMD action 3 sys id 2) | CLKSRC |
+
+SYS short-push ring (one action per push, marked with yellow underline):
+chain-pair cycle -> chain engage toggle -> preset slot cycle + PRESET_REQ ->
+telem-deltas toggle -> telem-full toggle -> wrap.
 
 ## 7. Pin map + UART setup
 

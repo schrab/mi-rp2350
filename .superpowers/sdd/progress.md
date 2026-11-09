@@ -1841,3 +1841,60 @@ gestures, BLE) are next per the wiring table.
 
 - **Hardware verification:** User confirmed modulation assignment (`>MOD LFO1<`..`>MOD ADS2<`), CCW unmapping (`>MOD OFF<`), and pot responsiveness are working fine on hardware (2026-11-09).
 
+### Rack T5 — Status Strip Polish, Telemetry Gates & BPM Stabilized (2026-11-09)
+
+1. **Full Plugin Names in Status Bar:**
+   - Expanded `kModNames` from `{"ELEM", "CLDS", "PLTS", "RNGS"}` to `{"ELEMENTS", "CLOUDS", "PLAITS", "RINGS"}`.
+   - Screen width is 284 px; all full names and page identifiers fit with ample margin.
+   - Module switch overlay now clearly displays `>ELEMENTS<`, `>CLOUDS<`, `>PLAITS<`, `>RINGS<`.
+
+2. **Global SYSTEM Page Strip Header:**
+   - Suppressed redundant plugin name prefix on the `SYS` page (`s_page == 5`). The status strip now renders `SYSTEM` directly rather than `ELEMENTS SYS`.
+
+3. **Telemetry Gates Explained:**
+   - `TELEM D` (SYS pot 6 / cell 6): Telemetry Deltas toggle. When enabled (127), the RP2350 emits throttled (>= 50 ms) single-cell updates (mode 1) when parameters move via external MIDI CC, serial console, or mod engines, keeping the screen synchronized with external controls.
+   - `TELEM F` (SYS pot 7 / cell 7): Telemetry Full Snapshots push toggle. When enabled (127), the RP2350 pushes a full page telemetry snapshot (mode 0) on module switch or chain routing changes ("firmware acks drive the UI").
+
+4. **BPM Jitter & Random Values Fixed:**
+   - **Root cause:** In `RackLink.cpp`, an unconditional wrap check `if (rawBpm < 45) rawBpm += 256;` erroneously treated all low tempos `20..44 BPM` as uint8 overflows, causing them to jump to `276..300 BPM`.
+   - **Protocol enhancement:** RP2350 `ui_link_status_tail` now flags tempos `>= 256` in bit 7 of `clocksrc` (`out[1] & 0x80`), while preserving `0/1` external MIDI state in bit 0.
+   - **C3 parser fix:** `RackLink.cpp` checks `pl[off + 1] & 0x80` or hysteresis `s_telem.bpm >= 200` before unwrapping, protecting `20..44 BPM`.
+   - **MOD-C synchronization:** On page 4 (`MOD-C`), `s_telem.bpm` is derived directly from `cell[11].value` (`(20 + value * 280 / 127)`), eliminating any lag or disagreement between cell 11 and the top status bar.
+   - **Echo Storm & Periodic Page 0 Reset Eliminated:**
+     - Discovered that after 3 seconds of idle, C3 `RackLink` declared the link "quiet - offline" and `probeNow()` sent an unconditional request for `kPageP1` (page 0), forcing RP2350 to replace the active page with Page 0 every 3 seconds! This caused active pages (`MOD-C`, `SYS`) to jitter, reset, and glitch intermittently.
+     - Discovered an infinite echo bounce loop where C3 bounced RP2350 echo responses back to RP2350 every 80 µs. Removed echo-of-echo bouncing in `dispatchFrame`.
+     - Added a clean heartbeat echo ping (`kCmdEcho [0xAA, 0x55]`) after 1.2 s of silence to keep the link permanently online without full page telemetry reloads, and bound `probeNow()` to `RackUI::GetPage()`.
+   - **Both boards flashed:** Flashed RP2350 via 1200-baud touch (`firmware.uf2` to `RP2350` drive) and ESP32-C3 via `esptool.py` to `COM22`. Confirmed completely calm serial stream on `COM22` with zero offline drops.
+
+### Rack T5 — 8-Page UI Architecture, Dedicated Mod Pages, Clamped Navigation & BPM FIFO Fix (2026-11-09)
+
+1. **BPM Drift Root Cause & UART Saturation Fix:**
+   - **Root cause:** Turning the BPM knob sent continuous `kUiCmdSetGlobal` packets. On every step, `ui_link.h` emitted a full ~200-byte `kUiTelemFull` snapshot frame. A quick turn flooded the 115200-baud UART FIFO with thousands of bytes. When the user stopped turning, C3's `RecentlyMoved` guard expired after 250 ms and C3 began processing the delayed snapshot queue, replaying the old BPM history (jumping back to 157 and slowly counting down to 125 before settling).
+   - **Fix:** Removed `ui_link_send_telem(..., kUiTelemFull, 0)` from `kUiCmdSetGlobal`. Global parameter changes on the RP2350 no longer flood the UART FIFO.
+   - **Relocation to SYSTEM Page:** Relocated `BPM` (pot 10, cell 10) and `CLKSRC` (pot 11, cell 11) to page 7 (`SYSTEM`), removing them from modulation pages entirely.
+
+2. **Dedicated, Un-Shrunk Modulation Pages (8-Page Architecture):**
+   - Expanded UI from 6 to 8 pages:
+     - `kPageP1 (0)`: `<PLUGIN> P1` (Plugin parameters)
+     - `kPageP2 (1)`: `<PLUGIN> P2` (Plugin secondary parameters)
+     - `kPageModLfo12 (2)`: `MOD-LFO 1/2`
+     - `kPageModLfo34 (3)`: `MOD-LFO 3/4`
+     - `kPageModTrig (4)`: `MOD-TRIG`
+     - `kPageModGate (5)`: `MOD-GATE`
+     - `kPageModEnv (6)`: `MOD-ENV`
+     - `kPageSys (7)`: `SYSTEM`
+   - Modulation headers on pages 2..6 render clean labels without plugin name prefixes.
+   - Pair A maps to Row 0 (pots 0..5, `x = 2, 49, 96, 143, 190, 237`) and Pair B maps to Row 2 (pots 10..15, identical `x` coordinates), aligning identical parameters column-for-column.
+
+3. **Euclidean Generators Reduced (4 → 2):**
+   - Reduced Euclidean generators from 4 to 2 (`EU1`, `EU2`), bringing total modulation sources to 10 (`MOD_SOURCE_COUNT = 10`): 4 LFOs, 2 EU, 2 GATE, 2 ADSR.
+   - Updated rotary mod assign list: `OFF, LFO1..4, EUC1..2, GAT1..2, ADS1..2`.
+
+4. **Eliminated Redundant Parameters on P2:**
+   - `ELEMENTS P2`: Reduced to only 2 cells — `MODEL` (CC 28) on pot 0 and `OMINOUS` (CC 29) on pot 1. Pots 2..15 are blank.
+   - `CLOUDS`, `PLAITS`, `RINGS`: Set P2 cell count to 0 (no duplicate parameters).
+
+5. **Clamped Page Navigation:**
+   - Rotary encoder page navigation clamped to `[0..7]`: CCW stops at `P1` (no wrap to `SYSTEM`); CW stops at `SYSTEM` (no wrap to `P1`).
+
+

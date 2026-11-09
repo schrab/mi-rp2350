@@ -117,11 +117,8 @@ enum ModAdsrState : uint8_t {
 };
 
 // Source ids (CC 33 values): 0-3 LFO1-4, 4-7 EU1-4, 8-9 GATE1-2, 10-11 ADSR1-2.
-// NOTE: the plan's Sources section header says "(8)" but its verbatim list is
-// 4+4+2+2 = 12 and the acceptance gate requires all four types audible — the
-// full 12-source list is implemented; CC 33 = 0-7 keeps the semantics the T3
-// bench decision assumed, 8-11 reach the gate/ADSR pair. (Reported deviation.)
-static const uint8_t MOD_SOURCE_COUNT = 12;
+// 4+2+2+2 = 10 sources total (4x LFO, 2x Euclid, 2x Gate, 2x ADSR).
+static const uint8_t MOD_SOURCE_COUNT = 10;
 static const uint8_t MOD_SRC_EU_FIRST = 4;    // odometer source for telemetry
 
 // Clock divisions: PPQ ticks per division cycle (24 PPQ = quarter note).
@@ -334,8 +331,8 @@ void mod_engine_init() {
                                    // sub-block estimate until audio runs)
   for (uint8_t i = 0; i < MOD_SOURCE_COUNT; ++i) {
     ModSource& s = e.src[i];
-    s.type = (i < 4) ? MOD_LFO : (i < 8) ? MOD_EUCLID
-           : (i < 10) ? MOD_GATE : MOD_ADSR;
+    s.type = (i < 4) ? MOD_LFO : (i < 6) ? MOD_EUCLID
+           : (i < 8) ? MOD_GATE : MOD_ADSR;
     s.clock_sel = MOD_CLK_GLOBAL;
     s.division = 2;                // 1/4 default (gates override below)
     s.dest_cc = 0;                 // nothing routes until the bench routes it
@@ -656,7 +653,7 @@ static uint8_t mod_param_count_of(uint8_t type) {
 static const char* mod_src_name(uint8_t idx) {
   static const char* const kNames[MOD_SOURCE_COUNT] = {
       "lfo1", "lfo2", "lfo3", "lfo4",
-      "eu1", "eu2", "eu3", "eu4",
+      "eu1", "eu2",
       "gate1", "gate2", "adsr1", "adsr2",
   };
   return kNames[idx < MOD_SOURCE_COUNT ? idx : 0];
@@ -1030,12 +1027,12 @@ void mod_engine_cmd_mod(const char* args) {
   const char* p = args;
   char tok[32];
   if (!mod_next_token(p, tok, sizeof(tok))) {
-    Serial.println("usage: mod <0-11|lfo1-4|eu1-4|gate1-2|adsr1-2> <param> <value>");
+    Serial.println("usage: mod <0-9|lfo1-4|eu1-2|gate1-2|adsr1-2> <param> <value>");
     return;
   }
   const int8_t src = mod_parse_source(tok);
   if (src < 0) {
-    Serial.println("mod: unknown source (0-11 or lfo1-4 / eu1-4 / gate1-2 / adsr1-2)");
+    Serial.println("mod: unknown source (0-9 or lfo1-4 / eu1-2 / gate1-2 / adsr1-2)");
     return;
   }
   if (!mod_next_token(p, tok, sizeof(tok))) {

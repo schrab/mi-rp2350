@@ -54,7 +54,7 @@ namespace CTAG {
             // continuously (same sizing rationale as the seed LinkClient).
             constexpr size_t kRxRing = 16384;
             constexpr size_t kTxRing = 8192;
-            constexpr uint32_t kOfflineAfterMs = 3000;
+            constexpr uint32_t kOfflineAfterMs = 4000;
             constexpr uint32_t kProbePeriodMs = 5000;
 
             constexpr size_t kMaxFrame = 259;   // 1 + 1 + 1 + 255 + 1
@@ -141,7 +141,7 @@ namespace CTAG {
                 uint8_t frame[kMaxFrame];
                 const size_t n = RackLinkBuildFrame(type, payload, len, frame);
                 uart_write_bytes(kUart, frame, n);
-                s_tx_frames++;
+                s_tx_frames = s_tx_frames + 1;
             }
 
             uint32_t nowMs() {
@@ -157,11 +157,12 @@ namespace CTAG {
                 s_last_probe_ms = nowMs();
                 s_probe_pending = true;
                 s_probe_time_us = esp_timer_get_time();
+                const uint8_t curPage = RackUI::GetPage();
                 const uint8_t p[3] = { RackLink::kCmdPageRequest,
-                                       RackLink::kPageP1, 0 };
+                                       (uint8_t)(curPage < 6 ? curPage : 0), 0 };
                 sendFrame(RackLink::kTypeUiCmd, p, 3);
-                ESP_LOGI(TAG, "probe: P1 page request sent (link not "
-                              "confirmed)");
+                ESP_LOGI(TAG, "probe: page %u request sent (link unconfirmed)",
+                         curPage < 6 ? curPage : 0);
             }
 
             // ---- RX dispatch ----
@@ -276,13 +277,19 @@ namespace CTAG {
                 s_telem.valid = true;
                 // Status tail: the 4 bytes after the label block.
                 if (len >= off + 4) {
-                    s_telem.clocksrc = pl[off + 1];
+                    s_telem.clocksrc = pl[off + 1] & 0x7F;
                     uint16_t rawBpm = pl[off];
-                    if (s_telem.clocksrc == 0 && rawBpm < 45) {
-                        rawBpm += 256; // unwrap uint8_t overflow for 256..300 BPM
+                    if (s_telem.clocksrc == 0) {
+                        if (pl[off + 1] & 0x80) {
+                            rawBpm += 256;
+                        } else if (rawBpm < 45 && s_telem.bpm >= 200) {
+                            rawBpm += 256;
+                        }
                     }
-                    if (!(page == 4 && samePageAndMod &&
-                          RackPots::RecentlyMoved(11))) {
+                    if (page == 7 && count > 10) {
+                        s_telem.bpm = (uint16_t)(20 + ((uint32_t)s_telem.cell[10].value * 280 + 63) / 127);
+                    } else if (!(page == 7 && samePageAndMod &&
+                                 RackPots::RecentlyMoved(10))) {
                         s_telem.bpm = rawBpm;
                     }
                     s_telem.chain = pl[off + 2];
@@ -298,7 +305,7 @@ namespace CTAG {
                 const uint8_t type = p.buf[0];
                 const uint8_t *pl = &p.buf[1];
                 const uint8_t len = p.flen;
-                s_rx_frames++;
+                s_rx_frames = s_rx_frames + 1;
                 s_last_rx_us = esp_timer_get_time();
                 if (!s_online) ESP_LOGI(TAG, "rack link online");
                 s_online = true;
@@ -328,16 +335,15 @@ namespace CTAG {
                         break;
                     }
                     case RackLink::kTypeUiCmd: {
-                        // The RP2350 may echo our probes back (action 2) —
-                        // reply verbatim + print the turnaround.
+                        // Echo reply from the RP2350 (action 2) — never bounce it
+                        // back, or it creates an infinite ping-pong echo storm!
                         if (len == 3 && pl[0] == RackLink::kCmdEcho) {
-                            const int64_t t0 = esp_timer_get_time();
-                            sendFrame(RackLink::kTypeUiCmd, pl, 3);
-                            const int64_t dt = esp_timer_get_time() - t0;
-                            ESP_LOGI(TAG, "echo req seq=%u echoed back "
-                                          "(turnaround ~%lld us)",
-                                     (uint16_t)((pl[1] << 8) | pl[2]),
-                                     (long long)dt);
+                            if (s_probe_pending) {
+                                s_probe_pending = false;
+                                const int64_t rtt_us =
+                                    esp_timer_get_time() - s_probe_time_us;
+                                (void)rtt_us;
+                            }
                         } else {
                             ESP_LOGI(TAG, "UI_CMD received len=%u", len);
                         }
@@ -389,7 +395,7 @@ namespace CTAG {
                                 if (parser.crc_ok) {
                                     dispatchFrame(parser);
                                 } else {
-                                    s_crc_errors++;
+                                    s_crc_errors = s_crc_errors + 1;
                                     ESP_LOGW(TAG, "CRC fail (type=0x%02x "
                                                   "len=%u) - dropped, "
                                                   "resyncing",
@@ -404,10 +410,21 @@ namespace CTAG {
                     // request every 5 s (logged) — the RP2350's full TELEM
                     // reply is the wire exercise + the RTT measurement.
                     const uint32_t now = nowMs();
+                    const int64_t quiet_us = esp_timer_get_time() - s_last_rx_us;
+
+                    // Keepalive: if online and quiet for >= 1200 ms, send an echo heartbeat ping.
+                    // The RP2350 replies immediately, keeping the link alive without spamming page reloads.
+                    if (s_online && quiet_us >= 1200000) {
+                        static int64_t last_heartbeat_us = 0;
+                        if (esp_timer_get_time() - last_heartbeat_us >= 1000000) {
+                            last_heartbeat_us = esp_timer_get_time();
+                            const uint8_t ping[3] = { RackLink::kCmdEcho, 0xAA, 0x55 };
+                            sendFrame(RackLink::kTypeUiCmd, ping, 3);
+                        }
+                    }
+
                     const bool online_now =
-                        s_online &&
-                        (esp_timer_get_time() - s_last_rx_us) <
-                            (int64_t)kOfflineAfterMs * 1000;
+                        s_online && quiet_us < (int64_t)kOfflineAfterMs * 1000;
                     if (online_now != s_online) {
                         if (!online_now)
                             ESP_LOGW(TAG, "rack link went quiet - offline");
@@ -636,7 +653,7 @@ namespace CTAG {
             taskENTER_CRITICAL(&telemMux);
             if (s_telem.valid && slot < s_telem.count) {
                 s_telem.cell[slot].value = value;
-                if (s_telem.page == 4 && slot == 11) {
+                if (s_telem.page == 7 && slot == 10) {
                     s_telem.bpm = (uint16_t)(20 + ((int)value * 280 + 63) / 127);
                 }
                 s_telem_dirty = true;
@@ -664,7 +681,7 @@ namespace CTAG {
             if (newMod >= 4) return;
             taskENTER_CRITICAL(&telemMux);
             s_telem.module = newMod;
-            if (s_telem.valid && s_telem.page == 5) {
+            if (s_telem.valid && s_telem.page == 7) {
                 for (uint8_t i = 0; i < 4 && i < s_telem.count; ++i) {
                     s_telem.cell[i].value = (i == newMod) ? 127 : 0;
                 }

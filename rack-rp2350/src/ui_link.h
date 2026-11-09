@@ -105,13 +105,15 @@ static const uint8_t kUiSysClockToggle = 2;  // global clock internal <-> midi
 static const uint8_t kUiGlobalBpm = 0;       // value -> 20 + v*280/127 BPM
 
 // Page ids.
-static const uint8_t kUiPageP1   = 0;
-static const uint8_t kUiPageP2   = 1;
-static const uint8_t kUiPageModA = 2;
-static const uint8_t kUiPageModB = 3;
-static const uint8_t kUiPageModC = 4;
-static const uint8_t kUiPageSys  = 5;
-static const uint8_t kUiPageCount = 6;
+static const uint8_t kUiPageP1        = 0;
+static const uint8_t kUiPageP2        = 1;
+static const uint8_t kUiPageModLfo12  = 2;
+static const uint8_t kUiPageModLfo34  = 3;
+static const uint8_t kUiPageModTrig   = 4;
+static const uint8_t kUiPageModGate   = 5;
+static const uint8_t kUiPageModEnv    = 6;
+static const uint8_t kUiPageSys       = 7;
+static const uint8_t kUiPageCount     = 8;
 
 // TELEM modes: 0 = full snapshot, 1 = single-cell delta (same format).
 static const uint8_t kUiTelemFull  = 0;
@@ -122,7 +124,7 @@ static const uint8_t kUiFlagModRouted = 1 << 0;  // a mod source drives this CC
 static const uint8_t kUiFlagChainB    = 1 << 1;  // cell belongs to the chain B slot
 static const uint8_t kUiFlagInert     = 1 << 2;  // routing exists but is inert/rejected
 // Flags bits 3-6 = the FIRST mod source routed to this CC, +1 (0 = unrouted;
-// 1-12 = source 0-11). The mod-assign gesture needs to know WHICH source
+// 1-10 = source 0-9). The mod-assign gesture needs to know WHICH source
 // drives the cell; the summary bit0 stays "any route exists" (multiple
 // sources may share a destination — the cycle tracks the first).
 static const uint8_t kUiFlagSrcShift  = 3;
@@ -185,25 +187,10 @@ static const UiPageCell kUiPageElementsP1[] = {
     {26, "POSITION",   kUiColorWhite},
     {27, "SPACE",      kUiColorWhite},
 };
-// elements — P2: the two selectors (CC 28/29) + the alt-layout duplicates of
-// the acoustic params (the panel's per-group rows without the perf mods).
+// elements — P2: only the two selectors (CC 28/29) that are unique to P2.
 static const UiPageCell kUiPageElementsP2[] = {
     {28, "MODEL",      kUiColorWhite},
     {29, "OMINOUS",    kUiColorWhite},
-    {14, "CONTOUR",    kUiColorWhite},
-    {15, "BOW",        kUiColorWhite},
-    {16, "TIMBRE B",   kUiColorWhite},
-    {17, "BLOW",       kUiColorTeal},
-    {18, "FLOW",       kUiColorTeal},
-    {19, "TIMBRE Bl",  kUiColorTeal},
-    {20, "STRIKE",     kUiColorTeal},
-    {21, "MALLET",     kUiColorTeal},
-    {22, "TIMBRE S",   kUiColorTeal},
-    {23, "GEOMETRY",   kUiColorWhite},
-    {24, "BRIGHTNESS", kUiColorWhite},
-    {25, "DAMPING",    kUiColorWhite},
-    {26, "POSITION",   kUiColorWhite},
-    {27, "SPACE",      kUiColorWhite},
 };
 // clouds — P1: the rack panel's clouds view. Grain params travel the alias
 // bank CC 40-48 (kCloudsAliasCcBase — works single-module AND chained);
@@ -258,17 +245,18 @@ static const UiPageCell kUiPageRingsP1[] = {
     {64, "STRUM",      kUiColorWhite},
 };
 
-// [module][0 = P1, 1 = P2]. P2 duplicates P1 for clouds/plaits/rings (the
-// design's "most-used 16", page id differs).
+// [module][0 = P1, 1 = P2]. Elements has 2 unique params on P2 (MODEL CC 28,
+// OMINOUS CC 29). Clouds, Plaits, and Rings have all parameters on P1, so P2
+// has count = 0 (no duplicate params).
 static const UiPageTable kUiPages[RACK_MODULE_COUNT][2] = {
-    { {kUiPageElementsP1, 16}, {kUiPageElementsP2, 16} },  // elements
-    { {kUiPageCloudsP1, 16},   {kUiPageCloudsP1, 16} },    // clouds
-    { {kUiPagePlaitsP1, 13},   {kUiPagePlaitsP1, 13} },    // plaits
-    { {kUiPageRingsP1, 11},    {kUiPageRingsP1, 11} },     // rings
+    { {kUiPageElementsP1, 16}, {kUiPageElementsP2, 2} },   // elements
+    { {kUiPageCloudsP1, 16},   {nullptr, 0} },             // clouds
+    { {kUiPagePlaitsP1, 13},   {nullptr, 0} },             // plaits
+    { {kUiPageRingsP1, 11},    {nullptr, 0} },             // rings
 };
 static const UiPageTable kUiPageEmpty = { nullptr, 0 };   // unused fallback
 
-// ===================== MOD-A/B/C + SYS aux cells (stage 4) =====================
+// ===================== Dedicated Modulation & SYS aux cells =====================
 // Cell order = physical pot order (the C3's MOD-page pot map sends MOD_SET
 // with exactly these (src, param) pairs — MUST MATCH the C3's kModPotMap).
 // `cc` in TELEM = kUiModCellBase + index. Special src 0xFF = a SYS-style
@@ -279,7 +267,7 @@ static const UiPageTable kUiPageEmpty = { nullptr, 0 };   // unused fallback
 struct UiAuxCell {
   const char* label;
   uint8_t color;      // kUiColor*
-  uint8_t src;        // mod source 0-11, or 0xFF = selector (see above)
+  uint8_t src;        // mod source 0-9, or 0xFF = selector (see above)
   uint8_t param;      // kModParamNames index, or the selector id
 };
 static const uint8_t kUiAuxSelModule    = 0;   // param selectors for src 0xFF
@@ -290,49 +278,124 @@ static const uint8_t kUiAuxSelTelemF    = 7;
 static const uint8_t kUiAuxSelBpm       = 8;
 static const uint8_t kUiAuxSelClkSrc    = 9;
 
-// MOD-A: 4x LFO (rate, level, wave, phase per source), src-major. Red =
-// continuous modulators (the panels' perf-mod group).
-static const UiAuxCell kUiModACells[] = {
-    {"L1 RATE",  kUiColorRed, 0, 1}, {"L1 LEV",   kUiColorRed, 0, 4},
-    {"L1 WAVE",  kUiColorRed, 0, 2}, {"L1 PHASE", kUiColorRed, 0, 3},
-    {"L2 RATE",  kUiColorRed, 1, 1}, {"L2 LEV",   kUiColorRed, 1, 4},
-    {"L2 WAVE",  kUiColorRed, 1, 2}, {"L2 PHASE", kUiColorRed, 1, 3},
-    {"L3 RATE",  kUiColorRed, 2, 1}, {"L3 LEV",   kUiColorRed, 2, 4},
-    {"L3 WAVE",  kUiColorRed, 2, 2}, {"L3 PHASE", kUiColorRed, 2, 3},
-    {"L4 RATE",  kUiColorRed, 3, 1}, {"L4 LEV",   kUiColorRed, 3, 4},
-    {"L4 WAVE",  kUiColorRed, 3, 2}, {"L4 PHASE", kUiColorRed, 3, 3},
+// MOD-LFO 1/2: 2x LFO with full 6 params (Row 0 = LFO 1, Row 2 = LFO 2)
+static const UiAuxCell kUiModLfo12Cells[16] = {
+    // Row 0: LFO 1 (pots 0..5)
+    {"L1 RATE",  kUiColorRed, 0, 1},
+    {"L1 WAVE",  kUiColorRed, 0, 2},
+    {"L1 PHASE", kUiColorRed, 0, 3},
+    {"L1 LEV",   kUiColorRed, 0, 4},
+    {"L1 MODE",  kUiColorRed, 0, 0},
+    {"L1 DIV",   kUiColorRed, 0, 6},
+    // Row 1: empty (pots 6..9)
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    // Row 2: LFO 2 (pots 10..15)
+    {"L2 RATE",  kUiColorRed, 1, 1},
+    {"L2 WAVE",  kUiColorRed, 1, 2},
+    {"L2 PHASE", kUiColorRed, 1, 3},
+    {"L2 LEV",   kUiColorRed, 1, 4},
+    {"L2 MODE",  kUiColorRed, 1, 0},
+    {"L2 DIV",   kUiColorRed, 1, 6},
 };
-// MOD-B: 4x EUclid (steps/pulses/rot) + gate1 len/gate-length + ADSR1 mode +
-// clock div (EU1's division — the page's sequencer division; the plan's
-// "clock div" pot, mapped to the first sequenced source, documented §6).
-// Teal = trigger/sequenced sources.
-static const UiAuxCell kUiModBCells[] = {
-    {"E1 STPS",  kUiColorTeal, 4, 0},  {"E1 PULS", kUiColorTeal, 4, 1},
-    {"E1 ROT",   kUiColorTeal, 4, 2},  {"E2 STPS", kUiColorTeal, 5, 0},
-    {"E2 PULS",  kUiColorTeal, 5, 1},  {"E2 ROT",  kUiColorTeal, 5, 2},
-    {"E3 STPS",  kUiColorTeal, 6, 0},  {"E3 PULS", kUiColorTeal, 6, 1},
-    {"E3 ROT",   kUiColorTeal, 6, 2},  {"E4 STPS", kUiColorTeal, 7, 0},
-    {"E4 PULS",  kUiColorTeal, 7, 1},  {"E4 ROT",  kUiColorTeal, 7, 2},
-    {"G1 LEN",   kUiColorTeal, 8, 0},  {"G1 GLEN", kUiColorTeal, 8, 2},
-    {"A1 MODE",  kUiColorTeal, 10, 0}, {"DIV",     kUiColorTeal, 4, 4},
+
+// MOD-LFO 3/4: 2x LFO with full 6 params (Row 0 = LFO 3, Row 2 = LFO 4)
+static const UiAuxCell kUiModLfo34Cells[16] = {
+    // Row 0: LFO 3 (pots 0..5)
+    {"L3 RATE",  kUiColorRed, 2, 1},
+    {"L3 WAVE",  kUiColorRed, 2, 2},
+    {"L3 PHASE", kUiColorRed, 2, 3},
+    {"L3 LEV",   kUiColorRed, 2, 4},
+    {"L3 MODE",  kUiColorRed, 2, 0},
+    {"L3 DIV",   kUiColorRed, 2, 6},
+    // Row 1: empty (pots 6..9)
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    // Row 2: LFO 4 (pots 10..15)
+    {"L4 RATE",  kUiColorRed, 3, 1},
+    {"L4 WAVE",  kUiColorRed, 3, 2},
+    {"L4 PHASE", kUiColorRed, 3, 3},
+    {"L4 LEV",   kUiColorRed, 3, 4},
+    {"L4 MODE",  kUiColorRed, 3, 0},
+    {"L4 DIV",   kUiColorRed, 3, 6},
 };
-// MOD-C: gate2 + ADSR1/2 (A/D/S/R) + BPM pot + clock-source cell (3 pots
-// empty). BPM/CLKSRC are global-clock selectors (src 0xFF), not engine
-// params — the C3's CLKSRC push/short-gesture toggles via UI_CMD sys id 2.
-static const UiAuxCell kUiModCCells[] = {
-    {"G2 LEN",   kUiColorTeal, 9, 0},  {"G2 MASK", kUiColorTeal, 9, 1},
-    {"G2 GLEN",  kUiColorTeal, 9, 2},
-    {"A1 ATK",   kUiColorTeal, 10, 1}, {"A1 DEC",  kUiColorTeal, 10, 2},
-    {"A1 SUS",   kUiColorTeal, 10, 3}, {"A1 REL",  kUiColorTeal, 10, 4},
-    {"A2 ATK",   kUiColorTeal, 11, 1}, {"A2 DEC",  kUiColorTeal, 11, 2},
-    {"A2 SUS",   kUiColorTeal, 11, 3}, {"A2 REL",  kUiColorTeal, 11, 4},
-    {"BPM",      kUiColorWhite, 0xFF, kUiAuxSelBpm},
-    {"CLKSRC",   kUiColorWhite, 0xFF, kUiAuxSelClkSrc},
+
+// MOD-TRIG: 2x Euclidean (Row 0 = EUC 1, Row 2 = EUC 2)
+static const UiAuxCell kUiModTrigCells[16] = {
+    // Row 0: EUCLID 1 (pots 0..4)
+    {"E1 STPS", kUiColorTeal, 4, 0},
+    {"E1 PULS", kUiColorTeal, 4, 1},
+    {"E1 ROT",  kUiColorTeal, 4, 2},
+    {"E1 CLK",  kUiColorTeal, 4, 3},
+    {"E1 DIV",  kUiColorTeal, 4, 4},
+    {"",        kUiColorWhite, 0xFF, 0xFF},
+    // Row 1: empty (pots 6..9)
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    // Row 2: EUCLID 2 (pots 10..14)
+    {"E2 STPS", kUiColorTeal, 5, 0},
+    {"E2 PULS", kUiColorTeal, 5, 1},
+    {"E2 ROT",  kUiColorTeal, 5, 2},
+    {"E2 CLK",  kUiColorTeal, 5, 3},
+    {"E2 DIV",  kUiColorTeal, 5, 4},
+    {"",        kUiColorWhite, 0xFF, 0xFF},
 };
-// SYS: 4 module cells (push = activate via SWITCH), chain pair + engage,
-// the two telemetry gates. The C3's preset slot is C3-local UI (T4a stub:
-// PRESET_REQ [slot] send only); DIN/UART status rides the status tail.
-static const UiAuxCell kUiSysCells[] = {
+
+// MOD-GATE: 2x Gate pattern generators (Row 0 = GATE 1, Row 2 = GATE 2)
+static const UiAuxCell kUiModGateCells[16] = {
+    // Row 0: GATE 1 (pots 0..4)
+    {"G1 LEN",  kUiColorTeal, 6, 0},
+    {"G1 MASK", kUiColorTeal, 6, 1},
+    {"G1 GLEN", kUiColorTeal, 6, 2},
+    {"G1 CLK",  kUiColorTeal, 6, 3},
+    {"G1 DIV",  kUiColorTeal, 6, 4},
+    {"",        kUiColorWhite, 0xFF, 0xFF},
+    // Row 1: empty (pots 6..9)
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    // Row 2: GATE 2 (pots 10..14)
+    {"G2 LEN",  kUiColorTeal, 7, 0},
+    {"G2 MASK", kUiColorTeal, 7, 1},
+    {"G2 GLEN", kUiColorTeal, 7, 2},
+    {"G2 CLK",  kUiColorTeal, 7, 3},
+    {"G2 DIV",  kUiColorTeal, 7, 4},
+    {"",        kUiColorWhite, 0xFF, 0xFF},
+};
+
+// MOD-ENV: 2x ADSR envelopes (Row 0 = ADSR 1, Row 2 = ADSR 2)
+static const UiAuxCell kUiModEnvCells[16] = {
+    // Row 0: ADSR 1 (pots 0..5)
+    {"A1 ATK",  kUiColorTeal, 8, 1},
+    {"A1 DEC",  kUiColorTeal, 8, 2},
+    {"A1 SUS",  kUiColorTeal, 8, 3},
+    {"A1 REL",  kUiColorTeal, 8, 4},
+    {"A1 MODE", kUiColorTeal, 8, 0},
+    {"A1 DIV",  kUiColorTeal, 8, 6},
+    // Row 1: empty (pots 6..9)
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    // Row 2: ADSR 2 (pots 10..15)
+    {"A2 ATK",  kUiColorTeal, 9, 1},
+    {"A2 DEC",  kUiColorTeal, 9, 2},
+    {"A2 SUS",  kUiColorTeal, 9, 3},
+    {"A2 REL",  kUiColorTeal, 9, 4},
+    {"A2 MODE", kUiColorTeal, 9, 0},
+    {"A2 DIV",  kUiColorTeal, 9, 6},
+};
+
+// SYS: 4 module cells, chain pair + engage, telemetry gates, preset slot,
+// master BPM pot, and master clock source toggle.
+static const UiAuxCell kUiSysCells[16] = {
     {"ELEMENTS", kUiColorWhite, 0xFF, kUiAuxSelModule},
     {"CLOUDS",   kUiColorWhite, 0xFF, kUiAuxSelModule + 1},
     {"PLAITS",   kUiColorWhite, 0xFF, kUiAuxSelModule + 2},
@@ -341,6 +404,14 @@ static const UiAuxCell kUiSysCells[] = {
     {"CHAIN ON", kUiColorWhite, 0xFF, kUiAuxSelChainOn},
     {"TELEM D",  kUiColorWhite, 0xFF, kUiAuxSelTelemD},
     {"TELEM F",  kUiColorWhite, 0xFF, kUiAuxSelTelemF},
+    {"PRESET",   kUiColorWhite, 0xFF, 0xFF},
+    {"",         kUiColorWhite, 0xFF, 0xFF},
+    {"BPM",      kUiColorWhite, 0xFF, kUiAuxSelBpm},
+    {"CLKSRC",   kUiColorWhite, 0xFF, kUiAuxSelClkSrc},
+    {"",         kUiColorWhite, 0xFF, 0xFF},
+    {"",         kUiColorWhite, 0xFF, 0xFF},
+    {"",         kUiColorWhite, 0xFF, 0xFF},
+    {"",         kUiColorWhite, 0xFF, 0xFF},
 };
 
 // ===================== telemetry gates (sys toggles 0/1) =====================
@@ -486,10 +557,13 @@ static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
     switch (s.type) {
       case MOD_LFO:
         switch (c.param) {
+          case 0: return s.p.lfo.hz_mode ? 0 : 127;
           case 1: return ui_mod_lfo_rate_val(s.p.lfo.rate_hz);
           case 2: return ui_ceil_div((uint16_t)s.p.lfo.wave * 128u, 5u);
           case 3: return (uint8_t)(s.p.lfo.phase_off * 127.0f + 0.5f);
           case 4: return (uint8_t)(s.p.lfo.level * 127.0f + 0.5f);
+          case 5: return s.clock_sel == MOD_CLK_GLOBAL ? 0 : (s.clock_sel == MOD_CLK_INTERNAL ? 64 : 127);
+          case 6: return (uint8_t)(((uint16_t)s.division * 127) / (MOD_DIVISION_COUNT - 1));
           default: return 0;
         }
       case MOD_EUCLID:
@@ -497,6 +571,8 @@ static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
           case 0: return (uint8_t)(((uint16_t)(s.p.eu.steps - 1) * 127) / 31);
           case 1: return (uint8_t)(((uint16_t)s.p.eu.pulses * 127) / 32);
           case 2: return (uint8_t)(((uint16_t)s.p.eu.rot * 127) / 31);
+          case 3: return s.clock_sel == MOD_CLK_GLOBAL ? 0 : (s.clock_sel == MOD_CLK_INTERNAL ? 64 : 127);
+          case 4: return (uint8_t)(((uint16_t)s.division * 127) / (MOD_DIVISION_COUNT - 1));
           default: return 0;
         }
       case MOD_GATE:
@@ -517,15 +593,19 @@ static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
             if (v > 127) v = 127;
             return (uint8_t)v;
           }
+          case 3: return s.clock_sel == MOD_CLK_GLOBAL ? 0 : (s.clock_sel == MOD_CLK_INTERNAL ? 64 : 127);
+          case 4: return (uint8_t)(((uint16_t)s.division * 127) / (MOD_DIVISION_COUNT - 1));
           default: return 0;
         }
       default:  // MOD_ADSR
         switch (c.param) {
-          case 0: return s.p.adsr.retrig ? 64 : 0;
+          case 0: return s.p.adsr.retrig ? 127 : 0;
           case 1: return ui_mod_adsr_s_val(s.p.adsr.a_s);
           case 2: return ui_mod_adsr_s_val(s.p.adsr.d_s);
           case 3: return (uint8_t)(s.p.adsr.s_lvl * 127.0f + 0.5f);
           case 4: return ui_mod_adsr_s_val(s.p.adsr.r_s);
+          case 5: return s.clock_sel == MOD_CLK_GLOBAL ? 0 : (s.clock_sel == MOD_CLK_INTERNAL ? 64 : 127);
+          case 6: return (uint8_t)(((uint16_t)s.division * 127) / (MOD_DIVISION_COUNT - 1));
           default: return 0;
         }
     }
@@ -560,13 +640,15 @@ static void ui_link_status_tail(uint8_t* out) {
   // bpm: internal BPM 20-300 rounded to 1 BPM; 0 = external MIDI clock.
   if (g_mod_engine.global_clock == 1) {
     out[0] = 0;
+    out[1] = 1;
   } else {
     float b = g_mod_engine.bpm;
     if (b < 20.0f) b = 20.0f;
     if (b > 300.0f) b = 300.0f;
-    out[0] = (uint8_t)(b + 0.5f);
+    const uint16_t b_int = (uint16_t)(b + 0.5f);
+    out[0] = (uint8_t)(b_int & 0xFF);
+    out[1] = (b_int >= 256) ? 0x80 : 0x00;
   }
-  out[1] = g_mod_engine.global_clock ? 1 : 0;
   // chain: 0 off / 1-3 engaged pair index (elements/plaits/rings -> clouds).
   if (!g_chain.active) {
     out[2] = 0;
@@ -613,10 +695,12 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
       }
     } else {
       const UiAuxCell* a = nullptr;
-      if (page == kUiPageModA) { a = kUiModACells; count = 16; }
-      else if (page == kUiPageModB) { a = kUiModBCells; count = 16; }
-      else if (page == kUiPageModC) { a = kUiModCCells; count = 13; }
-      else if (page == kUiPageSys) { a = kUiSysCells; count = 8; }
+      if (page == kUiPageModLfo12) { a = kUiModLfo12Cells; count = 16; }
+      else if (page == kUiPageModLfo34) { a = kUiModLfo34Cells; count = 16; }
+      else if (page == kUiPageModTrig) { a = kUiModTrigCells; count = 16; }
+      else if (page == kUiPageModGate) { a = kUiModGateCells; count = 16; }
+      else if (page == kUiPageModEnv) { a = kUiModEnvCells; count = 16; }
+      else if (page == kUiPageSys) { a = kUiSysCells; count = 16; }
       if (a != nullptr) {
         for (uint8_t i = 0; i < count; ++i) {
           cc[i] = (uint8_t)(kUiModCellBase + i);   // opaque MOD/SYS cell id
@@ -636,11 +720,13 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
     // Labels in cell order.
     for (uint8_t i = 0; i < count; ++i) {
       const char* lab = (page <= kUiPageP2)
-          ? kUiPages[mod][page].cells[i].label
-          : (page == kUiPageModA ? kUiModACells[i].label
-         : page == kUiPageModB ? kUiModBCells[i].label
-         : page == kUiPageModC ? kUiModCCells[i].label
-                               : kUiSysCells[i].label);
+          ? (i < kUiPages[mod][page].count ? kUiPages[mod][page].cells[i].label : "")
+          : (page == kUiPageModLfo12 ? kUiModLfo12Cells[i].label
+         : page == kUiPageModLfo34 ? kUiModLfo34Cells[i].label
+         : page == kUiPageModTrig ? kUiModTrigCells[i].label
+         : page == kUiPageModGate ? kUiModGateCells[i].label
+         : page == kUiPageModEnv ? kUiModEnvCells[i].label
+                                 : kUiSysCells[i].label);
       size_t l = strlen(lab) + 1;                 // include the NUL
       memcpy(&pl[n], lab, l);
       n += l;
@@ -670,10 +756,12 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
       lab = t.cells[idx].label;
     } else {
       const UiAuxCell* a = nullptr; uint8_t cnt = 0;
-      if (page == kUiPageModA) { a = kUiModACells; cnt = 16; }
-      else if (page == kUiPageModB) { a = kUiModBCells; cnt = 16; }
-      else if (page == kUiPageModC) { a = kUiModCCells; cnt = 13; }
-      else if (page == kUiPageSys) { a = kUiSysCells; cnt = 8; }
+      if (page == kUiPageModLfo12) { a = kUiModLfo12Cells; cnt = 16; }
+      else if (page == kUiPageModLfo34) { a = kUiModLfo34Cells; cnt = 16; }
+      else if (page == kUiPageModTrig) { a = kUiModTrigCells; cnt = 16; }
+      else if (page == kUiPageModGate) { a = kUiModGateCells; cnt = 16; }
+      else if (page == kUiPageModEnv) { a = kUiModEnvCells; cnt = 16; }
+      else if (page == kUiPageSys) { a = kUiSysCells; cnt = 16; }
       if (a == nullptr) return;
       // delta_cc names the cell index (kUiModCellBase + i).
       if (delta_cc < kUiModCellBase || delta_cc - kUiModCellBase >= cnt) return;
@@ -703,11 +791,13 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
 // this header — it is included earlier in the TU).
 static void ui_link_send_mod_delta(uint8_t src, uint8_t param) {
   const uint8_t page = g_ui_active_page;
-  if (page < kUiPageModA) return;
+  if (page < kUiPageModLfo12 || page > kUiPageModEnv) return;
   const UiAuxCell* a = nullptr; uint8_t cnt = 0;
-  if (page == kUiPageModA) { a = kUiModACells; cnt = 16; }
-  else if (page == kUiPageModB) { a = kUiModBCells; cnt = 16; }
-  else if (page == kUiPageModC) { a = kUiModCCells; cnt = 13; }
+  if (page == kUiPageModLfo12) { a = kUiModLfo12Cells; cnt = 16; }
+  else if (page == kUiPageModLfo34) { a = kUiModLfo34Cells; cnt = 16; }
+  else if (page == kUiPageModTrig) { a = kUiModTrigCells; cnt = 16; }
+  else if (page == kUiPageModGate) { a = kUiModGateCells; cnt = 16; }
+  else if (page == kUiPageModEnv) { a = kUiModEnvCells; cnt = 16; }
   else return;                                  // SYS cells are not mod params
   for (uint8_t i = 0; i < cnt; ++i) {
     if (a[i].src == src && a[i].param == param) {
@@ -877,10 +967,8 @@ static void ui_link_dispatch() {
             break;
         }
         // Echo the result when the toggled state is on the C3's active page
-        // (SYS cells 6/7, MOD-C cell CLKSRC) — acks drive the UI.
-        if (handled && (g_ui_active_page == kUiPageSys ||
-                        (g_ui_active_page == kUiPageModC &&
-                         arg == kUiSysClockToggle))) {
+        // (SYS cells 6/7/11) — acks drive the UI.
+        if (handled && g_ui_active_page == kUiPageSys) {
           ui_link_send_telem(g_ui_active_page, kUiTelemFull, 0);
         }
       } else if (action == kUiCmdAssignCycle) {
@@ -937,9 +1025,7 @@ static void ui_link_dispatch() {
           const float bpm = 20.0f + (float)arg2 * 280.0f / 127.0f;
           g_mod_engine.bpm = roundf(bpm * 10.0f) / 10.0f;
           Serial.printf("ui: bpm <- %.1f (SET_GLOBAL)\r\n", (double)bpm);
-          if (g_ui_active_page == kUiPageModC || g_ui_active_page == kUiPageSys) {
-            ui_link_send_telem(g_ui_active_page, kUiTelemFull, 0);
-          }
+          // Omit sending 200-byte full snapshot on every pot step to prevent UART queue backlog!
         } else {
           Serial.printf("ui: SET_GLOBAL item %u (reserved, log-only)\r\n", arg);
         }
