@@ -57,7 +57,7 @@ namespace CTAG {
             RackTelemCell cell[16];
             // Status tail (mode 0 full snapshots refresh it; deltas keep it):
             bool tail_valid;
-            uint8_t bpm;       // internal BPM 20-300, 0 = external MIDI clock
+            uint16_t bpm;      // internal BPM 20-300, 0 = external MIDI clock
             uint8_t clocksrc;  // 0 internal / 1 midi
             uint8_t chain;     // 0 off / 1-3 engaged pair index
             uint8_t link;      // bit0 DIN saw bytes, bit1 UART link fresh
@@ -158,6 +158,15 @@ namespace CTAG {
             // True when a TELEM landed since the last TelemClearDirty().
             static bool TelemDirty();
             static void TelemClearDirty();
+            // Optimistic local update of a cell's value when a live pot moves
+            // (absorbs the RP2350's 50 ms TELEM delta throttle so fast turns
+            // update at 60 fps and never miss the final trailing value).
+            static void TelemLocalCellWrite(uint8_t slot, uint8_t value);
+            // Optimistic local update of a cell's routed mod source (0 = OFF,
+            // 1..12 = LFO1..ADS2).
+            static void TelemLocalAssignWrite(uint8_t slot, uint8_t srcIdxPlus1);
+            // Optimistic local update when switching active module on SYS.
+            static void TelemLocalSysSwitch(uint8_t newMod);
 
             // ms timestamp of the last SendMidi (the strip's activity dot).
             static uint32_t LastMidiMs();

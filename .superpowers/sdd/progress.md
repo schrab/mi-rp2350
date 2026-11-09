@@ -1799,3 +1799,43 @@ gestures, BLE) are next per the wiring table.
   `TFT_eSPI` recommendation).
 - **Hardware verification:** Confirmed working and right-side up on `COM22` by
   the user.
+
+### Rack T5 — Stages 3–5 Pots, Encoder & Mod Matrix HARDWARE-VERIFIED (2026-11-09)
+
+1. **HC4067 16-Pot Scanner & Layout (`GPIO3` SIG, `S0..S3 = GPIO8/9/2/6`):**
+   - **Zero ADC Jitter on `C0` (`ch = 0`):** Fixed tick-wakeup SAR ADC reference
+     settling spike via a dummy warm-up conversion at loop start, plus 10-sample
+     trimmed mean (middle 8). Measured `0` count drift when untouched.
+   - **Row 2 Staggered Layout:** Row 2 cells shifted to `x = 25, 72, 166, 213`
+     matching `docs/UI_sketch.png`.
+   - **Full-Range Scaling for Discrete Selectors:** Fixed 97% dead-band on
+     stepped CCs (e.g. Elements `MODEL 0..2`, `OMINOUS 0..1`; Clouds `MODE 0..2`,
+     `QUALITY 0..3`; Rings `POLY 1..4`, `WAVE 0..2`; Plaits `ENGINE 0..97`).
+     Pots sweep the full `0..100%` rotation and map proportionally across all valid
+     options with true range display and proportional underline bar.
+
+2. **Encoder Push & Modulation Routing (`A=GPIO0, B=GPIO1, PUSH=GPIO3 via 470R`):**
+   - **Push-Button Protection:** Multiplexed SIG voltage drops on button press are
+     evaluated *before* EMA filtering, freezing `filtRaw[0..15]`. Added 250 ms
+     post-release guard and mid-sweep release detection (`otherRiseSum`) so button
+     press/release never triggers parameter jumps or bogus modulation cycles.
+   - **Modulation Selection & Top-Bar Display:** Hold button + rotate pot CW to step
+     through `[OFF, LFO1..4, EUC1..4, GAT1..2, ADS1..2]`; status strip shows live
+     `>MOD LFO1<` / `>MOD EUC2<` / `>MOD OFF<`. Releasing the button confirms the
+     source without release glitching.
+   - **CCW Modulation Unmapping (`>MOD OFF<`):** Turning pot fully CCW enters the
+     hysteresis OFF zone (`raw <= 115`) to unmap modulation. Added `ClearResidualUnmap`
+     and boot-time `ClearAllModSources()` to clear residual routes on the RP2350.
+   - **Top-Bar Page Label Spacing:** Replaced fixed 44 px jump with dynamic string width
+     measurement so `MOD-A/B/C` labels are never clipped by `INT 120`.
+
+3. **SYS Page & Responsive Soft Takeover:**
+   - **SYS Page Pots Enabled:** Pots 0..3 act as module radio selectors, pot 4 controls
+     chain pair (1..3), pot 5 controls chain engage (0/1), pots 6/7 control telemetry
+     gates (0/1), and pot 8 controls preset slots (0..3).
+   - **Bucket-Aware Soft Takeover:** Discrete parameters are immediately active if the
+     pot is already within the parameter's bucket; crossing the bucket boundary picks
+     up the value without requiring a trip to the 0 or 127 endstops.
+   - **BPM Unwrapping:** Unwrapped 8-bit overflow for `256..300 BPM` in telemetry
+     status tail and guarded active turns across all pages.
+

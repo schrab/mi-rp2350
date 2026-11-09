@@ -59,15 +59,13 @@ namespace CTAG {
                                           // pull-up)
 
             constexpr uint8_t NPOTS = 16;
-            constexpr int DEADBAND = 2;            // counts vs last SENT
-            constexpr int PICK_BAND = 1;           // pickup alignment window
+            constexpr int RAW_HYST = 38;           // ~1.2 MIDI steps in 12-bit raw space
+            constexpr int PICK_BAND = 2;           // pickup alignment window (0-127)
             constexpr int CAL_WINDOW_MS = 8000;    // `calib` sweep window
-            // Rate limit: <= 200 msgs/s aggregate = one send per 5 ms.
-            constexpr int64_t SEND_PERIOD_US = 5000;
-            // Own-echo window: a TELEM delta arriving within this after OUR
-            // send of the same value is the firmware's echo, never an
-            // external change (deltas are throttled to ~50 ms RP2350-side).
-            constexpr int64_t ECHO_WINDOW_US = 400000;
+            // Own-echo window: any TELEM arriving for a pot within this window
+            // after OUR send is in-flight echo traffic from our own turn,
+            // never an external change.
+            constexpr int64_t ECHO_WINDOW_US = 500000;
 
             struct PotCal { uint16_t min, max; };
             PotCal cal[NPOTS];                     // RAM copy (full range if none)
@@ -75,15 +73,21 @@ namespace CTAG {
             bool calRunning = false;
 
             uint16_t lastSent[NPOTS];              // last SENT 0-127 value
-            uint16_t lastValue[NPOTS];             // last mapped value
+            int lastSentRaw[NPOTS];                // raw ADC at last send (hysteresis anchor)
+            int filtRaw[NPOTS];                    // adaptive EMA-filtered 12-bit raw
+            uint16_t lastValue[NPOTS];             // last mapped 0-127 value
             int64_t lastSendPotUs[NPOTS];          // per-pot last SEND time
-            int64_t lastSendUs = 0;
             int64_t calStartUs = 0;
 
             // ---- soft takeover state (UI task writes, scan task reads;
             // single-byte fields, benign races cost one scan cycle) ----
             volatile bool pickPending[NPOTS];
             volatile uint8_t pickTarget[NPOTS];    // cell value to align to
+
+            // ---- per-pot modulation assign tracking ----
+            uint8_t s_potModSrc[NPOTS];            // 0 = OFF, 1..12 = LFO1..ADS2
+            volatile bool s_potWantUnmap[NPOTS];   // true after user sets MOD OFF
+            int64_t s_lastAssignUs[NPOTS];         // echo guard for cell flags
 
             // The per-source SPEED param a pot rides on a mod-routed cell
             // (user spec 2026-11-08: "like for LFO - its changing LFO rate").
@@ -96,6 +100,34 @@ namespace CTAG {
                 if (src <= 7) return 4;            // EUclid: clock division
                 if (src <= 9) return 4;            // rhythmic gate: division
                 return 6;                          // ADSR: division
+            }
+
+            // Per-source `dest` param index in rack-rp2350/src/mod_engine.h:
+            // LFO(0..3) = 7, EUCLID(4..7) = 5, GATE(8..9) = 5, ADSR(10..11) = 7.
+            uint8_t destParam(uint8_t src) {
+                if (src <= 3) return 7;
+                if (src <= 9) return 5;
+                return 7;
+            }
+
+            // Linearize the pressed ADC reading (0..~3560 while the 470R push
+            // button pulls SIG toward GND) into a 0..127 pot angle so turning
+            // a pot while holding the button spans 0..127 evenly.
+            uint8_t pressedPosFromRaw(int raw) {
+                static const int kKnots[13] = {
+                    0, 55, 105, 145, 180, 215, 260, 315, 395, 515, 730, 1200, 3200
+                };
+                if (raw <= kKnots[0]) return 0;
+                if (raw >= kKnots[12]) return 127;
+                for (int i = 0; i < 12; ++i) {
+                    if (raw <= kKnots[i + 1]) {
+                        const int span = kKnots[i + 1] - kKnots[i];
+                        const int frac = ((raw - kKnots[i]) * 256) / (span > 0 ? span : 1);
+                        const int pos = ((i * 256 + frac) * 127) / (12 * 256);
+                        return (uint8_t)(pos < 0 ? 0 : (pos > 127 ? 127 : pos));
+                    }
+                }
+                return 127;
             }
 
             void addrSet(uint8_t ch) {
@@ -146,156 +178,390 @@ namespace CTAG {
             void sendTarget(uint8_t pot, uint8_t value) {
                 RackUI::PotTarget t;
                 if (!RackUI::GetPotTarget(pot, t)) return;
-                const uint8_t pkt[4] = {
-                    0x0B, 0xB0, t.cc, value        // CIN 0xB (CC), cable 0
-                };
-                switch (t.kind) {
-                    case RackUI::PotTarget::kCC:
-                        RackLink::SendMidi(pkt);
-                        break;
-                    case RackUI::PotTarget::kMod:
-                        RackLink::SendModSet(t.src, t.param, value);
-                        break;
-                    case RackUI::PotTarget::kGlobal:
-                        // Global state MOD_SET cannot express (the MOD-C BPM
-                        // pot): UI_CMD action 5 [item][value].
-                        RackLink::SendUiCmd(RackLink::kCmdSetGlobal, t.cc,
-                                            value);
-                        break;
-                    default:
-                        break;                     // SYS page: pots inert
-                }
+                RackUI::ApplyPotAction(pot, t, value);
             }
 
-            void sendAssign(uint8_t pot, bool up) {
-                RackLink::SendAssignCycle(pot, up ? 1 : 0);
+            void applyModAssign(uint8_t pot, uint8_t modChoice) {
+                RackUI::PotTarget t;
+                if (!RackUI::GetPotTarget(pot, t) ||
+                    t.kind != RackUI::PotTarget::kCC) {
+                    return;
+                }
+                const uint8_t curSrc = t.routedSrc; // 0 = OFF, 1..12 = LFO1..ADS2
+                const uint8_t localSrc = s_potModSrc[pot];
+                s_lastAssignUs[pot] = esp_timer_get_time();
+                RackUI::NoteAssignPot(pot, modChoice);
+                RackLink::TelemLocalAssignWrite(pot, modChoice);
+
+                if (modChoice == 0) {
+                    s_potWantUnmap[pot] = true;
+                    if (localSrc >= 1 && localSrc <= 12) {
+                        const uint8_t oldIdx = (uint8_t)(localSrc - 1);
+                        RackLink::SendModSet(oldIdx, destParam(oldIdx), 0);
+                    }
+                    if (curSrc >= 1 && curSrc <= 12 && curSrc != localSrc) {
+                        const uint8_t prevIdx = (uint8_t)(curSrc - 1);
+                        RackLink::SendModSet(prevIdx, destParam(prevIdx), 0);
+                    }
+                    s_potModSrc[pot] = 0;
+                    RackLink::SendPageRequest(RackUI::GetPage());
+                    return;
+                }
+
+                s_potWantUnmap[pot] = false;
+                if (modChoice == localSrc && modChoice == curSrc) return;
+
+                if (localSrc >= 1 && localSrc <= 12 && localSrc != modChoice) {
+                    const uint8_t oldIdx = (uint8_t)(localSrc - 1);
+                    RackLink::SendModSet(oldIdx, destParam(oldIdx), 0);
+                }
+                if (curSrc >= 1 && curSrc <= 12 && curSrc != modChoice &&
+                    curSrc != localSrc) {
+                    const uint8_t prevIdx = (uint8_t)(curSrc - 1);
+                    RackLink::SendModSet(prevIdx, destParam(prevIdx), 0);
+                }
+                s_potModSrc[pot] = modChoice;
+                const uint8_t newIdx = (uint8_t)(modChoice - 1);
+                RackLink::SendModSet(newIdx, destParam(newIdx), t.cc);
+                RackLink::SendPageRequest(RackUI::GetPage());
+            }
+
+            int readChannelRaw(uint8_t ch) {
+                addrSet(ch);
+                esp_rom_delay_us(25);
+                // 2 dummy reads charge the SAR S/H cap to the new mux channel;
+                // then 10 reads with min/max outlier rejection (trimmed mean of
+                // middle 8) reject BLE RF / tick-wakeup spikes on ch=0.
+                int dummy = 0;
+                adc_oneshot_read(s_adc, ADC_CH, &dummy);
+                adc_oneshot_read(s_adc, ADC_CH, &dummy);
+                int acc = 0;
+                int minR = 4096, maxR = -1;
+                for (int s = 0; s < 10; ++s) {
+                    int r = 0;
+                    adc_oneshot_read(s_adc, ADC_CH, &r);
+                    acc += r;
+                    if (r < minR) minR = r;
+                    if (r > maxR) maxR = r;
+                }
+                acc -= (minR + maxR);
+                return (acc + 4) >> 3;
             }
 
             void potTask(void *) {
-                uint8_t ch = 0;
                 bool pushActive = false;
-                static uint16_t prevSweep[NPOTS];
+                static int baselineRaw[NPOTS];
+                static int assignAnchorRaw[NPOTS];
+                static int assignFiltRaw[NPOTS];
+                static uint8_t assignAnchorPos[NPOTS];
                 static bool prevValid = false;
+                static bool assignSessionArmed = false;
+                static int64_t assignArmTimeUs = 0;
+                static int64_t lastPushUs = 0;
+                static int8_t assignPotLocked = -1;
+                static int8_t assignCandidatePot = -1;
+                static uint8_t assignCandidateCount = 0;
+                static uint8_t assignLastChoice = 0xFF;
+                static uint8_t assignStableChoice = 0xFF;
+                static uint8_t assignStableCount = 0;
+                static uint16_t assignTurnedMask = 0;
+
+                constexpr int64_t POST_RELEASE_GUARD_US = 250000; // 250 ms
+
                 while (true) {
-                    // Address settle: the HC4067 switches in ~ns; a short
-                    // delay + the ADC's own sampling window is plenty.
-                    addrSet(ch);
-                    esp_rom_delay_us(8);
-                    int raw = 0;
-                    // Oneshot read blocks for the conversion (~us) — the
-                    // scan rate stays ~700 sweeps/s.
-                    adc_oneshot_read(s_adc, ADC_CH, &raw);
+                    // Warm up SAR ADC reference after 10 ms tick sleep
+                    (void)readChannelRaw(0);
+
+                    int rawSweep[NPOTS];
+                    for (uint8_t ch = 0; ch < NPOTS; ++ch) {
+                        rawSweep[ch] = readChannelRaw(ch);
+                    }
                     const int64_t now = esp_timer_get_time();
 
-                    if (calRunning) {
-                        // Calibration sweep: widen the per-pot window; end
-                        // the window after CAL_WINDOW_MS and store.
-                        if (raw < (int)cal[ch].min) cal[ch].min = (uint16_t)raw;
-                        if (raw > (int)cal[ch].max) cal[ch].max = (uint16_t)raw;
-                        if (now - calStartUs >= CAL_WINDOW_MS * 1000) {
-                            calRunning = false;
-                            saveCal();
-                            for (int i = 0; i < NPOTS; ++i) {
-                                ESP_LOGI(TAG, "cal pot %2d: %u..%u", i,
-                                         cal[i].min, cal[i].max);
-                                lastSent[i] = 0xFFFF;   // re-arm send-on-move
-                            }
-                            ESP_LOGI(TAG, "calibration stored (NVS rpots/cal)");
+                    if (!prevValid) {
+                        for (int i = 0; i < NPOTS; ++i) {
+                            baselineRaw[i] = rawSweep[i];
+                            filtRaw[i] = rawSweep[i];
+                            lastSentRaw[i] = rawSweep[i];
                         }
-                    } else {
-                        const uint8_t prev = lastValue[ch];
-                        const uint8_t v = mapValue(ch, raw);
-                        lastValue[ch] = v;
-                        if (pickPending[ch]) {
-                            // Soft takeover: the pot is not aligned with its
-                            // cell's value — send nothing until the position
-                            // crosses the value (the renderer shows the
-                            // < / > hint). Picking up does not send: the
-                            // parameter is already AT the pick target; the
-                            // next DEADBAND move writes from there.
-                            const int d = (int)v - (int)pickTarget[ch];
-                            if (d <= PICK_BAND && d >= -PICK_BAND) {
-                                pickPending[ch] = false;
-                                lastSent[ch] = v;
-                                lastSendPotUs[ch] = now;
+                        prevValid = true;
+                    }
+
+                    // 1) Detect encoder push BEFORE touching filtRaw[0..15]:
+                    //    Pressing the 470R button on GPIO3 (SIG) pulls all
+                    //    non-zero mux channels down simultaneously.
+                    int alive = 0, dropped = 0;
+                    for (int i = 0; i < NPOTS; ++i) {
+                        if (baselineRaw[i] > 200) {
+                            ++alive;
+                            const int drop = baselineRaw[i] - rawSweep[i];
+                            if (drop > 80 && rawSweep[i] < baselineRaw[i] - (baselineRaw[i] / 8)) {
+                                ++dropped;
+                            }
+                        }
+                    }
+                    const bool pushDetected =
+                        (alive >= 2 && dropped >= 2 && dropped * 2 >= alive) ||
+                        (alive == 1 && dropped == 1 &&
+                         (baselineRaw[0] - rawSweep[0] > 300 ||
+                          rawSweep[0] < baselineRaw[0] / 2));
+
+                    if (pushDetected) {
+                        pushActive = true;
+                        lastPushUs = now;
+                        UserInput::SetPushRaw(true);
+
+                        // While button is held, NEVER update filtRaw[] or send
+                        // normal pot values. Only run modulation assignment
+                        // once AssignModeActive() has been armed + settled.
+                        if (RackUI::AssignModeActive() && RackUI::GetPage() <= 1) {
+                            if (!assignSessionArmed) {
+                                if (assignArmTimeUs == 0) {
+                                    assignArmTimeUs = now;
+                                } else if (now - assignArmTimeUs >= 60000) {
+                                    for (int i = 0; i < NPOTS; ++i) {
+                                        assignAnchorRaw[i] = rawSweep[i];
+                                        assignFiltRaw[i] = rawSweep[i];
+                                        assignAnchorPos[i] = pressedPosFromRaw(rawSweep[i]);
+                                        RackUI::PotTarget t;
+                                        if (RackUI::GetPotTarget((uint8_t)i, t) &&
+                                            t.kind == RackUI::PotTarget::kCC) {
+                                            s_potModSrc[i] = t.routedSrc;
+                                        }
+                                    }
+                                    assignPotLocked = -1;
+                                    assignCandidatePot = -1;
+                                    assignCandidateCount = 0;
+                                    assignLastChoice = 0xFF;
+                                    assignStableChoice = 0xFF;
+                                    assignStableCount = 0;
+                                    assignSessionArmed = true;
+                                }
+                            } else {
+                                // Guard against mid-sweep button release: if
+                                // the other 15 pots are rising together or any
+                                // alive pot is no longer dropped, the button
+                                // contact is opening — freeze assign state!
+                                int otherRiseSum = 0;
+                                for (int i = 0; i < NPOTS; ++i) {
+                                    if (i == assignPotLocked) continue;
+                                    const int diff = rawSweep[i] - assignFiltRaw[i];
+                                    if (diff > 0) otherRiseSum += diff;
+                                }
+                                const bool releasingNow =
+                                    (dropped < alive) || (otherRiseSum > 140);
+
+                                if (!releasingNow) {
+                                    for (int i = 0; i < NPOTS; ++i) {
+                                        assignFiltRaw[i] =
+                                            (assignFiltRaw[i] * 3 + rawSweep[i] + 2) >> 2;
+                                    }
+                                    if (assignPotLocked < 0) {
+                                        // Find if a SINGLE pot is being deliberately turned
+                                        int movingCount = 0;
+                                        int bestPot = -1;
+                                        int bestPosDelta = 0;
+                                        int ccwUnmapPot = -1;
+                                        for (int i = 0; i < NPOTS; ++i) {
+                                            const int curPos =
+                                                (int)pressedPosFromRaw(assignFiltRaw[i]);
+                                            int dPos = curPos - (int)assignAnchorPos[i];
+                                            if (dPos < 0) dPos = -dPos;
+                                            int dRaw = assignFiltRaw[i] - assignAnchorRaw[i];
+                                            if (dRaw < 0) dRaw = -dRaw;
+                                            if (dPos >= 8 && dRaw >= 20) {
+                                                ++movingCount;
+                                                if (dPos > bestPosDelta) {
+                                                    bestPosDelta = dPos;
+                                                    bestPot = i;
+                                                }
+                                            }
+                                            // Also allow easy CCW unmap when a
+                                            // modulated pot was already near CCW:
+                                            RackUI::PotTarget t;
+                                            if (RackUI::GetPotTarget((uint8_t)i, t) &&
+                                                t.kind == RackUI::PotTarget::kCC &&
+                                                (t.routedSrc > 0 || s_potModSrc[i] > 0)) {
+                                                if (assignFiltRaw[i] <= 115 &&
+                                                    (assignFiltRaw[i] <= assignAnchorRaw[i] - 10 ||
+                                                     assignFiltRaw[i] <= 45)) {
+                                                    ccwUnmapPot = i;
+                                                }
+                                            }
+                                        }
+                                        int candidate = -1;
+                                        if (movingCount == 1 && bestPot >= 0 &&
+                                            bestPosDelta >= 10) {
+                                            candidate = bestPot;
+                                        } else if (movingCount == 0 && ccwUnmapPot >= 0) {
+                                            candidate = ccwUnmapPot;
+                                        }
+                                        if (candidate >= 0) {
+                                            if (assignCandidatePot == candidate) {
+                                                if (++assignCandidateCount >= 2) {
+                                                    assignPotLocked = (int8_t)candidate;
+                                                    assignTurnedMask |=
+                                                        (uint16_t)(1u << candidate);
+                                                }
+                                            } else {
+                                                assignCandidatePot = (int8_t)candidate;
+                                                assignCandidateCount = 1;
+                                            }
+                                        } else {
+                                            assignCandidateCount = 0;
+                                        }
+                                    }
+                                    if (assignPotLocked >= 0) {
+                                        const uint8_t p = (uint8_t)assignPotLocked;
+                                        const int r = assignFiltRaw[p];
+                                        const uint8_t pos = pressedPosFromRaw(r);
+                                        // Generous CCW OFF zone with hysteresis:
+                                        // enter OFF at raw <= 115 (pos <= 18),
+                                        // stay OFF until raw > 140 (pos > 22).
+                                        uint8_t choice = 0;
+                                        const bool stayOff =
+                                            (assignLastChoice == 0) && (r <= 140);
+                                        if (!stayOff && r > 115 && pos > 18) {
+                                            choice = (uint8_t)(
+                                                1 + ((int)(pos - 19) * 12) / 109);
+                                            if (choice > 12) choice = 12;
+                                        }
+                                        // Update top bar live so user sees the
+                                        // source name immediately while turning;
+                                        // commit to RP2350 once stable for 3 sweeps.
+                                        RackUI::NoteAssignPot(p, choice);
+                                        if (choice == assignStableChoice) {
+                                            if (assignStableCount < 10) {
+                                                ++assignStableCount;
+                                            }
+                                            if (assignStableCount >= 3 &&
+                                                choice != assignLastChoice) {
+                                                assignLastChoice = choice;
+                                                applyModAssign(p, choice);
+                                            }
+                                        } else {
+                                            assignStableChoice = choice;
+                                            assignStableCount = 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        vTaskDelay(1);
+                        continue;
+                    }
+
+                    // Button is not pressed
+                    if (pushActive) {
+                        pushActive = false;
+                        UserInput::SetPushRaw(false);
+                    }
+                    assignSessionArmed = false;
+                    assignArmTimeUs = 0;
+                    assignPotLocked = -1;
+                    assignCandidatePot = -1;
+                    assignCandidateCount = 0;
+                    assignLastChoice = 0xFF;
+                    assignStableChoice = 0xFF;
+                    assignStableCount = 0;
+
+                    // Post-release guard: for 250 ms after releasing the button,
+                    // re-seed filtRaw/lastSentRaw to the unpressed voltage and
+                    // suppress all sends so release recovery never triggers
+                    // bogus parameter or modulation changes.
+                    if (lastPushUs != 0 && (now - lastPushUs) < POST_RELEASE_GUARD_US) {
+                        for (uint8_t ch = 0; ch < NPOTS; ++ch) {
+                            filtRaw[ch] = rawSweep[ch];
+                            lastSentRaw[ch] = rawSweep[ch];
+                            baselineRaw[ch] = rawSweep[ch];
+                            lastValue[ch] = mapValue(ch, rawSweep[ch]);
+                            lastSent[ch] = lastValue[ch];
+                        }
+                        if (assignTurnedMask != 0) {
+                            assignTurnedMask = 0;
+                            RackPots::PickupResync();
+                        }
+                        vTaskDelay(1);
+                        continue;
+                    }
+
+                    // Normal unpressed pot processing across all 16 channels
+                    for (uint8_t ch = 0; ch < NPOTS; ++ch) {
+                        const int raw = rawSweep[ch];
+                        const int diff = raw - filtRaw[ch];
+                        if (diff > 96 || diff < -96) {
+                            filtRaw[ch] = (filtRaw[ch] + raw) >> 1;
+                        } else {
+                            filtRaw[ch] = (filtRaw[ch] * 7 + raw + 4) >> 3;
+                        }
+                        baselineRaw[ch] = filtRaw[ch];
+
+                        if (calRunning) {
+                            if (filtRaw[ch] < (int)cal[ch].min) cal[ch].min = (uint16_t)filtRaw[ch];
+                            if (filtRaw[ch] > (int)cal[ch].max) cal[ch].max = (uint16_t)filtRaw[ch];
+                            if (now - calStartUs >= CAL_WINDOW_MS * 1000) {
+                                calRunning = false;
+                                saveCal();
+                                for (int i = 0; i < NPOTS; ++i) {
+                                    ESP_LOGI(TAG, "cal pot %2d: %u..%u", i,
+                                             cal[i].min, cal[i].max);
+                                    lastSent[i] = 0xFFFF;
+                                }
+                                ESP_LOGI(TAG, "calibration stored (NVS rpots/cal)");
                             }
                         } else {
-                            const int delta = (int)v - (int)lastSent[ch];
-                            if (delta >= DEADBAND || delta <= -DEADBAND) {
-                                if (now - lastSendUs >= SEND_PERIOD_US) {
-                                    lastSendUs = now;
-                                    lastSent[ch] = v;
+                            const uint8_t prev = (uint8_t)lastValue[ch];
+                            const uint8_t v = mapValue(ch, filtRaw[ch]);
+                            if (pickPending[ch]) {
+                                lastValue[ch] = v;
+                                const int target = (int)pickTarget[ch];
+                                const int d = (int)v - target;
+                                const bool crossed =
+                                    prevValid &&
+                                    (((int)prev < target && (int)v >= target) ||
+                                     ((int)prev > target && (int)v <= target));
+                                if (crossed || (d <= PICK_BAND && d >= -PICK_BAND)) {
+                                    pickPending[ch] = false;
+                                    lastSent[ch] = (uint8_t)target;
+                                    lastSentRaw[ch] = filtRaw[ch];
+                                    lastValue[ch] = (uint8_t)target;
                                     lastSendPotUs[ch] = now;
-                                    if (RackUI::AssignModeActive()) {
-                                        // Assign gesture: the pot move cycles
-                                        // the cell's mod source; direction =
-                                        // the move. The readings during the
-                                        // press are 0.6x-scaled by the push's
-                                        // divider — valid for DIRECTION,
-                                        // never sent as parameter values.
-                                        sendAssign(ch, v > prev);
-                                    } else if (pushActive) {
-                                        // Pressed but not armed: the readings
-                                        // are scaled — suppress parameters.
-                                    } else {
+                                    RackUI::NoteActivePot(ch);
+                                }
+                            }
+                            if (!pickPending[ch]) {
+                                const int rawDelta = filtRaw[ch] - lastSentRaw[ch];
+                                const bool atEnd =
+                                    (v == 0 || v == 127) && (v != lastSent[ch]);
+                                const bool movedEnough =
+                                    atEnd || rawDelta >= RAW_HYST ||
+                                    rawDelta <= -RAW_HYST;
+                                if (movedEnough && v != lastSent[ch]) {
+                                    lastValue[ch] = v;
+                                    lastSent[ch] = v;
+                                    lastSentRaw[ch] = filtRaw[ch];
+                                    lastSendPotUs[ch] = now;
                                     RackUI::PotTarget t;
                                     if (RackUI::GetPotTarget(ch, t) &&
                                         t.kind == RackUI::PotTarget::kCC &&
                                         t.routedSrc) {
-                                        // Mod-routed cell: the pot RIDES the
-                                        // routed source's speed param (user
-                                        // spec 2026-11-08); the cell's own CC
-                                        // is untouched (the source owns it).
+                                        // Mod-routed cell: ride the routed
+                                        // source's speed param, and show the
+                                        // source name in the top bar.
+                                        RackUI::NoteActivePot(ch);
                                         const uint8_t src =
                                             (uint8_t)(t.routedSrc - 1);
                                         RackLink::SendModSet(
                                             src, rideParam(src), v);
-                                        } else {
-                                            sendTarget(ch, v);
-                                        }
+                                    } else {
+                                        sendTarget(ch, v);
                                     }
                                 }
                             }
                         }
                     }
 
-                    ch = (uint8_t)((ch + 1) & 15);
-
-                    // ENCODER PUSH detection (GPIO3 shared with the SIG line
-                    // through the 220R divider): a press scales EVERY
-                    // channel's reading to ~0.6x simultaneously (the divider:
-                    // pad = SIG x 220/(220+mux-Ron)) while a real pot turn
-                    // moves ONE channel — a full-sweep comparison detects it.
-                    // pushActive then suppresses parameter sends (scaled
-                    // readings are never parameter-safe) while keeping the
-                    // assign-direction tracking live.
-                    if (ch == 0) {
-                        int dropped = 0, alive = 0;
-                        for (int i = 0; i < NPOTS; ++i) {
-                            if (prevSweep[i] > 40) {
-                                ++alive;
-                                if (lastValue[i] < prevSweep[i] -
-                                                   prevSweep[i] / 4)
-                                    ++dropped;
-                            }
-                            prevSweep[i] = lastValue[i];
-                        }
-                        prevValid = true;
-                        pushActive = alive >= 10 && dropped >= alive * 3 / 4;
-                        UserInput::SetPushRaw(pushActive);
-                    }
-
-                    // One FULL tick per complete 16-channel sweep. TRAP
-                    // (bench-caught 2026-11-08): CONFIG_FREERTOS_HZ=100
-                    // makes pdMS_TO_TICKS(1) round to ZERO — vTaskDelay(0)
-                    // free-runs this prio-3 task, starving IDLE (the TWDT
-                    // fired every 5 s) AND the prio-2 link task (silent
-                    // wire, no probes, dead console). The seed's LinkClient
-                    // carries the same lesson in its comments. ~2 ms of
-                    // scan per 10 ms tick ~= 100 sweeps/s; each pot is
-                    // sampled every ~12 ms — well inside the send-on-move
-                    // latency budget.
-                    if (ch == 0) vTaskDelay(1);
+                    vTaskDelay(1);
                 }
             }
 
@@ -335,12 +601,8 @@ namespace CTAG {
         }
 
         int RackPots::DebugRaw(uint8_t pot) {
-            if (pot >= NPOTS || s_adc == nullptr) return -1;
-            addrSet(pot);
-            esp_rom_delay_us(8);
-            int raw = 0;
-            adc_oneshot_read(s_adc, ADC_CH, &raw);
-            return raw;
+            if (pot >= NPOTS) return -1;
+            return filtRaw[pot];
         }
 
         int RackPots::DebugValue(uint8_t pot) {
@@ -351,50 +613,105 @@ namespace CTAG {
         // ---- soft takeover (RackPots.hpp has the policy) ----
 
         void RackPots::PickupResync() {
+            const int64_t now = esp_timer_get_time();
             for (uint8_t i = 0; i < NPOTS; ++i) {
                 pickPending[i] = false;
+                s_potWantUnmap[i] = false;
+                if (lastSendPotUs[i] != 0 &&
+                    now - lastSendPotUs[i] < ECHO_WINDOW_US) {
+                    continue;    // pot is actively being turned right now
+                }
                 RackUI::PotTarget t;
                 if (!RackUI::GetPotTarget(i, t)) continue;   // no cell: live
-                if (t.kind == RackUI::PotTarget::kCC && t.routedSrc) {
-                    continue;    // ride cell: the pot writes the source, not
-                                 // this value — nothing to pick up
+                if (t.kind == RackUI::PotTarget::kCC) {
+                    s_potModSrc[i] = t.routedSrc;
+                    if (t.routedSrc) {
+                        continue; // ride cell: pot writes the mod source speed
+                    }
                 }
-                const int d = (int)lastValue[i] - (int)t.value;
-                if (d > PICK_BAND || d < -PICK_BAND) {
+                uint8_t bLo = t.value, bHi = t.value;
+                RackUI::GetPotBucketBounds(i, t, bLo, bHi);
+                const int cur = (int)lastValue[i];
+                if (cur < (int)bLo - PICK_BAND) {
                     pickPending[i] = true;
-                    pickTarget[i] = t.value;
+                    pickTarget[i] = bLo;
+                } else if (cur > (int)bHi + PICK_BAND) {
+                    pickPending[i] = true;
+                    pickTarget[i] = bHi;
+                } else {
+                    lastSent[i] = lastValue[i];
+                    lastSentRaw[i] = filtRaw[i];
                 }
             }
         }
 
         void RackPots::PickupCellNote(uint8_t pot, uint8_t value) {
             if (pot >= NPOTS) return;
+            RackUI::PotTarget t;
+            if (!RackUI::GetPotTarget(pot, t)) return;
+            t.value = value;
+            if (t.kind == RackUI::PotTarget::kCC) {
+                if (!AssignRecentlyChanged(pot)) {
+                    s_potModSrc[pot] = t.routedSrc;
+                }
+                if (t.routedSrc) return;
+            }
+            uint8_t bLo = value, bHi = value;
+            RackUI::GetPotBucketBounds(pot, t, bLo, bHi);
+            const int cur = (int)lastValue[pot];
+
             if (pickPending[pot]) {
-                // An external change landing exactly on our position (or a
-                // stale pick target the pot has since crossed) — re-arm
-                // against the new value; potTask clears on the crossing.
-                pickTarget[pot] = value;
-                const int d = (int)lastValue[pot] - (int)value;
-                if (d <= PICK_BAND && d >= -PICK_BAND) {
+                if (cur >= (int)bLo - PICK_BAND && cur <= (int)bHi + PICK_BAND) {
                     pickPending[pot] = false;
-                    lastSent[pot] = value;
+                    lastSent[pot] = lastValue[pot];
+                    lastSentRaw[pot] = filtRaw[pot];
                     lastSendPotUs[pot] = esp_timer_get_time();
+                } else {
+                    pickTarget[pot] = (cur < (int)bLo) ? bLo : bHi;
                 }
                 return;
             }
-            // Live pot: our own echo (same value right after our send) never
-            // arms pending — mid-turn echo lag must not stall a turn.
-            if ((int)value == (int)lastSent[pot] &&
+            if (lastSendPotUs[pot] != 0 &&
                 esp_timer_get_time() - lastSendPotUs[pot] < ECHO_WINDOW_US) {
                 return;
             }
-            RackUI::PotTarget t;
-            if (!RackUI::GetPotTarget(pot, t)) return;
-            if (t.kind == RackUI::PotTarget::kCC && t.routedSrc) return;
-            const int d = (int)lastValue[pot] - (int)value;
-            if (d > PICK_BAND || d < -PICK_BAND) {
+            if (cur < (int)bLo - PICK_BAND) {
                 pickPending[pot] = true;
-                pickTarget[pot] = value;
+                pickTarget[pot] = bLo;
+            } else if (cur > (int)bHi + PICK_BAND) {
+                pickPending[pot] = true;
+                pickTarget[pot] = bHi;
+            }
+        }
+
+        bool RackPots::RecentlyMoved(uint8_t pot) {
+            if (pot >= NPOTS || lastSendPotUs[pot] == 0) return false;
+            return (esp_timer_get_time() - lastSendPotUs[pot]) < ECHO_WINDOW_US;
+        }
+
+        bool RackPots::AssignRecentlyChanged(uint8_t pot) {
+            if (pot >= NPOTS || s_lastAssignUs[pot] == 0) return false;
+            return (esp_timer_get_time() - s_lastAssignUs[pot]) < ECHO_WINDOW_US;
+        }
+
+        void RackPots::ClearResidualUnmap(uint8_t pot, uint8_t routedSrc) {
+            if (pot >= NPOTS || !s_potWantUnmap[pot] || routedSrc == 0 ||
+                routedSrc > 12) {
+                return;
+            }
+            const uint8_t srcIdx = (uint8_t)(routedSrc - 1);
+            RackLink::SendModSet(srcIdx, destParam(srcIdx), 0);
+            RackLink::TelemLocalAssignWrite(pot, 0);
+            RackLink::SendPageRequest(RackUI::GetPage());
+        }
+
+        void RackPots::ClearAllModSources() {
+            for (uint8_t s = 0; s < 12; ++s) {
+                RackLink::SendModSet(s, destParam(s), 0);
+            }
+            for (uint8_t i = 0; i < NPOTS; ++i) {
+                s_potModSrc[i] = 0;
+                s_potWantUnmap[i] = false;
             }
         }
 
@@ -430,12 +747,16 @@ namespace CTAG {
 
             loadCal();
             for (int i = 0; i < NPOTS; ++i) {
-                lastSent[i] = 0xFFFF;          // force a first send on move
-                lastValue[i] = 0;
+                const int r = readChannelRaw((uint8_t)i);
+                filtRaw[i] = r;
+                lastSentRaw[i] = r;
+                lastValue[i] = mapValue((uint8_t)i, r);
+                lastSent[i] = lastValue[i];
                 lastSendPotUs[i] = 0;
                 pickPending[i] = false;
                 pickTarget[i] = 0;
             }
+            addrSet(0);
 
             if (xTaskCreate(potTask, "rack_pots", 3072, nullptr,
                             tskIDLE_PRIORITY + 3, &hPotTask) != pdPASS) {

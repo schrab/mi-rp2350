@@ -23,6 +23,8 @@ Live behavior (stage 1):
 ***************/
 
 #include "RackLink.hpp"
+#include "RackPots.hpp"
+#include "RackUI.hpp"
 
 #include "driver/uart.h"
 #include "esp_log.h"
@@ -208,8 +210,16 @@ namespace CTAG {
                         return;
                     }
                     RackTelemCell &c = s_telem.cell[idx];
-                    c.value = pl[5];
-                    c.flags = pl[6];
+                    // If the user is actively turning this pot on any page,
+                    // keep the fresher local value from TelemLocalCellWrite
+                    // rather than snapping back to a throttled RP2350 echo.
+                    if (!RackPots::RecentlyMoved((uint8_t)idx)) {
+                        c.value = RackUI::WireToPotValue(
+                            page, mod, (uint8_t)idx, cc, pl[5]);
+                    }
+                    if (!RackPots::AssignRecentlyChanged((uint8_t)idx)) {
+                        c.flags = pl[6];
+                    }
                     c.color = pl[7];
                     size_t off = cells_end;
                     size_t n = 0;
@@ -224,6 +234,11 @@ namespace CTAG {
                     return;
                 }
                 // Full snapshot: replace the cache wholesale.
+                const bool samePageAndMod =
+                    s_telem.valid && s_telem.page == page &&
+                    (page >= 2 || s_telem.module == mod);
+                const uint8_t prevModBDiv =
+                    (s_telem.valid && s_telem.page == 3) ? s_telem.cell[15].value : 0;
                 s_telem.page = page;
                 s_telem.module = mod;
                 s_telem.mode = mode;
@@ -231,8 +246,18 @@ namespace CTAG {
                 for (uint8_t i = 0; i < count; i++) {
                     RackTelemCell &c = s_telem.cell[i];
                     c.cc = pl[4 + i * 4];
-                    c.value = pl[5 + i * 4];
-                    c.flags = pl[6 + i * 4];
+                    if (!(samePageAndMod && RackPots::RecentlyMoved(i))) {
+                        if (page == 3 && i == 15 && samePageAndMod &&
+                            pl[5 + i * 4] == 0 && prevModBDiv != 0) {
+                            c.value = prevModBDiv;
+                        } else {
+                            c.value = RackUI::WireToPotValue(
+                                page, mod, i, c.cc, pl[5 + i * 4]);
+                        }
+                    }
+                    if (!(samePageAndMod && RackPots::AssignRecentlyChanged(i))) {
+                        c.flags = pl[6 + i * 4];
+                    }
                     c.color = pl[7 + i * 4];
                 }
                 size_t off = cells_end;
@@ -251,8 +276,15 @@ namespace CTAG {
                 s_telem.valid = true;
                 // Status tail: the 4 bytes after the label block.
                 if (len >= off + 4) {
-                    s_telem.bpm = pl[off];
                     s_telem.clocksrc = pl[off + 1];
+                    uint16_t rawBpm = pl[off];
+                    if (s_telem.clocksrc == 0 && rawBpm < 45) {
+                        rawBpm += 256; // unwrap uint8_t overflow for 256..300 BPM
+                    }
+                    if (!(page == 4 && samePageAndMod &&
+                          RackPots::RecentlyMoved(11))) {
+                        s_telem.bpm = rawBpm;
+                    }
                     s_telem.chain = pl[off + 2];
                     s_telem.link = pl[off + 3];
                     s_telem.tail_valid = true;
@@ -598,6 +630,48 @@ namespace CTAG {
         bool RackLink::TelemDirty() { return s_telem_dirty; }
 
         void RackLink::TelemClearDirty() { s_telem_dirty = false; }
+
+        void RackLink::TelemLocalCellWrite(uint8_t slot, uint8_t value) {
+            if (slot >= 16) return;
+            taskENTER_CRITICAL(&telemMux);
+            if (s_telem.valid && slot < s_telem.count) {
+                s_telem.cell[slot].value = value;
+                if (s_telem.page == 4 && slot == 11) {
+                    s_telem.bpm = (uint16_t)(20 + ((int)value * 280 + 63) / 127);
+                }
+                s_telem_dirty = true;
+            }
+            taskEXIT_CRITICAL(&telemMux);
+        }
+
+        void RackLink::TelemLocalAssignWrite(uint8_t slot, uint8_t srcIdxPlus1) {
+            if (slot >= 16) return;
+            taskENTER_CRITICAL(&telemMux);
+            if (s_telem.valid && slot < s_telem.count) {
+                uint8_t f = s_telem.cell[slot].flags;
+                f &= ~(kFlagModRouted | kFlagInert | kFlagSrcMask);
+                if (srcIdxPlus1 > 0) {
+                    f |= kFlagModRouted;
+                    f |= (uint8_t)((srcIdxPlus1 << kFlagSrcShift) & kFlagSrcMask);
+                }
+                s_telem.cell[slot].flags = f;
+                s_telem_dirty = true;
+            }
+            taskEXIT_CRITICAL(&telemMux);
+        }
+
+        void RackLink::TelemLocalSysSwitch(uint8_t newMod) {
+            if (newMod >= 4) return;
+            taskENTER_CRITICAL(&telemMux);
+            s_telem.module = newMod;
+            if (s_telem.valid && s_telem.page == 5) {
+                for (uint8_t i = 0; i < 4 && i < s_telem.count; ++i) {
+                    s_telem.cell[i].value = (i == newMod) ? 127 : 0;
+                }
+            }
+            s_telem_dirty = true;
+            taskEXIT_CRITICAL(&telemMux);
+        }
 
         uint32_t RackLink::LastMidiMs() { return s_last_midi_ms; }
 

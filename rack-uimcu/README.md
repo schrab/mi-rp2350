@@ -28,7 +28,7 @@ idf.py build && idf.py -p PORT flash     # console = USB-Serial-JTAG
 | 0 | encoder A | switch to GND: internal pull-up enabled in firmware; 10k external pull-up recommended |
 | 1 | encoder B | same as A |
 | 2 | HC4067 addr S2 | STRAPPING — push-pull output, floats harmlessly at reset |
-| 3 | HC4067 **SIG** (common, Z) + encoder push | ADC1_CH3; encoder push shares this line through a 4.7k series resistor to GND (detected in `RackPots` scan task) |
+| 3 | HC4067 **SIG** (common, Z) + encoder push | ADC1_CH3; encoder push shares this line through a 470R series resistor to GND (detected in `RackPots` scan task) |
 | 4 | UART link TX -> RP2350 GP1 | 921600 8N1 (stage 1) |
 | 5 | UART link RX <- RP2350 GP0 | 921600 8N1 (stage 1) |
 | 6 | HC4067 addr S3 | push-pull output |
@@ -45,7 +45,7 @@ Pin-saving tricks:
 
 - display CS tied GND — the SPI bus is exclusive to the panel (requires SPI Mode 3 with SCK idling HIGH before RST releases).
 - display BL tied 3V3 — always backlit, no PWM dimming.
-- encoder push shared with mux SIG (`GPIO3`) via a 4.7k series resistor to GND.
+- encoder push shared with mux SIG (`GPIO3`) via a 470R series resistor to GND.
 - mux E (enable) tied GND — always enabled.
 
 ## Wiring summary
@@ -55,7 +55,7 @@ Pin-saving tricks:
 | C3 GPIO4 | RP2350 GP1 (UART0 RX) |
 | C3 GPIO5 | RP2350 GP0 (UART0 TX) |
 | C3 GPIO10/20/21/7 | ST7789P3 SCK/MOSI/DC/RST; panel CS->GND, BL->3V3, VCC 3V3, GND |
-| C3 GPIO3 | HC4067 SIG (common; datasheet Z) — pots 0-15 on CH0-15; encoder push -> 4.7k -> GND |
+| C3 GPIO3 | HC4067 SIG (common; datasheet Z) — pots 0-15 on CH0-15; encoder push -> 470R -> GND |
 | C3 GPIO8/9/2/6 | HC4067 S0/S1/S2/S3 — push-pull outputs |
 | C3 GPIO0/1 | encoder A/B (switch to GND; internal + 10k external pull-ups) |
 
@@ -69,7 +69,7 @@ All 3V3 logic, no level shifting.
 | Short push (< 600 ms) on MOD-C | toggle global clock source (UI_CMD sys id 2) |
 | Short push on SYS | the SYS action ring, one action per push, next action marked with the yellow underline: chain-pair cycle -> chain engage toggle -> preset slot cycle + PRESET_REQ (T4a stub) -> telemetry-deltas toggle -> telemetry-full toggle -> wrap |
 | Push-hold >= 600 ms | arms MOD-ASSIGN mode (strip shows `>MOD<` in yellow) |
-| Hold + turn a POT | sends UI_CMD ASSIGN_CYCLE [pot][dir] — the RP2350 cycles that cell's mod source [off, src0..src11] and the full TELEM reply re-renders the result (invalid targets are inert on the RP2350 and the cell blinks via TELEM flags bit2) |
+| Hold + turn a POT | selects modulation source across the pot's rotation `[OFF, LFO1..4, EUC1..4, GAT1..2, ADS1..2]`; strip shows `>MOD LFO1<` / `>MOD OFF<` etc.; fully CCW unmaps the parameter (`>MOD OFF<`); releasing the push locks the selection without release glitches |
 | Hold + ROTATE | module-select overlay (strip shows `>ELEM/CLDS/PLTS/RNGS<`); releasing the hold CONFIRMS (sends SWITCH); releasing without rotating cancels |
 | Short push on P1/P2/MOD-A/MOD-B | no action (parameters live on the pots) |
 
@@ -87,22 +87,34 @@ event per detent (GPIO-ISR quadrature, seed detent table).
   limit 200 msgs/s. P1/P2 -> MIDI CC (the ACTIVE page cell's CC), MOD
   pages -> MOD_SET [src][param] (the fixed map in ui/RackUI.cpp — MUST
   MATCH the RP2350's kUiMod*Cells, docs/ui-protocol.md §6), MOD-C BPM pot
-  -> UI_CMD SET_GLOBAL, SYS -> inert.
+  -> UI_CMD SET_GLOBAL, SYS -> pots 0..3 active module radio select, pot 4
+  chain pair, pot 5 chain engage, pots 6/7 telemetry gates, pot 8 preset
+  slot select.
+- **Full-range pot mapping**: Discrete and small-range parameters (2-value
+  toggles, Elements MODEL 0..2, Clouds QUALITY 0..3, Rings POLY 1..4,
+  WAVE 0..4, DIV 0..9, STEPS 1..32, Plaits ENGINE 0..97, BPM 20..300)
+  span the entire 0..100% pot turn and display their true parameter value
+  and proportional bar fill.
 - **Soft takeover / pot pickup** (user spec 2026-11-08): a pot whose
   position does not match its cell's value never jumps the parameter.
   Page switches and external changes (web panel, BLE) arm a per-pot
   PENDING state: the pot sends nothing until its position aligns with the
   cell value; the renderer shows a `<` / `>` arrow beside the value —
   the turn direction that picks the value up. Own TELEM echoes never
-  re-arm pending (a fast turn cannot be stalled by echo lag).
+  re-arm pending (a fast turn cannot be stalled by echo lag). For discrete
+  and stepped parameters, soft takeover is **bucket-aware**: a pot already
+  inside the parameter's discrete bucket is immediately live, and crossing
+  the bucket boundary picks up the parameter without requiring a trip to 0
+  or 127.
 - **Mod-routed cells** (TELEM flags bits 3-6 = routed source): rendered
   YELLOW as a whole (label + value + bar — the state accent). The pot
   does NOT write the cell's CC (the mod source owns the parameter
   RP2350-side) — it RIDES the routed source's speed parameter instead:
   LFO -> rate, Euclid -> clock division, rhythmic gate -> division,
-  ADSR -> division (a no-op while the ADSR gate-follows). To adjust the
-  parameter's own base value, un-route it first (hold the encoder and
-  turn the pot until the source cycles to off) — the pot then picks the
+  ADSR -> division (a no-op while the ADSR gate-follows). Touching any
+  mod-routed pot also displays `MOD:LFO1` (etc.) in the top bar. To adjust
+  the parameter's own base value, un-route it first (hold the encoder and
+  turn the pot fully CCW to `>MOD OFF<`) — the pot then picks the
   base value up with the normal pending/arrow behavior.
 
 ## Bench procedures (no wiring beyond the stage)

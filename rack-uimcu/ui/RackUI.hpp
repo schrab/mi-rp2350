@@ -44,13 +44,13 @@ namespace CTAG {
             // What a pot position maps to on the ACTIVE page right now.
             struct PotTarget {
                 enum Kind : uint8_t { kNone = 0, kCC = 1, kMod = 2,
-                                      kGlobal = 3 };
+                                      kGlobal = 3, kSys = 4 };
                 Kind kind;
                 uint8_t cc;        // kCC: the cell's MIDI CC (P1/P2)
-                                   // kGlobal: the SET_GLOBAL item id
+                                   // kGlobal/kSys: selector item id
                 uint8_t src;       // kMod: mod source id (MOD-A/B/C)
                 uint8_t param;     // kMod: kModParamNames index
-                uint8_t value;     // the cell's current value (pickup target)
+                uint8_t value;     // the cell's current value in 0-127 pot space
                 uint8_t routedSrc; // kCC + mod-routed only: source id + 1
                                    // (0 = none). The pot then RIDES that
                                    // source's speed param instead of writing
@@ -64,12 +64,34 @@ namespace CTAG {
             // dashes until the TELEM snapshot lands.
             static void SetPage(uint8_t page);
             static uint8_t GetPage();
+            static uint8_t GetModule();
 
             // True while the mod-assign gesture is armed (push held).
             static bool AssignModeActive();
 
             // RackPots asks for the ACTIVE page's cell at a pot position.
             static bool GetPotTarget(uint8_t pot, PotTarget &out);
+
+            // Convert between RP2350 wire byte and C3 0-127 full-turn pot space.
+            static uint8_t WireToPotValue(uint8_t page, uint8_t mod,
+                                          uint8_t slot, uint8_t cc,
+                                          uint8_t wireVal);
+            static uint8_t PotToWireValue(uint8_t page, uint8_t mod,
+                                          uint8_t slot, uint8_t cc,
+                                          uint8_t potVal);
+
+            // Execute a pot value change (0-127 pot space) for target `t`.
+            static void ApplyPotAction(uint8_t pot, const PotTarget &t,
+                                       uint8_t potVal);
+
+            // Return bucket bounds [lo, hi] in 0-127 pot space for discrete
+            // cells so soft-takeover aligns to bucket boundaries, not 0/127.
+            static void GetPotBucketBounds(uint8_t pot, const PotTarget &t,
+                                           uint8_t &lo, uint8_t &hi);
+
+            // Track active / assigned pot for top-bar mod source display.
+            static void NoteActivePot(uint8_t pot);
+            static void NoteAssignPot(uint8_t pot, uint8_t srcIdxPlus1);
 
             // `ui` console dump.
             static void DebugState();

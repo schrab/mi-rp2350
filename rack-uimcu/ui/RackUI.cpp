@@ -64,14 +64,20 @@ namespace CTAG {
         static constexpr int VALUE_DY = 7;
         static constexpr int BAR_DY = 14;    // 2 px tall
 
-        // Cell rects: rows 1/3 have 6 cells (~46 px), row 2 has 4 (~70 px).
+        // Cell rects: rows 1/3 have 6 cells (x = 2, 49, 96, 143, 190, 237);
+        // row 2 has 4 cells staggered halfway between cols 0-1, 1-2, 3-4, 4-5
+        // (matching docs/UI_sketch.png).
         static int cellX(int slot) {         // slot 0-15 in pot order
             if (slot < 6) return 2 + slot * 47;
-            if (slot < 10) return 1 + (slot - 6) * 71;
+            if (slot == 6) return 25;        // between col 0 (2) and col 1 (49)
+            if (slot == 7) return 72;        // between col 1 (49) and col 2 (96)
+            if (slot == 8) return 166;       // between col 3 (143) and col 4 (190)
+            if (slot == 9) return 213;       // between col 4 (190) and col 5 (237)
             return 2 + (slot - 10) * 47;
         }
         static int cellW(int slot) {
-            return (slot >= 6 && slot < 10) ? 70 : 46;
+            (void)slot;
+            return 46;
         }
         static int cellY(int slot) {
             return ROW_Y[slot < 6 ? 0 : (slot < 10 ? 1 : 2)];
@@ -95,6 +101,12 @@ namespace CTAG {
         static uint8_t s_presetSlot = 0;      // SYS: C3-local selection
         static uint8_t s_sysRing = 0;         // SYS push-ring position
         static bool s_blinkPhase = false;     // 2 Hz inert-cell blink
+        static uint8_t s_activePot = 0xFF;    // last moved pot (0-15)
+        static uint8_t s_assignPot = 0xFF;    // pot being mapped while held
+        static uint8_t s_assignSrc = 0;       // 0 = OFF, 1..12 = LFO1..ADS2
+        static uint16_t s_lastWireSent[16];   // dedup discrete wire sends
+        static int64_t s_pendingRefreshUs = 0;
+        static bool s_bootModCleaned = false;
 
         static RackTelemPage s_cur;          // last TELM copy (renderer)
         static bool s_stripDirty = true;
@@ -116,6 +128,248 @@ namespace CTAG {
             "P1", "P2", "MOD-A", "MOD-B", "MOD-C", "SYS",
         };
         static const char *kModNames[4] = { "ELEM", "CLDS", "PLTS", "RNGS" };
+        static const char *kSrcNames[13] = {
+            "OFF",  "LFO1", "LFO2", "LFO3", "LFO4",
+            "EUC1", "EUC2", "EUC3", "EUC4",
+            "GAT1", "GAT2", "ADS1", "ADS2",
+        };
+
+        // Return discrete option count N (2..98) if (page, mod, slot, cc) is
+        // a stepped selector on P1/P2 whose wire byte is 0..N-1 (or 0/127 for
+        // 2-state triggers/toggles); 0 if continuous 0..127.
+        static uint8_t p1p2DiscreteCount(uint8_t mod, uint8_t cc,
+                                         bool &wireIsBool127) {
+            wireIsBool127 = false;
+            switch (mod & 3) {
+                case 0: // Elements
+                    if (cc == 28) return 3;   // MODEL: 0..2
+                    if (cc == 29) return 2;   // OMINOUS: 0..1
+                    break;
+                case 1: // Clouds
+                    if (cc == 23) return 3;   // MODE: 0..2
+                    if (cc == 24) return 4;   // QUALITY: 0..3
+                    if (cc == 65 || cc == 66) {
+                        wireIsBool127 = true;
+                        return 2;             // FREEZE / TRIG: <64 vs >=64
+                    }
+                    break;
+                case 2: // Plaits
+                    if (cc == 23) return 98;  // ENGINE: 0..97
+                    if (cc == 24) return 3;   // AUX: 0..2
+                    if (cc == 64) {
+                        wireIsBool127 = true;
+                        return 2;             // TRIG
+                    }
+                    break;
+                case 3: // Rings
+                    if (cc == 18) return 6;   // MODEL/FX: 0..5
+                    if (cc == 20) return 5;   // MODE: 0..4
+                    if (cc == 21) return 3;   // WAVE: 0..2
+                    if (cc == 22) return 3;   // CHORD TB: 0..2
+                    if (cc == 23) return 11;  // CHORD: 0..10
+                    if (cc == 64) {
+                        wireIsBool127 = true;
+                        return 2;             // STRUM
+                    }
+                    break;
+            }
+            return 0;
+        }
+
+        uint8_t RackUI::WireToPotValue(uint8_t page, uint8_t mod,
+                                       uint8_t slot, uint8_t cc,
+                                       uint8_t wireVal) {
+            if (page <= 1) {
+                bool wireBool = false;
+                const uint8_t n = p1p2DiscreteCount(mod, cc, wireBool);
+                if (n > 1) {
+                    if (wireBool) return wireVal >= 64 ? 127 : 0;
+                    const uint8_t clamped = wireVal < n ? wireVal : (uint8_t)(n - 1);
+                    return (uint8_t)(((uint16_t)clamped * 127 + (n - 1) / 2) / (n - 1));
+                }
+                return wireVal;
+            }
+            if (page == 3 && slot == 14) {
+                // MOD-B A1 MODE: RP2350 sends 0 or 64
+                return wireVal >= 64 ? 127 : 0;
+            }
+            if (page == 4 && slot == 12) {
+                // MOD-C CLKSRC: 0 or 127
+                return wireVal >= 64 ? 127 : 0;
+            }
+            if (page == 5) {
+                if (slot < 4) return (mod == slot) ? 127 : 0;
+                if (slot == 4) {
+                    // CHAIN PR: wire is 1..3
+                    if (wireVal <= 1) return 0;
+                    if (wireVal == 2) return 64;
+                    return 127;
+                }
+                if (slot >= 5 && slot <= 7) {
+                    return wireVal ? 127 : 0;
+                }
+            }
+            return wireVal;
+        }
+
+        uint8_t RackUI::PotToWireValue(uint8_t page, uint8_t mod,
+                                       uint8_t slot, uint8_t cc,
+                                       uint8_t potVal) {
+            (void)slot;
+            if (page <= 1) {
+                bool wireBool = false;
+                const uint8_t n = p1p2DiscreteCount(mod, cc, wireBool);
+                if (n > 1) {
+                    if (wireBool) return potVal >= 64 ? 127 : 0;
+                    uint8_t idx = (uint8_t)(((uint16_t)potVal * n) / 128);
+                    if (idx >= n) idx = (uint8_t)(n - 1);
+                    return idx;
+                }
+            }
+            return potVal;
+        }
+
+        // Convert 0-127 pot-space value into human-readable display number
+        // and bar fill (barVal / barMax) so every stepped/range parameter
+        // uses 100% of the pot turn and shows its true range.
+        static int potToDisplayValue(uint8_t page, uint8_t mod, int slot,
+                                     uint8_t cc, uint8_t potVal,
+                                     int &barVal, int &barMax) {
+            barVal = potVal;
+            barMax = 127;
+            if (page <= 1) {
+                bool wireBool = false;
+                const uint8_t n = p1p2DiscreteCount(mod, cc, wireBool);
+                if (n > 1) {
+                    int idx = ((int)potVal * n) / 128;
+                    if (idx >= n) idx = n - 1;
+                    barVal = idx;
+                    barMax = n - 1;
+                    return idx;
+                }
+                if ((mod & 3) == 1 && cc == 13) {
+                    // Clouds EX SRC: 5 exciter modes (0..4)
+                    int idx = ((int)potVal * 5) / 128;
+                    if (idx > 4) idx = 4;
+                    barVal = idx;
+                    barMax = 4;
+                    return idx;
+                }
+                if ((mod & 3) == 3 && cc == 19) {
+                    // Rings POLY: 1..4
+                    int idx = potVal / 32;
+                    if (idx > 3) idx = 3;
+                    barVal = idx;
+                    barMax = 3;
+                    return 1 + idx;
+                }
+                return potVal;
+            }
+            if (page == 2) {
+                // MOD-A: L1..L4 WAVE at slots 2, 6, 10, 14 (5 waves: 0..4)
+                if ((slot & 3) == 2) {
+                    int idx = ((int)potVal * 5) / 128;
+                    if (idx > 4) idx = 4;
+                    barVal = idx;
+                    barMax = 4;
+                    return idx;
+                }
+                return potVal;
+            }
+            if (page == 3) {
+                // MOD-B: E1..E4 STPS (0,3,6,9) & G1 LEN (12) -> 1..32
+                if (slot == 0 || slot == 3 || slot == 6 || slot == 9 ||
+                    slot == 12) {
+                    int v = 1 + ((int)potVal * 31 + 63) / 127;
+                    barVal = v - 1;
+                    barMax = 31;
+                    return v;
+                }
+                // E1..E4 PULS (1,4,7,10) -> 0..32
+                if (slot == 1 || slot == 4 || slot == 7 || slot == 10) {
+                    int v = ((int)potVal * 32 + 63) / 127;
+                    barVal = v;
+                    barMax = 32;
+                    return v;
+                }
+                // E1..E4 ROT (2,5,8,11) -> 0..31
+                if (slot == 2 || slot == 5 || slot == 8 || slot == 11) {
+                    int v = ((int)potVal * 31 + 63) / 127;
+                    barVal = v;
+                    barMax = 31;
+                    return v;
+                }
+                // A1 MODE (14) -> 0..1
+                if (slot == 14) {
+                    int v = potVal >= 64 ? 1 : 0;
+                    barVal = v;
+                    barMax = 1;
+                    return v;
+                }
+                // DIV (15) -> 10 clock divisions (0..9)
+                if (slot == 15) {
+                    int v = ((int)potVal * 10) / 128;
+                    if (v > 9) v = 9;
+                    barVal = v;
+                    barMax = 9;
+                    return v;
+                }
+                return potVal;
+            }
+            if (page == 4) {
+                // MOD-C: G2 LEN (0) -> 1..32, G2 MASK (1) -> 0..32
+                if (slot == 0) {
+                    int v = 1 + ((int)potVal * 31 + 63) / 127;
+                    barVal = v - 1;
+                    barMax = 31;
+                    return v;
+                }
+                if (slot == 1) {
+                    int v = ((int)potVal * 32 + 63) / 127;
+                    barVal = v;
+                    barMax = 32;
+                    return v;
+                }
+                // BPM (11) -> 20..300
+                if (slot == 11) {
+                    int v = 20 + ((int)potVal * 280 + 63) / 127;
+                    barVal = potVal;
+                    barMax = 127;
+                    return v;
+                }
+                // CLKSRC (12) -> 0..1
+                if (slot == 12) {
+                    int v = potVal >= 64 ? 1 : 0;
+                    barVal = v;
+                    barMax = 1;
+                    return v;
+                }
+                return potVal;
+            }
+            if (page == 5) {
+                // SYS: 0..3 modules (0..1), 4 CHAIN PR (1..3),
+                // 5..7 toggles (0..1), 8 PRESET (0..3)
+                if (slot == 4) {
+                    int v = 1 + ((int)potVal * 3) / 128;
+                    if (v > 3) v = 3;
+                    barVal = v - 1;
+                    barMax = 2;
+                    return v;
+                }
+                if (slot == 8) {
+                    int v = ((int)potVal * 4) / 128;
+                    if (v > 3) v = 3;
+                    barVal = v;
+                    barMax = 3;
+                    return v;
+                }
+                int v = potVal >= 64 ? 1 : 0;
+                barVal = v;
+                barMax = 1;
+                return v;
+            }
+            return potVal;
+        }
 
         // ===================== rendering =====================
         static void renderStrip() {
@@ -131,39 +385,58 @@ namespace CTAG {
             }
             Display::DrawString(x, 1, buf, Display::FONT_VALUE,
                                 Display::kWhite);
-            x += 44;
+            x += Display::StringWidth(buf, Display::FONT_VALUE) + 6;
             // clock source / BPM from the status tail (0 = external MIDI).
             if (s_cur.tail_valid) {
                 if (s_cur.clocksrc == 1) {
-                    Display::DrawString(x, 1, "MIDI", Display::FONT_VALUE,
-                                        Display::kTeal);
-                    x += 26;
+                    snprintf(buf, sizeof(buf), "MIDI");
                 } else {
-                    snprintf(buf, sizeof(buf), "INT %u", s_cur.bpm);
-                    Display::DrawString(x, 1, buf, Display::FONT_VALUE,
-                                        Display::kTeal);
-                    x += 42;
+                    snprintf(buf, sizeof(buf), "INT %u", (unsigned)s_cur.bpm);
                 }
+                Display::DrawString(x, 1, buf, Display::FONT_VALUE,
+                                    Display::kTeal);
+                x += Display::StringWidth(buf, Display::FONT_VALUE) + 6;
                 // chain state: off / pair index.
                 const char *pairs[4] = { "OFF", "E>C", "P>C", "R>C" };
                 snprintf(buf, sizeof(buf), "CHN %s", pairs[s_cur.chain & 3]);
                 Display::DrawString(x, 1, buf, Display::FONT_VALUE,
                                     s_cur.chain ? Display::kYellow
                                                 : Display::kWhite);
-                x += 34;
+                x += Display::StringWidth(buf, Display::FONT_VALUE) + 6;
             }
-            // assign-mode / overlay indicator (the yellow STATE accent).
+            // assign-mode / overlay / active-mod-source indicator
             if (s_overlay) {
                 snprintf(buf, sizeof(buf), ">%s<", kModNames[s_overlaySel & 3]);
                 Display::DrawString(x, 1, buf, Display::FONT_VALUE,
                                     Display::kYellow);
             } else if (s_assignArmed) {
-                Display::DrawString(x, 1, ">MOD<", Display::FONT_VALUE,
+                if (s_assignPot < 16) {
+                    snprintf(buf, sizeof(buf), ">MOD %s<",
+                             kSrcNames[s_assignSrc <= 12 ? s_assignSrc : 0]);
+                } else if (s_page <= 1 && s_activePot < 16 && s_fullArrived) {
+                    const uint8_t rsrc = (uint8_t)(
+                        (s_cur.cell[s_activePot].flags & RackLink::kFlagSrcMask) >>
+                        RackLink::kFlagSrcShift);
+                    snprintf(buf, sizeof(buf), ">MOD %s<",
+                             kSrcNames[rsrc <= 12 ? rsrc : 0]);
+                } else {
+                    snprintf(buf, sizeof(buf), ">MOD<");
+                }
+                Display::DrawString(x, 1, buf, Display::FONT_VALUE,
                                     Display::kYellow);
+            } else if (s_page <= 1 && s_activePot < 16 && s_fullArrived) {
+                const uint8_t rsrc = (uint8_t)(
+                    (s_cur.cell[s_activePot].flags & RackLink::kFlagSrcMask) >>
+                    RackLink::kFlagSrcShift);
+                if (rsrc > 0 && rsrc <= 12) {
+                    snprintf(buf, sizeof(buf), "MOD:%s", kSrcNames[rsrc]);
+                    Display::DrawString(x, 1, buf, Display::FONT_VALUE,
+                                        Display::kYellow);
+                }
             }
             // BLE + MIDI activity dot at the right edge.
             if (DRIVERS::BtMidiReceiver::IsConnected()) {
-                Display::DrawString(Display::W - 30, 1, "BLE",
+                Display::DrawString(Display::W - 24, 1, "BLE",
                                     Display::FONT_VALUE, Display::kTeal);
             }
             const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
@@ -187,6 +460,9 @@ namespace CTAG {
             const uint16_t col = dim ? Display::Dim(base) : base;
             const bool blinkOff = (c.flags & RackLink::kFlagInert) != 0 &&
                                   !s_blinkPhase;
+            int barVal = 0, barMax = 127;
+            const int dispVal = potToDisplayValue(
+                s_page, s_cur.module, slot, c.cc, snap.value, barVal, barMax);
             if (!blinkOff) {
                 if (s_fullArrived) {
                     // Mod-routed cells read YELLOW as a whole (label too) —
@@ -201,21 +477,17 @@ namespace CTAG {
                                         Display::FONT_LABEL,
                                         Display::Dim(Display::kWhite));
                 }
-                char val[8];
+                char val[10];
                 if (s_fullArrived) {
-                    // Soft-takeover hint (user spec): while the pot is not
-                    // aligned with this cell's value, the arrow shows the
-                    // turn direction that picks the value up. The displayed
-                    // value stays the PARAMETER's (the pot sends nothing).
                     int8_t pdir = 0;
                     if (RackPots::PickupPending(slot, pdir)) {
                         if (pdir > 0) {
-                            snprintf(val, sizeof(val), "%u>", snap.value);
+                            snprintf(val, sizeof(val), "%d>", dispVal);
                         } else {
-                            snprintf(val, sizeof(val), "<%u", snap.value);
+                            snprintf(val, sizeof(val), "<%d", dispVal);
                         }
                     } else {
-                        snprintf(val, sizeof(val), "%u", snap.value);
+                        snprintf(val, sizeof(val), "%d", dispVal);
                     }
                 } else {
                     snprintf(val, sizeof(val), "---");
@@ -226,13 +498,13 @@ namespace CTAG {
                 Display::DrawString(x, y + VALUE_DY, val,
                                     Display::FONT_VALUE, vcol);
             }
-            // 2 px underline bar (0-127 fill); routed cells bar in yellow.
+            // 2 px underline bar (scaled across barMax); routed cells in yellow.
             const uint16_t barCol =
                 routedSrc ? Display::kYellow
                           : (dim ? Display::Dim(base) : base);
             Display::FillRect(x, y + BAR_DY, w - 2, 2, Display::kBlack);
-            if (s_fullArrived && snap.value > 0) {
-                const int fill = (snap.value * (w - 2)) / 127;
+            if (s_fullArrived && barVal > 0 && barMax > 0) {
+                const int fill = (barVal * (w - 2)) / barMax;
                 if (fill > 0) {
                     Display::FillRect(x, y + BAR_DY, fill, 2, barCol);
                 }
@@ -244,13 +516,21 @@ namespace CTAG {
                 // SYS pot 8 = the C3-LOCAL preset slot cell (no TELEM cell
                 // exists — the RP2350 owns no slot state until T4a).
                 if (s_page == 5 && slot == 8 && s_fullArrived) {
+                    const uint8_t presetPotVal =
+                        (uint8_t)(((uint16_t)s_presetSlot * 127) / 3);
+                    int8_t pdir = 0;
+                    const uint8_t pick = RackPots::PickupPending(slot, pdir)
+                                             ? (uint8_t)(pdir > 0 ? 2 : 1)
+                                             : 0;
                     CellSnap &ps = s_rendered[slot];
-                    if (!ps.present || ps.value != s_presetSlot ||
+                    if (s_pageDirty || !ps.present ||
+                        ps.value != presetPotVal || ps.pick != pick ||
                         strcmp(ps.label, "PRESET") != 0) {
                         ps.present = true;
-                        ps.value = s_presetSlot;    // shown as the slot number
+                        ps.value = presetPotVal;
                         ps.flags = 0;
                         ps.color = 2;               // teal class
+                        ps.pick = pick;
                         snprintf(ps.label, sizeof(ps.label), "PRESET");
                         renderCell(slot);
                     }
@@ -308,16 +588,15 @@ namespace CTAG {
         static void sysRingAction() {
             // Engaged flag + configured pair from the cached SYS cells.
             const bool engaged = s_fullArrived && s_cur.count > 5 &&
-                                 s_cur.cell[5].value != 0;
+                                 s_cur.cell[5].value >= 64;
             uint8_t pair = s_fullArrived && s_cur.count > 4
-                               ? s_cur.cell[4].value : 1;
+                               ? (uint8_t)(1 + ((uint16_t)s_cur.cell[4].value * 3) / 128)
+                               : 1;
             if (pair < 1 || pair > 3) pair = 1;
             switch (s_sysRing) {
                 case 0: {  // chain pair cycle (engage state preserved)
                     const uint8_t next = (uint8_t)(pair % 3 + 1);
                     if (engaged) {
-                        // Live pair switch: disengage, then engage the new
-                        // pair — the console path validates + acks both.
                         RackLink::SendChainRoute(kPairA[next], kChainB, 0);
                         RackLink::SendChainRoute(kPairA[next], kChainB, 1);
                     } else {
@@ -338,16 +617,70 @@ namespace CTAG {
                 case 4: RackLink::SendSysToggle(RackLink::kSysTelemFull); break;
             }
             s_sysRing = (uint8_t)((s_sysRing + 1) % 5);
+            s_pendingRefreshUs = esp_timer_get_time() + 45000;
+        }
+
+        void RackUI::GetPotBucketBounds(uint8_t pot, const PotTarget &t,
+                                        uint8_t &lo, uint8_t &hi) {
+            lo = t.value;
+            hi = t.value;
+            uint8_t n = 0;
+            if (s_page <= 1) {
+                bool wireBool = false;
+                n = p1p2DiscreteCount(s_cur.module, t.cc, wireBool);
+                if (n == 0 && (s_cur.module & 3) == 1 && t.cc == 13) n = 5;
+                if (n == 0 && (s_cur.module & 3) == 3 && t.cc == 19) n = 4;
+                if (n > 12) n = 0; // 98-engine selector behaves as continuous
+            } else if (s_page == 2) {
+                if ((pot & 3) == 2) n = 5;    // LFO WAVE (0..4)
+            } else if (s_page == 3) {
+                if (pot == 14) n = 2;         // A1 MODE (0..1)
+                if (pot == 15) n = 10;        // DIV (0..9)
+            } else if (s_page == 4) {
+                if (pot == 12) n = 2;         // CLKSRC (0..1)
+            } else if (s_page == 5) {
+                if (pot == 4) n = 3;          // CHAIN PR (1..3)
+                else if (pot == 8) n = 4;     // PRESET (0..3)
+                else if (pot < 8) n = 2;      // Modules 0..3 & toggles 5..7
+            }
+            if (n >= 2 && n <= 12) {
+                int k = ((int)t.value * n) / 128;
+                if (k >= n) k = n - 1;
+                int bLo = (k * 128 + n - 1) / n;
+                int bHi = ((k + 1) * 128 - 1) / n;
+                if (k > 0 && bLo + 2 <= bHi) bLo += 2;
+                if (k < n - 1 && bHi - 2 >= bLo) bHi -= 2;
+                lo = (uint8_t)(bLo < 0 ? 0 : bLo);
+                hi = (uint8_t)(bHi > 127 ? 127 : bHi);
+            }
         }
 
         uint8_t RackUI::GetPage() { return s_page; }
+        uint8_t RackUI::GetModule() { return s_cur.module; }
 
         bool RackUI::AssignModeActive() { return s_assignArmed; }
+
+        void RackUI::NoteActivePot(uint8_t pot) {
+            if (pot < 16 && s_activePot != pot) {
+                s_activePot = pot;
+                s_stripDirty = true;
+            }
+        }
+
+        void RackUI::NoteAssignPot(uint8_t pot, uint8_t srcIdxPlus1) {
+            s_assignPot = pot;
+            s_assignSrc = srcIdxPlus1;
+            s_activePot = pot;
+            s_stripDirty = true;
+        }
 
         void RackUI::SetPage(uint8_t page) {
             if (page > 5 || page == s_page) return;
             s_page = page;
             s_fullArrived = false;      // dashes until the snapshot lands
+            s_activePot = 0xFF;
+            s_assignPot = 0xFF;
+            for (int i = 0; i < 16; ++i) s_lastWireSent[i] = 0xFFFF;
             s_pageDirty = true;
             s_stripDirty = true;
             RackLink::SendPageRequest(page);
@@ -371,14 +704,17 @@ namespace CTAG {
                 return true;
             }
             if (s_page >= 2 && s_page <= 4) {
-                // MOD pages: the fixed (src, param) map. BPM pot -> the
-                // SET_GLOBAL intent (UI_CMD action 5, item BPM); CLKSRC pot
-                // is push-toggled, not turned. (MOD cells are never
-                // mod-routed — sources cannot route to sources.)
                 const SrcParam &sp = kModPotMap[s_page - 2][pot];
                 if (s_page == 4 && pot == 11) {
                     out.kind = PotTarget::kGlobal;
                     out.cc = 0;             // item 0 = BPM (kUiGlobalBpm)
+                    out.value = s_fullArrived && pot < s_cur.count
+                                    ? s_cur.cell[pot].value : 0;
+                    return true;
+                }
+                if (s_page == 4 && pot == 12) {
+                    out.kind = PotTarget::kSys;
+                    out.cc = 12;            // CLKSRC on MOD-C
                     out.value = s_fullArrived && pot < s_cur.count
                                     ? s_cur.cell[pot].value : 0;
                     return true;
@@ -391,7 +727,170 @@ namespace CTAG {
                                 ? s_cur.cell[pot].value : 0;
                 return true;
             }
-            return false;                   // SYS: pots inert
+            if (s_page == 5) {
+                if (!s_fullArrived) return false;
+                if (pot < 8 && pot < s_cur.count) {
+                    out.kind = PotTarget::kSys;
+                    out.cc = pot;
+                    out.value = s_cur.cell[pot].value;
+                    return true;
+                }
+                if (pot == 8) {
+                    out.kind = PotTarget::kSys;
+                    out.cc = 8;
+                    out.value = (uint8_t)(((uint16_t)s_presetSlot * 127) / 3);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        void RackUI::ApplyPotAction(uint8_t pot, const PotTarget &t,
+                                    uint8_t potVal) {
+            NoteActivePot(pot);
+            switch (t.kind) {
+                case PotTarget::kCC: {
+                    const uint8_t wireVal =
+                        PotToWireValue(s_page, s_cur.module, pot, t.cc, potVal);
+                    RackLink::TelemLocalCellWrite(pot, potVal);
+                    if (s_lastWireSent[pot] != wireVal) {
+                        s_lastWireSent[pot] = wireVal;
+                        const uint8_t pkt[4] = { 0x0B, 0xB0, t.cc, wireVal };
+                        RackLink::SendMidi(pkt);
+                    }
+                    break;
+                }
+                case PotTarget::kMod: {
+                    RackLink::TelemLocalCellWrite(pot, potVal);
+                    RackLink::SendModSet(t.src, t.param, potVal);
+                    break;
+                }
+                case PotTarget::kGlobal: {
+                    RackLink::TelemLocalCellWrite(pot, potVal);
+                    RackLink::SendUiCmd(RackLink::kCmdSetGlobal, t.cc, potVal);
+                    s_stripDirty = true;
+                    break;
+                }
+                case PotTarget::kSys: {
+                    if (s_page == 4 && pot == 12) {
+                        // MOD-C CLKSRC (0 = INT, 1 = MIDI)
+                        const uint8_t wantClk = potVal >= 64 ? 1 : 0;
+                        RackLink::TelemLocalCellWrite(pot, potVal);
+                        if (s_lastWireSent[pot] != wantClk) {
+                            s_lastWireSent[pot] = wantClk;
+                            if ((s_cur.clocksrc != 0) != (wantClk != 0)) {
+                                RackLink::SendSysToggle(
+                                    RackLink::kSysClockToggle);
+                                s_pendingRefreshUs =
+                                    esp_timer_get_time() + 45000;
+                            }
+                        }
+                        break;
+                    }
+                    if (s_page == 5) {
+                        if (pot < 4) {
+                            // Module selector radio buttons (0..3): turning
+                            // any module pot >= 64 activates that module;
+                            // turning the already-active module pot down does
+                            // not deactivate it (one module is always active).
+                            const uint8_t wantOn = potVal >= 64 ? 1 : 0;
+                            if (wantOn) {
+                                if (s_lastWireSent[pot] != 1) {
+                                    s_lastWireSent[pot] = 1;
+                                    if (s_cur.module != pot) {
+                                        RackLink::TelemLocalSysSwitch(pot);
+                                        RackLink::SendSwitch(pot);
+                                        s_pendingRefreshUs =
+                                            esp_timer_get_time() + 45000;
+                                    } else {
+                                        RackLink::TelemLocalCellWrite(pot, 127);
+                                    }
+                                }
+                            } else {
+                                s_lastWireSent[pot] = 0;
+                                // Keep active module cell at 127, inactive at 0
+                                RackLink::TelemLocalCellWrite(
+                                    pot, (s_cur.module == pot) ? 127 : 0);
+                            }
+                        } else if (pot == 4) {
+                            uint8_t pair =
+                                (uint8_t)(1 + ((uint16_t)potVal * 3) / 128);
+                            if (pair > 3) pair = 3;
+                            RackLink::TelemLocalCellWrite(pot, potVal);
+                            if (s_lastWireSent[pot] != pair) {
+                                s_lastWireSent[pot] = pair;
+                                const bool engaged =
+                                    s_cur.count > 5 &&
+                                    s_cur.cell[5].value >= 64;
+                                if (engaged) {
+                                    RackLink::SendChainRoute(
+                                        kPairA[pair], kChainB, 0);
+                                    RackLink::SendChainRoute(
+                                        kPairA[pair], kChainB, 1);
+                                } else {
+                                    RackLink::SendChainRoute(
+                                        kPairA[pair], kChainB, 0);
+                                }
+                                s_pendingRefreshUs =
+                                    esp_timer_get_time() + 45000;
+                            }
+                        } else if (pot == 5) {
+                            const uint8_t wantOn = potVal >= 64 ? 1 : 0;
+                            RackLink::TelemLocalCellWrite(pot, potVal);
+                            if (s_lastWireSent[pot] != wantOn) {
+                                s_lastWireSent[pot] = wantOn;
+                                uint8_t pair = (uint8_t)(
+                                    1 + ((uint16_t)s_cur.cell[4].value * 3) / 128);
+                                if (pair > 3) pair = 3;
+                                RackLink::SendChainRoute(
+                                    kPairA[pair], kChainB, wantOn);
+                                s_pendingRefreshUs =
+                                    esp_timer_get_time() + 45000;
+                            }
+                        } else if (pot == 6) {
+                            const uint8_t wantOn = potVal >= 64 ? 1 : 0;
+                            const uint8_t curOn =
+                                s_cur.cell[6].value >= 64 ? 1 : 0;
+                            RackLink::TelemLocalCellWrite(pot, potVal);
+                            if (s_lastWireSent[pot] != wantOn) {
+                                s_lastWireSent[pot] = wantOn;
+                                if (wantOn != curOn) {
+                                    RackLink::SendSysToggle(
+                                        RackLink::kSysTelemDelta);
+                                    s_pendingRefreshUs =
+                                        esp_timer_get_time() + 45000;
+                                }
+                            }
+                        } else if (pot == 7) {
+                            const uint8_t wantOn = potVal >= 64 ? 1 : 0;
+                            const uint8_t curOn =
+                                s_cur.cell[7].value >= 64 ? 1 : 0;
+                            RackLink::TelemLocalCellWrite(pot, potVal);
+                            if (s_lastWireSent[pot] != wantOn) {
+                                s_lastWireSent[pot] = wantOn;
+                                if (wantOn != curOn) {
+                                    RackLink::SendSysToggle(
+                                        RackLink::kSysTelemFull);
+                                    s_pendingRefreshUs =
+                                        esp_timer_get_time() + 45000;
+                                }
+                            }
+                        } else if (pot == 8) {
+                            uint8_t slotIdx =
+                                (uint8_t)(((uint16_t)potVal * 4) / 128);
+                            if (slotIdx > 3) slotIdx = 3;
+                            if (s_presetSlot != slotIdx) {
+                                s_presetSlot = slotIdx;
+                                RackLink::SendPresetReq(s_presetSlot);
+                                s_pageDirty = true;
+                            }
+                        }
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
         }
 
         void RackUI::DebugState() {
@@ -404,8 +903,8 @@ namespace CTAG {
             }
             ESP_LOGI(TAG, "page %s mod=%u cells=%u tail(bpm=%u clk=%u "
                           "chain=%u link=%02x)", names[s_page],
-                     s_cur.module, s_cur.count, s_cur.bpm, s_cur.clocksrc,
-                     s_cur.chain, s_cur.link);
+                     s_cur.module, s_cur.count, (unsigned)s_cur.bpm,
+                     s_cur.clocksrc, s_cur.chain, s_cur.link);
             for (uint8_t i = 0; i < s_cur.count && i < 16; ++i) {
                 ESP_LOGI(TAG, "  [%2u] cc=%3u val=%3u flg=%02x col=%u %s",
                          i, s_cur.cell[i].cc, s_cur.cell[i].value,
@@ -417,6 +916,7 @@ namespace CTAG {
         void RackUI::Init() {
             memset(&s_cur, 0, sizeof(s_cur));
             memset(s_rendered, 0, sizeof(s_rendered));
+            for (int i = 0; i < 16; ++i) s_lastWireSent[i] = 0xFFFF;
             Display::Clear(Display::kBlack);
             renderStrip();
             renderPage();
@@ -447,6 +947,7 @@ namespace CTAG {
                             break;
                         case InputEvent::PUSH_HOLD:
                             s_assignArmed = true;
+                            s_assignPot = 0xFF;
                             s_stripDirty = true;
                             break;
                         case InputEvent::PUSH_SHORT:
@@ -462,15 +963,25 @@ namespace CTAG {
                         case InputEvent::PUSH_RELEASE:
                             if (s_overlay) {
                                 // Release CONFIRMS the selected module.
+                                RackLink::TelemLocalSysSwitch(s_overlaySel);
                                 RackLink::SendSwitch(s_overlaySel);
+                                s_pendingRefreshUs =
+                                    esp_timer_get_time() + 45000;
                                 s_overlay = false;
                                 s_assignArmed = false;
                             } else {
                                 s_assignArmed = false;   // release cancels
                             }
+                            s_assignPot = 0xFF;
                             s_stripDirty = true;
                             break;
                     }
+                }
+
+                if (s_pendingRefreshUs != 0 &&
+                    esp_timer_get_time() >= s_pendingRefreshUs) {
+                    s_pendingRefreshUs = 0;
+                    RackLink::SendPageRequest(s_page);
                 }
 
                 // ---- render (30-60 Hz; test patterns own the screen) ----
@@ -478,9 +989,27 @@ namespace CTAG {
                     // Poll the TELEM cache.
                     RackTelemPage tmp;
                     if (RackLink::TelemGet(tmp) && tmp.page == s_page) {
+                        if (!s_bootModCleaned) {
+                            s_bootModCleaned = true;
+                            RackPots::ClearAllModSources();
+                            s_pendingRefreshUs = esp_timer_get_time() + 30000;
+                        }
                         const bool wasFull =
                             tmp.mode == RackLink::kTelemFull;
-                        if (wasFull || !s_fullArrived) {
+                        if (wasFull && s_page <= 1) {
+                            for (uint8_t i = 0; i < 16 && i < tmp.count; ++i) {
+                                const uint8_t rsrc = (uint8_t)(
+                                    (tmp.cell[i].flags & RackLink::kFlagSrcMask) >>
+                                    RackLink::kFlagSrcShift);
+                                if (rsrc > 0) {
+                                    RackPots::ClearResidualUnmap(i, rsrc);
+                                }
+                            }
+                        }
+                        const bool pageOrModChanged =
+                            !s_fullArrived || tmp.page != s_cur.page ||
+                            (s_page <= 1 && tmp.module != s_cur.module);
+                        if (pageOrModChanged) {
                             s_cur = tmp;
                             if (wasFull) s_fullArrived = true;
                             s_pageDirty = true;
@@ -488,10 +1017,9 @@ namespace CTAG {
                             // every pot (page switch / module change).
                             RackPots::PickupResync();
                         } else {
-                            // Delta: RackLink already patched the cache —
-                            // take the whole copy (cheap, consistent).
-                            // Pickup: only the changed cells matter; our own
-                            // echoes never arm pending (RackPots.hpp).
+                            // Delta or periodic same-page refresh: only
+                            // changed cells matter; our own active pot turns
+                            // never arm pending (RackPots.hpp).
                             for (uint8_t i = 0; i < 16 && i < tmp.count; ++i) {
                                 if (tmp.cell[i].value != s_cur.cell[i].value ||
                                     tmp.cell[i].flags != s_cur.cell[i].flags) {
@@ -500,6 +1028,7 @@ namespace CTAG {
                                 }
                             }
                             s_cur = tmp;
+                            if (wasFull) s_fullArrived = true;
                             s_pageDirty = true;
                         }
                         s_stripDirty = true;

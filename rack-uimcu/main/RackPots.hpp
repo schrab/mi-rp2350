@@ -71,6 +71,15 @@ namespace CTAG {
             // Renderer query: pending pot + which way to turn it
             // (dir +1 = turn up, '>' right of the value; -1 = down, '<').
             static bool PickupPending(uint8_t pot, int8_t &dir);
+            // True while the user has moved this pot within the echo window.
+            static bool RecentlyMoved(uint8_t pot);
+            // True while a pot's mod assignment was just changed locally.
+            static bool AssignRecentlyChanged(uint8_t pot);
+            // If a cell was unmapped (MOD OFF) by the user, peel off any
+            // residual source reported by TELEM.
+            static void ClearResidualUnmap(uint8_t pot, uint8_t routedSrc);
+            // Clear all 12 mod sources on the RP2350.
+            static void ClearAllModSources();
 
             // Debug: raw + mapped value of one pot (console `pots`).
             static int DebugRaw(uint8_t pot);
