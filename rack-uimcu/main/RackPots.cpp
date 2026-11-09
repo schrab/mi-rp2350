@@ -54,10 +54,9 @@ namespace CTAG {
             constexpr int PIN_S2 = 2;     // strapping pin — floats harmlessly
                                           // at boot (mux picks an arbitrary
                                           // channel; nothing reads it)
-            constexpr int PIN_S3 = 6;     // ex display-CS (the display CS
-                                          // moved back to GND: the desync
-                                          // is fixed by the firmware RST
-                                          // pulse on GPIO7)
+            constexpr int PIN_S3 = 6;     // ex display-CS (display CS is
+                                          // now GPIO7; RES = hardware
+                                          // pull-up)
 
             constexpr uint8_t NPOTS = 16;
             constexpr int DEADBAND = 2;            // counts vs last SENT

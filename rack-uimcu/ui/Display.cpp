@@ -57,11 +57,13 @@ static const char *TAG = "Display";
 #define ST7789_PIN_SCK  10
 #define ST7789_PIN_MOSI 20
 #define ST7789_PIN_DC   21
-// CS is TIED GND (as wired): GPIO6 went to the mux S3 address line. The
-// bit-counter desync that motivated CS-on-GPIO is handled by the firmware
-// RST pulse (GPIO7) — a hardware reset clears the serial framing at every
-// boot, after the bus pads are already driven.
-#define ST7789_PIN_RST  7     // real RST: pulsed by firmware in Init()
+// CS on GPIO7, pulsed by the SPI hardware per transaction (2026-11-09):
+// the ST7789 serial bit counter only resyncs on a CS rising edge. CS tied
+// GND (c17d54c) went white again under BOTH SPI modes despite a firmware
+// RST pulse; the only SPI-path image ever seen (8911819) had a real CS.
+// RES is NOT driven: 10k pull-up to 3V3 + ~1 uF to GND (power-on reset),
+// SWRESET in Init() covers warm re-inits — the SSD1309-style 4-signal map.
+#define ST7789_PIN_CS   7
 #define ST7789_COLSTART 82    // native column range of the visible window
 #define ST7789_ROWCLOSEST 301 // native row range: 18..301 (284 rows)
 
@@ -87,8 +89,8 @@ int Display::s_testpat = -1;
 // (SCK=10, MOSI=20, DC=21): the C3's SPI hardware output does not reach
 // the RTC-domain pads GPIO0/1/2 (bench-proven 2026-11-09: the same-pads
 // direct-GPIO test delivered data while every SPI transfer delivered
-// nothing). CS=6 is pulsed by the SPI hardware per transaction; RST=7 is
-// pulsed by Init().
+// nothing). CS=7 is pulsed by the SPI hardware per transaction; RES is a
+// hardware pull-up (not driven).
 
 static spi_device_handle_t s_spi = nullptr;
 
@@ -207,11 +209,9 @@ void Display::BitBangTest() {
 // white: the SPI path itself broke after 8911819 — bisect its changes.
 void Display::SpiFlood() {
     s_testpat = 5;                        // hold the UI off
-    // hardware reset, then MINIMAL init via the SPI path
-    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 0);
-    vTaskDelay(pdMS_TO_TICKS(10));
-    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 1);
-    vTaskDelay(pdMS_TO_TICKS(120));
+    // software reset (RES is a hardware pull-up), then MINIMAL init
+    sendCommand(0x01);                    // SWRESET
+    vTaskDelay(pdMS_TO_TICKS(150));
     sendCommand(0x11);                    // SLPOUT
     vTaskDelay(pdMS_TO_TICKS(120));
     sendCommand(0x13);                    // NORON
@@ -376,32 +376,25 @@ void Display::Init() {
 
     spi_device_interface_config_t dev = {};
     dev.clock_speed_hz = ST7789_SPI_CLOCK_HZ;
-    dev.mode = 3;                             // CPOL=1/CPHA=1: REQUIRED with CS
-                                              // tied GND — mode 0 is only safe
-                                              // when a real CS frames each byte
-                                              // (white since c17d54c removed CS;
-                                              // bbtest worked because bbBit
-                                              // leaves SCK idling HIGH = mode 3)
-    dev.spics_io_num = -1;                    // CS tied GND (single device);
-                                              // the desync fix = the firmware
-                                              // RST pulse on GPIO7, not CS
+    dev.mode = 0;                             // mode 0 = the 8911819 config that
+                                              // rendered; with a real CS the
+                                              // idle clock level is irrelevant
+    dev.spics_io_num = ST7789_PIN_CS;         // REAL CS: the hardware pulses
+                                              // it per transaction — the bit
+                                              // counter resyncs every frame
     dev.queue_size = 1;
     ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &dev, &s_spi));
 
     gpio_config_t io = {};
-    io.pin_bit_mask = (1ULL << ST7789_PIN_DC) | (1ULL << ST7789_PIN_RST);
+    io.pin_bit_mask = 1ULL << ST7789_PIN_DC;
     io.mode = GPIO_MODE_OUTPUT;
     gpio_config(&io);
     gpio_set_level((gpio_num_t)ST7789_PIN_DC, 0);
-    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 1);
 
-    // ST7789P3 init (IPS bar): HARDWARE reset via the real RST line now —
-    // the panel's serial framing starts from a known state after every
-    // boot, no RC timing involved.
-    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 0);
-    vTaskDelay(pdMS_TO_TICKS(10));
-    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 1);
-    vTaskDelay(pdMS_TO_TICKS(120));
+    // ST7789P3 init (IPS bar): RES is a hardware pull-up (10k + ~1 uF POR);
+    // SWRESET puts the controller in a known state on warm re-inits too.
+    sendCommand(0x01);                        // SWRESET
+    vTaskDelay(pdMS_TO_TICKS(150));
     sendCommand(0x11);                        // SLPOUT
     vTaskDelay(pdMS_TO_TICKS(120));
     sendCommand(0x13);                        // NORON
