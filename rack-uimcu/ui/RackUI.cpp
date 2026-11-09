@@ -413,12 +413,6 @@ namespace CTAG {
                 if (s_assignPot < 16) {
                     snprintf(buf, sizeof(buf), ">MOD %s<",
                              kSrcNames[s_assignSrc <= 12 ? s_assignSrc : 0]);
-                } else if (s_page <= 1 && s_activePot < 16 && s_fullArrived) {
-                    const uint8_t rsrc = (uint8_t)(
-                        (s_cur.cell[s_activePot].flags & RackLink::kFlagSrcMask) >>
-                        RackLink::kFlagSrcShift);
-                    snprintf(buf, sizeof(buf), ">MOD %s<",
-                             kSrcNames[rsrc <= 12 ? rsrc : 0]);
                 } else {
                     snprintf(buf, sizeof(buf), ">MOD<");
                 }

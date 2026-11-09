@@ -19,7 +19,7 @@ enabled here as belt-and-braces.
 #include "freertos/queue.h"
 
 #define DEBOUNCE_MS 20
-#define HOLD_MS 600          // the rack gesture threshold (README)
+#define HOLD_MS 350          // responsive hold threshold (was 600)
 #define POLL_MS 10
 
 static const char *TAG = "UserInput";

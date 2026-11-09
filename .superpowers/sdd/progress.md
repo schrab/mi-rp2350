@@ -1839,3 +1839,5 @@ gestures, BLE) are next per the wiring table.
    - **BPM Unwrapping:** Unwrapped 8-bit overflow for `256..300 BPM` in telemetry
      status tail and guarded active turns across all pages.
 
+- **Hardware verification:** User confirmed modulation assignment (`>MOD LFO1<`..`>MOD ADS2<`), CCW unmapping (`>MOD OFF<`), and pot responsiveness are working fine on hardware (2026-11-09).
+

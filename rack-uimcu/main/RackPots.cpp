@@ -204,7 +204,6 @@ namespace CTAG {
                         RackLink::SendModSet(prevIdx, destParam(prevIdx), 0);
                     }
                     s_potModSrc[pot] = 0;
-                    RackLink::SendPageRequest(RackUI::GetPage());
                     return;
                 }
 
@@ -223,7 +222,6 @@ namespace CTAG {
                 s_potModSrc[pot] = modChoice;
                 const uint8_t newIdx = (uint8_t)(modChoice - 1);
                 RackLink::SendModSet(newIdx, destParam(newIdx), t.cc);
-                RackLink::SendPageRequest(RackUI::GetPage());
             }
 
             int readChannelRaw(uint8_t ch) {
@@ -313,136 +311,64 @@ namespace CTAG {
 
                         // While button is held, NEVER update filtRaw[] or send
                         // normal pot values. Only run modulation assignment
-                        // once AssignModeActive() has been armed + settled.
+                        // once AssignModeActive() has been armed.
                         if (RackUI::AssignModeActive() && RackUI::GetPage() <= 1) {
                             if (!assignSessionArmed) {
-                                if (assignArmTimeUs == 0) {
-                                    assignArmTimeUs = now;
-                                } else if (now - assignArmTimeUs >= 60000) {
-                                    for (int i = 0; i < NPOTS; ++i) {
-                                        assignAnchorRaw[i] = rawSweep[i];
-                                        assignFiltRaw[i] = rawSweep[i];
-                                        assignAnchorPos[i] = pressedPosFromRaw(rawSweep[i]);
-                                        RackUI::PotTarget t;
-                                        if (RackUI::GetPotTarget((uint8_t)i, t) &&
-                                            t.kind == RackUI::PotTarget::kCC) {
-                                            s_potModSrc[i] = t.routedSrc;
-                                        }
-                                    }
-                                    assignPotLocked = -1;
-                                    assignCandidatePot = -1;
-                                    assignCandidateCount = 0;
-                                    assignLastChoice = 0xFF;
-                                    assignStableChoice = 0xFF;
-                                    assignStableCount = 0;
-                                    assignSessionArmed = true;
-                                }
-                            } else {
-                                // Guard against mid-sweep button release: if
-                                // the other 15 pots are rising together or any
-                                // alive pot is no longer dropped, the button
-                                // contact is opening — freeze assign state!
-                                int otherRiseSum = 0;
                                 for (int i = 0; i < NPOTS; ++i) {
-                                    if (i == assignPotLocked) continue;
-                                    const int diff = rawSweep[i] - assignFiltRaw[i];
-                                    if (diff > 0) otherRiseSum += diff;
+                                    assignAnchorRaw[i] = rawSweep[i];
+                                    assignFiltRaw[i] = rawSweep[i];
+                                    RackUI::PotTarget t;
+                                    if (RackUI::GetPotTarget((uint8_t)i, t) &&
+                                        t.kind == RackUI::PotTarget::kCC) {
+                                        s_potModSrc[i] = t.routedSrc;
+                                    }
                                 }
-                                const bool releasingNow =
-                                    (dropped < alive) || (otherRiseSum > 140);
+                                assignPotLocked = -1;
+                                assignLastChoice = 0xFF;
+                                assignSessionArmed = true;
+                            } else {
+                                for (int i = 0; i < NPOTS; ++i) {
+                                    assignFiltRaw[i] =
+                                        (assignFiltRaw[i] * 3 + rawSweep[i] + 2) >> 2;
+                                }
 
-                                if (!releasingNow) {
-                                    for (int i = 0; i < NPOTS; ++i) {
-                                        assignFiltRaw[i] =
-                                            (assignFiltRaw[i] * 3 + rawSweep[i] + 2) >> 2;
+                                // Check which pot has moved most from its anchor
+                                int maxDelta = 0;
+                                int maxPot = -1;
+                                for (int i = 0; i < NPOTS; ++i) {
+                                    int d = assignFiltRaw[i] - assignAnchorRaw[i];
+                                    if (d < 0) d = -d;
+                                    if (d > maxDelta) {
+                                        maxDelta = d;
+                                        maxPot = i;
                                     }
-                                    if (assignPotLocked < 0) {
-                                        // Find if a SINGLE pot is being deliberately turned
-                                        int movingCount = 0;
-                                        int bestPot = -1;
-                                        int bestPosDelta = 0;
-                                        int ccwUnmapPot = -1;
-                                        for (int i = 0; i < NPOTS; ++i) {
-                                            const int curPos =
-                                                (int)pressedPosFromRaw(assignFiltRaw[i]);
-                                            int dPos = curPos - (int)assignAnchorPos[i];
-                                            if (dPos < 0) dPos = -dPos;
-                                            int dRaw = assignFiltRaw[i] - assignAnchorRaw[i];
-                                            if (dRaw < 0) dRaw = -dRaw;
-                                            if (dPos >= 8 && dRaw >= 20) {
-                                                ++movingCount;
-                                                if (dPos > bestPosDelta) {
-                                                    bestPosDelta = dPos;
-                                                    bestPot = i;
-                                                }
-                                            }
-                                            // Also allow easy CCW unmap when a
-                                            // modulated pot was already near CCW:
-                                            RackUI::PotTarget t;
-                                            if (RackUI::GetPotTarget((uint8_t)i, t) &&
-                                                t.kind == RackUI::PotTarget::kCC &&
-                                                (t.routedSrc > 0 || s_potModSrc[i] > 0)) {
-                                                if (assignFiltRaw[i] <= 115 &&
-                                                    (assignFiltRaw[i] <= assignAnchorRaw[i] - 10 ||
-                                                     assignFiltRaw[i] <= 45)) {
-                                                    ccwUnmapPot = i;
-                                                }
-                                            }
-                                        }
-                                        int candidate = -1;
-                                        if (movingCount == 1 && bestPot >= 0 &&
-                                            bestPosDelta >= 10) {
-                                            candidate = bestPot;
-                                        } else if (movingCount == 0 && ccwUnmapPot >= 0) {
-                                            candidate = ccwUnmapPot;
-                                        }
-                                        if (candidate >= 0) {
-                                            if (assignCandidatePot == candidate) {
-                                                if (++assignCandidateCount >= 2) {
-                                                    assignPotLocked = (int8_t)candidate;
-                                                    assignTurnedMask |=
-                                                        (uint16_t)(1u << candidate);
-                                                }
-                                            } else {
-                                                assignCandidatePot = (int8_t)candidate;
-                                                assignCandidateCount = 1;
-                                            }
-                                        } else {
-                                            assignCandidateCount = 0;
-                                        }
+                                }
+
+                                // Lock onto the pot that moved by >= 25 raw counts
+                                if (maxDelta >= 25 && maxPot >= 0) {
+                                    assignPotLocked = (int8_t)maxPot;
+                                    assignTurnedMask |= (uint16_t)(1u << maxPot);
+                                }
+
+                                if (assignPotLocked >= 0) {
+                                    const uint8_t p = (uint8_t)assignPotLocked;
+                                    const int r = assignFiltRaw[p];
+                                    const uint8_t pos = pressedPosFromRaw(r);
+
+                                    // Fully CCW: raw <= 80 or pos <= 10 -> 0 (OFF / unmap)
+                                    // CW: pos 11..127 -> 1..12 (LFO1..ADS2)
+                                    uint8_t choice = 0;
+                                    if (r > 80 && pos > 10) {
+                                        choice = (uint8_t)(
+                                            1 + ((int)(pos - 11) * 12) / 117);
+                                        if (choice > 12) choice = 12;
                                     }
-                                    if (assignPotLocked >= 0) {
-                                        const uint8_t p = (uint8_t)assignPotLocked;
-                                        const int r = assignFiltRaw[p];
-                                        const uint8_t pos = pressedPosFromRaw(r);
-                                        // Generous CCW OFF zone with hysteresis:
-                                        // enter OFF at raw <= 115 (pos <= 18),
-                                        // stay OFF until raw > 140 (pos > 22).
-                                        uint8_t choice = 0;
-                                        const bool stayOff =
-                                            (assignLastChoice == 0) && (r <= 140);
-                                        if (!stayOff && r > 115 && pos > 18) {
-                                            choice = (uint8_t)(
-                                                1 + ((int)(pos - 19) * 12) / 109);
-                                            if (choice > 12) choice = 12;
-                                        }
-                                        // Update top bar live so user sees the
-                                        // source name immediately while turning;
-                                        // commit to RP2350 once stable for 3 sweeps.
-                                        RackUI::NoteAssignPot(p, choice);
-                                        if (choice == assignStableChoice) {
-                                            if (assignStableCount < 10) {
-                                                ++assignStableCount;
-                                            }
-                                            if (assignStableCount >= 3 &&
-                                                choice != assignLastChoice) {
-                                                assignLastChoice = choice;
-                                                applyModAssign(p, choice);
-                                            }
-                                        } else {
-                                            assignStableChoice = choice;
-                                            assignStableCount = 1;
-                                        }
+
+                                    // Immediately update the top bar so user sees the live choice
+                                    RackUI::NoteAssignPot(p, choice);
+                                    if (choice != assignLastChoice) {
+                                        assignLastChoice = choice;
+                                        applyModAssign(p, choice);
                                     }
                                 }
                             }
