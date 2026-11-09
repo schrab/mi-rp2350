@@ -18,12 +18,10 @@ discovery knobs are the #defines below) and coalesces dirty rows into
 single window transfers.
 
 Wiring (rack-uimcu/README.md has the full C3 GPIO allocation table):
-  SCK = GPIO10, MOSI = GPIO20 (GPIO-matrix SPI — keep the clock modest
-        until the wiring is proven; raise ST7789_SPI_CLOCK_HZ after),
-  DC  = GPIO21, CS = GPIO7 (pulsed by the SPI hardware per transaction —
-        the ST7789 bit counter only resyncs on a CS rising edge),
-  RST = 10k pull-up to 3V3 + ~1 uF to GND (power-on reset; firmware sends
-        SWRESET — not driven, the SSD1309-style 4-signal map),
+  SCK = GPIO10, MOSI = GPIO20 (GPIO-matrix SPI @ 26.67 MHz, SPI mode 3),
+  DC  = GPIO21, RST  = GPIO7 (pulsed by firmware after SPI2 bus acquire so
+        SCK is already idling HIGH before reset releases),
+  CS  = tied GND (single device on bus),
   BL  = tied 3V3 (always backlit; no PWM dimming — pin budget).
 
 Framebuffer: full 284x76 RGB565 (~43 KB internal RAM, affordable on the C3

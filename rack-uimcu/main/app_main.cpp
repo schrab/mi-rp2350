@@ -36,22 +36,22 @@ extern "C" void app_main() {
     ESP_LOGI(TAG, "rack ui controller boot (C3, T5 stages 2-6)");
 
     // 0. PANEL BUS HOUSEKEEPING (2026-11-09): hold the display bus quiet
-    // from the first instruction — data pads LOW, CS deasserted (high)
-    // until the SPI driver takes it over in Init(). Pins: SCK=10, MOSI=20,
-    // DC=21, CS=7; RES is a hardware 10k pull-up (not driven).
+    // from the first instruction — SCK high (SPI mode 3 idle), MOSI/DC low,
+    // RST high until Display::Init() acquires SPI2 and pulses RST.
+    // Pins: SCK=10, MOSI=20, DC=21, RST=7 (CS tied to GND).
     {
         gpio_config_t io = {};
-        io.pin_bit_mask = (1ULL << 10) | (1ULL << 20) | (1ULL << 21);
+        io.pin_bit_mask = (1ULL << 20) | (1ULL << 21);
         io.mode = GPIO_MODE_OUTPUT;
         io.pull_down_en = GPIO_PULLDOWN_ENABLE;
         gpio_config(&io);
-        gpio_set_level((gpio_num_t)10, 0);  // SCK idle low (SPI mode 0)
         gpio_set_level((gpio_num_t)20, 0);  // MOSI low
         gpio_set_level((gpio_num_t)21, 0);  // DC low (command)
-        io.pin_bit_mask = 1ULL << 7;
+        io.pin_bit_mask = (1ULL << 10) | (1ULL << 7);
         io.pull_down_en = GPIO_PULLDOWN_DISABLE;
         gpio_config(&io);
-        gpio_set_level((gpio_num_t)7, 1);   // CS deasserted
+        gpio_set_level((gpio_num_t)10, 1);  // SCK idle HIGH (SPI mode 3, CS=GND)
+        gpio_set_level((gpio_num_t)7, 1);   // RST high (not in reset)
     }
 
     // 1. Display backend (ST7789P3 bar; init + first flush inside).

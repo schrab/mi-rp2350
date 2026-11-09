@@ -25,43 +25,39 @@ idf.py build && idf.py -p PORT flash     # console = USB-Serial-JTAG
 
 | GPIO | Function | Notes |
 |------|----------|-------|
-| 0 | display SPI SCK | |
-| 1 | display SPI MOSI | |
-| 2 | display SPI DC | STRAPPING — output floats at reset: no SCK edges, the panel idles (harmless) |
-| 3 | HC4067 **SIG** (the common pin — datasheet Z, breakouts silk SIG/COM) -> ADC1_CH3 | the last free ADC1 pin (ADC1 = only GPIO0-4: 0/1/2 are the display, 4 is the UART TX); ADC2 dead while NimBLE holds the radio; a pot here is high-Z at reset, the ROM pull-up holds the JTAG-source strap |
-| 4 | UART link TX -> RP2350 GP17 | 921600 8N1 (stage 1) |
-| 5 | UART link RX <- RP2350 GP16 | 921600 8N1 (stage 1) |
-| 6 | encoder A | switch to GND: firmware enables the internal pull-up; fit a 10k external pull-up for rack-grade robustness (the one resistor that matters) |
-| 7 | encoder B | same as A |
-| 8 | HC4067 addr S3 | STRAPPING — took this from encoder B (user call: A/B off straps); push-pull output, NO pull-up needed (the strap only matters for the manual BOOT-button path we never use) |
-| 9 | encoder push | switch to GND: internal pull-up in firmware + 10k external recommended; STRAPPING — holding push at power-on reads 0 = download mode, do not hold while powering on |
-| 10 | HC4067 addr S0 | |
+| 0 | encoder A | switch to GND: internal pull-up enabled in firmware; 10k external pull-up recommended |
+| 1 | encoder B | same as A |
+| 2 | HC4067 addr S2 | STRAPPING — push-pull output, floats harmlessly at reset |
+| 3 | HC4067 **SIG** (common, Z) + encoder push | ADC1_CH3; encoder push shares this line through a 4.7k series resistor to GND (detected in `RackPots` scan task) |
+| 4 | UART link TX -> RP2350 GP1 | 921600 8N1 (stage 1) |
+| 5 | UART link RX <- RP2350 GP0 | 921600 8N1 (stage 1) |
+| 6 | HC4067 addr S3 | push-pull output |
+| 7 | display SPI RST | active-low reset pulsed by firmware *after* SPI2 bus acquire (locks SCK idle HIGH in SPI Mode 3 before reset releases) |
+| 8 | HC4067 addr S0 | STRAPPING — push-pull output (also onboard LED pin on some C3 SuperMini boards) |
+| 9 | HC4067 addr S1 | STRAPPING — push-pull output, never held low at power-on |
+| 10 | display SPI SCK | 26.67 MHz, SPI Mode 3 (`CPOL=1, CPHA=1`, SCK idles HIGH) |
 | 11-17 | flash on this module | DO NOT USE |
 | 18/19 | native USB D-/D+ (console) | DO NOT USE |
-| 20 | HC4067 addr S1 | |
-| 21 | HC4067 addr S2 | |
+| 20 | display SPI MOSI | 26.67 MHz |
+| 21 | display SPI DC | low = command, high = data |
 
-Pin-saving tricks (13 signals needed beyond the UART vs 11 free pins —
-shortfall resolved, nothing silently dropped):
+Pin-saving tricks:
 
-- display CS tied GND — the SPI bus is exclusive to the panel (no sharing).
-- display RST tied 3V3 through an RC — firmware cannot reset the panel;
-  power-cycle to recover a confused panel (the seed OLED carrier did the
-  same).
+- display CS tied GND — the SPI bus is exclusive to the panel (requires SPI Mode 3 with SCK idling HIGH before RST releases).
 - display BL tied 3V3 — always backlit, no PWM dimming.
+- encoder push shared with mux SIG (`GPIO3`) via a 4.7k series resistor to GND.
 - mux E (enable) tied GND — always enabled.
 
 ## Wiring summary
 
 | From | To |
 |------|----|
-| C3 GPIO4 | RP2350 GP17 (UART0 RX) |
-| C3 GPIO5 | RP2350 GP16 (UART0 TX) |
-| C3 GPIO0 | HC4067 COM (Z pin) through nothing — direct; pots 0-15 on CH0-15 |
-| C3 GPIO0/1/2 | ST7789P3 SCK/MOSI/DC; panel CS->GND, RST->3V3 RC, BL->3V3, VCC 3V3, GND |
-| C3 GPIO3 | HC4067 SIG (common; datasheet Z) — direct; pots 0-15 on CH0-15 |
-| C3 GPIO10/20/21/8 | HC4067 S0/S1/S2/S3 — push-pull outputs, no pull-ups |
-| C3 GPIO6/7/9 | encoder A/B/push (all external pull-ups; push = strapping, never held at power-on) |
+| C3 GPIO4 | RP2350 GP1 (UART0 RX) |
+| C3 GPIO5 | RP2350 GP0 (UART0 TX) |
+| C3 GPIO10/20/21/7 | ST7789P3 SCK/MOSI/DC/RST; panel CS->GND, BL->3V3, VCC 3V3, GND |
+| C3 GPIO3 | HC4067 SIG (common; datasheet Z) — pots 0-15 on CH0-15; encoder push -> 4.7k -> GND |
+| C3 GPIO8/9/2/6 | HC4067 S0/S1/S2/S3 — push-pull outputs |
+| C3 GPIO0/1 | encoder A/B (switch to GND; internal + 10k external pull-ups) |
 
 All 3V3 logic, no level shifting.
 

@@ -35,17 +35,15 @@ static const char *TAG = "Display";
 // masked windows; typical values 0-4 for Y, 0-36 for the 320-axis). If the
 // image is ROTATED/mirrored: try the four MADCTL candidates. Document the
 // found values back here + in rack-uimcu/README.md (bring-up step 1).
-#define ST7789_XOFF   2        // CASET start offset — RESTORED 2026-11-09:
-                               // the v1 bench (XOFF=2/YOFF=0) is the only
-                               // configuration that ever showed data (the
-                               // "static noise" = the UI's own SPI writes
-                               // landing, interleaved with the bit-bang).
-                               // The TFT_eSPI fork's 18/82 belongs to its
-                               // rotation convention, not this driver's.
-#define ST7789_YOFF   0        // RASET start offset — same reasoning.
-#define ST7789_MADCTL 0x60     // candidates: 0x00 / 0x60 / 0xA0 / 0xC0
-#define ST7789_INVERT 1        // IPS panel: inversion ON (0x21). Set 0 if
-                               // the hue bars render as their negatives.
+#define ST7789_XOFF   18       // CASET start offset in landscape (MV=1):
+                               // 18..301 on the 320-axis (TFT_eSPI #3804 / PR #3769)
+#define ST7789_YOFF   82       // RASET start offset in landscape (MV=1):
+                               // 82..157 on the 240-axis (TFT_eSPI #3804 / PR #3769)
+#define ST7789_MADCTL 0x60     // Landscape (MX|MV, RGB): 0x60 (rot 1) or 0xA0 (rot 3)
+#define ST7789_INVERT 0        // 0 = INVOFF (0x20): per TFT_eSPI #3804 & PR #3769
+                               // (invertDisplay(false)), INVON (0x21) reverses
+                               // colours on this 76x284 ST7789P3 panel so black
+                               // (0x0000) renders as solid white.
 
 // Wiring FINAL (2026-11-09, user-accepted 3-wire move): the display on the
 // non-RTC pads (the SPI hardware drives them properly), CS/RST on real
@@ -57,20 +55,20 @@ static const char *TAG = "Display";
 #define ST7789_PIN_SCK  10
 #define ST7789_PIN_MOSI 20
 #define ST7789_PIN_DC   21
-// CS on GPIO7, pulsed by the SPI hardware per transaction (2026-11-09):
-// the ST7789 serial bit counter only resyncs on a CS rising edge. CS tied
-// GND (c17d54c) went white again under BOTH SPI modes despite a firmware
-// RST pulse; the only SPI-path image ever seen (8911819) had a real CS.
-// RES is NOT driven: 10k pull-up to 3V3 + ~1 uF to GND (power-on reset),
-// SWRESET in Init() covers warm re-inits — the SSD1309-style 4-signal map.
-#define ST7789_PIN_CS   7
+// CS is tied to GND; RES is driven by GPIO7.
+// Why CS=GND + RST=GPIO7 failed in 055638d: in ESP-IDF spi_master.c,
+// spi_bus_add_device() does NOT call spi_setup_device() — the clock idle
+// polarity (CPOL=1 for mode 3) is only written to hardware inside
+// spi_device_acquire_bus() or the first transaction. Pulsing RST before
+// spi_device_acquire_bus() meant SCK was 0 during reset and then jumped 0->1
+// on the first transaction, shifting every byte by 1 bit while CS=GND.
+#define ST7789_PIN_RST  7     // real RST: pulsed by firmware in Init() after bus acquire
 #define ST7789_COLSTART 82    // native column range of the visible window
 #define ST7789_ROWCLOSEST 301 // native row range: 18..301 (284 rows)
 
-// Bring-up clock: 8 MHz (the panel-ignores-everything mystery was the
-// MISSING INIT REGISTERS, not signal integrity — the verbatim TFT_eSPI
-// init sequence fixed it; raise to 26-40 MHz once mounted).
-#define ST7789_SPI_CLOCK_HZ (8 * 1000 * 1000)
+// Production SPI clock: 26.67 MHz (80 MHz APB / 3; matches TFT_eSPI 27 MHz
+// recommendation for ST7789 76x284 over GPIO-matrix jumper wires with CS=GND).
+#define ST7789_SPI_CLOCK_HZ (26 * 1000 * 1000)
 
 // ===================== RGB565 palette (conversion arithmetic) ============
 // RGB565 = (R8>>3)<<11 | (G8>>2)<<5 | (B8>>3):
@@ -177,69 +175,78 @@ static void bbData(uint8_t d) {
     gpio_set_level((gpio_num_t)ST7789_PIN_DC, 1);
 }
 void Display::BitBangTest() {
-    // pads as plain outputs (the SPI bus also claims 0/1 — gpio matrix
-    // re-route to plain GPIO overrides it while this test runs).
+    s_testpat = 5;
     gpio_config_t io = {};
     io.pin_bit_mask = (1ULL << ST7789_PIN_SCK) | (1ULL << ST7789_PIN_MOSI) |
-                      (1ULL << ST7789_PIN_DC);
+                      (1ULL << ST7789_PIN_DC) | (1ULL << ST7789_PIN_RST);
     io.mode = GPIO_MODE_OUTPUT;
     gpio_config(&io);
-    gpio_set_level((gpio_num_t)ST7789_PIN_SCK, 0);
+    gpio_set_level((gpio_num_t)ST7789_PIN_SCK, 1);   // idle HIGH (mode 3) before RST
     gpio_set_level((gpio_num_t)ST7789_PIN_DC, 0);
+    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 0);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 1);
+    vTaskDelay(pdMS_TO_TICKS(150));
 
-    // LIVE-PROBE MODE v5 — RESET BLINK: the minimal listening test. A panel
-    // that hears ANY command blinks visibly on every SWRESET (sleep = dark,
-    // SLPOUT+DISPON = bright). Independent of offsets, init registers,
-    // colour order and inversion. 20 blinks ≈ 17 s.
-    for (int rep = 0; rep < 20; ++rep) {
-        bbCmd(0x01);                          // SWRESET -> sleep = dark
-        vTaskDelay(pdMS_TO_TICKS(400));
-        bbCmd(0x11);                          // SLPOUT
-        vTaskDelay(pdMS_TO_TICKS(120));
-        bbCmd(0x29);                          // DISPON -> bright
-        vTaskDelay(pdMS_TO_TICKS(400));
+    bbCmd(0x11);                          // SLPOUT
+    vTaskDelay(pdMS_TO_TICKS(120));
+    bbCmd(0x13);                          // NORON
+    runInitSeq(true);
+    bbCmd(0x29);                          // DISPON
+    vTaskDelay(pdMS_TO_TICKS(120));
+
+    // Flood full native GRAM (240x320) with Red, Green, Blue, Black via bit-bang
+    static const uint16_t kCols[4] = {0xF800, 0x07E0, 0x001F, 0x0000};
+    for (int c = 0; c < 4; ++c) {
+        bbCmd(0x2A); bbData(0); bbData(0); bbData(0); bbData(239);
+        bbCmd(0x2B); bbData(0); bbData(0); bbData(1); bbData(63);
+        bbCmd(0x2C);
+        const uint8_t hi = kCols[c] >> 8, lo = kCols[c] & 0xFF;
+        for (int px = 0; px < 240 * 320; ++px) {
+            bbData(hi);
+            bbData(lo);
+        }
+        ESP_LOGI(TAG, "bbtest color %d (0x%04x) done", c, kCols[c]);
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
-    ESP_LOGI(TAG, "bbtest done: 20 reset blinks on %d/%d/%d",
-             ST7789_PIN_SCK, ST7789_PIN_MOSI, ST7789_PIN_DC);
+    s_testpat = -1;
 }
 
-// ---- spiflood: the bisect test — full-GRAM color flood through the SPI
-// path with the MINIMAL init (the only init that ever landed). If colors
-// cycle: SPI + minimal = good, and the register block gets bisected. If
-// white: the SPI path itself broke after 8911819 — bisect its changes.
+// ---- spiflood: full-GRAM color flood through the SPI path ----
 void Display::SpiFlood() {
     s_testpat = 5;                        // hold the UI off
-    // software reset (RES is a hardware pull-up), then MINIMAL init
-    sendCommand(0x01);                    // SWRESET
+    // Ensure SPI bus is acquired (SCK idle level locked) BEFORE pulsing RST
+    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 0);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 1);
     vTaskDelay(pdMS_TO_TICKS(150));
     sendCommand(0x11);                    // SLPOUT
     vTaskDelay(pdMS_TO_TICKS(120));
     sendCommand(0x13);                    // NORON
-    sendCommand(0x21);                    // INVON (v1 parity)
+    runInitSeq(false);
     sendCommand(0x29);                    // DISPON
     vTaskDelay(pdMS_TO_TICKS(60));
-    static const uint16_t kFlood[4] = {0xF800, 0x07E0, 0x001F, 0xFFFF};
-    for (int rep = 0; rep < 6; ++rep) {
+    static const uint16_t kFlood[4] = {0xF800, 0x07E0, 0x001F, 0x0000};
+    for (int rep = 0; rep < 3; ++rep) {
         for (int c = 0; c < 4; ++c) {
             const uint16_t col = kFlood[c];
-            const uint8_t hi = col >> 8, lo = col & 0xFF;
-            const uint8_t caset[4] = {0, 0, 0, 239};   // full native columns
-            const uint8_t raset[4] = {0, 0, 1, 63};    // full native rows
+            const uint16_t swapped = (uint16_t)((col >> 8) | (col << 8));
+            const uint8_t caset[4] = {0, 0, 1, 63};    // 0..319
+            const uint8_t raset[4] = {0, 0, 0, 239};   // 0..239
             sendCommand(0x2A, caset, 4);
             sendCommand(0x2B, raset, 4);
             sendCommand(0x2C);
-            // stream the color directly (no fb, no window math)
             gpio_set_level((gpio_num_t)ST7789_PIN_DC, 1);
             for (int px = 0; px < 240 * 320; px += W) {
                 static uint16_t line[W];
-                for (int i = 0; i < W; ++i) line[i] = col;
+                for (int i = 0; i < W; ++i) line[i] = swapped;
                 spi_transaction_t t = {};
                 t.length = W * 16;
                 t.tx_buffer = line;
                 spi_device_polling_transmit(s_spi, &t);
             }
             gpio_set_level((gpio_num_t)ST7789_PIN_DC, 0);
-            vTaskDelay(pdMS_TO_TICKS(1500));   // hold each color
+            vTaskDelay(pdMS_TO_TICKS(1000));   // hold each color
         }
     }
     s_testpat = -1;
@@ -298,7 +305,7 @@ void Display::OrientationSweep() {
                 FillRect(kSeg[s].x, kSeg[s].y, kSeg[s].w, kSeg[s].h, kWhite);
         for (int y = 0; y < H; ++y) dirty[y] = true;
         sendCommand(0x36, &madctl, 1);
-        uint8_t c0 = 82, c1 = 157, r0 = 18, r1 = 301;
+        uint16_t c0 = 82, c1 = 157, r0 = 18, r1 = 301;
         if (mirrored) { c0 = 157; c1 = 82; r0 = 301; r1 = 18; }
         const uint8_t caset[4] = {(uint8_t)(c0 >> 8), (uint8_t)(c0 & 0xFF),
                                   (uint8_t)(c1 >> 8), (uint8_t)(c1 & 0xFF)};
@@ -322,12 +329,7 @@ void Display::OrientationSweep() {
 // (rotation-1 landscape). SLPOUT/NORON/DISPON ride outside the table (they
 // carry the datasheet delays).
 static const uint8_t kSt7789InitSeq[] = {
-    0x36, 1, 0x00,                    // MADCTL: NATIVE (no transforms) — the
-                                      // bborient gradient proved the visible
-                                      // window sits at native cols 82-157 ×
-                                      // rows 18-301 with BOTH axes mirrored;
-                                      // the mirrors live in Flush's loop
-                                      // order, not in MADCTL.
+    0x36, 1, ST7789_MADCTL,           // MADCTL: landscape (0x60 = MX|MV or 0xA0 = MY|MV)
     0xB6, 2, 0x0A, 0x82,              // DISCTRL
     0xB0, 2, 0x00, 0xE0,              // RAMCTRL (5-6 bit conversion)
     0x3A, 1, 0x55,                    // COLMOD 16bpp
@@ -344,9 +346,7 @@ static const uint8_t kSt7789InitSeq[] = {
           0x44, 0x42, 0x06, 0x0E, 0x12, 0x14, 0x17,   // PVGAMCTRL
     0xE1, 14, 0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x31,
           0x54, 0x47, 0x0E, 0x1C, 0x17, 0x1B, 0x1E,   // NVGAMCTRL
-    0x21, 0,                          // INVON — the fork's init sends INVON
-                                      // (INVOFF here inverted black->white =
-                                      // the solid white we chased)
+    (uint8_t)(ST7789_INVERT ? 0x21 : 0x20), 0,  // INVOFF (0x20) per TFT_eSPI #3804 / PR #3769
     0xFF, 0,                          // end
 };
 
@@ -371,34 +371,44 @@ void Display::Init() {
     bus.sclk_io_num = ST7789_PIN_SCK;
     bus.miso_io_num = -1;
     bus.quadwp_io_num = -1;
+    bus.quadhd_io_num = -1;
     bus.max_transfer_sz = FRAMEBUFFER_SIZE;   // one full-screen window fits
     ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO));
 
     spi_device_interface_config_t dev = {};
     dev.clock_speed_hz = ST7789_SPI_CLOCK_HZ;
-    dev.mode = 0;                             // mode 0 = the 8911819 config that
-                                              // rendered; with a real CS the
-                                              // idle clock level is irrelevant
-    dev.spics_io_num = ST7789_PIN_CS;         // REAL CS: the hardware pulses
-                                              // it per transaction — the bit
-                                              // counter resyncs every frame
+    dev.mode = 3;                             // CS tied GND -> ST7789 requires
+                                              // SPI mode 3 (CPOL=1, CPHA=1,
+                                              // SCK idling HIGH)
+    dev.spics_io_num = -1;                    // CS tied to GND externally
     dev.queue_size = 1;
     ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &dev, &s_spi));
 
+    // CRITICAL: spi_bus_add_device() does NOT call spi_setup_device() in
+    // ESP-IDF — SPI2 leaves SCK low (0) until spi_device_acquire_bus() or the
+    // first transaction. Acquire+release the bus NOW so spi_setup_device()
+    // latches CPOL=1 (SCK idle HIGH) in hardware BEFORE we pulse RST.
+    ESP_ERROR_CHECK(spi_device_acquire_bus(s_spi, portMAX_DELAY));
+    spi_device_release_bus(s_spi);
+
     gpio_config_t io = {};
-    io.pin_bit_mask = 1ULL << ST7789_PIN_DC;
+    io.pin_bit_mask = (1ULL << ST7789_PIN_DC) | (1ULL << ST7789_PIN_RST);
     io.mode = GPIO_MODE_OUTPUT;
     gpio_config(&io);
     gpio_set_level((gpio_num_t)ST7789_PIN_DC, 0);
+    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 1);
+    vTaskDelay(pdMS_TO_TICKS(10));
 
-    // ST7789P3 init (IPS bar): RES is a hardware pull-up (10k + ~1 uF POR);
-    // SWRESET puts the controller in a known state on warm re-inits too.
-    sendCommand(0x01);                        // SWRESET
+    // Hardware reset pulse with SCK already idling HIGH (mode 3):
+    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 0);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    gpio_set_level((gpio_num_t)ST7789_PIN_RST, 1);
     vTaskDelay(pdMS_TO_TICKS(150));
+
     sendCommand(0x11);                        // SLPOUT
     vTaskDelay(pdMS_TO_TICKS(120));
     sendCommand(0x13);                        // NORON
-    runInitSeq(false);                        // the VERBATIM TFT_eSPI sequence
+    runInitSeq(false);                        // TFT_eSPI #3804 / PR #3769 sequence
     sendCommand(0x29);                        // DISPON
     vTaskDelay(pdMS_TO_TICKS(120));
     // Wait for the first flush to light the panel with real content.
@@ -486,29 +496,25 @@ int Display::StringWidth(const char *s, Font f) {
 }
 
 void Display::Flush() {
-    // TRANSPOSED panel addressing (bborient-derived 2026-11-09): the
-    // visible window = native cols 82..157 x native rows 18..301, BOTH
-    // axes mirrored (screen x=0 -> native row 301, screen y=0 -> native
-    // col 157), MADCTL 0x00 native. Each dirty screen-ROW y = ONE native
-    // column: CASET (col, col) x RASET (18, 301), and the row's pixels
-    // streamed with the x-mirror folded into the order. Per-column
-    // transactions also keep every frame CS-delimited (the bit counter
-    // resyncs constantly) and stay far under the SPI DMA bit cap.
-    static uint16_t line[W];              // byte-swapped + x-mirrored row
-    for (int y = 0; y < H; ++y) {
-        if (!dirty[y]) continue;
-        const uint8_t col = (uint8_t)(157 - y);
-        const uint8_t caset[4] = {0, col, 0, col};
-        const uint8_t raset[4] = {0, 18, 1, 45};   // 18..301
-        sendCommand(0x2A, caset, 4);
-        sendCommand(0x2B, raset, 4);
-        sendCommand(0x2C);
-        for (int x = 0; x < W; ++x) {
-            line[x] = fb[y * W + (W - 1 - x)];   // x-mirror only; writePixels
-                                                 // does the byte swap
+    // Coalesce consecutive dirty rows into single window transfers using
+    // TFT_eSPI #3804 / PR #3769 landscape geometry (MADCTL=0x60/0xA0,
+    // XOFF=18, YOFF=82 -> CASET 18..301, RASET 82..157). Capped at
+    // kMaxFlushPixels per transaction under the C3's 2^18-bit SPI DMA limit.
+    constexpr size_t kMaxFlushPixels = 16000;
+    for (int y = 0; y < H;) {
+        if (!dirty[y]) { ++y; continue; }
+        int y1 = y;
+        while (y1 + 1 < H && dirty[y1 + 1]) ++y1;
+        int run = y;
+        while (run <= y1) {
+            int chunkEnd = run + (int)(kMaxFlushPixels / W) - 1;
+            if (chunkEnd > y1) chunkEnd = y1;
+            setWindow(0, run, W - 1, chunkEnd);
+            writePixels(&fb[run * W], (size_t)W * (chunkEnd - run + 1));
+            run = chunkEnd + 1;
         }
-        writePixels(line, W);
-        dirty[y] = false;
+        for (int k = y; k <= y1; ++k) dirty[k] = false;
+        y = y1 + 1;
     }
 }
 

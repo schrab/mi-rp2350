@@ -1766,3 +1766,36 @@ C3 console answers `ui` (page cells + link stats). The 64 fps flood seen
 mid-bench was the crash-loop era's selftest bursts + the RP2350's verbatim
 echoes — gone with the fixes. Stages 2-6 benches (screen, pots, encoder,
 gestures, BLE) are next per the wiring table.
+
+### Rack T5 — Stage 2 display (ST7789P3 284×76 IPS bar) BENCH-VERIFIED (2026-11-09)
+
+- **Final display wiring (4 wires + power):** `SCK = GPIO10`, `MOSI = GPIO20`,
+  `DC = GPIO21`, `RST = GPIO7`, `CS = GND`, `BL = 3V3`. (Encoder moved to
+  `A = GPIO0`, `B = GPIO1`, `PUSH = GPIO3` shared w/ mux SIG via 4.7k; mux
+  `S0..S3 = GPIO8/9/2/6`.)
+- **Root causes of the white-screen bugs & fixes:**
+  1. **ESP-IDF `spi_master.c` clock idle polarity glitch after `RST` with
+     `CS = GND`:** With `CS` tied to `GND`, ST7789 requires `SPI_MODE3`
+     (`CPOL=1, CPHA=1`, `SCK` idling HIGH). In ESP-IDF v5.4.2,
+     `spi_bus_initialize()` leaves `SCK` low (`0`), and `spi_bus_add_device()`
+     does **not** call `spi_setup_device()` — `SPI_CK_IDLE_EDGE = 1` is only
+     written to hardware inside `spi_device_acquire_bus()` or on the very first
+     transaction. Pulsing `RST` before `spi_device_acquire_bus()` released the
+     panel from reset while `SCK = 0`, and the first `sendCommand(0x11)` jumped
+     `SCK` from `0 → 1` while `CS = GND`, shifting every subsequent byte by 1
+     bit. **Fix:** Hold `GPIO10 (SCK)` HIGH in `app_main()` housekeeping and
+     call `spi_device_acquire_bus()` + `spi_device_release_bus()` in
+     `Display::Init()` *before* pulsing `GPIO7 (RST)`.
+  2. **Panel inversion & CGRAM offsets (`TFT_eSPI` #3804 / PR #3769):** This
+     2.25" 76×284 ST7789P3 panel has normal (non-inverted) polarity — `INVON`
+     (`0x21`) inverts black (`0x0000`) to solid white. Set `ST7789_INVERT = 0`
+     (`0x20` = `INVOFF`, matching `tft.invertDisplay(false)` in `#3804`) and
+     landscape geometry `ST7789_MADCTL = 0x60`, `ST7789_XOFF = 18`,
+     `ST7789_YOFF = 82` (CASET `18..301`, RASET `82..157`).
+  3. **`bus.quadhd_io_num = -1`:** Explicitly initialized in `Display::Init()`
+     so zero-initialized `spi_bus_config_t` does not route `SPI2_HD` to `GPIO0`.
+- **Clock speed:** Bumped `ST7789_SPI_CLOCK_HZ` from 8 MHz bring-up rate to
+  26.67 MHz (`26 * 1000 * 1000`, 80 MHz APB / 3, matching the 27 MHz
+  `TFT_eSPI` recommendation).
+- **Hardware verification:** Confirmed working and right-side up on `COM22` by
+  the user.
