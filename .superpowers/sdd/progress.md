@@ -1934,6 +1934,16 @@ gestures, BLE) are next per the wiring table.
    - RP2350: Built `rack-elements` via PlatformIO, flashed via 1200-baud touch and UF2 copy to `RP2350` drive (`E:\`).
    - ESP32-C3: Built `rack-uimcu` via Ninja/ESP-IDF, flashed to `COM22` at 460800 baud.
 
+### Rack T5 — Elements P2 PLAY Trigger & Mod-Engine Trigger Routing (2026-11-10)
+
+1. **Elements PLAY Trigger (CC 64) on P2:**
+   - Added `PLAY` (pseudo-CC 64) as cell 2 on `kUiPageElementsP2`, alongside `MODEL` (cell 0, CC 28) and `OMINOUS` (cell 1, CC 29). P2 cell count expanded to 3.
+   - Connected `PLAY` to `pending_play_pulse` in `module_elements.h`, asserting `perf_state.gate` for one block on triggers to excite the physical mallet strike and multistage attack envelope in both standalone `render()` and chained `chain_render_a()`.
+   - Exposed CC 64 in `kModDestinations` under `kModTriggerCcs` (`RACK_TRIG_PULSE`), allowing Euclidean (`EUC1/2`) and Gate (`GAT1/2`) trigger modulation sources to drive exciter strikes.
+   - Wired `mod_fire_trigger()` in `mod_engine.h` for `RACK_MODULE_ELEMENTS` to `rack_modules::mod_elements::mod_trigger_cc()`.
+   - Updated C3 `RackUI::p1p2DiscreteCount()` with 2-state boolean wire mapping for CC 64, `tools/rack_panel.html` with a momentary `PLAY` button, and `docs/ui-protocol.md`.
+
+
 
 
 

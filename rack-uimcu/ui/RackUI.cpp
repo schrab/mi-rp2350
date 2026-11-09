@@ -153,6 +153,10 @@ namespace CTAG {
                 case 0: // Elements
                     if (cc == 28) return 3;   // MODEL: 0..2
                     if (cc == 29) return 2;   // OMINOUS: 0..1
+                    if (cc == 64) {
+                        wireIsBool127 = true;
+                        return 2;             // PLAY: <64 vs >=64
+                    }
                     break;
                 case 1: // Clouds
                     if (cc == 23) return 3;   // MODE: 0..2

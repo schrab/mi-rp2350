@@ -301,7 +301,8 @@ static bool mod_write_cc(uint8_t module_id, uint8_t cc, float v) {
 
 static void mod_fire_trigger(uint8_t module_id, uint8_t cc, bool high) {
   switch (module_id) {
-    case RACK_MODULE_ELEMENTS: break;   // no trigger inputs (documented)
+    case RACK_MODULE_ELEMENTS:
+      rack_modules::mod_elements::mod_trigger_cc(cc, high); break;
     case RACK_MODULE_CLOUDS:
       rack_modules::mod_clouds::mod_trigger_cc(cc, high); break;
     case RACK_MODULE_PLAITS:

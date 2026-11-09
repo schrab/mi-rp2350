@@ -55,19 +55,20 @@ static const uint32_t kStallUs = 900;     // >2x the 500 us block period
 static const char* const kCcMap =
     "1 pitch, 11 strength, 14 env-shape, 15-16 bow, 17-19 blow, 20-22 strike, "
     "23 geometry, 24 brightness, 25 damping, 26 position, 27 space, "
-    "28 model, 29 easter-egg";
+    "28 model, 29 easter-egg, 64 play";
 // T3 mod destinations: every float-parameter CC of the map accepts continuous
 // modulation (1/11 included — note that velocity-scaled strength from note-on
-// is overridden while a source is routed to CC 11). Elements has NO trigger
-// inputs (excitation is envelope/gate driven): routing a trigger source
-// (euclid/gate) to any elements destination is inert. Selectors 28/29 are
-// excluded (int model/easter-egg switches — not modulable).
+// is overridden while a source is routed to CC 11). Selectors 28/29 are
+// excluded (int model/easter-egg switches — not modulable). Pseudo-CC 64
+// accepts trigger modulation (PLAY: triggers exciter strike & envelope).
 static const uint8_t kModContinuousCcs[] = {1, 11, 14, 15, 16, 17, 18, 19,
                                             20, 21, 22, 23, 24, 25, 26, 27};
+static const uint8_t kModTriggerCcs[] = {64};
+static const uint8_t kModTriggerKinds[] = {RACK_TRIG_PULSE};
 static const RackModDestinations kModDestinations = {
-    "elements: continuous 1,11,14-27 | triggers: none (no trigger inputs)",
+    "elements: continuous 1,11,14-27 | triggers: 64 play (pulse)",
     16, kModContinuousCcs,
-    0, 0, 0,
+    1, kModTriggerCcs, kModTriggerKinds,
 };
 
 // --- engine state: arena-placed (was file-scope before T2) ---
@@ -88,6 +89,9 @@ struct State {
   // CC 1 (PITCH: -24..+24 st) / CC 11 shared values (standalone midi.h pattern).
   volatile float shared_pitch;
   volatile float shared_strength;
+
+  // CC 64 (PLAY: internal exciter trigger)
+  volatile bool pending_play_pulse;
 };
 
 static State* s = nullptr;   // placement-new'd by init(); arena offset 0
@@ -110,6 +114,7 @@ void init_at(uint8_t* base) {
   s->pending_easter_egg = -1;
   s->shared_pitch = 0.0f;
   s->shared_strength = 0.8f;
+  s->pending_play_pulse = false;
 
   elements::Dsp::setSr(kSampleRate);
   s->part.Init(reverb_buffer);
@@ -164,7 +169,10 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
     s->part.set_resonator_model(static_cast<elements::ResonatorModel>(m));
   }
 
-  s->perf_state.gate = shared_gate;
+  const bool play_pulse = s->pending_play_pulse;
+  s->pending_play_pulse = false;
+
+  s->perf_state.gate = shared_gate || play_pulse;
   s->perf_state.note = shared_note;
   s->perf_state.strength = s->shared_strength;
   s->perf_state.modulation = s->shared_pitch;
@@ -199,7 +207,10 @@ void render() {
     s->part.set_resonator_model(static_cast<elements::ResonatorModel>(m));
   }
 
-  s->perf_state.gate = shared_gate;
+  const bool play_pulse = s->pending_play_pulse;
+  s->pending_play_pulse = false;
+
+  s->perf_state.gate = shared_gate || play_pulse;
   s->perf_state.note = shared_note;
   s->perf_state.strength = s->shared_strength;
   s->perf_state.modulation = s->shared_pitch;
@@ -275,6 +286,10 @@ void control_change(uint8_t cc, uint8_t val) {
     case 29:
       s->pending_easter_egg = val ? 1 : 0;
       break;
+    // PLAY pseudo-CC (64): triggers the exciter strike / envelope.
+    case 64:
+      if (val >= 64) s->pending_play_pulse = true;
+      break;
     default: break;
   }
 }
@@ -318,10 +333,13 @@ bool mod_set_cc_float(uint8_t cc, float v) {
   return true;
 }
 
-// Trigger destination hook: elements has no trigger inputs (see the
-// kModDestinations note) — always inert.
+// Trigger destination write: pseudo-CC 64 = PLAY. Rising edges pulse for
+// exactly one block (triggers exciter strike & envelope).
 bool mod_trigger_cc(uint8_t cc, bool high) {
-  (void)cc; (void)high;
+  if (cc == 64) {
+    if (high) s->pending_play_pulse = true;
+    return true;
+  }
   return false;
 }
 

@@ -413,7 +413,7 @@ const MODULES = [
 {
   name: 'ELEMENTS', key: 'elements',
   info: '32 kHz \u00B7 16-sample blocks \u00B7 budget 496 \u00B5s \u00B7 resonator model default STRING',
-  ccMap: '1 pitch \u00B7 11 strength \u00B7 14 env-shape \u00B7 15-16 bow \u00B7 17-19 blow \u00B7 20-22 strike \u00B7 23 geometry \u00B7 24 brightness \u00B7 25 damping \u00B7 26 position \u00B7 27 space \u00B7 28 model \u00B7 29 easter-egg',
+  ccMap: '1 pitch \u00B7 11 strength \u00B7 14 env-shape \u00B7 15-16 bow \u00B7 17-19 blow \u00B7 20-22 strike \u00B7 23 geometry \u00B7 24 brightness \u00B7 25 damping \u00B7 26 position \u00B7 27 space \u00B7 28 model \u00B7 29 easter-egg \u00B7 64 play',
   knobs: [
     { cc:1,  label:'PITCH',     variant:'white', def:64/127,
       fmt: c => { const st = Math.round((b127(c.v) - 64) * 48 / 127); return (st >= 0 ? '+' : '') + st + ' st'; } },
@@ -436,6 +436,7 @@ const MODULES = [
       steps: { labels:['MODAL','STRING','STRINGS'], bytes:[0,1,2] } },
     { cc:29, label:'OMINOUS',   variant:'white', def:0,
       steps: { labels:['NORMAL','OMINOUS'], bytes:[0,1] } },
+    { cc:64, label:'PLAY',      moment:1, def:0 },
   ],
 },
 {

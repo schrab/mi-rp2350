@@ -192,10 +192,11 @@ static const UiPageCell kUiPageElementsP1[] = {
     {26, "POSITION",   kUiColorWhite},
     {27, "SPACE",      kUiColorWhite},
 };
-// elements — P2: only the two selectors (CC 28/29) that are unique to P2.
+// elements — P2: selectors (CC 28/29) + PLAY trigger (CC 64) that are unique to P2.
 static const UiPageCell kUiPageElementsP2[] = {
     {28, "MODEL",      kUiColorWhite},
     {29, "OMINOUS",    kUiColorWhite},
+    {64, "PLAY",       kUiColorWhite},
 };
 // clouds — P1: SIZE/TEXTURE teal, POSITION/DENSITY pink, rest white.
 static const UiPageCell kUiPageCloudsP1[] = {
@@ -247,11 +248,11 @@ static const UiPageCell kUiPageRingsP1[] = {
     {64, "STRUM",      kUiColorWhite},
 };
 
-// [module][0 = P1, 1 = P2]. Elements has 2 unique params on P2 (MODEL CC 28,
-// OMINOUS CC 29). Clouds, Plaits, and Rings have all parameters on P1, so P2
+// [module][0 = P1, 1 = P2]. Elements has 3 unique params on P2 (MODEL CC 28,
+// OMINOUS CC 29, PLAY CC 64). Clouds, Plaits, and Rings have all parameters on P1, so P2
 // has count = 0 (no duplicate params).
 static const UiPageTable kUiPages[RACK_MODULE_COUNT][2] = {
-    { {kUiPageElementsP1, 16}, {kUiPageElementsP2, 2} },   // elements
+    { {kUiPageElementsP1, 16}, {kUiPageElementsP2, 3} },   // elements
     { {kUiPageCloudsP1, 16},   {nullptr, 0} },             // clouds
     { {kUiPagePlaitsP1, 13},   {nullptr, 0} },             // plaits
     { {kUiPageRingsP1, 11},    {nullptr, 0} },             // rings

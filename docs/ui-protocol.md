@@ -102,7 +102,7 @@ and CC 33 use):
 | id | page | contents |
 |----|------|----------|
 | 0 | P1 | the active module's primary 16 pot cells (fully implemented; tables below) |
-| 1 | P2 | elements: CC 28/29 (MODEL / OMINOUS only, count = 2); clouds/plaits/rings: count = 0 (no duplicate params) |
+| 1 | P2 | elements: CC 28/29/64 (MODEL / OMINOUS / PLAY, count = 3); clouds/plaits/rings: count = 0 (no duplicate params) |
 | 2 | MOD-LFO 1/2 | LFO 1 (Row 0 pots 0-5) & LFO 2 (Row 2 pots 10-15): 6 params each (RATE, WAVE, PHASE, LEV, MODE, DIV) |
 | 3 | MOD-LFO 3/4 | LFO 3 (Row 0 pots 0-5) & LFO 4 (Row 2 pots 10-15): 6 params each (RATE, WAVE, PHASE, LEV, MODE, DIV) |
 | 4 | MOD-TRIG | 2x Euclidean: EUC 1 (Row 0 pots 0-4) & EUC 2 (Row 2 pots 10-14): 5 params each (STPS, PULS, ROT, CLK, DIV) |
@@ -216,7 +216,7 @@ Cell order = physical pot order: top row 1-6, middle row 7-10, bottom row
 | 15 | 26 | POSITION | white | Resonator position |
 | 16 | 27 | SPACE | white | Space / reverb |
 
-elements P2 (2 cells): CC 28 MODEL (white), CC 29 OMINOUS (white).
+elements P2 (3 cells): CC 28 MODEL (white), CC 29 OMINOUS (white), CC 64 PLAY (white, trigger exciter).
 
 ### clouds — P1 (16 cells)
 
