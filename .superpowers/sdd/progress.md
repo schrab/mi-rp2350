@@ -1903,4 +1903,7 @@ gestures, BLE) are next per the wiring table.
    - Moved `TELEM D` to Pot 15 (slot 14) and `TELEM F` to Pot 16 (slot 15) in the bottom-right corner of Row 2.
    - Updated C3 `RackLink` telemetry BPM extraction, local cell writes, `RackUI` soft takeover bucket logic, discrete toggle mappings, and the push-ring cycle indicator (`ringCell: 4, 5, 8, 14, 15`).
 
+- **Hardware verification:** Confirmed working on real hardware by the user (2026-11-09): clamped page scrolling without wrap, single-page plugins automatically skipping empty P2, dedicated modulation page layout and alignment, smooth non-jittering BPM on Pot 7, CLKSRC on Pot 8, and TELEM D/F on Pots 15/16.
+
+
 
