@@ -187,82 +187,81 @@ Send policy (stages 1 + 2-6):
 
 Single source of truth: `rack-rp2350/src/ui_link.h` (`kUiPages`). Labels
 <= 10 chars (digi-slim 6 px rows on the C3). Color classes: **0 = white**
-(standard params), **1 = red #e6295e group**, **2 = teal #17a3bd group**
-(the panels' yellow #f2d21f is a STATE accent, never a param class).
-Colors follow `tools/rack_panel.html` (the rack's current recolor;
-`tools/elements_panel.html` has the same trio for elements).
+(standard params), **1 = pink #e6295e group**, **2 = teal #17a3bd group**,
+**3 = yellow #f2d21f** (MOD-LFO pages). Modulated parameters render with
+**yellow** label, value, and underline bar.
+Colors follow `tools/rack_panel.html` and the physical Mutable front panels.
 
 Cell order = physical pot order: top row 1-6, middle row 7-10, bottom row
 11-16 (the 6/4/6 HC4067 layout the screen mirrors).
 
-### elements — P1 (16 cells)
+### elements — P1 (16 cells, physical front-panel order)
+
+| cell | cc | label | color | description |
+|------|----|-------|-------|-------------|
+| 1 | 15 | BOW | white | Bow exciter level |
+| 2 | 17 | BLOW | pink | Blow exciter level |
+| 3 | 20 | STRIKE | teal | Strike exciter level |
+| 4 | 1 | PITCH | white | Pitch offset (-24..+24 st, mod-capable) |
+| 5 | 11 | STRENGTH | white | Resonator strength |
+| 6 | 14 | CONTOUR | white | Envelope contour |
+| 7 | 18 | FLOW | pink | Blow flow |
+| 8 | 21 | MALLET | teal | Strike mallet |
+| 9 | 23 | GEOMETRY | white | Resonator geometry |
+| 10 | 24 | BRIGHTNESS | white | Resonator brightness |
+| 11 | 16 | TIMBRE | white | Bow timbre |
+| 12 | 19 | TIMBRE | pink | Blow timbre |
+| 13 | 22 | TIMBRE | teal | Strike timbre |
+| 14 | 25 | DAMPING | white | Resonator damping |
+| 15 | 26 | POSITION | white | Resonator position |
+| 16 | 27 | SPACE | white | Space / reverb |
+
+elements P2 (2 cells): CC 28 MODEL (white), CC 29 OMINOUS (white).
+
+### clouds — P1 (16 cells)
 
 | cell | cc | label | color |
 |------|----|-------|-------|
-| 1 | 1 | MOD | red |
-| 2 | 11 | STRENGTH | red |
-| 3 | 14 | CONTOUR | white |
-| 4 | 15 | BOW | white |
-| 5 | 16 | TIMBRE B | white |
-| 6 | 17 | BLOW | teal |
-| 7 | 18 | FLOW | teal |
-| 8 | 19 | TIMBRE Bl | teal |
-| 9 | 20 | STRIKE | teal |
-| 10 | 21 | MALLET | teal |
-| 11 | 22 | TIMBRE S | teal |
-| 12 | 23 | GEOMETRY | white |
-| 13 | 24 | BRIGHTNESS | white |
-| 14 | 25 | DAMPING | white |
-| 15 | 26 | POSITION | white |
-| 16 | 27 | SPACE | white |
-
-elements P2 (16 cells): CC 28 MODEL (white), CC 29 OMINOUS (white), then the
-alt-layout duplicates of cells 3-16 above (14-27, same colors; no CC 1/11).
-
-### clouds — P1 (16 cells, all white)
-
-| cell | cc | label |
-|------|----|-------|
-| 1 | 1 | EX TONE |
-| 2 | 11 | EX LEVEL |
-| 3 | 13 | EX SRC |
-| 4 | 40 | POSITION |
-| 5 | 41 | SIZE |
-| 6 | 42 | PITCH |
-| 7 | 43 | DENSITY |
-| 8 | 44 | TEXTURE |
-| 9 | 45 | DRY/WET |
-| 10 | 46 | SPREAD |
-| 11 | 47 | FEEDBACK |
-| 12 | 48 | REVERB |
-| 13 | 23 | MODE |
-| 14 | 24 | QUALITY |
-| 15 | 65 | FREEZE |
-| 16 | 66 | TRIG |
+| 1 | 1 | EX TONE | white |
+| 2 | 11 | EX LEVEL | white |
+| 3 | 13 | EX SRC | white |
+| 4 | 40 | POSITION | pink |
+| 5 | 41 | SIZE | teal |
+| 6 | 42 | PITCH | white |
+| 7 | 43 | DENSITY | pink |
+| 8 | 44 | TEXTURE | teal |
+| 9 | 45 | DRY/WET | white |
+| 10 | 46 | SPREAD | white |
+| 11 | 47 | FEEDBACK | white |
+| 12 | 48 | REVERB | white |
+| 13 | 23 | MODE | white |
+| 14 | 24 | QUALITY | white |
+| 15 | 65 | FREEZE | white |
+| 16 | 66 | TRIG | white |
 
 Grain params travel the **alias bank CC 40-48** (`kCloudsAliasCcBase`) —
 the convention the rack web panel established (works single-module AND
-chained, where native 14-22 belong to the A slot). P2 = duplicate of P1.
+chained, where native 14-22 belong to the A slot). P2 count = 0 (no duplicate page).
 
-### plaits — P1 (13 cells; 3 pots empty)
+### plaits — P1 (13 cells; 3 pots empty, all white)
 
 | cell | cc | label | color |
 |------|----|-------|-------|
 | 1 | 14 | TIMBRE | white |
 | 2 | 15 | MORPH | white |
 | 3 | 16 | HARMONICS | white |
-| 4 | 17 | MACRO | red |
+| 4 | 17 | MACRO | white |
 | 5 | 18 | LPG | white |
 | 6 | 19 | DECAY | white |
-| 7 | 20 | FM AMT | teal |
-| 8 | 21 | TIM MOD | teal |
-| 9 | 22 | MORPH MOD | teal |
+| 7 | 20 | FM AMT | white |
+| 8 | 21 | TIM MOD | white |
+| 9 | 22 | MORPH MOD | white |
 | 10 | 25 | LEVEL | white |
 | 11 | 23 | ENGINE | white |
 | 12 | 24 | AUX | white |
 | 13 | 64 | TRIG | white (momentary) |
 
-P2 = duplicate of P1.
+P2 count = 0 (no duplicate page).
 
 ### rings — P1 (11 cells; 5 pots empty, all white)
 
@@ -288,7 +287,7 @@ Cell order = physical pot order; the TELEM `cc` field = `200 + cell index`
 (opaque cell id — not a MIDI CC). The C3's MOD-page pot map sends
 `MOD_SET [src][param][value]` with EXACTLY the (src, param) pairs below —
 MUST MATCH `kUiMod*Cells` in `ui_link.h` and `kModPotMap` in the C3's
-`ui/RackUI`. Color classes: red = continuous modulators (LFO), teal =
+`ui/RackUI`. Color classes: yellow = continuous modulators (LFO), teal =
 trigger/sequenced sources (EUclid/gate/ADSR), white = global clock & sys.
 Values on these pages are the mod engine's current settings re-expressed
 0-127 (inverse of the MOD_SET quantization: rate/ADSR log domains mapped
@@ -299,17 +298,17 @@ MOD-LFO 1/2 — Row 0 = LFO 1 (pots 0-5), Row 2 = LFO 2 (pots 10-15):
 
 | row | pot | cell | src | param | label | color |
 |-----|-----|------|-----|-------|-------|-------|
-| 0 | 0-5 | 0-5 | 0 (lfo1) | 1 rate / 2 wave / 3 phase / 4 level / 0 mode / 6 div | L1 RATE/WAVE/PHASE/LEV/MODE/DIV | red |
+| 0 | 0-5 | 0-5 | 0 (lfo1) | 1 rate / 2 wave / 3 phase / 4 level / 0 mode / 6 div | L1 RATE/WAVE/PHASE/LEV/MODE/DIV | yellow |
 | 1 | 6-9 | 6-9 | - | - | (empty) | - |
-| 2 | 10-15 | 10-15 | 1 (lfo2) | same | L2 RATE/WAVE/PHASE/LEV/MODE/DIV | red |
+| 2 | 10-15 | 10-15 | 1 (lfo2) | same | L2 RATE/WAVE/PHASE/LEV/MODE/DIV | yellow |
 
 MOD-LFO 3/4 — Row 0 = LFO 3 (pots 0-5), Row 2 = LFO 4 (pots 10-15):
 
 | row | pot | cell | src | param | label | color |
 |-----|-----|------|-----|-------|-------|-------|
-| 0 | 0-5 | 0-5 | 2 (lfo3) | 1 rate / 2 wave / 3 phase / 4 level / 0 mode / 6 div | L3 RATE/WAVE/PHASE/LEV/MODE/DIV | red |
+| 0 | 0-5 | 0-5 | 2 (lfo3) | 1 rate / 2 wave / 3 phase / 4 level / 0 mode / 6 div | L3 RATE/WAVE/PHASE/LEV/MODE/DIV | yellow |
 | 1 | 6-9 | 6-9 | - | - | (empty) | - |
-| 2 | 10-15 | 10-15 | 3 (lfo4) | same | L4 RATE/WAVE/PHASE/LEV/MODE/DIV | red |
+| 2 | 10-15 | 10-15 | 3 (lfo4) | same | L4 RATE/WAVE/PHASE/LEV/MODE/DIV | yellow |
 
 MOD-TRIG — 2x Euclidean: Row 0 = EUC 1 (pots 0-4), Row 2 = EUC 2 (pots 10-14):
 

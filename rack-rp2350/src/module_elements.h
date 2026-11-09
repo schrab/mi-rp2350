@@ -53,7 +53,7 @@ static const uint32_t kStallUs = 900;     // >2x the 500 us block period
 
 // Registry strings (see module_registry.h).
 static const char* const kCcMap =
-    "1 mod, 11 strength, 14 env-shape, 15-16 bow, 17-19 blow, 20-22 strike, "
+    "1 pitch, 11 strength, 14 env-shape, 15-16 bow, 17-19 blow, 20-22 strike, "
     "23 geometry, 24 brightness, 25 damping, 26 position, 27 space, "
     "28 model, 29 easter-egg";
 // T3 mod destinations: every float-parameter CC of the map accepts continuous
@@ -85,8 +85,8 @@ struct State {
   volatile int8_t pending_resonator_model;
   volatile int8_t pending_easter_egg;
 
-  // CC 1 / CC 11 shared values (standalone midi.h pattern).
-  volatile float shared_modulation;
+  // CC 1 (PITCH: -24..+24 st) / CC 11 shared values (standalone midi.h pattern).
+  volatile float shared_pitch;
   volatile float shared_strength;
 };
 
@@ -108,7 +108,7 @@ void init_at(uint8_t* base) {
   memset(s->strike_in, 0, sizeof(s->strike_in));
   s->pending_resonator_model = -1;
   s->pending_easter_egg = -1;
-  s->shared_modulation = 0.0f;
+  s->shared_pitch = 0.0f;
   s->shared_strength = 0.8f;
 
   elements::Dsp::setSr(kSampleRate);
@@ -167,7 +167,7 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
   s->perf_state.gate = shared_gate;
   s->perf_state.note = shared_note;
   s->perf_state.strength = s->shared_strength;
-  s->perf_state.modulation = s->shared_modulation;
+  s->perf_state.modulation = s->shared_pitch;
 
   size_t done = 0;
   while (done < n) {
@@ -202,7 +202,7 @@ void render() {
   s->perf_state.gate = shared_gate;
   s->perf_state.note = shared_note;
   s->perf_state.strength = s->shared_strength;
-  s->perf_state.modulation = s->shared_modulation;
+  s->perf_state.modulation = s->shared_pitch;
 
   uint32_t t0 = time_us_32();
   s->part.Process(s->perf_state, s->blow_in, s->strike_in, s->main_out,
@@ -246,7 +246,7 @@ void control_change(uint8_t cc, uint8_t val) {
   const float v = (float)val / 127.0f;
   elements::Patch* p = s->part.mutable_patch();
   switch (cc) {
-    case 1:  s->shared_modulation = v; break;
+    case 1:  s->shared_pitch = (v - 0.5f) * 48.0f; break; // CC 1 = PITCH: -24..+24 semitones
     case 11: s->shared_strength = v; break;
     case 14: p->exciter_envelope_shape = v; break;
     case 15: p->exciter_bow_level = v; break;
@@ -297,7 +297,7 @@ bool mod_set_cc_float(uint8_t cc, float v) {
   if (v > 1.0f) v = 1.0f;
   elements::Patch* p = s->part.mutable_patch();
   switch (cc) {
-    case 1:  s->shared_modulation = v; break;
+    case 1:  s->shared_pitch = (v - 0.5f) * 48.0f; break; // CC 1 = PITCH: -24..+24 semitones
     case 11: s->shared_strength = v; break;
     case 14: p->exciter_envelope_shape = v; break;
     case 15: p->exciter_bow_level = v; break;

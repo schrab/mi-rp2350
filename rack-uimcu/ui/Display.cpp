@@ -39,7 +39,7 @@ static const char *TAG = "Display";
                                // 18..301 on the 320-axis (TFT_eSPI #3804 / PR #3769)
 #define ST7789_YOFF   82       // RASET start offset in landscape (MV=1):
                                // 82..157 on the 240-axis (TFT_eSPI #3804 / PR #3769)
-#define ST7789_MADCTL 0x60     // Landscape (MX|MV, RGB): 0x60 (rot 1) or 0xA0 (rot 3)
+#define ST7789_MADCTL 0x68     // Landscape (MX|MV, BGR): 0x68 (rot 1) or 0xA8 (rot 3)
 #define ST7789_INVERT 0        // 0 = INVOFF (0x20): per TFT_eSPI #3804 & PR #3769
                                // (invertDisplay(false)), INVON (0x21) reverses
                                // colours on this 76x284 ST7789P3 panel so black

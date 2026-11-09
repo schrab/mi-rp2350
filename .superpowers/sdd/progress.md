@@ -1905,5 +1905,35 @@ gestures, BLE) are next per the wiring table.
 
 - **Hardware verification:** Confirmed working on real hardware by the user (2026-11-09): clamped page scrolling without wrap, single-page plugins automatically skipping empty P2, dedicated modulation page layout and alignment, smooth non-jittering BPM on Pot 7, CLKSRC on Pot 8, and TELEM D/F on Pots 15/16.
 
+### Rack T5 — Elements Front-Panel Realignment, Pitch Control & Standardized Palette (2026-11-10)
+
+1. **Elements Resonator PITCH Knob Replaces MOD:**
+   - Replaced redundant CC 1 `MOD` parameter with direct resonator `PITCH` (-24..+24 semitones, centered at 0 st at pot value 64).
+   - `shared_pitch` in `module_elements.h` scales $(v - 0.5\text{f}) \times 48.0\text{f}$, updating `perf_state.modulation` on every audio block and in CC dispatch.
+   - PITCH is directly modulatable by any mod-engine source (LFO, envelope, etc.).
+   - `RackUI::potToDisplayValue()` formats CC 1 as signed integer `-24`..`+24` semitones with center `0` and a full 0..127 underline bar.
+
+2. **Elements P1 Physical Front-Panel Alignment (Pots 1–16):**
+   - **Row 0 (Pots 1–6):** `BOW` (white, CC 15), `BLOW` (pink, CC 17), `STRIKE` (teal, CC 20), `PITCH` (white, CC 1), `STRENGTH` (white, CC 11), `CONTOUR` (white, CC 14).
+   - **Row 1 (Pots 7–10):** `FLOW` (pink, CC 18), `MALLET` (teal, CC 21), `GEOMETRY` (white, CC 23), `BRIGHTNESS` (white, CC 24).
+   - **Row 2 (Pots 11–16):** `TIMBRE` (white, CC 16 - bow timbre), `TIMBRE` (pink, CC 19 - blow timbre), `TIMBRE` (teal, CC 22 - strike timbre), `DAMPING` (white, CC 25), `POSITION` (white, CC 26), `SPACE` (white, CC 27).
+
+3. **Standardized Color Palette & ST7789P3 Panel BGR Fix:**
+   - Standardized all module parameters to 3 base colors:
+     - White (`kUiColorWhite = 0`, RGB565 `0xE73C`)
+     - Pink (`kUiColorPink = 1`, RGB565 `0xE14B`, `#e6295e`)
+     - Teal (`kUiColorTeal = 2`, RGB565 `0x1517`, `#17a3bd`)
+   - Modulated parameter accent: Yellow (`kUiColorYellow = 3`, RGB565 `0xF683`, `#f2d21f`) for text, value, and underline bar.
+   - **ST7789P3 BGR Bug Resolution:** Discovered root cause for yellow displaying as cyan/teal and pink displaying as purple/blue in hardware: `#define ST7789_MADCTL 0x60` configured landscape mode with bit 3 (RGB/BGR selector) cleared to RGB. The physical panel has a BGR subpixel filter. Changed `ST7789_MADCTL` to `0x68` (`0x60 | 0x08`), aligning ST7789 controller color order with the physical display.
+   - **MOD-LFO Pages (Pages 2 & 3):** Updated all cells in `kUiModLfo12Cells` and `kUiModLfo34Cells` to Yellow (`kUiColorYellow = 3`).
+   - **Clouds P1:** Set `SIZE` (CC 41) & `TEXTURE` (CC 44) to Teal; set `POSITION` (CC 40) & `DENSITY` (CC 43) to Pink; remaining cells White.
+   - **Plaits P1:** Set all 13 cells to White.
+   - **Web Panel & Documentation:** Synchronized `tools/rack_panel.html` and `docs/ui-protocol.md`.
+
+4. **Build & Flash:**
+   - RP2350: Built `rack-elements` via PlatformIO, flashed via 1200-baud touch and UF2 copy to `RP2350` drive (`E:\`).
+   - ESP32-C3: Built `rack-uimcu` via Ninja/ESP-IDF, flashed to `COM22` at 460800 baud.
+
+
 
 

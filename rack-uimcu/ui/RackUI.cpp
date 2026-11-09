@@ -90,8 +90,9 @@ namespace CTAG {
         // Class byte -> RGB565.
         static uint16_t classColor(uint8_t cls) {
             switch (cls) {
-                case 1: return Display::kRed;
+                case 1: return Display::kPink;
                 case 2: return Display::kTeal;
+                case 3: return Display::kYellow;
                 default: return Display::kWhite;
             }
         }
@@ -253,6 +254,13 @@ namespace CTAG {
                     barVal = idx;
                     barMax = n - 1;
                     return idx;
+                }
+                if ((mod & 3) == 0 && cc == 1) {
+                    // Elements PITCH: -24..+24 st (potVal 64 = 0)
+                    int v = ((int)potVal * 48 + 63) / 127 - 24;
+                    barVal = potVal;
+                    barMax = 127;
+                    return v;
                 }
                 if ((mod & 3) == 1 && cc == 13) {
                     // Clouds EX SRC: 5 exciter modes (0..4)

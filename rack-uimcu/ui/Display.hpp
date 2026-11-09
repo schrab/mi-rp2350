@@ -55,6 +55,7 @@ namespace CTAG {
             // the Mutable panel palette; yellow = STATE accent only).
             static constexpr uint16_t kWhite  = 0xE73C;  // #e4e4e4-class
             static constexpr uint16_t kRed    = 0xE14B;  // #e6295e
+            static constexpr uint16_t kPink   = 0xE14B;  // #e6295e (alias)
             static constexpr uint16_t kTeal   = 0x1517;  // #17a3bd
             static constexpr uint16_t kYellow = 0xF683;  // #f2d21f (accent)
             static constexpr uint16_t kBlack  = 0x0000;

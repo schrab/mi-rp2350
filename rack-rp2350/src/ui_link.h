@@ -136,10 +136,12 @@ static const uint8_t kUiFlagSrcMask   = 0x0F << kUiFlagSrcShift;  // bit7 reserv
 // is informational (and lets a delta name its cell unambiguously).
 static const uint8_t kUiModCellBase = 200;
 
-// Param color classes (tools/rack_panel.html trio).
-static const uint8_t kUiColorWhite = 0;
-static const uint8_t kUiColorRed   = 1;
-static const uint8_t kUiColorTeal  = 2;
+// Param color classes (white, pink, teal, yellow).
+static const uint8_t kUiColorWhite  = 0;
+static const uint8_t kUiColorPink   = 1;
+static const uint8_t kUiColorRed    = 1;  // backward-compat alias
+static const uint8_t kUiColorTeal   = 2;
+static const uint8_t kUiColorYellow = 3;
 
 // ===================== CRC-8/ATM (poly 0x07, init 0x00, MSB-first) ==========
 static uint8_t ui_crc8(const uint8_t* data, size_t n) {
@@ -167,22 +169,25 @@ struct UiPageTable {
   uint8_t count;
 };
 
-// elements — P1: perf modulators (red), acoustic excitation (teal), resonator
-// + envelope (white); colors per tools/rack_panel.html.
+// elements — P1: physical front-panel order (Row 0: exciter levels + pitch/strength/contour;
+// Row 1: flow/mallet + geometry/brightness; Row 2: timbres + damping/position/space).
 static const UiPageCell kUiPageElementsP1[] = {
-    {1,  "MOD",        kUiColorRed},
-    {11, "STRENGTH",   kUiColorRed},
-    {14, "CONTOUR",    kUiColorWhite},
+    // Row 0 (pots 0..5):
     {15, "BOW",        kUiColorWhite},
-    {16, "TIMBRE B",   kUiColorWhite},
-    {17, "BLOW",       kUiColorTeal},
-    {18, "FLOW",       kUiColorTeal},
-    {19, "TIMBRE Bl",  kUiColorTeal},
+    {17, "BLOW",       kUiColorPink},
     {20, "STRIKE",     kUiColorTeal},
+    {1,  "PITCH",      kUiColorWhite},
+    {11, "STRENGTH",   kUiColorWhite},
+    {14, "CONTOUR",    kUiColorWhite},
+    // Row 1 (pots 6..9):
+    {18, "FLOW",       kUiColorPink},
     {21, "MALLET",     kUiColorTeal},
-    {22, "TIMBRE S",   kUiColorTeal},
     {23, "GEOMETRY",   kUiColorWhite},
     {24, "BRIGHTNESS", kUiColorWhite},
+    // Row 2 (pots 10..15):
+    {16, "TIMBRE",     kUiColorWhite},
+    {19, "TIMBRE",     kUiColorPink},
+    {22, "TIMBRE",     kUiColorTeal},
     {25, "DAMPING",    kUiColorWhite},
     {26, "POSITION",   kUiColorWhite},
     {27, "SPACE",      kUiColorWhite},
@@ -192,18 +197,16 @@ static const UiPageCell kUiPageElementsP2[] = {
     {28, "MODEL",      kUiColorWhite},
     {29, "OMINOUS",    kUiColorWhite},
 };
-// clouds — P1: the rack panel's clouds view. Grain params travel the alias
-// bank CC 40-48 (kCloudsAliasCcBase — works single-module AND chained);
-// exciter 1/11/13, selectors 23/24, freeze/trig 65/66. All white in the panel.
+// clouds — P1: SIZE/TEXTURE teal, POSITION/DENSITY pink, rest white.
 static const UiPageCell kUiPageCloudsP1[] = {
     {1,  "EX TONE",    kUiColorWhite},
     {11, "EX LEVEL",   kUiColorWhite},
     {13, "EX SRC",     kUiColorWhite},
-    {40, "POSITION",   kUiColorWhite},
-    {41, "SIZE",       kUiColorWhite},
+    {40, "POSITION",   kUiColorPink},
+    {41, "SIZE",       kUiColorTeal},
     {42, "PITCH",      kUiColorWhite},
-    {43, "DENSITY",    kUiColorWhite},
-    {44, "TEXTURE",    kUiColorWhite},
+    {43, "DENSITY",    kUiColorPink},
+    {44, "TEXTURE",    kUiColorTeal},
     {45, "DRY/WET",    kUiColorWhite},
     {46, "SPREAD",     kUiColorWhite},
     {47, "FEEDBACK",   kUiColorWhite},
@@ -213,18 +216,17 @@ static const UiPageCell kUiPageCloudsP1[] = {
     {65, "FREEZE",     kUiColorWhite},
     {66, "TRIG",       kUiColorWhite},
 };
-// plaits — P1: panel colors (MACRO red; FM/TIM-MOD/MORPH-MOD teal). CC 64 is
-// the TRIG pseudo-CC (mod-engine trigger input). 13 cells (3 pots empty).
+// plaits — P1: all white.
 static const UiPageCell kUiPagePlaitsP1[] = {
     {14, "TIMBRE",     kUiColorWhite},
     {15, "MORPH",      kUiColorWhite},
     {16, "HARMONICS",  kUiColorWhite},
-    {17, "MACRO",      kUiColorRed},
+    {17, "MACRO",      kUiColorWhite},
     {18, "LPG",        kUiColorWhite},
     {19, "DECAY",      kUiColorWhite},
-    {20, "FM AMT",     kUiColorTeal},
-    {21, "TIM MOD",    kUiColorTeal},
-    {22, "MORPH MOD",  kUiColorTeal},
+    {20, "FM AMT",     kUiColorWhite},
+    {21, "TIM MOD",    kUiColorWhite},
+    {22, "MORPH MOD",  kUiColorWhite},
     {25, "LEVEL",      kUiColorWhite},
     {23, "ENGINE",     kUiColorWhite},
     {24, "AUX",        kUiColorWhite},
@@ -281,47 +283,47 @@ static const uint8_t kUiAuxSelTelemF    = 15;
 // MOD-LFO 1/2: 2x LFO with full 6 params (Row 0 = LFO 1, Row 2 = LFO 2)
 static const UiAuxCell kUiModLfo12Cells[16] = {
     // Row 0: LFO 1 (pots 0..5)
-    {"L1 RATE",  kUiColorRed, 0, 1},
-    {"L1 WAVE",  kUiColorRed, 0, 2},
-    {"L1 PHASE", kUiColorRed, 0, 3},
-    {"L1 LEV",   kUiColorRed, 0, 4},
-    {"L1 MODE",  kUiColorRed, 0, 0},
-    {"L1 DIV",   kUiColorRed, 0, 6},
+    {"L1 RATE",  kUiColorYellow, 0, 1},
+    {"L1 WAVE",  kUiColorYellow, 0, 2},
+    {"L1 PHASE", kUiColorYellow, 0, 3},
+    {"L1 LEV",   kUiColorYellow, 0, 4},
+    {"L1 MODE",  kUiColorYellow, 0, 0},
+    {"L1 DIV",   kUiColorYellow, 0, 6},
     // Row 1: empty (pots 6..9)
     {"", kUiColorWhite, 0xFF, 0xFF},
     {"", kUiColorWhite, 0xFF, 0xFF},
     {"", kUiColorWhite, 0xFF, 0xFF},
     {"", kUiColorWhite, 0xFF, 0xFF},
     // Row 2: LFO 2 (pots 10..15)
-    {"L2 RATE",  kUiColorRed, 1, 1},
-    {"L2 WAVE",  kUiColorRed, 1, 2},
-    {"L2 PHASE", kUiColorRed, 1, 3},
-    {"L2 LEV",   kUiColorRed, 1, 4},
-    {"L2 MODE",  kUiColorRed, 1, 0},
-    {"L2 DIV",   kUiColorRed, 1, 6},
+    {"L2 RATE",  kUiColorYellow, 1, 1},
+    {"L2 WAVE",  kUiColorYellow, 1, 2},
+    {"L2 PHASE", kUiColorYellow, 1, 3},
+    {"L2 LEV",   kUiColorYellow, 1, 4},
+    {"L2 MODE",  kUiColorYellow, 1, 0},
+    {"L2 DIV",   kUiColorYellow, 1, 6},
 };
 
 // MOD-LFO 3/4: 2x LFO with full 6 params (Row 0 = LFO 3, Row 2 = LFO 4)
 static const UiAuxCell kUiModLfo34Cells[16] = {
     // Row 0: LFO 3 (pots 0..5)
-    {"L3 RATE",  kUiColorRed, 2, 1},
-    {"L3 WAVE",  kUiColorRed, 2, 2},
-    {"L3 PHASE", kUiColorRed, 2, 3},
-    {"L3 LEV",   kUiColorRed, 2, 4},
-    {"L3 MODE",  kUiColorRed, 2, 0},
-    {"L3 DIV",   kUiColorRed, 2, 6},
+    {"L3 RATE",  kUiColorYellow, 2, 1},
+    {"L3 WAVE",  kUiColorYellow, 2, 2},
+    {"L3 PHASE", kUiColorYellow, 2, 3},
+    {"L3 LEV",   kUiColorYellow, 2, 4},
+    {"L3 MODE",  kUiColorYellow, 2, 0},
+    {"L3 DIV",   kUiColorYellow, 2, 6},
     // Row 1: empty (pots 6..9)
     {"", kUiColorWhite, 0xFF, 0xFF},
     {"", kUiColorWhite, 0xFF, 0xFF},
     {"", kUiColorWhite, 0xFF, 0xFF},
     {"", kUiColorWhite, 0xFF, 0xFF},
     // Row 2: LFO 4 (pots 10..15)
-    {"L4 RATE",  kUiColorRed, 3, 1},
-    {"L4 WAVE",  kUiColorRed, 3, 2},
-    {"L4 PHASE", kUiColorRed, 3, 3},
-    {"L4 LEV",   kUiColorRed, 3, 4},
-    {"L4 MODE",  kUiColorRed, 3, 0},
-    {"L4 DIV",   kUiColorRed, 3, 6},
+    {"L4 RATE",  kUiColorYellow, 3, 1},
+    {"L4 WAVE",  kUiColorYellow, 3, 2},
+    {"L4 PHASE", kUiColorYellow, 3, 3},
+    {"L4 LEV",   kUiColorYellow, 3, 4},
+    {"L4 MODE",  kUiColorYellow, 3, 0},
+    {"L4 DIV",   kUiColorYellow, 3, 6},
 };
 
 // MOD-TRIG: 2x Euclidean (Row 0 = EUC 1, Row 2 = EUC 2)
