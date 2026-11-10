@@ -352,12 +352,12 @@ namespace CTAG {
             }
             if (page == 5) {
                 // MOD-GATE:
-                // G1/G2 MODE (0, 10) -> 0..16 (0 = GEN, 1..16 = PRESETS)
+                // G1/G2 MODE (0, 10) -> 0..18 (0 = GEN, 1..16 = PRESETS, 17 = TMR, 18 = MRKV)
                 if (slot == 0 || slot == 10) {
-                    int v = ((int)potVal * 17) / 128;
-                    if (v > 16) v = 16;
+                    int v = ((int)potVal * 19) / 128;
+                    if (v > 18) v = 18;
                     barVal = v;
-                    barMax = 16;
+                    barMax = 18;
                     return v;
                 }
                 // G1/G2 DENS (1, 11) -> 1..16
@@ -559,38 +559,98 @@ namespace CTAG {
                                         Display::FONT_LABEL,
                                         Display::Dim(Display::kWhite));
                 }
-                char val[10];
+                char val[32];
                 if (s_fullArrived) {
                     int8_t pdir = 0;
                     const bool pPend = RackPots::PickupPending(slot, pdir);
-                    if (s_page == 5 && (slot == 0 || slot == 10)) {
-                        static const char *const kTranceNames[17] = {
-                            "GEN", "ALT8", "OFF8", "PUMP", "LATE", "GALL", "RGAL", "ROLL", "ANTH",
-                            "DOT8", "TRES", "CLAV", "RUMB", "STAB", "PROG", "CHOP", "RISE"
-                        };
-                        const char *pName = (dispVal >= 0 && dispVal <= 16) ? kTranceNames[dispVal] : "---";
+                    const char *pName = nullptr;
+                    char bufText[16];
+
+                    static const char *const kTranceNames[19] = {
+                        "GEN", "ALT8", "OFF8", "PUMP", "LATE", "GALL", "RGAL", "ROLL", "ANTH",
+                        "DOT8", "TRES", "CLAV", "RUMB", "STAB", "PROG", "CHOP", "RISE",
+                        "TMR", "MRKV"
+                    };
+                    static const char *const kWaveNames[5] = {
+                        "SINE", "TRI", "SAW", "SQR", "S&H"
+                    };
+                    static const char *const kLfoModeNames[2] = { "HZ", "CLK" };
+                    static const char *const kClkNames[3] = { "GLB", "INT", "MIDI" };
+                    static const char *const kDivNames[10] = {
+                        "1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/4T", "1/8T", "16T", "32T"
+                    };
+                    static const char *const kEnvModeNames[2] = { "GATE", "RTRG" };
+                    static const char *const kChainPairNames[3] = { "E>C", "P>C", "R>C" };
+
+                    if (s_page <= 1) {
+                        bool wireBool = false;
+                        (void)p1p2DiscreteCount(s_cur.module, c.cc, wireBool);
+                        if (wireBool) {
+                            pName = dispVal ? "ON" : "OFF";
+                        } else if ((s_cur.module & 3) == 0 && c.cc == 28) {
+                            static const char *const kElemModels[3] = { "BOW", "BLOW", "STRK" };
+                            pName = (dispVal >= 0 && dispVal < 3) ? kElemModels[dispVal] : "---";
+                        } else if ((s_cur.module & 3) == 1 && c.cc == 23) {
+                            static const char *const kCloudModes[3] = { "GRAN", "STRE", "LOOP" };
+                            pName = (dispVal >= 0 && dispVal < 3) ? kCloudModes[dispVal] : "---";
+                        } else if ((s_cur.module & 3) == 1 && c.cc == 24) {
+                            static const char *const kCloudQual[4] = { "32-16", "32-8", "16-16", "16-8" };
+                            pName = (dispVal >= 0 && dispVal < 4) ? kCloudQual[dispVal] : "---";
+                        } else if ((s_cur.module & 3) == 3 && c.cc == 21) {
+                            static const char *const kRingWaves[3] = { "SIN", "TRI", "SAW" };
+                            pName = (dispVal >= 0 && dispVal < 3) ? kRingWaves[dispVal] : "---";
+                        }
+                    } else if (s_page == 2 || s_page == 3) {
+                        // MOD-LFO:
+                        if (slot == 1 || slot == 11) {
+                            pName = (dispVal >= 0 && dispVal < 5) ? kWaveNames[dispVal] : "---";
+                        } else if (slot == 4 || slot == 14) {
+                            pName = (dispVal >= 0 && dispVal < 2) ? kLfoModeNames[dispVal] : "---";
+                        } else if (slot == 5 || slot == 15) {
+                            pName = (dispVal >= 0 && dispVal < 10) ? kDivNames[dispVal] : "---";
+                        }
+                    } else if (s_page == 4) {
+                        // MOD-TRIG (Euclid):
+                        if (slot == 3 || slot == 13) {
+                            pName = (dispVal >= 0 && dispVal < 3) ? kClkNames[dispVal] : "---";
+                        } else if (slot == 4 || slot == 14) {
+                            pName = (dispVal >= 0 && dispVal < 10) ? kDivNames[dispVal] : "---";
+                        }
+                    } else if (s_page == 5) {
+                        // MOD-GATE:
+                        if (slot == 0 || slot == 10) {
+                            pName = (dispVal >= 0 && dispVal < 19) ? kTranceNames[dispVal] : "---";
+                        } else if (slot == 4 || slot == 14) {
+                            pName = (dispVal >= 0 && dispVal < 3) ? kClkNames[dispVal] : "---";
+                        } else if (slot == 5 || slot == 15) {
+                            pName = (dispVal >= 0 && dispVal < 10) ? kDivNames[dispVal] : "---";
+                        } else if (slot == 2 || slot == 3 || slot == 12 || slot == 13) {
+                            // SYNC and GLEN are percentage
+                            snprintf(bufText, sizeof(bufText), "%d%%", dispVal);
+                            pName = bufText;
+                        }
+                    } else if (s_page == 6) {
+                        // MOD-ENV (ADSR):
+                        if (slot == 4 || slot == 14) {
+                            pName = (dispVal >= 0 && dispVal < 2) ? kEnvModeNames[dispVal] : "---";
+                        } else if (slot == 5 || slot == 15) {
+                            pName = (dispVal >= 0 && dispVal < 10) ? kDivNames[dispVal] : "---";
+                        }
+                    } else if (s_page == 7) {
+                        // SYS:
+                        if (slot == 4) {
+                            pName = (dispVal >= 1 && dispVal <= 3) ? kChainPairNames[dispVal - 1] : "---";
+                        } else if (slot == 5 || slot == 14 || slot == 15) {
+                            pName = dispVal ? "ON" : "OFF";
+                        } else if (slot == 7) {
+                            pName = dispVal ? "MIDI" : "INT";
+                        }
+                    }
+
+                    if (pName) {
                         if (pPend && pdir > 0) snprintf(val, sizeof(val), "%s>", pName);
                         else if (pPend && pdir < 0) snprintf(val, sizeof(val), "<%s", pName);
                         else snprintf(val, sizeof(val), "%s", pName);
-                    } else if (s_page == 5 && (slot == 4 || slot == 14)) {
-                        static const char *const kClkNames[3] = {"GLB", "INT", "MIDI"};
-                        const char *cName = (dispVal >= 0 && dispVal <= 2) ? kClkNames[dispVal] : "---";
-                        if (pPend && pdir > 0) snprintf(val, sizeof(val), "%s>", cName);
-                        else if (pPend && pdir < 0) snprintf(val, sizeof(val), "<%s", cName);
-                        else snprintf(val, sizeof(val), "%s", cName);
-                    } else if (s_page == 5 && (slot == 5 || slot == 15)) {
-                        static const char *const kDivNames[10] = {
-                            "1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/4T", "1/8T", "16T", "32T"
-                        };
-                        const char *dName = (dispVal >= 0 && dispVal <= 9) ? kDivNames[dispVal] : "---";
-                        if (pPend && pdir > 0) snprintf(val, sizeof(val), "%s>", dName);
-                        else if (pPend && pdir < 0) snprintf(val, sizeof(val), "<%s", dName);
-                        else snprintf(val, sizeof(val), "%s", dName);
-                    } else if (s_page == 5 && (slot == 2 || slot == 3 || slot == 12 || slot == 13)) {
-                        // SYNC and GLEN are percentage
-                        if (pPend && pdir > 0) snprintf(val, sizeof(val), "%d%%>", dispVal);
-                        else if (pPend && pdir < 0) snprintf(val, sizeof(val), "<%d%%", dispVal);
-                        else snprintf(val, sizeof(val), "%d%%", dispVal);
                     } else {
                         if (pPend && pdir > 0) snprintf(val, sizeof(val), "%d>", dispVal);
                         else if (pPend && pdir < 0) snprintf(val, sizeof(val), "<%d", dispVal);
@@ -742,9 +802,13 @@ namespace CTAG {
                 if (pot == 1 || pot == 11) n = 5;    // LFO WAVE (0..4)
                 if (pot == 4 || pot == 14) n = 2;    // LFO MODE (0..1)
                 if (pot == 5 || pot == 15) n = 10;   // LFO DIV (0..9)
-            } else if (s_page == 4 || s_page == 5) {
-                if (pot == 3 || pot == 13) n = 3;    // CLK (0..2)
-                if (pot == 4 || pot == 14) n = 10;   // DIV (0..9)
+            } else if (s_page == 4) {
+                if (pot == 3 || pot == 13) n = 3;    // EU CLK (0..2)
+                if (pot == 4 || pot == 14) n = 10;   // EU DIV (0..9)
+            } else if (s_page == 5) {
+                if (pot == 0 || pot == 10) n = 19;   // GATE MODE (0..18)
+                if (pot == 4 || pot == 14) n = 3;    // GATE CLK (0..2)
+                if (pot == 5 || pot == 15) n = 10;   // GATE DIV (0..9)
             } else if (s_page == 6) {
                 if (pot == 4 || pot == 14) n = 2;    // ADSR MODE (0..1)
                 if (pot == 5 || pot == 15) n = 10;   // ADSR DIV (0..9)
@@ -753,7 +817,7 @@ namespace CTAG {
                 else if (pot == 8) n = 4;     // PRESET (0..3)
                 else if (pot < 4 || pot == 5 || pot == 7 || pot == 14 || pot == 15) n = 2; // Modules 0..3, CHAIN ON 5, CLKSRC 7, TELEM D 14, TELEM F 15
             }
-            if (n >= 2 && n <= 12) {
+            if (n >= 2 && n <= 19) {
                 int k = ((int)t.value * n) / 128;
                 if (k >= n) k = n - 1;
                 int bLo = (k * 128 + n - 1) / n;

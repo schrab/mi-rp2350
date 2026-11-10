@@ -82,7 +82,7 @@ and CC 33 use):
 |-----|--------|-------------------|
 | 0-3 | LFO 1-4 | 0 mode (0-63 Hz-mode / 64+ clocked), 1 rate (0.02-20 Hz exp), 2 wave (0 sine / 1 tri / 2 saw / 3 square / 4 S&H), 3 phase (0-127 -> 0-360 deg), 4 level, 5 clk (global/internal/midi), 6 div (10 divisions), 7 dest (CC 0-127, 0 = off) |
 | 4-5 | EU 1-2 | 0 steps (1-32), 1 pulses (0-32), 2 rot, 3 clk, 4 div, 5 dest |
-| 6-7 | GATE 1-2 | 0 len (1-32), 1 mask (density fill 0-127), 2 glen, 3 clk, 4 div, 5 dest |
+| 6-7 | GATE 1-2 | 0 mode (0 GEN, 1-16 presets ALT8..RISE, 17 TMR, 18 MRKV), 1 dens (1-16), 2 sync (0-100%), 3 glen (1-100%), 4 clk (global/internal/midi), 5 div (10 divisions), 6 dest (CC 0-127, 0 = off) |
 | 8-9 | ADSR 1-2 | 0 mode (gate/retrig), 1 atk, 2 dec, 3 sus, 4 rel, 5 clk, 6 div, 7 dest |
 
 - `value` is always 0-127 and quantized exactly like CC 35 (the bench mux's
@@ -291,8 +291,16 @@ MUST MATCH `kUiMod*Cells` in `ui_link.h` and `kModPotMap` in the C3's
 trigger/sequenced sources (EUclid/gate/ADSR), white = global clock & sys.
 Values on these pages are the mod engine's current settings re-expressed
 0-127 (inverse of the MOD_SET quantization: rate/ADSR log domains mapped
-back, wave/div/enum = `ceil(index*128/counts)`, gates = density-fill
-equivalent, BPM = `(bpm-20)*127/280`, clock src = 0/127).
+back, wave/div/enum = `ceil(index*128/counts)`, gates = mode index or density,
+BPM = `(bpm-20)*127/280`, clock src = 0/127). The C3 renderer displays
+clear text names rather than raw numbers wherever discrete parameters occur:
+- **LFO Wave**: `SINE`, `TRI`, `SAW`, `SQR`, `S&H`
+- **LFO Mode**: `HZ`, `CLK`
+- **Divisions**: `1/1`, `1/2`, `1/4`, `1/8`, `1/16`, `1/32`, `1/4T`, `1/8T`, `16T`, `32T`
+- **Clock Source**: `GLB`, `INT`, `MIDI`
+- **Gate Mode**: `GEN`, `ALT8`..`RISE`, `TMR`, `MRKV` (19 modes)
+- **ADSR Mode**: `GATE`, `RTRG`
+- **SYS Toggles / Pair**: `E>C`/`P>C`/`R>C`, `ON`/`OFF`, `INT`/`MIDI`
 
 MOD-LFO 1/2 — Row 0 = LFO 1 (pots 0-5), Row 2 = LFO 2 (pots 10-15):
 
@@ -318,13 +326,13 @@ MOD-TRIG — 2x Euclidean: Row 0 = EUC 1 (pots 0-4), Row 2 = EUC 2 (pots 10-14):
 | 1 | 6-9 | 6-9 | - | - | (empty) | - |
 | 2 | 10-14 | 10-14 | 5 (eu2) | same | E2 STPS/PULS/ROT/CLK/DIV | teal |
 
-MOD-GATE — 2x Gate: Row 0 = GATE 1 (pots 0-4), Row 2 = GATE 2 (pots 10-14):
+MOD-GATE — 2x Gate: Row 0 = GATE 1 (pots 0-5), Row 2 = GATE 2 (pots 10-15):
 
 | row | pot | cell | src | param | label | color |
 |-----|-----|------|-----|-------|-------|-------|
-| 0 | 0-4 | 0-4 | 6 (gate1) | 0 len / 1 mask / 2 glen / 3 clk / 4 div | G1 LEN/MASK/GLEN/CLK/DIV | teal |
+| 0 | 0-5 | 0-5 | 6 (gate1) | 0 mode / 1 dens / 2 sync / 3 glen / 4 clk / 5 div | G1 MODE/DENS/SYNC/GLEN/CLK/DIV | teal |
 | 1 | 6-9 | 6-9 | - | - | (empty) | - |
-| 2 | 10-14 | 10-14 | 7 (gate2) | same | G2 LEN/MASK/GLEN/CLK/DIV | teal |
+| 2 | 10-15 | 10-15 | 7 (gate2) | same | G2 MODE/DENS/SYNC/GLEN/CLK/DIV | teal |
 
 MOD-ENV — 2x ADSR: Row 0 = ADSR 1 (pots 0-5), Row 2 = ADSR 2 (pots 10-15):
 

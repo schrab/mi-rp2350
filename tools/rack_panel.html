@@ -1039,12 +1039,12 @@ const MOD_TYPES = [
       ...tailDefs(52 /* 1/16 */),
     ] },
   { name:'GATE', params: [
-      { label:'LEN', defByte:29, fmt: c => 1 + Math.floor(b127(c.v) * 31 / 127) },
-      { label:'FILL', defByte:64,
-        fmt: c => { const len = modCurLen();
-                    return Math.floor(b127(c.v) * len / 127) + '/' + len; } },
-      { label:'GLEN', defByte:63, fmt: c => ((1 + b127(c.v)) / 128).toFixed(2) },
-      ...tailDefs(39 /* 1/8 */),
+      { label:'MODE', steps:{ labels:['GEN','ALT8','OFF8','PUMP','LATE','GALL','RGAL','ROLL','ANTH','DOT8','TRES','CLAV','RUMB','STAB','PROG','CHOP','RISE','TMR','MRKV'],
+                              bytes:[0,7,14,21,27,34,41,48,54,61,68,75,81,88,95,102,108,115,122] }, defByte:7 },
+      { label:'DENS', defByte:59, fmt: c => 1 + Math.floor(b127(c.v) * 15 / 127) },
+      { label:'SYNC', defByte:0, fmt: c => Math.round(b127(c.v) * 100 / 127) + '%' },
+      { label:'GLEN', defByte:63, fmt: c => Math.round((1 + b127(c.v)) * 100 / 128) + '%' },
+      ...tailDefs(52 /* 1/16 */),
     ] },
   { name:'ADSR', params: [
       { label:'MODE', steps:{ labels:['GATE','RETRIG'], bytes:[0,127] }, defByte:0 },
@@ -1081,7 +1081,7 @@ function modDefByte(srcIdx, pIdx) {
   const li = srcIdx < 4 ? srcIdx : 0;
   if (t === 0) return [0, LFO_RATE_BYTES[li], LFO_WAVE_BYTES[li], 0, 102, 0, 26, 0][pIdx];
   if (t === 1) return [62, 16, 0, 0, 52, 0][pIdx];
-  if (t === 2) return [29, 64, 63, 0, 39, 0][pIdx];
+  if (t === 2) return [7, 59, 0, 63, 0, 52, 0][pIdx];
   return [0, 22, 64, 64, 73, 0, 26, 0][pIdx];
 }
 

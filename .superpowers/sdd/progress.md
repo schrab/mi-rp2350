@@ -2016,6 +2016,54 @@ gestures, BLE) are next per the wiring table.
 4. **Build Verification:**
    - Both `rack-rp2350` (all 4 targets: `elements`, `clouds`, `plaits`, `rings`) and `rack-uimcu` compiled cleanly with zero errors.
 
+### Rack T5 — Architecture 4: Shift-Register Mutation (TMR) & Hamming Markov Chains (MRKV) (2026-11-10)
+
+1. **Architecture 4 Implementation (`mod_engine.h`):**
+   - Implemented Mode 17 (`TMR`): Turing Machine shift-register mutation.
+     - Bit register seeded via Barlow metric indispensability `kBarlow16`.
+     - At `sync == 0%`, the loop is 100% locked.
+     - At `sync > 0%`, bit mutations are inversely weighted by metric indispensability `(15 - Barlow[step])`, keeping strong beats anchored while weak subdivisions mutate dynamically.
+   - Implemented Mode 18 (`MRKV`): Whole-Bar Hamming-Distance Markov Chain transitions across the 16 canonical trance gate presets.
+     - Computes population count `mod_hamming_dist(a, b)` using `__builtin_popcount`.
+     - At bar boundaries (`step == 0`), transitions to candidate presets with probabilities decaying exponentially by Hamming distance from the current preset.
+     - `sync` controls transition rate and temperature; `sync == 0%` locks current preset indefinitely.
+   - Updated console commands (`mod gate1 mode tmr|mrkv`), help text, and telemetry.
+   - Verified live mask mutation and locking over serial console.
+   - Committed: `e093006`.
+
+### Rack T5 — Textual Parameter Display across Modulation Pages (2026-11-10)
+
+1. **Textual Display Formatting in UI MCU (`RackUI.cpp`):**
+   - Replaced raw numeric display with text labels across all modulation engines and system pages:
+     - **LFO (Pages 2 & 3):**
+       - `WAVE` (0..4) -> `SINE`, `TRI`, `SAW`, `SQR`, `S&H`
+       - `MODE` (0..1) -> `HZ`, `CLK`
+       - `DIV` (0..9)  -> `1/1`, `1/2`, `1/4`, `1/8`, `1/16`, `1/32`, `1/4T`, `1/8T`, `16T`, `32T`
+     - **TRIG (Page 4):**
+       - `CLK` (0..2)  -> `GLB`, `INT`, `MIDI`
+       - `DIV` (0..9)  -> `1/1` .. `32T`
+     - **GATE (Page 5):**
+       - `MODE` (0..18) -> `GEN`, `ALT8`..`RISE`, `TMR`, `MRKV`
+       - `SYNC` / `GLEN` -> formatted with `%` suffix
+       - `CLK` (0..2)  -> `GLB`, `INT`, `MIDI`
+       - `DIV` (0..9)  -> `1/1` .. `32T`
+     - **ENV (Page 6):**
+       - `MODE` (0..1) -> `GATE`, `RTRG`
+       - `DIV` (0..9)  -> `1/1` .. `32T`
+     - **SYS (Page 7):**
+       - `CHAIN PR` (1..3) -> `E>C`, `P>C`, `R>C`
+       - `CHAIN ON`, `TELEM D`, `TELEM F` -> `OFF`, `ON`
+       - `CLKSRC` -> `INT`, `MIDI`
+     - **P1/P2 Discrete & Booleans:**
+       - Boolean toggles (`PLAY`, `FREEZE`, `TRIG`, `STRUM`, `OMINOUS`) -> `OFF`, `ON`
+       - Elements `MODEL` -> `BOW`, `BLOW`, `STRK`
+       - Clouds `MODE` -> `GRAN`, `STRE`, `LOOP`
+       - Clouds `QUALITY` -> `32-16`, `32-8`, `16-16`, `16-8`
+       - Rings `WAVE` -> `SIN`, `TRI`, `SAW`
+   - Fixed `GetPotBucketBounds` in `RackPots.cpp`/`RackUI.cpp` so Page 4 and Page 5 pots have discrete bucket deadbands without interference (expanded `n <= 19`).
+   - Updated `tools/rack_panel.html` with the 7-parameter GATE definition (including `TMR` and `MRKV`) to synchronize the web panel with the firmware.
+   - Flashed `COM22` (ESP32-C3) and confirmed active communication with RP2350 at 921600 baud (`0` CRC errors, `8 us` turnaround).
+
 
 
 
