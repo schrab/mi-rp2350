@@ -1732,7 +1732,7 @@ static void cmd_help(const char* args) {
   Serial.println("     LFO  params: mode(hz|clock) rate(Hz) wave(sine|tri|saw|square|sh)");
   Serial.println("          phase(deg) level | clk(global|int|midi) div(1/4..) dest(CC|off)");
   Serial.println("     EU   params: steps(1-32) pulses rot | clk div dest");
-  Serial.println("     GATE params: mode(gen|alt8..rise|0-16) dens(1-16) sync(0-100%) glen(0-1) | clk div dest");
+  Serial.println("     GATE params: mode(gen|alt8..rise|tmr|mrkv|0-18) dens(1-16) sync(0-100%) glen(0-1) | clk div dest");
   Serial.println("     ADSR params: mode(gate|retrig) atk dec rel (ms) sus(0-1) | clk div dest");
   Serial.println("  mod?               dump the whole engine (params + routing + telemetry)");
   Serial.println("  route <src> <dest> alias of 'mod <src> dest <dest>' (dest = CC|off)");

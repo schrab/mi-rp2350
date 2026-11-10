@@ -595,7 +595,7 @@ static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
         }
       case MOD_GATE:
         switch (c.param) {
-          case 0: return (uint8_t)(((uint16_t)s.p.gate.mode * 127) / 16);
+          case 0: return (uint8_t)(((uint16_t)s.p.gate.mode * 127) / 18);
           case 1: return (uint8_t)(((uint16_t)(s.p.gate.density - 1) * 127) / 15);
           case 2: return (uint8_t)(((uint16_t)s.p.gate.syncopation * 127) / 255);
           case 3: {

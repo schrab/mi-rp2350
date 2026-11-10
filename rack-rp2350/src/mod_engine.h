@@ -161,7 +161,8 @@ struct ModSource {
     struct { uint8_t steps, pulses, rot; uint32_t mask; uint8_t step;
              uint32_t ticks; uint8_t level; } eu;
     struct { uint8_t mode, density, syncopation, len; uint32_t mask;
-             float gate_len; uint8_t step; uint32_t ticks; uint8_t level; } gate;
+             float gate_len; uint8_t step; uint32_t ticks; uint8_t level;
+             uint32_t rng_state; uint8_t cur_preset; } gate;
     struct { float a_s, d_s, s_lvl, r_s; uint8_t retrig, env_state; float env;
              uint32_t ticks; } adsr;
   } p;
@@ -314,9 +315,10 @@ static const uint16_t kTranceGatePresets[16] = {
     0x88AF  // 16: o x x x o x x x o x o x o o o o (Accelerating Riser Build)
 };
 
-static const char* const kTrancePresetNames[17] = {
+static const char* const kTrancePresetNames[19] = {
     "GEN",  "ALT8", "OFF8", "PUMP", "LATE", "GALL", "RGAL", "ROLL", "ANTH",
-    "DOT8", "TRES", "CLAV", "RUMB", "STAB", "PROG", "CHOP", "RISE"
+    "DOT8", "TRES", "CLAV", "RUMB", "STAB", "PROG", "CHOP", "RISE",
+    "TMR",  "MRKV"
 };
 
 // Clarence Barlow's 4/4 16-step metric indispensability table (15 = strongest, 0 = weakest)
@@ -327,10 +329,90 @@ static const uint8_t kBarlow16[16] = {
 // Sioros-Guedes syncopation candidate order (strong quarter notes first, then eighths)
 static const uint8_t kSyncCandidates[8] = { 0, 4, 8, 12, 2, 6, 10, 14 };
 
+// Normalized Hamming distance between two 16-bit patterns
+static inline uint8_t mod_hamming_dist(uint16_t a, uint16_t b) {
+  return (uint8_t)__builtin_popcount((uint32_t)(a ^ b));
+}
+
+// Architecture 4: Hamming-Distance Markov Transition across the 16 Presets
+static uint8_t mod_gate_markov_next(uint8_t current_preset, uint8_t temp, uint32_t& rng) {
+  uint8_t d_min = 16;
+  uint8_t dists[16];
+  for (uint8_t j = 0; j < 16; ++j) {
+    if (j == current_preset) {
+      dists[j] = 0;
+      continue;
+    }
+    dists[j] = mod_hamming_dist(kTranceGatePresets[current_preset], kTranceGatePresets[j]);
+    if (dists[j] < d_min) d_min = dists[j];
+  }
+
+  uint16_t weights[16];
+  uint16_t total_weight = 0;
+  for (uint8_t j = 0; j < 16; ++j) {
+    if (j == current_preset) {
+      weights[j] = 0;
+      continue;
+    }
+    uint8_t delta = dists[j] - d_min;
+    // Scale delta attenuation: at temp=0, strong drop; at temp=255, uniform (shift=0)
+    uint32_t shift = ((uint32_t)delta * (255u - (uint32_t)temp) * 3u) / 255u;
+    uint16_t w = (shift >= 12) ? 0 : (uint16_t)(512u >> shift);
+    if (w == 0 && temp > 128) w = 1;
+    weights[j] = w;
+    total_weight += w;
+  }
+
+  if (total_weight == 0) {
+    for (uint8_t j = 0; j < 16; ++j) {
+      if (j != current_preset && dists[j] == d_min) return j;
+    }
+    return (current_preset + 1) % 16;
+  }
+
+  rng = rng * 1664525UL + 1013904223UL;
+  uint16_t pick = (uint16_t)(((rng >> 16) * total_weight) >> 16);
+  uint16_t running = 0;
+  for (uint8_t j = 0; j < 16; ++j) {
+    running += weights[j];
+    if (pick < running && weights[j] > 0) return j;
+  }
+  return (current_preset + 1) % 16;
+}
+
 // Recompute the rhythmic trance gate mask.
 static void mod_gate_recompute(ModSource& s) {
   s.p.gate.len = 16;
   uint8_t step_on[16];
+
+  if (s.p.gate.mode == 17) {
+    // Mode 17: TMR (Architecture 4 Shift-Register / Turing Machine Mutation)
+    // Seed register based on density threshold
+    const uint8_t thresh = (s.p.gate.density >= 16) ? 0 : (uint8_t)(16 - s.p.gate.density);
+    for (int i = 0; i < 16; ++i) {
+      step_on[i] = (kBarlow16[i] >= thresh) ? 1 : 0;
+    }
+    uint16_t mask = 0;
+    for (int i = 0; i < 16; ++i) {
+      if (step_on[i]) mask |= (1u << (15 - i));
+    }
+    s.p.gate.mask = mask;
+    s.p.gate.step %= s.p.gate.len;
+    s.p.gate.level = (s.p.gate.mask >> (15 - s.p.gate.step)) & 1u;
+    return;
+  }
+
+  if (s.p.gate.mode == 18) {
+    // Mode 18: MRKV (Architecture 4 Hamming-Distance Markov Preset Transitions)
+    // DENS selects starting seed preset (1..16 -> index 0..15)
+    uint8_t p_idx = (s.p.gate.density >= 1 && s.p.gate.density <= 16)
+                        ? (uint8_t)(s.p.gate.density - 1) : 0;
+    s.p.gate.cur_preset = p_idx;
+    s.p.gate.mask = kTranceGatePresets[p_idx];
+    s.p.gate.step %= s.p.gate.len;
+    s.p.gate.level = (s.p.gate.mask >> (15 - s.p.gate.step)) & 1u;
+    return;
+  }
 
   if (s.p.gate.mode > 0 && s.p.gate.mode <= 16) {
     // Canonical preset mode (1..16)
@@ -473,6 +555,8 @@ void mod_engine_init() {
       s.p.gate.gate_len = 0.5f;
       s.p.gate.step = 0;
       s.p.gate.ticks = 0;
+      s.p.gate.rng_state = 0x12345678u + ((uint32_t)i * 0x9e3779b9u);
+      s.p.gate.cur_preset = 0;
       mod_gate_recompute(s);
     } else {                       // MOD_ADSR
       s.p.adsr.a_s = 0.005f;       // 5 ms
@@ -628,8 +712,32 @@ void mod_engine_process_block(uint8_t active_module) {
         s.out = s.p.eu.level ? 1.0f : 0.0f;
       } else if (s.type == MOD_GATE) {
         if (wraps) {
+          const uint8_t prev_step = s.p.gate.step;
           s.p.gate.step = (uint8_t)((s.p.gate.step + wraps) % s.p.gate.len);
           s.p.gate.ticks += wraps;
+
+          // Architecture 4: Mode 17 TMR (Turing Machine Shift-Register Mutation)
+          if (s.p.gate.mode == 17 && s.p.gate.syncopation > 0) {
+            const uint8_t s_idx = s.p.gate.step;
+            const uint8_t w = (uint8_t)(15 - kBarlow16[s_idx]); // inverse Barlow indispensability
+            const uint32_t prob = ((uint32_t)s.p.gate.syncopation * (uint32_t)w) / 15u;
+            s.p.gate.rng_state = s.p.gate.rng_state * 1664525UL + 1013904223UL;
+            const uint8_t r = (uint8_t)((s.p.gate.rng_state >> 24) & 0xFFu);
+            if (r < prob) {
+              s.p.gate.mask ^= (1u << (15 - s_idx)); // flip bit
+            }
+          }
+
+          // Architecture 4: Mode 18 MRKV (Whole-Bar Hamming Markov Preset Transitions at bar boundaries)
+          if (s.p.gate.mode == 18 && s.p.gate.step == 0 && prev_step > 0 && s.p.gate.syncopation > 0) {
+            s.p.gate.rng_state = s.p.gate.rng_state * 1664525UL + 1013904223UL;
+            const uint8_t r = (uint8_t)((s.p.gate.rng_state >> 24) & 0xFFu);
+            if (r < s.p.gate.syncopation) {
+              s.p.gate.cur_preset = mod_gate_markov_next(s.p.gate.cur_preset, s.p.gate.syncopation, s.p.gate.rng_state);
+              s.p.gate.mask = kTranceGatePresets[s.p.gate.cur_preset];
+            }
+          }
+
           s.p.gate.level = (s.p.gate.mask >> (15 - s.p.gate.step)) & 1u;
         }
         // Gate length: the step's level holds only for the first gate_len
@@ -934,9 +1042,9 @@ static void mod_apply_cc_value(uint8_t src_idx, uint8_t param, uint8_t val) {
       break;
     case MOD_GATE:
       switch (param) {
-        case 0: { // mode: 0 = GEN, 1..16 = PRESETS
-          uint8_t m = (uint8_t)(((uint16_t)val * 17) / 128);
-          s.p.gate.mode = m <= 16 ? m : 16;
+        case 0: { // mode: 0 = GEN, 1..16 = PRESETS, 17 = TMR, 18 = MRKV
+          uint8_t m = (uint8_t)(((uint16_t)val * 19) / 128);
+          s.p.gate.mode = m <= 18 ? m : 18;
           mod_gate_recompute(s);
           break;
         }
@@ -1155,15 +1263,19 @@ static bool mod_set_param_console(uint8_t src_idx, uint8_t param,
       }
       switch (param) {
         case 0: { // mode
-          if (!strcasecmp(tok, "gen")) {
+          if (!strcasecmp(tok, "gen") || !strcasecmp(tok, "barl")) {
             s.p.gate.mode = 0;
+          } else if (!strcasecmp(tok, "tmr") || !strcasecmp(tok, "shft")) {
+            s.p.gate.mode = 17;
+          } else if (!strcasecmp(tok, "mrkv") || !strcasecmp(tok, "markov")) {
+            s.p.gate.mode = 18;
           } else {
             int m = -1;
             for (uint8_t p = 0; p < 16; ++p) {
               if (!strcasecmp(tok, kTrancePresetNames[p + 1])) { m = p + 1; break; }
             }
             if (m >= 0) s.p.gate.mode = (uint8_t)m;
-            else s.p.gate.mode = (uint8_t)(v < 0 ? 0 : (v > 16 ? 16 : v));
+            else s.p.gate.mode = (uint8_t)(v < 0 ? 0 : (v > 18 ? 18 : v));
           }
           mod_gate_recompute(s);
           return true;
@@ -1335,7 +1447,7 @@ void mod_engine_cmd_modq(const char* args) {
         break;
       case MOD_GATE:
         Serial.printf("mode=%-4s dens=%2u sync=%3u%% mask=0x%04x glen=%s step=%u ticks=%lu out=%s",
-                      kTrancePresetNames[s.p.gate.mode <= 16 ? s.p.gate.mode : 0],
+                      kTrancePresetNames[s.p.gate.mode <= 18 ? s.p.gate.mode : 0],
                       s.p.gate.density,
                       (unsigned int)((s.p.gate.syncopation * 100 + 127) / 255),
                       (unsigned int)s.p.gate.mask,
