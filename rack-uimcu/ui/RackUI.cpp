@@ -588,7 +588,7 @@ namespace CTAG {
                         if (wireBool) {
                             pName = dispVal ? "ON" : "OFF";
                         } else if ((s_cur.module & 3) == 0 && c.cc == 28) {
-                            static const char *const kElemModels[3] = { "BOW", "BLOW", "STRK" };
+                            static const char *const kElemModels[3] = { "MODAL", "STRING", "STRINGS" };
                             pName = (dispVal >= 0 && dispVal < 3) ? kElemModels[dispVal] : "---";
                         } else if ((s_cur.module & 3) == 1 && c.cc == 23) {
                             static const char *const kCloudModes[3] = { "GRAN", "STRE", "LOOP" };

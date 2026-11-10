@@ -2056,7 +2056,7 @@ gestures, BLE) are next per the wiring table.
        - `CLKSRC` -> `INT`, `MIDI`
      - **P1/P2 Discrete & Booleans:**
        - Boolean toggles (`PLAY`, `FREEZE`, `TRIG`, `STRUM`, `OMINOUS`) -> `OFF`, `ON`
-       - Elements `MODEL` -> `BOW`, `BLOW`, `STRK`
+       - Elements `MODEL` -> `MODAL`, `STRING`, `STRINGS`
        - Clouds `MODE` -> `GRAN`, `STRE`, `LOOP`
        - Clouds `QUALITY` -> `32-16`, `32-8`, `16-16`, `16-8`
        - Rings `WAVE` -> `SIN`, `TRI`, `SAW`
