@@ -29,6 +29,8 @@ idf_component_register(
             "RackLink.cpp"
             "RackPots.cpp"
             "RackConsole.cpp"
+            "PresetBank.cpp"
+            "PresetStore.cpp"
             "BtMidiReceiver.cpp"
             "input/UserInput.cpp"
             "${UI}/Display.cpp"

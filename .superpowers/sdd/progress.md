@@ -1127,7 +1127,7 @@ after each task).
 | T2 Arena + live swap (bench switching via switch-CC + serial console) | done | 50d0489 | CC 32 + console swaps among all 4, 19-44 ms mutes, zero stalls, user ear-clean; plaits re-tiered 272→109 KB, clouds CMSIS tables to flash (spectral excluded v1); crash fix: I2S reconfig moved to core 0; findings below |
 | T3 Mod engine + clock bus (internal BPM / MIDI 24 PPQ, 1-32-step euclid+gate, bench settings via CC/console) | done | 238b4d0 | 12 sources; u: ≤ 45 µs observed (gate 50, 31 µs under 12-source load); ext-clock verified (48/s @ 120 BPM, tempo-follow 120→100, START re-phase / STOP freeze); phase survives swaps; findings below |
 | T4 RP2350 DIN 31250 parser + serial console | done (code-complete; DIN-jack bench pending wiring) | 67d6f77 | parser 109/109 host asserts; dintest proves parser→funnel→module on hardware (+3 notes, CC, 24/25 clock stamps); console full; findings below |
-| T4a Presets (serialization + console dump/load + last-state autosave) | pending | — | bank lands on C3 flash in T5; PRESET_* frame constants reserved in the T5 protocol |
+| T4a Presets (serialization + console dump/load + last-state autosave + C3 flash bank) | done (benched 2026-11-11) | (this commit) | blob 871 B v1 crc16 on the RP2350 (`preset.h`); console dump/collect/load/apply hex bench; PRESET_REQ/PART/APPLY wired both ends; C3 bank = raw `presets` partition (16 slots + 4 rotating autosave sectors); SYS ring 7 items (SAVE/LOAD); autosave 3 s debounce; boot-restore on link-online; CC-cache replay after EVERY factory re-Init (swap desync retired); bench: round-trip + state restore + save/load slot 3 + power-cycle restore + reject paths, all PASS; findings below |
 | T5 C3 UI + UART link (after DSP acceptance AND hardware) | code-complete (stages 1-6): stage 1 link BENCHED 2026-11-08; stages 2-6 code-verified, benches pending wiring | d901e76 + feacd34 (rack-uimcu), e278d69 + 656aff5 (rack-rp2350) | seed rack-uimcu/ from ctag-tbd/uimcu (zero build deps on ctag-tbd now); protocol docs/ui-protocol.md (TELEM v2 + ASSIGN_CYCLE); RP2350 side strictly additive (RAM +1,060 B / flash +9.9 KB total, main.cpp untouched by stages 2-6); stage-1 bench: uitest 6/6 + C3 hw-loop 32/32 @921600; wiring list in rack-uimcu/README.md |
 | T6 Chain mode v2 (plaits@32k patch, pair table) | done (3 of 3 pairs) | 972c58a + c106458 + (T6c commit) | ALL THREE pairs benched: elements→clouds 52%, rings→clouds 36-48%, plaits→clouds 36% (flash engines); switched-plaits engines now flash (~3× T5b numbers, sustained ≤ 269 µs of 500, change spikes bank-absorbed); user dropped Plaits→Elements |
 | T7 Hardware bring-up + sweeps + user acceptance + soak | pending | — | |
@@ -2073,3 +2073,95 @@ gestures, BLE) are next per the wiring table.
 
 
 
+### Rack T4a — Presets + Stage 6 BLE bench (2026-11-11, hardware-verified)
+
+**Stage 6 BLE-MIDI PERIPHERAL benched first** (NimBLE peripheral was
+already in the running C3 firmware — no reflash needed):
+- New bench tool `tools/ble_midi_sender.py` (bleak central; scans by the
+  BLE-MIDI service UUID 03B80E5A-..., connects, sends Apple-BLE-MIDI
+  encoded notes/CCs). New helper `tools/serial_capture.py` (COM-port
+  capture; **DTR must be asserted — Adafruit_USBD_CDC gates TX on DTR**,
+  an unstated-DTR capture silently reads nothing).
+- PASS: scan finds "Rack UI" by service UUID; central connects
+  (`BLE_MIDI: central connected (handle 1)`); 12/12 note-ons + 12 CCs
+  delivered across two walks (`ble msgs=36 drops=0` on the C3 `ui` line;
+  RP2350 `notes=` 12→24, OUT meter live); zero stalls, Process numbers
+  unchanged (BLE lives on the C3); heap with NimBLE + 43 KB FB + ACTIVE
+  connection: free=103,496 / largest=77,824 — budget healthy.
+- The strip "BLE" marker while connected is rendered in code — needs the
+  user's eyes on the panel to close visually.
+
+**T4a presets, both ends:**
+- RP2350 (`preset.h`, header-only single-TU like midi.h/ui_link.h; all 4
+  envs build): 871 B v1 blob = magic "RKPR" + version + active module +
+  chain pair/engage + clock bus (global src + BPM f32) + 10 mod-source
+  records (28 B each, field-by-field, clamped on read + eu/gate masks
+  recomputed) + cc_seen[4] bitmaps + cc_cache[4][128] + crc16-CCITT.
+  Console: `preset [dump|collect|load|apply|reload]` (rows `PRxx:<hex>`,
+  24 B/row; collect mode swallows rows before command dispatch).
+  PRESET_REQ [slot] -> chunked PART burst [slot][seq][total][data<=252];
+  PRESET_APPLY reassembly -> validate -> `preset_apply_blob` (clock+mod
+  -> cache+seen -> module swap via g_pending_module -> chain via
+  g_pending_chain) -> full-TELEM ack.
+- **CC-cache replay** (`preset_replay_module`): after EVERY factory
+  re-Init (swap, chain engage A+B, chain leave A, chain A-reinit) every
+  SEEN CC of the module is re-sent through its control_change hook —
+  retires the T2 "factory defaults on swap desync the panel" debt.
+  Skips CC 64 (momentary pulses must not fire from stored latches) and
+  the chained-rings poly clamp. Replay runs on CORE 1 — verified the
+  adapters' control_change hooks are print-free (rings'
+  chain_rejects_cc is called from the core-0 wrapper, not the adapter).
+- **Dirty tracking**: `preset_mark_dirty()` (defined in ui_link.h) at
+  ui_link_observe_cc, the mod setters/dest/bpm/clock (mod_engine.h),
+  rack_request_switch/cmd_switch/cmd_chain. Core 0's loop pushes the
+  blob via `preset_autosave_poll()` 3 s after the last change.
+- C3 (`PresetBank` raw esp_partition + `PresetStore` flows): new
+  `presets` data partition (subtype 0x99, 0x3E0000, 128 KB — the unused
+  `storage` littlefs shrunk 0xF0000→0xD0000; it held nothing). 16 slots
+  x 1 sector + 4 rotating autosave sectors ("RKPB"/"RKPA" records,
+  crc16, rpLen/c3Len). RackLink routes RX PRESET_PART -> PresetStore
+  (reassembles -> SaveSlot / autosave) and sends chunked PRESET_APPLY.
+  SYS ring extended to 7 items (pair, engage, slot-cycle 0-15, SAVE,
+  LOAD, telem-d, telem-f; strip shows `SYSTEM SAVE>`/`SYSTEM LOAD>`);
+  pot 8 = slot select. Boot restore: PresetStore::Poll() (UI task)
+  fires once on link-online + first TELEM.
+- **Bench-caught bugs (why hardware benches exist):**
+  1. **C3 autosave collect torn apart by its own timeout**: the
+     implicit re-arm `s_collect = Collect{}` left start_us=0 → the 3 s
+     timeout fired on the NEXT UI-task pass, tearing down the collect
+     between every chunk ("collect timed out 1/4" + "PART hole" spam).
+     Fix: start_us = esp_timer_get_time() at re-arm.
+  2. **Blob-offset arithmetic drift**: hardcoded kPresetOffSeen=301
+     assumed a 293-byte mod record; mod_engine_preset_write writes 285
+     (1+4+10x28) → the cache/crc shifted down, bytes 871-878 = stack
+     garbage in every dump → deterministic crc rejects. Symptom:
+     collect-time crc EQUALS the embedded crc (perfect collect) but
+     validate computes differently — a DBG head/tail print pinned it to
+     the crc bytes. Fix: offsets derived from kModPresetSrcRecord
+     (871 B total; blob constants now self-maintain).
+  3. **APPLY chunk-cap mismatch**: C3 SendPresetApply chunked at 253 B
+     vs the RP2350's kPresetChunkData=252 → reassembly misaligned, crc
+     read back as garbage ("APPLY REJECTED (crc 0000 != ...)"). Fix:
+     252 both ends (comment: MUST MATCH).
+- **Bench (hardware, all PASS):** console hex round-trip (dump →
+  collect → validate → apply, same-module no-swap path); state restore
+  (bpm 250/dest 27/rate 40/plaits → load → elements/120/dest0/rate1.00
+  exactly, 29 ms swap, zero stalls); C3 `preset save 3` → "slot 3
+  saved (871 B rp part + 12 B c3 part): OK"; C3 `preset load 3` →
+  applied incl. module swap; autosave pushes ("autosave written
+  (871 B rp part, seq N): OK" on every settled change); **power-cycle
+  boot restore** (both boards reset → boot restore: autosave found
+  seq 39 → applied clock+mod+cache → "module swap to plaits queued" →
+  "switched to plaits in 25 ms" → autosave re-pushed seq 40); reject
+  paths (corrupt crc + bad magic rejected with reasons, state
+  untouched).
+- **Bench tooling for Windows (new `tools/`)**: flash_rp2350.py (1200-
+  baud CDC touch → BOOTSEL MSC find by volume label → UF2 copy),
+  serial_capture.py (DTR-aware), build_uimcu.bat — **the idf.py trap:
+  its __main__ silently SKIPS main() whenever MSYSTEM is set (prints
+  the "MSys/Mingw no longer supported" warning and exits 0), and Git
+  Bash injects MSYSTEM into every child (env -u cannot remove it — the
+  MSYS runtime re-adds it). Builds must run through cmd.exe with
+  MSYSTEM cleared (the .bat does that + sets IDF_PATH/python-env/
+  toolchain PATH for this machine: IDF v5.4.2 at ~/esp/v5.4.2).**
+- BLE-MIDI central bench script + capture helpers stay in tools/ for T7.

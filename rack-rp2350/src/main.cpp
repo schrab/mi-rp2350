@@ -149,6 +149,11 @@ uint8_t pio_host_line_state(void);
 // plain .bss, OUTSIDE the arenas, untouched by the swap path.
 #include "mod_engine.h"
 
+// T4a preset replay (defined in preset.h, included after ui_link.h below):
+// the swap/chain sequences call it after every factory re-Init so a module
+// comes back with the panel's observed values instead of factory defaults.
+void preset_replay_module(uint8_t mod);
+
 // ===================== module registry =====================
 // main.cpp + midi.h dispatch through this table (no per-adapter #if left).
 const RackModuleInfo kRackModules[RACK_MODULE_COUNT] = {
@@ -519,6 +524,7 @@ void rack_module_control_change(uint8_t cc, uint8_t val) {
 //                have its hot image fit the A slot below the B slot).
 void rack_request_switch(uint8_t module_id) {
   if (module_id >= RACK_MODULE_COUNT) return;
+  preset_mark_dirty();           // T4a: active module is persistent state
   if (g_chain.active) {
     if (module_id == g_chain.a) {
       g_pending_chain_a_reinit = true;
@@ -721,6 +727,9 @@ static void do_module_swap(uint8_t new_id) {
 
   // (c) INIT: arena placement + factory-default Init.
   nw.init();
+  // T4a: restore the panel's observed values over the factory defaults
+  // (every CC any controller has sent for this module since boot).
+  preset_replay_module(new_id);
 
   // (d) I2S reconfigure for the new module's native rate/bank — REQUESTED
   // from core 1, PERFORMED by core 0 (see the handshake note above). Core 1
@@ -971,6 +980,9 @@ static void do_chain_engage() {
         b_obj, b_buf, kChainCloudsLargeBytes,
         b_buf + kChainCloudsLargeBytes, kChainCloudsSmallBytes);
   }
+  // T4a: replay both slots' observed CC values over the factory defaults.
+  preset_replay_module(a);
+  preset_replay_module(RACK_MODULE_CLOUDS);
 
   // (e) GO CHAIN: active module = the A slot (notes/CC/mod destinations
   // bind there), the mod engine runs the chain grid.
@@ -1035,6 +1047,7 @@ static void do_chain_disengage() {
       rack_modules::mod_rings::init_at(g_rack_object_arena);
       break;
   }
+  preset_replay_module(a);       // T4a: restore observed CC values on A
 
   // (d) CHAIN OFF: the mod engine drops the grid override (g_active_module
   // stays the A slot).
@@ -1085,6 +1098,7 @@ static void do_chain_a_reinit() {
   proc_us_max = 0;
   rack_meter_a = 0.0f;
   rack_meter_b = 0.0f;
+  preset_replay_module(a);       // T4a: restore observed CC values on A
   chain_ramp_up(chain_render_block);
   g_chain_report_ms = (time_us_32() - t0) / 1000;
   g_chain_report_bytes = 0;
@@ -1181,6 +1195,12 @@ extern void mod_engine_cmd_clock(const char* args);
 // through. Header-only, single-TU (the midi.h pattern).
 #include "ui_link.h"
 
+// T4a: presets (serialization + apply + autosave + console bench). Included
+// AFTER ui_link.h (needs the CC cache/seen statics + TX) and AFTER the chain
+// state / pending slots above. The swap/chain sequences earlier in this file
+// call preset_replay_module through the forward decl at the top.
+#include "preset.h"
+
 static const ConsoleCommand kConsoleCommands[] = {
     {"switch",    cmd_switch},
     {"module",    cmd_module},
@@ -1190,6 +1210,7 @@ static const ConsoleCommand kConsoleCommands[] = {
     {"route",     cmd_route},
     {"bpm",       mod_engine_cmd_bpm},
     {"clock",     mod_engine_cmd_clock},
+    {"preset",    preset_cmd},
     {"status",    cmd_status},
     {"din",       cmd_din},
     {"dintest",   cmd_dintest},
@@ -1239,6 +1260,7 @@ static void cmd_switch(const char* args) {
     return;
   }
   g_pending_module = id;
+  preset_mark_dirty();           // T4a: active module is persistent state
   Serial.printf("rack: switch to %s queued (swaps at the next block boundary)\r\n",
                 kRackModules[id].name);
 }
@@ -1311,6 +1333,7 @@ static void cmd_chain(const char* args) {
       return;
     }
     g_pending_chain = 0;
+    preset_mark_dirty();         // T4a: chain state is persistent
     Serial.println("rack: chain off queued (mutes at the next block boundary)");
     return;
   }
@@ -1396,6 +1419,7 @@ static void cmd_chain(const char* args) {
   g_chain.a = static_cast<uint8_t>(a);
   g_chain.b = RACK_MODULE_CLOUDS;
   g_pending_chain = 1;
+  preset_mark_dirty();           // T4a: chain state is persistent
   Serial.printf("rack: chain %s->clouds validated (window %u+%u of %u B, "
                 "objects %u of %u B, buffers %u of %u B) — engaging at the "
                 "next block boundary\r\n",
@@ -1766,6 +1790,11 @@ static void pumpConsole() {
       if (console_len == 0) continue;      // swallow empty/CR-LF pairs
       console_line[console_len] = '\0';
       console_len = 0;
+      // T4a: preset collect rows ("PRxx:<hex>") swallow before dispatch
+      // while a 'preset load' collection is in progress.
+      if (preset_collecting() && preset_collect_line(console_line)) {
+        continue;
+      }
       // tokenize: name + rest
       char* args = console_line;
       while (*args == ' ') ++args;
@@ -1959,6 +1988,10 @@ void loop() {
   // Same IRQ+ring pattern as DIN; with the C3 absent this is one ring-empty
   // check per loop().
   ui_link_pump();
+
+  // --- T4a preset autosave: push the serialized blob to the C3 flash bank
+  // once the state has settled (3 s after the last persistent change) ---
+  preset_autosave_poll();
 
   // --- serial console (non-blocking; T2/T3/T4 table) ---
   pumpConsole();

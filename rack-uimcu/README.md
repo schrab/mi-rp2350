@@ -67,7 +67,7 @@ All 3V3 logic, no level shifting.
 |---------|--------|
 | Rotate | page cycle P1 -> P2 -> MOD-A -> MOD-B -> MOD-C -> SYS (wraps); the C3 requests the page, dashes render until the TELEM snapshot lands |
 | Short push (< 600 ms) on MOD-C | toggle global clock source (UI_CMD sys id 2) |
-| Short push on SYS | the SYS action ring, one action per push, next action marked with the yellow underline: chain-pair cycle -> chain engage toggle -> preset slot cycle + PRESET_REQ (T4a stub) -> telemetry-deltas toggle -> telemetry-full toggle -> wrap |
+| Short push on SYS | the SYS action ring, one action per push, next action marked with the yellow underline (7 items): chain-pair cycle -> chain engage toggle -> preset slot cycle (0-15; pot 8 also selects) -> preset SAVE -> preset LOAD -> telemetry-deltas toggle -> telemetry-full toggle -> wrap. The strip shows `SYSTEM SAVE>` / `SYSTEM LOAD>` while those are armed. SAVE/LOAD run the T4a preset bank (docs/ui-protocol.md §9): SAVE pulls the RP2350's state part over the link and writes the slot (audio untouched); LOAD sends the stored blob back as PRESET_APPLY (the RP2350 swaps module/params/mod/clock via its pending machinery and acks a full TELEM) |
 | Push-hold >= 600 ms | arms MOD-ASSIGN mode (strip shows `>MOD<` in yellow) |
 | Hold + turn a POT | selects modulation source across the pot's rotation `[OFF, LFO1..4, EUC1..4, GAT1..2, ADS1..2]`; strip shows `>MOD LFO1<` / `>MOD OFF<` etc.; fully CCW unmaps the parameter (`>MOD OFF<`); releasing the push locks the selection without release glitches |
 | Hold + ROTATE | module-select overlay (strip shows `>ELEM/CLDS/PLTS/RNGS<`); releasing the hold CONFIRMS (sends SWITCH); releasing without rotating cancels |
@@ -131,6 +131,14 @@ event per detent (GPIO-ISR quadrature, seed detent table).
   `pots` dumps raw + mapped values. Uncalibrated pots work full-range.
 - `ui` — link + page state; `page <0-5>` — page switch without the
   encoder; `heap` — free-heap report (NimBLE + 43 KB FB + link rings).
+- `preset` — T4a bank status (partition ready, autosave seq, boot-restore
+  flag); `preset save <0-15>` / `preset load <0-15>` — the bank flows via
+  the link; `preset clear` — wipe slots + autosave. The bank lives in the
+  raw `presets` partition (partitions.csv: 16 slots + 4 rotating autosave
+  sectors @ 0x3E0000; the unused `storage` littlefs was shrunk to make
+  room). After a power cycle the C3 replays the autosave through
+  PRESET_APPLY once the link comes online — the rack comes back exactly
+  where it was.
 
 ## Bring-up stages 2-6 (what still needs the user's wiring)
 

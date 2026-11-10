@@ -149,9 +149,13 @@ namespace CTAG {
             // 0x05 CHAIN_ROUTE [a][b][engage] -> the console `chain` path
             // (SYS page chain pair select + engage toggle).
             static bool SendChainRoute(uint8_t a, uint8_t b, uint8_t engage);
-            // 0x11 PRESET_REQ [slot:u8] (T4a stub — logged RP2350-side until
-            // the preset bank lands).
+            // 0x11 PRESET_REQ [slot:u8] — "give me your current state part"
+            // (save flow; slot echoed in the PART reply, 0xFF = autosave pull).
             static bool SendPresetReq(uint8_t slot);
+            // 0x13 PRESET_APPLY as chunked [seq][total][data <=252] frames —
+            // (cap MUST MATCH the RP2350's kPresetChunkData) the RP2350
+            // validates + applies the blob and acks a full TELEM.
+            static bool SendPresetApply(const uint8_t *blob, uint16_t n);
 
             // True while a verified frame arrived within the last 3 s
             // (mirrors the seed LinkClient's offline watchdog).

@@ -20,6 +20,7 @@ C3's ~320 KB).
 #include "Display.hpp"
 #include "RackUI.hpp"
 #include "RackLink.hpp"
+#include "PresetStore.hpp"
 #include "RackPots.hpp"
 #include "RackConsole.hpp"
 #include "BtMidiReceiver.hpp"
@@ -61,6 +62,11 @@ extern "C" void app_main() {
     // self-tests (codec + uart_set_loop_back) log once; the task probes P1
     // page requests every 5 s until the cross-board link is confirmed.
     CTAG::CTRL::RackLink::Start();
+
+    // 2b. T4a preset bank (raw esp_partition; the flows run in the UI task
+    // via PresetStore::Poll — save/load ring actions + one-shot boot
+    // restore of the autosave once the link comes online).
+    CTAG::CTRL::PresetStore::Init();
 
     // 3. Console (USJ driver + log hand-off) — bring-up commands live here.
     CTAG::CTRL::RackConsole::Start();

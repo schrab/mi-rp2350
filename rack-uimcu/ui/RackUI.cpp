@@ -8,6 +8,7 @@ acks drive the UI" — the C3 never invents values; missing TELEM = dashes).
 
 #include "Display.hpp"
 #include "RackLink.hpp"
+#include "PresetStore.hpp"
 #include "RackPots.hpp"
 #include "input/UserInput.hpp"
 #include "BtMidiReceiver.hpp"
@@ -462,7 +463,15 @@ namespace CTAG {
             // module + page (TELEM header; dashes before the first snapshot; SYS is global)
             char buf[24];
             if (s_page == 7) {
-                snprintf(buf, sizeof(buf), "SYSTEM");
+                // T4a: flag the armed preset action (ring items 3/4) so
+                // SAVE vs LOAD is readable before the push.
+                if (s_sysRing == 3) {
+                    snprintf(buf, sizeof(buf), "SYSTEM SAVE>");
+                } else if (s_sysRing == 4) {
+                    snprintf(buf, sizeof(buf), "SYSTEM LOAD>");
+                } else {
+                    snprintf(buf, sizeof(buf), "SYSTEM");
+                }
             } else if (s_page >= 2 && s_page <= 6) {
                 snprintf(buf, sizeof(buf), "%s", kPageNames[s_page]);
             } else if (s_cur.valid) {
@@ -705,7 +714,7 @@ namespace CTAG {
                 // exists — the RP2350 owns no slot state until T4a).
                 if (s_page == 7 && slot == 8 && s_fullArrived) {
                     const uint8_t presetPotVal =
-                        (uint8_t)(((uint16_t)s_presetSlot * 127) / 3);
+                        (uint8_t)(((uint16_t)s_presetSlot * 127) / 15);
                     int8_t pdir = 0;
                     const uint8_t pick = RackPots::PickupPending(slot, pdir)
                                              ? (uint8_t)(pdir > 0 ? 2 : 1)
@@ -756,9 +765,10 @@ namespace CTAG {
             // the cell the NEXT short push will act on).
             if (s_page == 7 && s_fullArrived) {
                 for (int slot = 0; slot < 16; ++slot) {
-                    // ring: 0 chain-pair(cell 4) 1 engage(5) 2 preset(8,
-                    // C3-local) 3 telem-d(14) 4 telem-f(15)
-                    static const int ringCell[5] = { 4, 5, 8, 14, 15 };
+                    // ring: 0 chain-pair(4) 1 engage(5) 2 preset-slot(8)
+                    // 3 preset-SAVE(8) 4 preset-LOAD(8) 5 telem-d(14)
+                    // 6 telem-f(15)  (T4a: 7 items)
+                    static const int ringCell[7] = { 4, 5, 8, 8, 8, 14, 15 };
                     const bool marked = ringCell[s_sysRing] == slot;
                     const int x = cellX(slot), y = cellY(slot);
                     Display::FillRect(x, y + BAR_DY + 3, cellW(slot) - 2, 1,
@@ -796,15 +806,23 @@ namespace CTAG {
                     RackLink::SendChainRoute(kPairA[pair], kChainB,
                                              engaged ? 0 : 1);
                     break;
-                case 2:  // preset slot cycle + PRESET_REQ (T4a stub)
-                    s_presetSlot = (uint8_t)((s_presetSlot + 1) & 3);
-                    RackLink::SendPresetReq(s_presetSlot);
+                case 2:  // preset slot cycle (0-15; pot 8 also selects)
+                    s_presetSlot = (uint8_t)((s_presetSlot + 1) & 15);
                     s_pageDirty = true;
                     break;
-                case 3: RackLink::SendSysToggle(RackLink::kSysTelemDelta); break;
-                case 4: RackLink::SendSysToggle(RackLink::kSysTelemFull); break;
+                case 3:  // T4a: SAVE current rack state into the slot
+                    PresetStore::SaveTo(s_presetSlot);
+                    s_pageDirty = true;
+                    break;
+                case 4:  // T4a: LOAD the slot into the rack
+                    PresetStore::LoadFrom(s_presetSlot);
+                    s_pageDirty = true;
+                    break;
+                case 5: RackLink::SendSysToggle(RackLink::kSysTelemDelta); break;
+                case 6: RackLink::SendSysToggle(RackLink::kSysTelemFull); break;
             }
-            s_sysRing = (uint8_t)((s_sysRing + 1) % 5);
+            s_sysRing = (uint8_t)((s_sysRing + 1) % 7);
+            s_stripDirty = true;   // T4a: SYSTEM SAVE/LOAD hint follows the ring
             s_pendingRefreshUs = esp_timer_get_time() + 45000;
         }
 
@@ -1075,12 +1093,13 @@ namespace CTAG {
                                 }
                             }
                         } else if (pot == 8) {
+                            // T4a: slot select 0-15 (SAVE/LOAD are the
+                            // ring actions; the pot only picks the slot).
                             uint8_t slotIdx =
-                                (uint8_t)(((uint16_t)potVal * 4) / 128);
-                            if (slotIdx > 3) slotIdx = 3;
+                                (uint8_t)(((uint16_t)potVal * 16) / 128);
+                            if (slotIdx > 15) slotIdx = 15;
                             if (s_presetSlot != slotIdx) {
                                 s_presetSlot = slotIdx;
-                                RackLink::SendPresetReq(s_presetSlot);
                                 s_pageDirty = true;
                             }
                         }
@@ -1196,6 +1215,9 @@ namespace CTAG {
                     s_pendingRefreshUs = 0;
                     RackLink::SendPageRequest(s_page);
                 }
+
+                // T4a: preset collect timeout + one-shot boot restore.
+                PresetStore::Poll();
 
                 // ---- render (30-60 Hz; test patterns own the screen) ----
                 if (!Display::TestPatternActive()) {

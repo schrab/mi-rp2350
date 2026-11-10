@@ -66,6 +66,11 @@ panel reconnect (T4a presets will restore parameter sets after a swap).
 | `route <source> <dest>` | alias of `mod <src> dest <dest>` (dest = CC 0-127 \| off) |
 | `bpm <20-300>` | internal clock BPM (0.1 steps) |
 | `clock <internal\|midi> [src]` | global clock source / per-source override |
+| `preset` | T4a preset status (version, size, module/chain/bpm, dirty, seen-CC count) |
+| `preset dump` | print the serialized state blob as `PRxx:<hex>` rows (37 rows x 24 B) |
+| `preset collect` + rows | reassemble pasted rows into the collect buffer |
+| `preset load` | validate + apply the collected blob (a full buffer applies directly) |
+| `preset apply\|reload` | re-apply the collected blob without re-collecting |
 | `status` | one-line summary: active module, clock source/BPM, swaps, DIN counters, uptime |
 | `din [clear]` | DIN MIDI counters + last message (+ `clear` resets them) |
 | `dintest` | inject a canned MIDI stream into the DIN parser → funnel (see below) |

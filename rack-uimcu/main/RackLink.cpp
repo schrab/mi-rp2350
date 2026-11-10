@@ -23,6 +23,7 @@ Live behavior (stage 1):
 ***************/
 
 #include "RackLink.hpp"
+#include "PresetStore.hpp"
 #include "RackPots.hpp"
 #include "RackUI.hpp"
 
@@ -370,10 +371,18 @@ namespace CTAG {
                                  len == 3 ? pl[2] : 0);
                         break;
                     case RackLink::kTypePresetReq:
+                        ESP_LOGI(TAG, "PRESET_REQ received slot=%u (we are "
+                                      "not a bank)", len ? pl[0] : 0);
+                        break;
                     case RackLink::kTypePresetPart:
+                        // T4a: [slot][seq][total][data...] - the RP2350's
+                        // part (save collect or the debounced autosave
+                        // push); PresetStore reassembles + writes the bank.
+                        PresetStore::OnPresetPart(pl, len);
+                        break;
                     case RackLink::kTypePresetApply:
-                        ESP_LOGI(TAG, "PRESET frame 0x%02x len=%u (T4a)", type,
-                                 len);
+                        ESP_LOGI(TAG, "PRESET_APPLY received len=%u (C3->"
+                                      "RP2350 only)", len);
                         break;
                     default:
                         ESP_LOGW(TAG, "unknown frame type 0x%02x len=%u", type,
@@ -634,6 +643,29 @@ namespace CTAG {
         bool RackLink::SendPresetReq(uint8_t slot) {
             const uint8_t p[1] = { slot };
             sendFrame(kTypePresetReq, p, 1);
+            return true;
+        }
+
+        bool RackLink::SendPresetApply(const uint8_t *blob, uint16_t n) {
+            // T4a: chunked [seq][total][data <=252] PRESET_APPLY frames (the
+            // RP2350 reassembles, validates magic/version/crc, applies and
+            // acks a full TELEM snapshot). Chunk data cap MUST MATCH the
+            // RP2350's kPresetChunkData (252) — a 253-chunk misaligns its
+            // reassembly offsets and the crc reads back as garbage (bench-
+            // caught 2026-11-11).
+            if (blob == nullptr || n == 0) return false;
+            constexpr uint16_t kData = 252;
+            const uint8_t total = (uint8_t)((n + kData - 1) / kData);
+            for (uint8_t seq = 0; seq < total; ++seq) {
+                uint8_t p[2 + kData];
+                p[0] = seq;
+                p[1] = total;
+                uint16_t off = (uint16_t)(seq * kData);
+                uint16_t take = (uint16_t)(n - off);
+                if (take > kData) take = kData;
+                memcpy(p + 2, blob + off, take);
+                sendFrame(kTypePresetApply, p, (uint8_t)(2 + take));
+            }
             return true;
         }
 

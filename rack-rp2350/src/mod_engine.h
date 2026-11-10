@@ -80,6 +80,10 @@
 
 // Forward declaration of ui_link helper to restore cached parameter values on mod unassign.
 void ui_link_restore_cached_cc(uint8_t mod, uint8_t cc);
+// T4a preset autosave dirty hook (defined in ui_link.h — every persistent
+// state change marks the blob dirty; a core-0 debounce then pushes it to the
+// C3's flash bank). Defined AFTER this header in main.cpp's include order.
+void preset_mark_dirty();
 
 #include "module_registry.h"     // RackModuleInfo / RackModDestinations / ids
 
@@ -922,6 +926,7 @@ static const char* mod_src_name(uint8_t idx) {
 
 // Destination set + one-shot validation log against the ACTIVE module.
 static void mod_set_dest(uint8_t src_idx, uint8_t cc) {
+  preset_mark_dirty();            // T4a: routing is persistent state
   ModEngine& e = g_mod_engine;
   ModSource& s = e.src[src_idx];
   const uint8_t old_cc = s.dest_cc;
@@ -993,6 +998,7 @@ static inline float mod_adsr_s_from_cc(uint8_t v) {   // 1 ms .. 10 s, exponenti
 // Apply a bench CC value (0-127) to (source, param). Silent per move (a knob
 // sweep would spam); `mod?` shows the resulting state, dest changes ack.
 static void mod_apply_cc_value(uint8_t src_idx, uint8_t param, uint8_t val) {
+  preset_mark_dirty();            // T4a: persistent state changed
   ModEngine& e = g_mod_engine;
   ModSource& s = e.src[src_idx];
   const uint8_t n = mod_param_count_of(s.type);
@@ -1191,6 +1197,7 @@ static bool mod_set_param_console(uint8_t src_idx, uint8_t param,
   ModSource& s = e.src[src_idx];
   const uint8_t n = mod_param_count_of(s.type);
   if (param >= n) return false;
+  preset_mark_dirty();            // T4a: persistent state changed
   const uint8_t tail = n - 3;
   if (param == tail) {                                   // clk
     const int8_t c = mod_parse_clk(tok);
@@ -1484,6 +1491,7 @@ void mod_engine_cmd_bpm(const char* args) {
     return;
   }
   g_mod_engine.bpm = roundf(v * 10.0f) / 10.0f;
+  preset_mark_dirty();            // T4a: clock settings are persistent state
   Serial.println("mod: bpm set (internal phase kept; no re-phase)");
 }
 
@@ -1504,6 +1512,7 @@ void mod_engine_cmd_clock(const char* args) {
   }
   if (!mod_next_token(p, tok, sizeof(tok))) {
     g_mod_engine.global_clock = (uint8_t)g;
+    preset_mark_dirty();          // T4a: clock settings are persistent state
     Serial.printf("mod: GLOBAL clock = %s (per-source overrides unchanged)\r\n",
                   g ? "midi" : "internal");
     return;
@@ -1514,6 +1523,7 @@ void mod_engine_cmd_clock(const char* args) {
     return;
   }
   g_mod_engine.src[src].clock_sel = g ? MOD_CLK_MIDI : MOD_CLK_INTERNAL;
+  preset_mark_dirty();            // T4a: per-source clock override persists
   Serial.printf("mod: source %s clock override = %s\r\n",
                 mod_src_name((uint8_t)src), g ? "midi" : "internal");
 }
@@ -1562,4 +1572,151 @@ void mod_engine_report_tail(char* buf, size_t n) {
              (unsigned long)e.src[MOD_SRC_EU_FIRST].p.eu.ticks,
              (unsigned)phase, (unsigned long)e.mod_us_max, states);
   }
+}
+
+// ===================== T4a preset serialization (clock bus + sources) ====
+// The preset blob holds this engine's PERSISTENT state only — never the
+// per-block transients (phases, envelope states, odometers, S&H values).
+// Layout per source record (28 B): [type u8][clock_sel u8][division u8]
+// [dest_cc u8] + a 24-byte type payload written field-by-field (LE for the
+// u32 mask, memcpy for floats — ARM LE both ends, and ONLY the RP2350 ever
+// parses the blob; the C3 stores it opaquely). preset.h owns the blob
+// framing around these records; both sides must stay in lockstep.
+static const uint8_t kModPresetSrcRecord = 28;
+
+// Append clock bus + all source records at the cursor. Returns bytes written.
+static uint16_t mod_engine_preset_write(uint8_t* p) {
+  uint8_t* w = p;
+  ModEngine& e = g_mod_engine;
+  *w++ = e.global_clock;
+  const float bpm = e.bpm;
+  memcpy(w, &bpm, 4); w += 4;                      // f32 LE
+  for (uint8_t i = 0; i < MOD_SOURCE_COUNT; ++i) {
+    const ModSource& s = e.src[i];
+    *w++ = s.type; *w++ = s.clock_sel; *w++ = s.division; *w++ = s.dest_cc;
+    uint8_t pl[24];
+    memset(pl, 0, sizeof(pl));
+    switch (s.type) {
+      case MOD_LFO:
+        memcpy(pl + 0, &s.p.lfo.rate_hz, 4);
+        memcpy(pl + 4, &s.p.lfo.level, 4);
+        memcpy(pl + 8, &s.p.lfo.phase_off, 4);
+        pl[12] = s.p.lfo.wave; pl[13] = s.p.lfo.hz_mode;
+        break;
+      case MOD_EUCLID:
+        pl[0] = s.p.eu.steps; pl[1] = s.p.eu.pulses; pl[2] = s.p.eu.rot;
+        memcpy(pl + 4, &s.p.eu.mask, 4);
+        pl[8] = s.p.eu.level;
+        break;
+      case MOD_GATE:
+        pl[0] = s.p.gate.mode; pl[1] = s.p.gate.density;
+        pl[2] = s.p.gate.syncopation; pl[3] = s.p.gate.len;
+        memcpy(pl + 4, &s.p.gate.mask, 4);
+        memcpy(pl + 8, &s.p.gate.gate_len, 4);
+        pl[12] = s.p.gate.cur_preset;
+        break;
+      default:  // MOD_ADSR
+        memcpy(pl + 0, &s.p.adsr.a_s, 4);
+        memcpy(pl + 4, &s.p.adsr.d_s, 4);
+        memcpy(pl + 8, &s.p.adsr.s_lvl, 4);
+        memcpy(pl + 12, &s.p.adsr.r_s, 4);
+        pl[16] = s.p.adsr.retrig;
+        break;
+    }
+    memcpy(w, pl, 24); w += 24;
+  }
+  return (uint16_t)(w - p);
+}
+
+// Read clock bus + all source records from the cursor (preset.h has already
+// validated the blob header + crc — bounds-sane). Clamps everything to the
+// engine's live invariants, then recomputes the derived caches (euclid
+// masks, gate masks). Field defaults replace an unknown record type so a
+// future/newer blob still loads the parts it understands.
+static uint16_t mod_engine_preset_read(const uint8_t* p) {
+  const uint8_t* r = p;
+  ModEngine& e = g_mod_engine;
+  e.global_clock = (*r < 2) ? *r : 0;
+  ++r;
+  float bpm;
+  memcpy(&bpm, r, 4); r += 4;
+  if (bpm < 20.0f) bpm = 20.0f;
+  if (bpm > 300.0f) bpm = 300.0f;
+  e.bpm = bpm;
+  for (uint8_t i = 0; i < MOD_SOURCE_COUNT; ++i) {
+    ModSource& s = e.src[i];
+    const uint8_t type = (*r < 4) ? *r : 0xFF;
+    const uint8_t clock_sel = r[1] < 3 ? r[1] : 0;
+    const uint8_t division = r[2] < MOD_DIVISION_COUNT ? r[2] : 3;  // 1/8
+    const uint8_t dest_cc = r[3];
+    r += 4;
+    const uint8_t* pl = r;
+    r += 24;
+    if (type != s.type) {
+      // Type changed under us (blob from an older layout): record the
+      // common fields, give the new type sane defaults.
+      s.type = type;
+      memset(&s.p, 0, sizeof(s.p));
+      switch (type) {
+        case MOD_LFO:
+          s.p.lfo.rate_hz = 1.0f; s.p.lfo.level = 0.8f; s.p.lfo.hz_mode = 1;
+          break;
+        case MOD_EUCLID: s.p.eu.steps = 16; s.p.eu.pulses = 4; break;
+        case MOD_GATE: s.p.gate.mode = 0; s.p.gate.density = 8;
+                       s.p.gate.len = 16; s.p.gate.gate_len = 0.5f; break;
+        default: s.p.adsr.a_s = 0.01f; s.p.adsr.d_s = 0.2f;
+                 s.p.adsr.s_lvl = 0.7f; s.p.adsr.r_s = 0.3f; break;
+      }
+    }
+    s.clock_sel = clock_sel;
+    s.division = division;
+    s.dest_cc = dest_cc;
+    switch (s.type) {
+      case MOD_LFO: {
+        float v;
+        memcpy(&v, pl + 0, 4);
+        s.p.lfo.rate_hz = (v >= 0.02f && v <= 20.0f) ? v : 1.0f;
+        memcpy(&v, pl + 4, 4);
+        s.p.lfo.level = (v >= 0.0f && v <= 1.0f) ? v : 0.8f;
+        memcpy(&v, pl + 8, 4);
+        s.p.lfo.phase_off = (v >= 0.0f && v <= 1.0f) ? v : 0.0f;
+        s.p.lfo.wave = pl[12] < MOD_WAVE_SH_COUNT ? pl[12] : 0;
+        s.p.lfo.hz_mode = pl[13] ? 1 : 0;
+        break;
+      }
+      case MOD_EUCLID:
+        s.p.eu.steps = pl[0]; s.p.eu.pulses = pl[1]; s.p.eu.rot = pl[2];
+        memcpy(&s.p.eu.mask, pl + 4, 4);   // recomputed below anyway
+        s.p.eu.level = pl[8];
+        mod_eu_recompute(s);
+        break;
+      case MOD_GATE:
+        s.p.gate.mode = pl[0]; s.p.gate.density = pl[1];
+        s.p.gate.syncopation = pl[2]; s.p.gate.len = pl[3];
+        memcpy(&s.p.gate.mask, pl + 4, 4); // recomputed below anyway
+        {
+          float v;
+          memcpy(&v, pl + 8, 4);
+          s.p.gate.gate_len = (v > 0.0f && v <= 1.0f) ? v : 0.5f;
+        }
+        s.p.gate.cur_preset = pl[12];
+        mod_gate_recompute(s);
+        break;
+      default: {  // MOD_ADSR
+        float v;
+        memcpy(&v, pl + 0, 4);
+        s.p.adsr.a_s = (v > 0.0f && v <= 10.0f) ? v : 0.01f;
+        memcpy(&v, pl + 4, 4);
+        s.p.adsr.d_s = (v > 0.0f && v <= 10.0f) ? v : 0.2f;
+        memcpy(&v, pl + 8, 4);
+        s.p.adsr.s_lvl = (v >= 0.0f && v <= 1.0f) ? v : 0.7f;
+        memcpy(&v, pl + 12, 4);
+        s.p.adsr.r_s = (v > 0.0f && v <= 10.0f) ? v : 0.3f;
+        s.p.adsr.retrig = pl[16] ? 1 : 0;
+        break;
+      }
+    }
+    s.was_high = 0;                // no stale edges into the restored state
+  }
+  return (uint16_t)(r - p);
 }

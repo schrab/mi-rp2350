@@ -6,6 +6,7 @@ esp_log vprintf hand-off); the command set is the rack's.
 
 #include "RackConsole.hpp"
 
+#include "PresetStore.hpp"
 #include "RackLink.hpp"
 #include "RackPots.hpp"
 #include "RackUI.hpp"
@@ -53,6 +54,8 @@ namespace CTAG {
                 printf("  testpat <0-4> display bring-up patterns "
                        "(1 white, 2 black, 3 hues, 4 border+ruler)\r\n");
                 printf("  heap          free-heap report\r\n");
+                printf("  preset        T4a bank status (save <0-15> / "
+                       "load <0-15> / clear)\r\n");
             }
 
             void consoleTask(void *) {
@@ -133,6 +136,8 @@ namespace CTAG {
                                 CTAG::DRIVERS::Display::OrientationSweep();
                                 printf("osweep done - REBOOT before the SPI "
                                        "display path works again\r\n");
+                            } else if (!strncasecmp(line, "preset", 6)) {
+                                PresetStore::ConsoleCmd(line + 6);
                             } else if (!strcasecmp(line, "heap")) {
                                 printf("heap free=%u largest=%u (internal "
                                        "8-bit; FB=%u B)\r\n",

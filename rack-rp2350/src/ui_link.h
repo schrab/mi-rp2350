@@ -432,6 +432,30 @@ static uint32_t g_ui_last_rx_ms = 0;
 // clouds alias bank 40-48 without index arithmetic.
 static uint8_t g_ui_cc_cache[RACK_MODULE_COUNT][128];
 
+// T4a "seen" bitmap: which CCs were actually RECEIVED per module (cache
+// zeros are ambiguous — "never sent" vs "explicitly 0"). 8 u16 x 4 = 64 B.
+// preset replay/restore only touches seen CCs so factory defaults survive
+// for parameters no controller has moved yet. Seeded with the boot defaults
+// below (VCA/PITCH/plaits level), filled at the single observation point.
+static uint16_t g_ui_cc_seen[RACK_MODULE_COUNT][8];
+
+// T4a autosave dirty flag: any persistent state change (CC, mod param/dest,
+// module switch, chain, bpm/clock) bumps this; core 0's loop pushes the
+// serialized blob to the C3 flash bank once the state has settled (3 s).
+static volatile uint32_t g_preset_dirty_ms = 0;
+static volatile bool g_preset_dirty = false;
+void preset_mark_dirty() {
+  g_preset_dirty = true;
+  g_preset_dirty_ms = millis();
+}
+
+// T4a handlers live in preset.h (included by main.cpp after this header —
+// same single-TU discipline as midi.h; the definitions below see ui_link's
+// statics, preset.h sees both).
+void ui_preset_req_reply(uint8_t slot);              // PRESET_REQ -> PART burst
+void ui_preset_apply_chunk(const uint8_t* pl, uint8_t len);  // APPLY reassembly
+void preset_autosave_poll();                         // core-0 loop debounce push
+
 // Restore cached parameter value to module (used by mod_set_dest on unassign)
 void ui_link_restore_cached_cc(uint8_t mod, uint8_t cc) {
   if (mod < RACK_MODULE_COUNT && cc < 128) {
@@ -470,8 +494,10 @@ static void ui_link_uart_init() {
   for (uint8_t m = 0; m < RACK_MODULE_COUNT; ++m) {
     g_ui_cc_cache[m][7] = 127;   // VCA default full open (1.0)
     g_ui_cc_cache[m][1] = 64;    // PITCH default center (0 st)
+    g_ui_cc_seen[m][0] = 0x0083; // seen bits: CC 1 (0x0002) + CC 7 (0x0080)
   }
   g_ui_cc_cache[RACK_MODULE_PLAITS][25] = 102; // Plaits default shared_level = 0.8 (~102/127)
+  g_ui_cc_seen[RACK_MODULE_PLAITS][1] = 0x0200;  // seen bit: CC 25 (25-16=9)
 }
 
 // ===================== TX =====================
@@ -826,6 +852,8 @@ static void ui_link_send_mod_delta(uint8_t src, uint8_t param) {
 void ui_link_observe_cc(uint8_t cc, uint8_t val) {
   const uint8_t mod = g_active_module;
   g_ui_cc_cache[mod][cc] = val;
+  g_ui_cc_seen[mod][cc >> 4] |= (uint16_t)(1u << (cc & 15));
+  preset_mark_dirty();             // T4a: a received CC is persistent state
   // Throttled delta after control_change on the active module (>= 50 ms
   // spacing), gated by the C3's telemetry-deltas toggle (UI_CMD sys id 0).
   // Chain-B CCs (23/24/65/66 + the clouds grain bank while chained) are
@@ -1080,11 +1108,24 @@ static void ui_link_dispatch() {
                     g_ui_rx_len);
       break;
     case kUiTypePresetReq:
+      // T4a: [slot u8] — "send me your current state part" (the C3 appends
+      // its own part and writes its flash bank; slot 0xFF = autosave pull).
+      if (g_ui_rx_len == 1) {
+        ui_preset_req_reply(pl[0]);
+      } else {
+        Serial.printf("ui: PRESET_REQ bad len %u (want 1)\r\n", g_ui_rx_len);
+      }
+      break;
     case kUiTypePresetPart:
+      // RP2350->C3 direction only — a C3 never has a part we want here.
+      Serial.printf("ui: PRESET_PART received (len=%u) - ignored\r\n",
+                    g_ui_rx_len);
+      break;
     case kUiTypePresetApply:
-      // Reserved for T4a (preset bank on the C3): receive-and-log.
-      Serial.printf("ui: PRESET frame type 0x%02x len=%u - reserved (T4a), "
-                    "logged only\r\n", type, g_ui_rx_len);
+      // T4a: [seq][total][data...] reassembled by preset.h; on the last
+      // chunk the blob is validated (magic/version/crc) and applied, then
+      // a full TELEM snapshot acks to the C3.
+      ui_preset_apply_chunk(pl, g_ui_rx_len);
       break;
     default:
       Serial.printf("ui: unknown frame type 0x%02x len=%u\r\n", type,
