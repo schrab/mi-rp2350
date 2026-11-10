@@ -67,7 +67,13 @@
 bool core1_separate_stack = true;
 #include <Adafruit_TinyUSB.h>
 
+#ifndef RACK_ENABLE_USB_HOST
+#define RACK_ENABLE_USB_HOST 0
+#endif
+
+#if RACK_ENABLE_USB_HOST
 #include "pio_usb.h"             // Pico-PIO-USB (vendored in lib/pio_usb/)
+#endif
 
 #include "status_led.h"          // WS2812 status LED on GP22 (before midi.h)
 #include "midi.h"                // shared parser + telemetry externs + hooks
@@ -76,6 +82,7 @@ bool core1_separate_stack = true;
 #include "rack_arena.h"          // T2 module-state arenas (decls)
 #include "hardware/gpio.h"       // gpio_pull_up (DIN RX idle mark)
 
+#if RACK_ENABLE_USB_HOST
 // PIO-USB root-port accessors for the re-enumeration watchdog (C side,
 // usb_host_watchdog.c).
 extern "C" {
@@ -84,6 +91,7 @@ bool pio_host_connected(void);
 void pio_host_force_reconnect(void);
 uint8_t pio_host_line_state(void);
 }
+#endif
 
 #if !defined(RACK_BOOT_MODULE) || RACK_BOOT_MODULE < 0 || RACK_BOOT_MODULE > 3
 #error "RACK_BOOT_MODULE must be defined per env as 0 (elements), 1 (clouds), 2 (plaits) or 3 (rings)"
@@ -205,7 +213,9 @@ const RackModuleInfo kRackModules[RACK_MODULE_COUNT] = {
 // ===================== shared definitions =====================
 static const uint32_t kPinBCLK = 6;   // LRCK follows on GP7
 static const uint32_t kPinDOUT = 8;
+#if RACK_ENABLE_USB_HOST
 static const uint8_t kPinHostDP = 14; // PIO-USB host: D+ GP14, D- GP15
+#endif
 
 I2S i2s(OUTPUT, kPinBCLK, kPinDOUT);
 volatile float shared_note = 48.0f;      // idle note (C3); overwritten by MIDI
@@ -344,11 +354,13 @@ static float chain_b_out_r[kChainBlockSize];
 // --- USB MIDI device (core 0) ---
 Adafruit_USBD_MIDI usb_midi;
 
+#if RACK_ENABLE_USB_HOST
 // --- USB MIDI host (PIO-USB on rhport 1, core 0) ---
 // Pattern from the bundled DualRole/serial_host_bridge example (device =
 // native rhport 0, host = PIO-USB rhport 1). The host task + MIDI poll run
 // in core 0's free-running loop(); core 1 renders audio.
 Adafruit_USBH_Host USBHost;
+#endif
 
 // ===================== T4: DIN MIDI in (UART1 @ 31250) =====================
 // Wiring (the standard MIDI-IN opto circuit — full table in README.md):
@@ -403,6 +415,7 @@ static void din_pump() {
   }
 }
 
+#if RACK_ENABLE_USB_HOST
 // Mounted host MIDI interface indexes, tracked by tuh_midi_mount_cb /
 // tuh_midi_umount_cb. Host MIDI API is INDEX-based.
 static constexpr uint8_t kHostMidiMaxIdxs = 4;
@@ -461,6 +474,7 @@ static void pollHostMidi() {
     }
   }
 }
+#endif
 
 // --- registry dispatchers (core 0; called from midi.h) ---
 // During a swap window the adapter hooks are dropped (g_swapping): the old
@@ -594,18 +608,22 @@ void rack_chain_control_change(uint8_t cc, uint8_t val) {
 }
 
 // ================= core 1: audio + live swap =================
+#if RACK_ENABLE_USB_HOST
 // Alarm pool created on CORE 1 (see elements-rp2350/src/main.cpp: the
 // PIO-USB SOF alarm ISR must run on core 1, isolated from core 0's I2S DMA
 // and TinyUSB device interrupts). Core 0's host init waits for the pool
 // flag, then passes it via pio_cfg.alarm_pool.
 static alarm_pool_t* g_host_alarm_pool = nullptr;
 static volatile bool g_host_alarm_pool_ready = false;
+#endif
 
 void setup1() {
+#if RACK_ENABLE_USB_HOST
   // Must run BEFORE the audio_ready wait: core 0's host init (in setup(),
   // before i2s.begin) consumes this pool.
   g_host_alarm_pool = alarm_pool_create_with_unused_hardware_alarm(1);
   g_host_alarm_pool_ready = true;
+#endif
 
   while (!audio_ready) { delay(1); }
 }
@@ -1851,6 +1869,7 @@ void setup() {
   ui_link_uart_init();
   statusLed.Init();  // 3 white self-test flashes, then dark
 
+#if RACK_ENABLE_USB_HOST
   // --- USB host (PIO-USB, rhport 1): MUST init BEFORE i2s.begin() ---
   // PIO-USB hard-claims its config's PIO/SMs and loads all 32 PIO0
   // instruction slots plus DMA channel 0 and its own 1 ms SOF alarm pool.
@@ -1874,6 +1893,7 @@ void setup() {
   if (!USBHost.begin(1)) {
     Serial.println("USB host begin FAILED");
   }
+#endif
 
   // Boot module's native rate / block size / DMA bank depth (registry
   // fields — see the standalone ports for the sizing rationale).
@@ -1897,11 +1917,19 @@ void setup() {
 
   audio_ready = true;
   Serial.println(window_line);                // deferred boot line (see fix note)
+#if RACK_ENABLE_USB_HOST
   Serial.printf("%s up (rack boot module, %lu Hz / %lu-sample blocks, budget %lu us, USB MIDI device + PIO-USB host; CC 32 or serial 'switch' swaps modules; CC 33/34/35 = mod engine source/param/value; console: help)\r\n",
                 boot.name,
                 (unsigned long)boot.sample_rate,
                 (unsigned long)boot.block_size,
                 (unsigned long)boot.budget_us);
+#else
+  Serial.printf("%s up (rack boot module, %lu Hz / %lu-sample blocks, budget %lu us, USB MIDI device; CC 32 or serial 'switch' swaps modules; CC 33/34/35 = mod engine source/param/value; console: help)\r\n",
+                boot.name,
+                (unsigned long)boot.sample_rate,
+                (unsigned long)boot.block_size,
+                (unsigned long)boot.budget_us);
+#endif
 }
 
 void loop() {
@@ -1910,9 +1938,11 @@ void loop() {
   serviceSwapI2s();
   serviceChainI2s();
 
+#if RACK_ENABLE_USB_HOST
   // --- USB host: service the host stack, then poll host MIDI ---
   USBHost.task();
   pollHostMidi();
+#endif
 
   // --- USB MIDI device: drain all pending 4-byte event packets ---
   uint8_t pkt[4];
@@ -1994,6 +2024,7 @@ void loop() {
   static uint32_t last_report = 0;
   uint32_t now = millis();
 
+#if RACK_ENABLE_USB_HOST
   // --- USB host re-enumeration watchdog ---
   // TinyUSB never retries a failed/lost enumeration. If the controller is
   // electrically present (bus idle) but nothing is mounted, force the root
@@ -2009,6 +2040,7 @@ void loop() {
       pio_host_force_reconnect();
     }
   }
+#endif
 
   // --- stuck-gate watchdog (defensive; identical in all four ports) ---
   // A lost note-off would leave the module gated forever. Forcing the gate
@@ -2052,6 +2084,7 @@ void loop() {
       budget = m.budget_us;
     }
     if (g_telemetry_enabled) {
+#if RACK_ENABLE_USB_HOST
       Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s\r\n",
                     proc_us_max,
                     (unsigned)budget,
@@ -2066,6 +2099,17 @@ void loop() {
                     (unsigned)pio_usb_host_get_frame_number(),
                     mod_field,
                     modeng_tail);
+#else
+      Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u | mod=%s | %s\r\n",
+                    proc_us_max,
+                    (unsigned)budget,
+                    stalls, stalls - last_stall_total,
+                    (unsigned)(rack_meter_a * 1000.0f),
+                    (unsigned)(rack_meter_b * 1000.0f),
+                    note_on_count,
+                    mod_field,
+                    modeng_tail);
+#endif
     }
     last_stall_total = stalls;
     proc_us_max = 0;

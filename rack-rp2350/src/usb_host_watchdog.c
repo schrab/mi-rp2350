@@ -1,6 +1,7 @@
 // C-side accessors for the PIO-USB root port, used by main.cpp's USB host
 // re-enumeration watchdog.
-//
+#if defined(RACK_ENABLE_USB_HOST) && RACK_ENABLE_USB_HOST
+
 // Why this exists: TinyUSB gives up on enumeration after 3 failed
 // control-transfer attempts (usbh.c process_enumeration) and never retries on
 // its own. If the MIDI controller re-attaches while it is still booting — or
@@ -39,3 +40,5 @@ void pio_host_force_reconnect(void) {
 uint8_t pio_host_line_state(void) {
   return (uint8_t)pio_usb_bus_get_line_state(PIO_USB_ROOT_PORT(0));
 }
+
+#endif // RACK_ENABLE_USB_HOST

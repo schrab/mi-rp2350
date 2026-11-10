@@ -48,9 +48,11 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
 
 ### T1 — upload to /dev/ttyACM0 (2026-10-30)
 
-- Board enumerated as `2e8a:0009` "Betaflight RP2350A" (factory firmware), serial
+- Board is a "mini usb rp2350" development board (RP2350 chip), which shipped with
+  factory firmware presenting USB descriptor `2e8a:0009` "Betaflight RP2350A" (factory
+  USB product string, not a flight-controller board), serial
   `/dev/ttyACM0` (user is in `uucp` group, tty access OK).
-- `pio run -t upload` = 1200 bps touch + wait + `picotool load`. The Betaflight
+- `pio run -t upload` = 1200 bps touch + wait + `picotool load`. The factory
   firmware does NOT reboot to BOOTSEL on the touch; picotool also cannot open the
   running device: `/dev/bus/usb` node is `root:root 0664`, no picotool udev rules
   installed, `sudo` needs a password → upload fails with `Error 249`.
@@ -656,8 +658,9 @@ Started: 2026-10-30. Board: RP2350 nano at `/dev/ttyACM0`.
   device handshake) every attempt. `max Process` creeps 380→520 µs over a
   session (budget 496) with OMINOUS inactive. **Controller-independent.**
 - Full handoff with variant matrix, hardware facts (chip rev 3 E9 gate, loop-
-  side line-read race, pad's no-VBUS wait state), and the next-steps plan
-  (WDT + scratch-register crash capture): **`docs/HANDOFF-usb-host-freeze.md`**
+  side line-read race; earlier "no-VBUS wait state" hypothesis disproven since
+  SMC-PAD is self-powered and standard 5V USB keyboards fail identically), and
+  the next-steps plan (WDT + scratch-register crash capture): **`docs/HANDOFF-usb-host-freeze.md`**
 - Diagnostic WIP preserved on branch `usb-host-jieli-debug` (pre-rework
   pio_usb variant, EP0 ring, LED breadcrumbs, debounce).
 - Fixes that SURVIVED review and are kept: no loop-side line-state reads

@@ -1,22 +1,24 @@
 # HANDOFF — PIO-USB host: board freeze on device attach (2026-10-31)
 
-> **RESOLUTION UPDATE (same night):** Suspect 1 **CONFIRMED** — the hard
+> **UPDATE (2026-11-10):**
+> 1. **Board identification:** The board is a "mini usb rp2350" development board
+>    featuring the RP2350 chip (silicon rev 3). "Betaflight RP2350A" was merely the
+>    factory-programmed USB descriptor string on delivery, not a flight-controller board.
+> 2. **VBUS hypothesis DISPROVEN:** The SMC-PAD is self-powered (internal battery)
+>    and does NOT require VBUS. Testing on hardware confirmed behavior is identical
+>    whether powered from USB VBUS or battery. Furthermore, connecting a standard
+>    bus-powered USB keyboard (with 5V VBUS) produces the exact same behavior
+>    (`conn=1 st=1 dev=0`, SETUP never ACKed). GP14 and GP15 measure 0.0 V when
+>    disconnected. The root issue is in host packet exchange / timing / physical layer,
+>    not VBUS activation.
+>
+> **RESOLUTION UPDATE (2026-10-31 night):** Suspect 1 **CONFIRMED** — the hard
 > freeze was core 0 overrunning its 4 KB half of the shared dual-core stack
 > at attach. Fix applied on `elements-clone`: `bool core1_separate_stack =
 > true;` in main.cpp (core 1 gets a private 8 KB stack; core 0 gets the full
 > system stack). With it, the attach-time hard freeze is gone (board stays
 > alive through repeated enumeration attempts; serial never stops mid-line).
-> **Still open (updated):** the controllers still never ACK our SETUP
-> (EP0 result 00). VBUS delivery VERIFIED 5 V at the device (user-measured),
-> so the wire is exonerated. Current prime suspect: the RP2350 pad leak
-> (E9-family input-enable leak) biasing the lines — the device's real D-
-> measured ~2.7–2.8 V on our board (should be 0 V at FS idle) while D+ was
-> stable; the device decodes nothing with its D- biased mid-high. Cure:
-> **15 kΩ pull-downs from D+ and D- to GND at the board pins** (the
-> documented RP2350 USB-A host fix; swamps the ~µA leak that the internal
-> 50 kΩ pull-down cannot). Software alternative (untested): gate the pad
-> input-enable around each transaction in the vendored pio_usb.
-> Suspects 3/4 remain valid hardening items.
+> **Still open (updated):** devices still never ACK our SETUP (EP0 result 00).
 
 For the next engineer/model. Read this fully before touching the USB host code.
 Everything below was measured on hardware during one overnight session; the
@@ -55,7 +57,7 @@ signature, same freeze. → The bug is in our host code path, not in one chip.
 
 ## Environment
 
-- RP2350 nano (silicon revision **3** — `chip_version=3`, read via SYSINFO),
+- RP2350 mini USB development board with RP2350 chip (silicon revision **3** — `chip_version=3`, read via SYSINFO),
   240 MHz (PIO-USB requires a 12 MHz multiple), arduino-pico core 1.60100.0,
   bundled TinyUSB 3.7.7, **vendored pio_usb v0.7.3 = upstream HEAD as of
   2026-10-30** — which includes brand-new (Oct 2026) host RX rework commits
@@ -80,10 +82,11 @@ signature, same freeze. → The bug is in our host code path, not in one chip.
   All loop-side `pio_usb_bus_get_line_state()` calls were removed. Keep it
   that way — read line state only from the SOF ISR (connection_check /
   connect detection).
-- The pad standalone (board unpowered) holds **both lines ~3.3 V** — its
-  no-VBUS wait state (PHY disabled until it sees VBUS; it enumerates
-  instantly on a laptop, which supplies VBUS). D- showed unstable values all
-  night (1.87 / 3.3 / 3.53 V) while D+ was stable (3.2 / 2.7 / 2.8 V).
+- The pad standalone holds ~3.3 V on lines when unattached, which was
+  previously speculated to be a "no-VBUS wait state"; however, hardware tests
+  confirmed the pad operates independently of VBUS (battery vs USB power behave
+  identically), and a standard bus-powered USB keyboard with 5V VBUS fails the
+  exact same way. Disconnected GP14/15 pins measure 0.0 V.
 - `max Process` is measured over `Part::Process` only; the I2S stall counter
   stayed 0 throughout.
 

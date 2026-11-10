@@ -41,17 +41,17 @@ Part of the plan in `../docs/superpowers/plans/2026-10-30-elements-rp2350.md`.
 Bus-powered controllers draw from the board's 5 V rail; current-hungry hubs
 need an external VBUS feed.
 
-> **KNOWN ISSUE (2026-10-31):** the host port does not reliably enumerate
-> battery-powered controllers whose PHY waits for VBUS-style activation
-> (verified with the SMC-PAD, JieLi BR25 — it enumerates instantly on a
-> laptop, never ACKs here; a second controller freezes the board the same
-> way). Fix set applied so far: core-1 SOF alarm isolation, separate core-1
-> stack (attach-time freeze root cause), 300 ms connect debounce, 60 s
-> watchdog, no loop-side line reads, 10 kΩ pull-downs on D+/D-. Still
-> wedge-prone; needs scope-level investigation. See
-> `docs/HANDOFF-usb-host-freeze.md`. Until then, use controllers **through
-> the laptop** (controller → laptop → PipeWire → this device's USB-MIDI
-> port), which works today.
+> **KNOWN ISSUE (2026-10-31 / updated 2026-11-10):** the host port fails
+> during enumeration (devices never complete SETUP handshake; reproduces with
+> both the self-powered SMC-PAD and standard bus-powered USB keyboards).
+> Note: the SMC-PAD does NOT require VBUS (it has its own power, behaving
+> identically whether powered via USB or internal battery). Fix set applied so
+> far: core-1 SOF alarm isolation, separate core-1 stack (attach-time freeze
+> root cause), 300 ms connect debounce, watchdog backoff, no loop-side line
+> reads, 10 kΩ pull-downs on D+/D-. The exchange currently fails at the first
+> SETUP transaction (EP0 result 00). See `docs/HANDOFF-usb-host-freeze.md`.
+> Until resolved, use controllers **through the laptop** (controller → laptop →
+> PipeWire → this device's USB-MIDI port), which works today.
 
 ## MIDI
 
@@ -243,8 +243,9 @@ Touches 1200 bps and uses the platform-bundled `picotool`
 (`~/.platformio/packages/tool-picotool-rp2040-earlephilhower/picotool`;
 no system install needed). Caveats verified 2026-10-30:
 
-- With the factory ("Betaflight RP2350A") firmware the 1200 bps touch does
-  NOT reboot to BOOTSEL -> upload fails. Flash once via BOOTSEL; after our
+- With the factory firmware (the mini USB RP2350 board shipped with stock
+  firmware presenting product string "Betaflight RP2350A") the 1200 bps touch
+  does NOT reboot to BOOTSEL -> upload fails. Flash once via BOOTSEL; after our
   own firmware runs, reboot-to-BOOTSEL (1200 bps touch / double reset) works
   and `pio run -t upload` should succeed from then on.
 - A 1200 bps touch can wedge: once (2026-10-31) no `RP2350` drive appeared
