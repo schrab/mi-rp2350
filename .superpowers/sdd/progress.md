@@ -1987,6 +1987,35 @@ gestures, BLE) are next per the wiring table.
    - Verified via serial console: `mod gate1 dest 7` routes as continuous on Elements without inert flag, `mod gate1 dest 0` restores static value, module switches to Plaits (CC 7/25 continuous) and Rings (CC 7 continuous) run with zero stalls and low process times (~58 µs Plaits, ~291 µs Rings, ~154 µs Elements).
    - Committed: `386a243`.
 
+### Rack T5 — 16 Canonical Trance Gate Presets + Barlow & Sioros-Guedes Generative Rhythmic Gate (2026-11-10)
+
+1. **Architecture & 6-Pot Surface:**
+   - Evaluated 4 non-Euclidean architectures against hardware constraints (RP2350 M33 + ESP32-C3 ST7789 display). Selected **Architecture 1: Metrical Indispensability (Clarence Barlow) + Syncopation Anticipation (Sioros-Guedes model)** combined with the **16 Curated Canonical 16-Step Trance Gate Presets**.
+   - Mapped 6 physical pots symmetrically per gate on Page 5 (`MOD-GATE`):
+     - Pot 0 / 10: `MODE` (`GEN` = 0, `01:ALT8` .. `16:RISE`)
+     - Pot 1 / 11: `DENS` (1..16 active steps along 4/4 Barlow hierarchy)
+     - Pot 2 / 12: `SYNC` (0..100% Sioros-Guedes left-shift anticipation with anti-offset protection)
+     - Pot 3 / 13: `GLEN` (1..100% pulse width / gate duty cycle)
+     - Pot 4 / 14: `CLK`  (`GLB`, `INT`, `MIDI`)
+     - Pot 5 / 15: `DIV`  (`1/1` .. `1/32T`, default `1/16`)
+     - Parameter 6: `DEST` (destination CC, assigned via push button cycle gesture)
+
+2. **DSP Firmware Implementation (`rack-rp2350/src/mod_engine.h`):**
+   - Added `kTranceGatePresets[16]` lookup table containing the 16 canonical trance gate patterns.
+   - Added `kBarlow16[16]` metric indispensability array and `kSyncCandidates[8]`.
+   - Implemented `mod_gate_recompute(ModSource& s)`: deterministic 16-step mask calculation for both preset trimming and generative Barlow 4/4 skeletons with reproducible syncopated pickup shifts.
+   - Added asymmetric one-pole slew filter (~1 ms attack, ~3 ms release) to continuous gate modulation (`s.out`), eliminating zero-crossing clicks on low bass pads without compromising punchy 16th transients.
+   - Updated `kModParamNames[MOD_GATE]` to 7 params (`mode`, `dens`, `sync`, `glen`, `clk`, `div`, `dest`) with uniform tail rule.
+   - Supported console commands (`mod gate1 mode <gen|name|0-16>`, `mod gate1 dens <1-16>`, `mod gate1 sync <0-100%>`, `mod gate1 glen <0-1>`, `mod gate1 mask <hex>`) and `mod?` telemetry dump.
+
+3. **UI Link & UI MCU Integration (`ui_link.h`, `RackPots.cpp`, `RackUI.cpp`):**
+   - Updated `kUiModGateCells[16]` in `ui_link.h` to expose all 6 parameters per gate and formatted 0..127 telemetry.
+   - In `RackPots.cpp`: updated `rideParam` (param 5) and `destParam` (param 6) for `MOD_GATE` to maintain seamless modulation assignment and speed riding.
+   - In `RackUI.cpp`: mapped Pots 0..5 to Gate 1 and Pots 10..15 to Gate 2, configured discrete ranges in `potToDisplayValue`, and formatted on-screen values (`GEN`, `ALT8`, `PUMP`, etc., `GLB`/`INT`/`MIDI`, and clock divisions).
+
+4. **Build Verification:**
+   - Both `rack-rp2350` (all 4 targets: `elements`, `clouds`, `plaits`, `rings`) and `rack-uimcu` compiled cleanly with zero errors.
+
 
 
 

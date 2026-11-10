@@ -352,25 +352,25 @@ static const UiAuxCell kUiModTrigCells[16] = {
 
 // MOD-GATE: 2x Gate pattern generators (Row 0 = GATE 1, Row 2 = GATE 2)
 static const UiAuxCell kUiModGateCells[16] = {
-    // Row 0: GATE 1 (pots 0..4)
-    {"G1 LEN",  kUiColorTeal, 6, 0},
-    {"G1 MASK", kUiColorTeal, 6, 1},
-    {"G1 GLEN", kUiColorTeal, 6, 2},
-    {"G1 CLK",  kUiColorTeal, 6, 3},
-    {"G1 DIV",  kUiColorTeal, 6, 4},
-    {"",        kUiColorWhite, 0xFF, 0xFF},
-    // Row 1: empty (pots 6..9)
+    // Row 0: GATE 1 (pots 0..5)
+    {"G1 MODE", kUiColorTeal, 6, 0},
+    {"G1 DENS", kUiColorTeal, 6, 1},
+    {"G1 SYNC", kUiColorTeal, 6, 2},
+    {"G1 GLEN", kUiColorTeal, 6, 3},
+    {"G1 CLK",  kUiColorTeal, 6, 4},
+    {"G1 DIV",  kUiColorTeal, 6, 5},
+    // Row 1: empty / spacer (pots 6..9)
     {"", kUiColorWhite, 0xFF, 0xFF},
     {"", kUiColorWhite, 0xFF, 0xFF},
     {"", kUiColorWhite, 0xFF, 0xFF},
     {"", kUiColorWhite, 0xFF, 0xFF},
-    // Row 2: GATE 2 (pots 10..14)
-    {"G2 LEN",  kUiColorTeal, 7, 0},
-    {"G2 MASK", kUiColorTeal, 7, 1},
-    {"G2 GLEN", kUiColorTeal, 7, 2},
-    {"G2 CLK",  kUiColorTeal, 7, 3},
-    {"G2 DIV",  kUiColorTeal, 7, 4},
-    {"",        kUiColorWhite, 0xFF, 0xFF},
+    // Row 2: GATE 2 (pots 10..15)
+    {"G2 MODE", kUiColorTeal, 7, 0},
+    {"G2 DENS", kUiColorTeal, 7, 1},
+    {"G2 SYNC", kUiColorTeal, 7, 2},
+    {"G2 GLEN", kUiColorTeal, 7, 3},
+    {"G2 CLK",  kUiColorTeal, 7, 4},
+    {"G2 DIV",  kUiColorTeal, 7, 5},
 };
 
 // MOD-ENV: 2x ADSR envelopes (Row 0 = ADSR 1, Row 2 = ADSR 2)
@@ -595,24 +595,17 @@ static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
         }
       case MOD_GATE:
         switch (c.param) {
-          case 0: return (uint8_t)(((uint16_t)(s.p.gate.len - 1) * 127) / 31);
-          case 1: {
-            // Display value = the density-fill equivalent: pulses within the
-            // pattern length (raw console masks show as their fill ratio).
-            uint8_t k = 0;
-            for (uint8_t b = 0; b < s.p.gate.len; ++b) {
-              if (s.p.gate.mask & (1u << b)) ++k;
-            }
-            return (uint8_t)(((uint16_t)k * 127) / (s.p.gate.len ? s.p.gate.len : 1));
-          }
-          case 2: {
+          case 0: return (uint8_t)(((uint16_t)s.p.gate.mode * 127) / 16);
+          case 1: return (uint8_t)(((uint16_t)(s.p.gate.density - 1) * 127) / 15);
+          case 2: return (uint8_t)(((uint16_t)s.p.gate.syncopation * 127) / 255);
+          case 3: {
             int v = (int)(s.p.gate.gate_len * 128.0f) - 1;
             if (v < 0) v = 0;
             if (v > 127) v = 127;
             return (uint8_t)v;
           }
-          case 3: return s.clock_sel == MOD_CLK_GLOBAL ? 0 : (s.clock_sel == MOD_CLK_INTERNAL ? 64 : 127);
-          case 4: return (uint8_t)(((uint16_t)s.division * 127) / (MOD_DIVISION_COUNT - 1));
+          case 4: return s.clock_sel == MOD_CLK_GLOBAL ? 0 : (s.clock_sel == MOD_CLK_INTERNAL ? 64 : 127);
+          case 5: return (uint8_t)(((uint16_t)s.division * 127) / (MOD_DIVISION_COUNT - 1));
           default: return 0;
         }
       default:  // MOD_ADSR

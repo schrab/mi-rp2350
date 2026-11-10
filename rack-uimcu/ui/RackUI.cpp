@@ -47,10 +47,10 @@ namespace CTAG {
                 kNoSet, kNoSet, kNoSet, kNoSet,
                 {5, 0}, {5, 1}, {5, 2}, {5, 3}, {5, 4}, kNoSet,
             },
-            {   // MOD-GATE (page 5): GATE 1 (pots 0..4), GATE 2 (pots 10..14)
-                {6, 0}, {6, 1}, {6, 2}, {6, 3}, {6, 4}, kNoSet,
+            {   // MOD-GATE (page 5): GATE 1 (pots 0..5), GATE 2 (pots 10..15)
+                {6, 0}, {6, 1}, {6, 2}, {6, 3}, {6, 4}, {6, 5},
                 kNoSet, kNoSet, kNoSet, kNoSet,
-                {7, 0}, {7, 1}, {7, 2}, {7, 3}, {7, 4}, kNoSet,
+                {7, 0}, {7, 1}, {7, 2}, {7, 3}, {7, 4}, {7, 5},
             },
             {   // MOD-ENV (page 6): ADSR 1 (pots 0..5), ADSR 2 (pots 10..15)
                 {8, 1}, {8, 2}, {8, 3}, {8, 4}, {8, 0}, {8, 6},
@@ -351,30 +351,46 @@ namespace CTAG {
                 return potVal;
             }
             if (page == 5) {
-                // MOD-GATE: G1/G2 LEN (0, 10) -> 1..32
+                // MOD-GATE:
+                // G1/G2 MODE (0, 10) -> 0..16 (0 = GEN, 1..16 = PRESETS)
                 if (slot == 0 || slot == 10) {
-                    int v = 1 + ((int)potVal * 31 + 63) / 127;
-                    barVal = v - 1;
-                    barMax = 31;
-                    return v;
-                }
-                // G1/G2 MASK (1, 11) -> 0..32
-                if (slot == 1 || slot == 11) {
-                    int v = ((int)potVal * 32 + 63) / 127;
+                    int v = ((int)potVal * 17) / 128;
+                    if (v > 16) v = 16;
                     barVal = v;
-                    barMax = 32;
+                    barMax = 16;
                     return v;
                 }
-                // G1/G2 CLK (3, 13) -> 0..2
+                // G1/G2 DENS (1, 11) -> 1..16
+                if (slot == 1 || slot == 11) {
+                    int v = 1 + ((int)potVal * 15 + 63) / 127;
+                    barVal = v - 1;
+                    barMax = 15;
+                    return v;
+                }
+                // G1/G2 SYNC (2, 12) -> 0..100 (%)
+                if (slot == 2 || slot == 12) {
+                    int v = ((int)potVal * 100 + 63) / 127;
+                    barVal = potVal;
+                    barMax = 127;
+                    return v;
+                }
+                // G1/G2 GLEN (3, 13) -> 1..100 (%)
                 if (slot == 3 || slot == 13) {
+                    int v = 1 + ((int)potVal * 99 + 63) / 127;
+                    barVal = potVal;
+                    barMax = 127;
+                    return v;
+                }
+                // G1/G2 CLK (4, 14) -> 0..2
+                if (slot == 4 || slot == 14) {
                     int v = ((int)potVal * 3) / 128;
                     if (v > 2) v = 2;
                     barVal = v;
                     barMax = 2;
                     return v;
                 }
-                // G1/G2 DIV (4, 14) -> 0..9
-                if (slot == 4 || slot == 14) {
+                // G1/G2 DIV (5, 15) -> 0..9
+                if (slot == 5 || slot == 15) {
                     int v = ((int)potVal * 10) / 128;
                     if (v > 9) v = 9;
                     barVal = v;
@@ -546,14 +562,39 @@ namespace CTAG {
                 char val[10];
                 if (s_fullArrived) {
                     int8_t pdir = 0;
-                    if (RackPots::PickupPending(slot, pdir)) {
-                        if (pdir > 0) {
-                            snprintf(val, sizeof(val), "%d>", dispVal);
-                        } else {
-                            snprintf(val, sizeof(val), "<%d", dispVal);
-                        }
+                    const bool pPend = RackPots::PickupPending(slot, pdir);
+                    if (s_page == 5 && (slot == 0 || slot == 10)) {
+                        static const char *const kTranceNames[17] = {
+                            "GEN", "ALT8", "OFF8", "PUMP", "LATE", "GALL", "RGAL", "ROLL", "ANTH",
+                            "DOT8", "TRES", "CLAV", "RUMB", "STAB", "PROG", "CHOP", "RISE"
+                        };
+                        const char *pName = (dispVal >= 0 && dispVal <= 16) ? kTranceNames[dispVal] : "---";
+                        if (pPend && pdir > 0) snprintf(val, sizeof(val), "%s>", pName);
+                        else if (pPend && pdir < 0) snprintf(val, sizeof(val), "<%s", pName);
+                        else snprintf(val, sizeof(val), "%s", pName);
+                    } else if (s_page == 5 && (slot == 4 || slot == 14)) {
+                        static const char *const kClkNames[3] = {"GLB", "INT", "MIDI"};
+                        const char *cName = (dispVal >= 0 && dispVal <= 2) ? kClkNames[dispVal] : "---";
+                        if (pPend && pdir > 0) snprintf(val, sizeof(val), "%s>", cName);
+                        else if (pPend && pdir < 0) snprintf(val, sizeof(val), "<%s", cName);
+                        else snprintf(val, sizeof(val), "%s", cName);
+                    } else if (s_page == 5 && (slot == 5 || slot == 15)) {
+                        static const char *const kDivNames[10] = {
+                            "1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/4T", "1/8T", "16T", "32T"
+                        };
+                        const char *dName = (dispVal >= 0 && dispVal <= 9) ? kDivNames[dispVal] : "---";
+                        if (pPend && pdir > 0) snprintf(val, sizeof(val), "%s>", dName);
+                        else if (pPend && pdir < 0) snprintf(val, sizeof(val), "<%s", dName);
+                        else snprintf(val, sizeof(val), "%s", dName);
+                    } else if (s_page == 5 && (slot == 2 || slot == 3 || slot == 12 || slot == 13)) {
+                        // SYNC and GLEN are percentage
+                        if (pPend && pdir > 0) snprintf(val, sizeof(val), "%d%%>", dispVal);
+                        else if (pPend && pdir < 0) snprintf(val, sizeof(val), "<%d%%", dispVal);
+                        else snprintf(val, sizeof(val), "%d%%", dispVal);
                     } else {
-                        snprintf(val, sizeof(val), "%d", dispVal);
+                        if (pPend && pdir > 0) snprintf(val, sizeof(val), "%d>", dispVal);
+                        else if (pPend && pdir < 0) snprintf(val, sizeof(val), "<%d", dispVal);
+                        else snprintf(val, sizeof(val), "%d", dispVal);
                     }
                 } else {
                     snprintf(val, sizeof(val), "---");

@@ -139,10 +139,10 @@ static const uint8_t MOD_DIVISION_COUNT = 10;
 static const char* const kModParamNames[4][8] = {
     {"mode", "rate", "wave", "phase", "level", "clk", "div", "dest"},  // LFO
     {"steps", "pulses", "rot", "clk", "div", "dest"},                  // EUCLID
-    {"len", "mask", "glen", "clk", "div", "dest"},                     // GATE
+    {"mode", "dens", "sync", "glen", "clk", "div", "dest"},            // GATE
     {"mode", "atk", "dec", "sus", "rel", "clk", "div", "dest"},        // ADSR
 };
-static const uint8_t kModParamCount[4] = {8, 6, 6, 8};
+static const uint8_t kModParamCount[4] = {8, 6, 7, 8};
 
 struct ModSource {
   // common
@@ -160,8 +160,8 @@ struct ModSource {
     struct { float rate_hz, level, phase_off; uint8_t wave, hz_mode; } lfo;
     struct { uint8_t steps, pulses, rot; uint32_t mask; uint8_t step;
              uint32_t ticks; uint8_t level; } eu;
-    struct { uint8_t len; uint32_t mask; float gate_len; uint8_t step;
-             uint32_t ticks; uint8_t level; } gate;
+    struct { uint8_t mode, density, syncopation, len; uint32_t mask;
+             float gate_len; uint8_t step; uint32_t ticks; uint8_t level; } gate;
     struct { float a_s, d_s, s_lvl, r_s; uint8_t retrig, env_state; float env;
              uint32_t ticks; } adsr;
   } p;
@@ -294,6 +294,100 @@ static void mod_eu_recompute(ModSource& s) {
   s.p.eu.step %= s.p.eu.steps;
 }
 
+// 16 Canonical 16-Step Trance Gate Presets (MSB = Step 1, 1 = 'o', 0 = 'x')
+static const uint16_t kTranceGatePresets[16] = {
+    0xAAAA, // 01: o x o x o x o x o x o x o x o x (Classic 1/8th Alternate)
+    0x5555, // 02: x o x o x o x o x o x o x o x o (Classic Trance Off-Beat)
+    0x7777, // 03: x o o o x o o o x o o o x o o o (4-on-the-Floor Ducking Pump)
+    0x3333, // 04: x x o o x x o o x x o o x x o o (Deep / Prog Late Pump)
+    0xEEEE, // 05: o o o x o o o x o o o x o o o x (Forward Gallop 3+1)
+    0xBBBB, // 06: o x o o o x o o o x o o o x o o (Reverse Gallop Pickup)
+    0x5657, // 07: x o x o x o o x x o x o x o o o (Uplifting Rolling Gate)
+    0xB5B5, // 08: o x o o x o x o o x o o x o x o (Vanguard Anthem Gate)
+    0x9249, // 09: o x x o x x o x x o x x o x x o (Dotted 1/8th Cross-Grid)
+    0x9292, // 10: o x x o x x o x o x x o x x o x (Double Tresillo 3-3-2)
+    0x9228, // 11: o x x o x x o x x x o x o x x x (Son Clave 3-2 Timeline)
+    0x9129, // 12: o x x o x x x o x x o x o x x o (Rumba / Funk Syncopator)
+    0xC0C2, // 13: o o x x x x x x o o x x x x o x (Punctuated Chord Stabs)
+    0xB6B5, // 14: o x o o x o o x o x o o x o x o (Prog Call & Response)
+    0xA55A, // 15: o x o x x o x o x o x o o x o x (Breakbeat / Electro Chop)
+    0x88AF  // 16: o x x x o x x x o x o x o o o o (Accelerating Riser Build)
+};
+
+static const char* const kTrancePresetNames[17] = {
+    "GEN",  "ALT8", "OFF8", "PUMP", "LATE", "GALL", "RGAL", "ROLL", "ANTH",
+    "DOT8", "TRES", "CLAV", "RUMB", "STAB", "PROG", "CHOP", "RISE"
+};
+
+// Clarence Barlow's 4/4 16-step metric indispensability table (15 = strongest, 0 = weakest)
+static const uint8_t kBarlow16[16] = {
+    15, 0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7
+};
+
+// Sioros-Guedes syncopation candidate order (strong quarter notes first, then eighths)
+static const uint8_t kSyncCandidates[8] = { 0, 4, 8, 12, 2, 6, 10, 14 };
+
+// Recompute the rhythmic trance gate mask.
+static void mod_gate_recompute(ModSource& s) {
+  s.p.gate.len = 16;
+  uint8_t step_on[16];
+
+  if (s.p.gate.mode > 0 && s.p.gate.mode <= 16) {
+    // Canonical preset mode (1..16)
+    const uint16_t preset = kTranceGatePresets[s.p.gate.mode - 1];
+    for (int i = 0; i < 16; ++i) {
+      step_on[i] = (preset >> (15 - i)) & 1u;
+    }
+    // Density trim if density < 16
+    if (s.p.gate.density < 16) {
+      const uint8_t thresh = (uint8_t)(16 - s.p.gate.density);
+      for (int i = 0; i < 16; ++i) {
+        if (kBarlow16[i] < thresh) step_on[i] = 0;
+      }
+    }
+  } else {
+    // Mode 0: Barlow metric indispensability generative engine
+    const uint8_t thresh = (s.p.gate.density >= 16) ? 0 : (uint8_t)(16 - s.p.gate.density);
+    for (int i = 0; i < 16; ++i) {
+      step_on[i] = (kBarlow16[i] >= thresh) ? 1 : 0;
+    }
+  }
+
+  // Sioros-Guedes Left-Shift Anticipation with Anti-Offset Protection
+  if (s.p.gate.syncopation > 0) {
+    // Deterministic PRNG seed per (mode, density, syncopation) for 100% reproducible grooves
+    uint32_t rng = 0x1337cafeu ^ ((uint32_t)s.p.gate.density * 1013904223u) ^
+                   ((uint32_t)s.p.gate.syncopation * 1664525u) ^
+                   ((uint32_t)s.p.gate.mode * 2654435761u);
+    bool prev_was_shifted = false;
+    for (int c = 0; c < 8; ++c) {
+      const uint8_t i = kSyncCandidates[c];
+      const uint8_t prev_i = (i + 15) & 0x0Fu;
+      if (step_on[i] == 1 && step_on[prev_i] == 0 && !prev_was_shifted) {
+        rng = rng * 1664525u + 1013904223u;
+        const uint8_t rand_sync = (uint8_t)((rng >> 24) & 0xFFu);
+        if (rand_sync < s.p.gate.syncopation) {
+          step_on[prev_i] = 1; // Anticipate into weaker pickup step
+          step_on[i] = 0;      // True syncopation (mute the strong beat)
+          prev_was_shifted = true;
+        } else {
+          prev_was_shifted = false;
+        }
+      } else {
+        prev_was_shifted = false;
+      }
+    }
+  }
+
+  uint16_t mask = 0;
+  for (int i = 0; i < 16; ++i) {
+    if (step_on[i]) mask |= (1u << (15 - i));
+  }
+  s.p.gate.mask = mask;
+  s.p.gate.step %= s.p.gate.len;
+  s.p.gate.level = (s.p.gate.mask >> (15 - s.p.gate.step)) & 1u;
+}
+
 // ===================== engine -> adapter dispatch =====================
 // Continuous destination write (active module only — its adapter state is the
 // live one). Returns false when the CC is not a continuous destination there.
@@ -371,10 +465,15 @@ void mod_engine_init() {
       s.p.eu.rot = 0;
       mod_eu_recompute(s);         // E(4,16) = 0x00001111
     } else if (s.type == MOD_GATE) {
-      s.division = 3;              // 1/8
-      s.p.gate.len = 8;
-      s.p.gate.mask = 0x55u;       // alternating, starts on step 0
+      s.division = 4;              // 1/16 (division 4 = 1/16)
+      s.p.gate.len = 16;
+      s.p.gate.mode = 1;           // 01: Classic 1/8th Alternate (0xAAAA)
+      s.p.gate.density = 8;
+      s.p.gate.syncopation = 0;
       s.p.gate.gate_len = 0.5f;
+      s.p.gate.step = 0;
+      s.p.gate.ticks = 0;
+      mod_gate_recompute(s);
     } else {                       // MOD_ADSR
       s.p.adsr.a_s = 0.005f;       // 5 ms
       s.p.adsr.d_s = 0.100f;       // 100 ms
@@ -399,7 +498,7 @@ static void mod_rephase_midi_sources() {
       s.p.eu.level = (s.p.eu.mask & 1u) ? 1u : 0u;
     } else if (s.type == MOD_GATE) {
       s.p.gate.step = 0;
-      s.p.gate.level = (s.p.gate.mask & 1u) ? 1u : 0u;
+      s.p.gate.level = (s.p.gate.mask >> 15) & 1u;
     } else if (s.type == MOD_ADSR && s.p.adsr.retrig) {
       s.p.adsr.env = 0.0f;
       s.p.adsr.env_state = MOD_ENV_IDLE;
@@ -531,12 +630,20 @@ void mod_engine_process_block(uint8_t active_module) {
         if (wraps) {
           s.p.gate.step = (uint8_t)((s.p.gate.step + wraps) % s.p.gate.len);
           s.p.gate.ticks += wraps;
-          s.p.gate.level = (s.p.gate.mask >> s.p.gate.step) & 1u;
+          s.p.gate.level = (s.p.gate.mask >> (15 - s.p.gate.step)) & 1u;
         }
         // Gate length: the step's level holds only for the first gate_len
         // fraction of the division cycle (clk_phase is the in-step fraction).
         const bool high = s.p.gate.level && (s.clk_phase < s.p.gate.gate_len);
-        s.out = high ? 1.0f : 0.0f;
+        const float target = high ? 1.0f : 0.0f;
+        // Asymmetric one-pole slew filter for click-free continuous gating (~1 ms attack, ~3 ms release)
+        if (target > s.out) {
+          s.out += 0.4f * (target - s.out);
+          if (s.out > 0.99f) s.out = 1.0f;
+        } else {
+          s.out += 0.2f * (target - s.out);
+          if (s.out < 0.01f) s.out = 0.0f;
+        }
       } else {  // MOD_ADSR
         bool gate;
         if (s.p.adsr.retrig) {
@@ -602,9 +709,9 @@ void mod_engine_process_block(uint8_t active_module) {
       }
     } else if (s.type == MOD_GATE) {
       if (is_cont) {
-        mod_write_cc(active_module, dest, s.out);     // rhythmic gate level (0.0 / 1.0)
+        mod_write_cc(active_module, dest, s.out);     // rhythmic gate level (0.0 / 1.0, smoothed)
       } else if (kind >= 0) {
-        const bool high = (s.out > 0.5f);
+        const bool high = (s.p.gate.level && (s.clk_phase < s.p.gate.gate_len));
         if (kind == RACK_TRIG_LATCH) {
           if (high != (bool)s.was_high) {
             mod_fire_trigger(active_module, dest, high);
@@ -827,21 +934,26 @@ static void mod_apply_cc_value(uint8_t src_idx, uint8_t param, uint8_t val) {
       break;
     case MOD_GATE:
       switch (param) {
-        case 0: {
-          s.p.gate.len = (uint8_t)(1 + (uint16_t)val * 31 / 127);
-          const uint32_t keep = (s.p.gate.len >= 32)
-              ? 0xFFFFFFFFu : ((1u << s.p.gate.len) - 1u);
-          s.p.gate.mask &= keep;               // bits beyond len are ignored
+        case 0: { // mode: 0 = GEN, 1..16 = PRESETS
+          uint8_t m = (uint8_t)(((uint16_t)val * 17) / 128);
+          s.p.gate.mode = m <= 16 ? m : 16;
+          mod_gate_recompute(s);
           break;
         }
-        // CC writes a DENSITY FILL (evenly spread k-of-len pattern so one
-        // knob is musical); the console takes the raw mask (`mod .. mask`).
-        case 1: {
-          const uint8_t k = (uint8_t)(((uint16_t)val * s.p.gate.len) / 127);
-          s.p.gate.mask = mod_euclid_mask(k, s.p.gate.len);
+        case 1: { // dens: 1..16
+          s.p.gate.density = (uint8_t)(1 + ((uint16_t)val * 15) / 127);
+          mod_gate_recompute(s);
           break;
         }
-        case 2: s.p.gate.gate_len = (1.0f + (float)val) / 128.0f; break;
+        case 2: { // sync: 0..255 (0..100%)
+          s.p.gate.syncopation = (uint8_t)(((uint16_t)val * 255) / 127);
+          mod_gate_recompute(s);
+          break;
+        }
+        case 3: { // glen: 0..1.0
+          s.p.gate.gate_len = (1.0f + (float)val) / 128.0f;
+          break;
+        }
         default: break;
       }
       break;
@@ -1036,18 +1148,37 @@ static bool mod_set_param_console(uint8_t src_idx, uint8_t param,
         default: return false;
       }
     case MOD_GATE:
+      if (param == 99) { // raw mask alias
+        s.p.gate.mask = (uint32_t)strtoul(tok, nullptr, 0);
+        s.p.gate.mode = 0;
+        return true;
+      }
       switch (param) {
-        case 0: {
-          uint8_t len = (uint8_t)(v < 1 ? 1 : (v > 32 ? 32 : v));
-          s.p.gate.len = len;
-          const uint32_t keep = (len >= 32) ? 0xFFFFFFFFu : ((1u << len) - 1u);
-          s.p.gate.mask &= keep;
+        case 0: { // mode
+          if (!strcasecmp(tok, "gen")) {
+            s.p.gate.mode = 0;
+          } else {
+            int m = -1;
+            for (uint8_t p = 0; p < 16; ++p) {
+              if (!strcasecmp(tok, kTrancePresetNames[p + 1])) { m = p + 1; break; }
+            }
+            if (m >= 0) s.p.gate.mode = (uint8_t)m;
+            else s.p.gate.mode = (uint8_t)(v < 0 ? 0 : (v > 16 ? 16 : v));
+          }
+          mod_gate_recompute(s);
           return true;
         }
-        case 1:                                          // raw mask, hex ok
-          s.p.gate.mask = (uint32_t)strtoul(tok, nullptr, 0);
+        case 1: { // dens: 1..16
+          s.p.gate.density = (uint8_t)(v < 1 ? 1 : (v > 16 ? 16 : v));
+          mod_gate_recompute(s);
           return true;
-        case 2:
+        }
+        case 2: { // sync: 0..100 or 0..255
+          s.p.gate.syncopation = (uint8_t)(v <= 100.0f ? (uint8_t)(v * 2.55f + 0.5f) : (v > 255 ? 255 : v));
+          mod_gate_recompute(s);
+          return true;
+        }
+        case 3: // glen: 0.0..1.0
           s.p.gate.gate_len = mod_clamp01(v);
           return true;
         default: return false;
@@ -1085,6 +1216,7 @@ static int8_t mod_parse_param(uint8_t src_idx, const char* tok) {
   ModEngine& e = g_mod_engine;
   const ModSource& s = e.src[src_idx];
   const uint8_t n = mod_param_count_of(s.type);
+  if (s.type == MOD_GATE && !strcasecmp(tok, "mask")) return 99; // raw mask alias
   for (uint8_t i = 0; i < n; ++i) {
     if (strcasecmp(tok, kModParamNames[s.type][i]) == 0) return (int8_t)i;
   }
@@ -1202,8 +1334,11 @@ void mod_engine_cmd_modq(const char* args) {
                       (unsigned long)s.p.eu.ticks);
         break;
       case MOD_GATE:
-        Serial.printf("len=%u mask=0x%08lx glen=%s step=%u ticks=%lu out=%s",
-                      s.p.gate.len, (unsigned long)s.p.gate.mask,
+        Serial.printf("mode=%-4s dens=%2u sync=%3u%% mask=0x%04x glen=%s step=%u ticks=%lu out=%s",
+                      kTrancePresetNames[s.p.gate.mode <= 16 ? s.p.gate.mode : 0],
+                      s.p.gate.density,
+                      (unsigned int)((s.p.gate.syncopation * 100 + 127) / 255),
+                      (unsigned int)s.p.gate.mask,
                       mod_print_fixed(b1, sizeof(b1), s.p.gate.gate_len),
                       s.p.gate.step, (unsigned long)s.p.gate.ticks,
                       mod_print_fixed(b2, sizeof(b2), s.out));

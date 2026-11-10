@@ -92,20 +92,21 @@ namespace CTAG {
             // (user spec 2026-11-08: "like for LFO - its changing LFO rate").
             // MUST MATCH the kModParamNames indexes in
             // rack-rp2350/src/mod_engine.h: LFO 1 = rate, EU 4 = div,
-            // GATE 4 = div, ADSR 6 = div. (Gate-follow ADSR ignores div —
+            // GATE 5 = div, ADSR 6 = div. (Gate-follow ADSR ignores div —
             // the ride is a no-op there; retrigger mode rides the speed.)
             uint8_t rideParam(uint8_t src) {
                 if (src <= 3) return 1;            // LFO: rate
-                if (src <= 7) return 4;            // EUclid: clock division
-                if (src <= 9) return 4;            // rhythmic gate: division
+                if (src <= 5) return 4;            // EUclid: clock division
+                if (src <= 7) return 5;            // rhythmic gate: division (param 5)
                 return 6;                          // ADSR: division
             }
 
             // Per-source `dest` param index in rack-rp2350/src/mod_engine.h:
-            // LFO(0..3) = 7, EUCLID(4..5) = 5, GATE(6..7) = 5, ADSR(8..9) = 7.
+            // LFO(0..3) = 7, EUCLID(4..5) = 5, GATE(6..7) = 6, ADSR(8..9) = 7.
             uint8_t destParam(uint8_t src) {
                 if (src <= 3) return 7;
-                if (src <= 7) return 5;
+                if (src <= 5) return 5;
+                if (src <= 7) return 6;            // rhythmic gate: dest (param 6)
                 return 7;
             }
 
