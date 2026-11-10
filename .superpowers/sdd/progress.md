@@ -2059,7 +2059,10 @@ gestures, BLE) are next per the wiring table.
        - Elements `MODEL` -> `MODAL`, `STRING`, `STRINGS`
        - Clouds `MODE` -> `GRAN`, `STRE`, `LOOP`
        - Clouds `QUALITY` -> `32-16`, `32-8`, `16-16`, `16-8`
-       - Rings `WAVE` -> `SIN`, `TRI`, `SAW`
+       - Rings `MODE` -> `STEREO`, `WAVE`, `EL-ST`, `EL-EX`, `EGG`
+       - Rings `MODEL/FX` -> `MODAL`, `SYMP`, `STRING`, `FM`, `SYMP-Q`, `STR+RV` (swaps to `FORMNT`..`REVB2` in Easter Egg mode)
+       - Rings `WAVE` -> `SQR`, `IMP`, `SAW` (swaps to `BOW`, `BLOW`, `STRK` in Mini-Elements modes)
+       - Rings `CHORD TB` -> `BRYAN`, `JON`, `JOE`
    - Fixed `GetPotBucketBounds` in `RackPots.cpp`/`RackUI.cpp` so Page 4 and Page 5 pots have discrete bucket deadbands without interference (expanded `n <= 19`).
    - Updated `tools/rack_panel.html` with the 7-parameter GATE definition (including `TMR` and `MRKV`) to synchronize the web panel with the firmware.
    - Flashed `COM22` (ESP32-C3) and confirmed active communication with RP2350 at 921600 baud (`0` CRC errors, `8 us` turnaround).

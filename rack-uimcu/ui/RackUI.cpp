@@ -596,9 +596,30 @@ namespace CTAG {
                         } else if ((s_cur.module & 3) == 1 && c.cc == 24) {
                             static const char *const kCloudQual[4] = { "32-16", "32-8", "16-16", "16-8" };
                             pName = (dispVal >= 0 && dispVal < 4) ? kCloudQual[dispVal] : "---";
-                        } else if ((s_cur.module & 3) == 3 && c.cc == 21) {
-                            static const char *const kRingWaves[3] = { "SIN", "TRI", "SAW" };
-                            pName = (dispVal >= 0 && dispVal < 3) ? kRingWaves[dispVal] : "---";
+                        } else if ((s_cur.module & 3) == 3) {
+                            int ringMode = 0;
+                            for (uint8_t i = 0; i < s_cur.count; ++i) {
+                                if (s_cur.cell[i].cc == 20) {
+                                    int bv, bm;
+                                    ringMode = potToDisplayValue(s_page, s_cur.module, i, 20, s_cur.cell[i].value, bv, bm);
+                                    break;
+                                }
+                            }
+                            if (c.cc == 18) {
+                                static const char *const kRingModels[6] = { "MODAL", "SYMP", "STRING", "FM", "SYMP-Q", "STR+RV" };
+                                static const char *const kRingFx[6]     = { "FORMNT", "CHORUS", "REVERB", "FORM2", "ENSEMB", "REVB2" };
+                                pName = (dispVal >= 0 && dispVal < 6) ? (ringMode == 4 ? kRingFx[dispVal] : kRingModels[dispVal]) : "---";
+                            } else if (c.cc == 20) {
+                                static const char *const kRingModes[5] = { "STEREO", "WAVE", "EL-ST", "EL-EX", "EGG" };
+                                pName = (dispVal >= 0 && dispVal < 5) ? kRingModes[dispVal] : "---";
+                            } else if (c.cc == 21) {
+                                static const char *const kRingWaves[3]    = { "SQR", "IMP", "SAW" };
+                                static const char *const kRingExciters[3] = { "BOW", "BLOW", "STRK" };
+                                pName = (dispVal >= 0 && dispVal < 3) ? ((ringMode == 2 || ringMode == 3) ? kRingExciters[dispVal] : kRingWaves[dispVal]) : "---";
+                            } else if (c.cc == 22) {
+                                static const char *const kRingChordTables[3] = { "BRYAN", "JON", "JOE" };
+                                pName = (dispVal >= 0 && dispVal < 3) ? kRingChordTables[dispVal] : "---";
+                            }
                         }
                     } else if (s_page == 2 || s_page == 3) {
                         // MOD-LFO:
