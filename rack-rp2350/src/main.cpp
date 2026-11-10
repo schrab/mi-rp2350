@@ -91,9 +91,44 @@ uint8_t pio_host_line_state(void);
 
 // The four module adapters — ALL FOUR compile in every env (their state is
 // arena-placed; their hooks are namespaced rack_modules::mod_<module>).
+// Upstream MI resource headers define global lookup table macros (LUT_*);
+// undefine collisions between module headers to ensure a zero-warning build.
 #include "module_elements.h"
+#undef LUT_FM_FREQUENCY_QUANTIZER_SIZE
+#undef LUT_SVF_SHIFT_SIZE
+
 #include "module_clouds.h"
+
 #include "module_plaits.h"
+#undef LUT_SINE
+#undef LUT_SINE_SIZE
+#undef LUT_FM_FREQUENCY_QUANTIZER
+#undef LUT_FM_FREQUENCY_QUANTIZER_SIZE
+#undef LUT_FOLD
+#undef LUT_FOLD_SIZE
+#undef LUT_FOLD_2
+#undef LUT_FOLD_2_SIZE
+#undef LUT_STIFFNESS
+#undef LUT_STIFFNESS_SIZE
+#undef LUT_SVF_SHIFT
+#undef LUT_SVF_SHIFT_SIZE
+#undef LUT_4X_DOWNSAMPLER_FIR
+#undef LUT_4X_DOWNSAMPLER_FIR_SIZE
+#undef LUT_WS_INVERSE_TAN
+#undef LUT_WS_INVERSE_TAN_SIZE
+#undef LUT_WS_INVERSE_SIN
+#undef LUT_WS_INVERSE_SIN_SIZE
+#undef LUT_WS_LINEAR
+#undef LUT_WS_LINEAR_SIZE
+#undef LUT_WS_BUMP
+#undef LUT_WS_BUMP_SIZE
+#undef LUT_WS_DOUBLE_BUMP
+#undef LUT_WS_DOUBLE_BUMP_SIZE
+#undef LUT_WS_DOUBLE_BUMP_SENTINEL
+#undef LUT_WS_DOUBLE_BUMP_SENTINEL_SIZE
+#undef LUT_LPC_EXCITATION_PULSE
+#undef LUT_LPC_EXCITATION_PULSE_SIZE
+
 #include "module_rings.h"
 
 #include "module_registry.h"
