@@ -59,7 +59,7 @@ namespace CTAG {
                                           // pull-up)
 
             constexpr uint8_t NPOTS = 16;
-            constexpr int RAW_HYST = 38;           // ~1.2 MIDI steps in 12-bit raw space
+            constexpr int RAW_HYST = 48;           // ~1.5 MIDI steps in 12-bit raw space
             constexpr int PICK_BAND = 2;           // pickup alignment window (0-127)
             constexpr int CAL_WINDOW_MS = 8000;    // `calib` sweep window
             // Own-echo window: any TELEM arriving for a pot within this window
@@ -84,9 +84,8 @@ namespace CTAG {
             volatile bool pickPending[NPOTS];
             volatile uint8_t pickTarget[NPOTS];    // cell value to align to
 
-            // ---- per-pot modulation assign tracking ----
-            uint8_t s_potModSrc[NPOTS];            // 0 = OFF, 1..12 = LFO1..ADS2
-            volatile bool s_potWantUnmap[NPOTS];   // true after user sets MOD OFF
+            // ---- per-pot modulation assign tracking (per P1/P2 page) ----
+            uint8_t s_potModSrc[2][NPOTS];         // [page 0..1][pot 0..15]: 0 = OFF, 1..10 = LFO1..ADS2
             int64_t s_lastAssignUs[NPOTS];         // echo guard for cell flags
 
             // The per-source SPEED param a pot rides on a mod-routed cell
@@ -187,14 +186,14 @@ namespace CTAG {
                     t.kind != RackUI::PotTarget::kCC) {
                     return;
                 }
-                const uint8_t curSrc = t.routedSrc; // 0 = OFF, 1..12 = LFO1..ADS2
-                const uint8_t localSrc = s_potModSrc[pot];
+                const uint8_t curSrc = t.routedSrc; // 0 = OFF, 1..10 = LFO1..ADS2
+                const uint8_t pg = RackUI::GetPage() <= 1 ? RackUI::GetPage() : 0;
+                const uint8_t localSrc = s_potModSrc[pg][pot];
                 s_lastAssignUs[pot] = esp_timer_get_time();
                 RackUI::NoteAssignPot(pot, modChoice);
                 RackLink::TelemLocalAssignWrite(pot, modChoice);
 
                 if (modChoice == 0) {
-                    s_potWantUnmap[pot] = true;
                     if (localSrc >= 1 && localSrc <= 10) {
                         const uint8_t oldIdx = (uint8_t)(localSrc - 1);
                         RackLink::SendModSet(oldIdx, destParam(oldIdx), 0);
@@ -203,11 +202,10 @@ namespace CTAG {
                         const uint8_t prevIdx = (uint8_t)(curSrc - 1);
                         RackLink::SendModSet(prevIdx, destParam(prevIdx), 0);
                     }
-                    s_potModSrc[pot] = 0;
+                    s_potModSrc[pg][pot] = 0;
                     return;
                 }
 
-                s_potWantUnmap[pot] = false;
                 if (modChoice == localSrc && modChoice == curSrc) return;
 
                 if (localSrc >= 1 && localSrc <= 10 && localSrc != modChoice) {
@@ -219,18 +217,26 @@ namespace CTAG {
                     const uint8_t prevIdx = (uint8_t)(curSrc - 1);
                     RackLink::SendModSet(prevIdx, destParam(prevIdx), 0);
                 }
-                s_potModSrc[pot] = modChoice;
+                for (uint8_t p = 0; p < 2; ++p) {
+                    for (uint8_t i = 0; i < NPOTS; ++i) {
+                        if (s_potModSrc[p][i] == modChoice) {
+                            s_potModSrc[p][i] = 0;
+                        }
+                    }
+                }
+                s_potModSrc[pg][pot] = modChoice;
                 const uint8_t newIdx = (uint8_t)(modChoice - 1);
                 RackLink::SendModSet(newIdx, destParam(newIdx), t.cc);
             }
 
             int readChannelRaw(uint8_t ch) {
                 addrSet(ch);
-                esp_rom_delay_us(25);
-                // 2 dummy reads charge the SAR S/H cap to the new mux channel;
+                esp_rom_delay_us(50);
+                // 3 dummy reads charge the SAR S/H cap to the new mux channel;
                 // then 10 reads with min/max outlier rejection (trimmed mean of
                 // middle 8) reject BLE RF / tick-wakeup spikes on ch=0.
                 int dummy = 0;
+                adc_oneshot_read(s_adc, ADC_CH, &dummy);
                 adc_oneshot_read(s_adc, ADC_CH, &dummy);
                 adc_oneshot_read(s_adc, ADC_CH, &dummy);
                 int acc = 0;
@@ -314,13 +320,14 @@ namespace CTAG {
                         // once AssignModeActive() has been armed.
                         if (RackUI::AssignModeActive() && RackUI::GetPage() <= 1) {
                             if (!assignSessionArmed) {
+                                const uint8_t pg = RackUI::GetPage() <= 1 ? RackUI::GetPage() : 0;
                                 for (int i = 0; i < NPOTS; ++i) {
                                     assignAnchorRaw[i] = rawSweep[i];
                                     assignFiltRaw[i] = rawSweep[i];
                                     RackUI::PotTarget t;
                                     if (RackUI::GetPotTarget((uint8_t)i, t) &&
                                         t.kind == RackUI::PotTarget::kCC) {
-                                        s_potModSrc[i] = t.routedSrc;
+                                        s_potModSrc[pg][i] = t.routedSrc;
                                     }
                                 }
                                 assignPotLocked = -1;
@@ -332,22 +339,24 @@ namespace CTAG {
                                         (assignFiltRaw[i] * 3 + rawSweep[i] + 2) >> 2;
                                 }
 
-                                // Check which pot has moved most from its anchor
-                                int maxDelta = 0;
-                                int maxPot = -1;
-                                for (int i = 0; i < NPOTS; ++i) {
-                                    int d = assignFiltRaw[i] - assignAnchorRaw[i];
-                                    if (d < 0) d = -d;
-                                    if (d > maxDelta) {
-                                        maxDelta = d;
-                                        maxPot = i;
+                                if (assignPotLocked < 0) {
+                                    // Check which pot has moved most from its anchor
+                                    int maxDelta = 0;
+                                    int maxPot = -1;
+                                    for (int i = 0; i < NPOTS; ++i) {
+                                        int d = assignFiltRaw[i] - assignAnchorRaw[i];
+                                        if (d < 0) d = -d;
+                                        if (d > maxDelta) {
+                                            maxDelta = d;
+                                            maxPot = i;
+                                        }
                                     }
-                                }
 
-                                // Lock onto the pot that moved by >= 25 raw counts
-                                if (maxDelta >= 25 && maxPot >= 0) {
-                                    assignPotLocked = (int8_t)maxPot;
-                                    assignTurnedMask |= (uint16_t)(1u << maxPot);
+                                    // Lock onto the pot that moved by >= 25 raw counts
+                                    if (maxDelta >= 25 && maxPot >= 0) {
+                                        assignPotLocked = (int8_t)maxPot;
+                                        assignTurnedMask |= (uint16_t)(1u << maxPot);
+                                    }
                                 }
 
                                 if (assignPotLocked >= 0) {
@@ -364,12 +373,11 @@ namespace CTAG {
                                         if (choice > 10) choice = 10;
                                     }
 
-                                    // Immediately update the top bar so user sees the live choice
+                                    // Immediately update the top bar so user sees the live choice.
+                                    // DO NOT call applyModAssign here — doing so during the knob sweep
+                                    // would wipe out all intermediate mod sources on RP2350!
                                     RackUI::NoteAssignPot(p, choice);
-                                    if (choice != assignLastChoice) {
-                                        assignLastChoice = choice;
-                                        applyModAssign(p, choice);
-                                    }
+                                    assignLastChoice = choice;
                                 }
                             }
                         }
@@ -381,6 +389,9 @@ namespace CTAG {
                     if (pushActive) {
                         pushActive = false;
                         UserInput::SetPushRaw(false);
+                        if (assignPotLocked >= 0 && assignLastChoice != 0xFF) {
+                            applyModAssign((uint8_t)assignPotLocked, assignLastChoice);
+                        }
                     }
                     assignSessionArmed = false;
                     assignArmTimeUs = 0;
@@ -540,9 +551,9 @@ namespace CTAG {
 
         void RackPots::PickupResync() {
             const int64_t now = esp_timer_get_time();
+            const uint8_t pg = RackUI::GetPage() <= 1 ? RackUI::GetPage() : 0;
             for (uint8_t i = 0; i < NPOTS; ++i) {
                 pickPending[i] = false;
-                s_potWantUnmap[i] = false;
                 if (lastSendPotUs[i] != 0 &&
                     now - lastSendPotUs[i] < ECHO_WINDOW_US) {
                     continue;    // pot is actively being turned right now
@@ -550,7 +561,7 @@ namespace CTAG {
                 RackUI::PotTarget t;
                 if (!RackUI::GetPotTarget(i, t)) continue;   // no cell: live
                 if (t.kind == RackUI::PotTarget::kCC) {
-                    s_potModSrc[i] = t.routedSrc;
+                    s_potModSrc[pg][i] = t.routedSrc;
                     if (t.routedSrc) {
                         continue; // ride cell: pot writes the mod source speed
                     }
@@ -578,7 +589,8 @@ namespace CTAG {
             t.value = value;
             if (t.kind == RackUI::PotTarget::kCC) {
                 if (!AssignRecentlyChanged(pot)) {
-                    s_potModSrc[pot] = t.routedSrc;
+                    const uint8_t pg = RackUI::GetPage() <= 1 ? RackUI::GetPage() : 0;
+                    s_potModSrc[pg][pot] = t.routedSrc;
                 }
                 if (t.routedSrc) return;
             }
@@ -620,24 +632,14 @@ namespace CTAG {
             return (esp_timer_get_time() - s_lastAssignUs[pot]) < ECHO_WINDOW_US;
         }
 
-        void RackPots::ClearResidualUnmap(uint8_t pot, uint8_t routedSrc) {
-            if (pot >= NPOTS || !s_potWantUnmap[pot] || routedSrc == 0 ||
-                routedSrc > 12) {
-                return;
-            }
-            const uint8_t srcIdx = (uint8_t)(routedSrc - 1);
-            RackLink::SendModSet(srcIdx, destParam(srcIdx), 0);
-            RackLink::TelemLocalAssignWrite(pot, 0);
-            RackLink::SendPageRequest(RackUI::GetPage());
-        }
-
         void RackPots::ClearAllModSources() {
             for (uint8_t s = 0; s < 12; ++s) {
                 RackLink::SendModSet(s, destParam(s), 0);
             }
-            for (uint8_t i = 0; i < NPOTS; ++i) {
-                s_potModSrc[i] = 0;
-                s_potWantUnmap[i] = false;
+            for (uint8_t pg = 0; pg < 2; ++pg) {
+                for (uint8_t i = 0; i < NPOTS; ++i) {
+                    s_potModSrc[pg][i] = 0;
+                }
             }
         }
 
@@ -658,6 +660,10 @@ namespace CTAG {
                               (1ULL << PIN_S2) | (1ULL << PIN_S3);
             io.mode = GPIO_MODE_OUTPUT;
             gpio_config(&io);
+            gpio_set_drive_capability((gpio_num_t)PIN_S0, GPIO_DRIVE_CAP_3);
+            gpio_set_drive_capability((gpio_num_t)PIN_S1, GPIO_DRIVE_CAP_3);
+            gpio_set_drive_capability((gpio_num_t)PIN_S2, GPIO_DRIVE_CAP_3);
+            gpio_set_drive_capability((gpio_num_t)PIN_S3, GPIO_DRIVE_CAP_3);
             addrSet(0);
 
             // ADC1 oneshot unit, CH3 (mux SIG), 12 bit, 12 dB atten

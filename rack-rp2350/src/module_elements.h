@@ -90,8 +90,10 @@ struct State {
   volatile float shared_pitch;
   volatile float shared_strength;
 
-  // CC 64 (PLAY: internal exciter trigger)
+  // CC 64 (PLAY: internal exciter trigger / gate)
   volatile bool pending_play_pulse;
+  volatile bool play_latched_gate;
+  volatile uint16_t play_gate_counter;
 };
 
 static State* s = nullptr;   // placement-new'd by init(); arena offset 0
@@ -115,6 +117,8 @@ void init_at(uint8_t* base) {
   s->shared_pitch = 0.0f;
   s->shared_strength = 0.8f;
   s->pending_play_pulse = false;
+  s->play_latched_gate = false;
+  s->play_gate_counter = 0;
 
   elements::Dsp::setSr(kSampleRate);
   s->part.Init(reverb_buffer);
@@ -126,12 +130,12 @@ void init_at(uint8_t* base) {
   s->part.set_resonator_model(elements::RESONATOR_MODEL_STRING);
 
   s->patch = s->part.mutable_patch();
-  // sensible default: strike/mallet voice
+  // sensible default: active exciters with strike/bow/blow present
   elements::Patch* p = s->patch;
-  p->exciter_envelope_shape = 0.1f;
-  p->exciter_bow_level = 0.0f;
-  p->exciter_blow_level = 0.0f;
-  p->exciter_strike_level = 0.8f;
+  p->exciter_envelope_shape = 0.2f;
+  p->exciter_bow_level = 0.4f;
+  p->exciter_blow_level = 0.4f;
+  p->exciter_strike_level = 0.6f;
   p->exciter_blow_meta = 0.5f;
   p->exciter_strike_meta = 0.5f;
   p->exciter_bow_timbre = 0.5f;
@@ -169,10 +173,17 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
     s->part.set_resonator_model(static_cast<elements::ResonatorModel>(m));
   }
 
-  const bool play_pulse = s->pending_play_pulse;
-  s->pending_play_pulse = false;
+  if (s->pending_play_pulse) {
+    s->pending_play_pulse = false;
+    s->play_gate_counter = 120; // 120 blocks @ 32 kHz = 60 ms gate hold
+  }
+  bool pulse_active = false;
+  if (s->play_gate_counter > 0) {
+    --s->play_gate_counter;
+    pulse_active = true;
+  }
 
-  s->perf_state.gate = shared_gate || play_pulse;
+  s->perf_state.gate = shared_gate || s->play_latched_gate || pulse_active;
   s->perf_state.note = shared_note;
   s->perf_state.strength = s->shared_strength;
   s->perf_state.modulation = s->shared_pitch;
@@ -207,10 +218,17 @@ void render() {
     s->part.set_resonator_model(static_cast<elements::ResonatorModel>(m));
   }
 
-  const bool play_pulse = s->pending_play_pulse;
-  s->pending_play_pulse = false;
+  if (s->pending_play_pulse) {
+    s->pending_play_pulse = false;
+    s->play_gate_counter = 120; // 120 blocks @ 32 kHz = 60 ms gate hold
+  }
+  bool pulse_active = false;
+  if (s->play_gate_counter > 0) {
+    --s->play_gate_counter;
+    pulse_active = true;
+  }
 
-  s->perf_state.gate = shared_gate || play_pulse;
+  s->perf_state.gate = shared_gate || s->play_latched_gate || pulse_active;
   s->perf_state.note = shared_note;
   s->perf_state.strength = s->shared_strength;
   s->perf_state.modulation = s->shared_pitch;
@@ -287,7 +305,10 @@ void control_change(uint8_t cc, uint8_t val) {
       s->pending_easter_egg = val ? 1 : 0;
       break;
     // PLAY pseudo-CC (64): triggers the exciter strike / envelope.
+    // val >= 64 holds gate HIGH (continuous drone/play) and starts envelope pulse;
+    // val < 64 releases gate.
     case 64:
+      s->play_latched_gate = (val >= 64);
       if (val >= 64) s->pending_play_pulse = true;
       break;
     default: break;

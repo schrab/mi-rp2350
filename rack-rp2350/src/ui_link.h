@@ -916,6 +916,13 @@ static void ui_link_dispatch() {
       if (g_ui_rx_len == 3) {
         mod_engine_apply_ui_set(pl[0], pl[1], pl[2]);
         ui_link_send_mod_delta(pl[0], pl[1]);
+        const uint8_t s = pl[0];
+        if (s < MOD_SOURCE_COUNT) {
+          const uint8_t n = mod_param_count_of(g_mod_engine.src[s].type);
+          if (pl[1] == n - 1) { // destination routing changed: send full snapshot
+            ui_link_send_telem(g_ui_active_page, kUiTelemFull, 0);
+          }
+        }
       } else {
         Serial.printf("ui: MOD_SET frame bad len %u (want 3)\r\n", g_ui_rx_len);
       }

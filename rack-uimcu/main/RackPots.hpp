@@ -75,9 +75,6 @@ namespace CTAG {
             static bool RecentlyMoved(uint8_t pot);
             // True while a pot's mod assignment was just changed locally.
             static bool AssignRecentlyChanged(uint8_t pot);
-            // If a cell was unmapped (MOD OFF) by the user, peel off any
-            // residual source reported by TELEM.
-            static void ClearResidualUnmap(uint8_t pot, uint8_t routedSrc);
             // Clear all 12 mod sources on the RP2350.
             static void ClearAllModSources();
 

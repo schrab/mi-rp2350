@@ -1083,16 +1083,6 @@ namespace CTAG {
                         }
                         const bool wasFull =
                             tmp.mode == RackLink::kTelemFull;
-                        if (wasFull && s_page <= 1) {
-                            for (uint8_t i = 0; i < 16 && i < tmp.count; ++i) {
-                                const uint8_t rsrc = (uint8_t)(
-                                    (tmp.cell[i].flags & RackLink::kFlagSrcMask) >>
-                                    RackLink::kFlagSrcShift);
-                                if (rsrc > 0) {
-                                    RackPots::ClearResidualUnmap(i, rsrc);
-                                }
-                            }
-                        }
                         const bool pageOrModChanged =
                             !s_fullArrived || tmp.page != s_cur.page ||
                             (s_page <= 1 && tmp.module != s_cur.module);

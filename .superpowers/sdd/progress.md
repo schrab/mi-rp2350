@@ -1943,6 +1943,25 @@ gestures, BLE) are next per the wiring table.
    - Wired `mod_fire_trigger()` in `mod_engine.h` for `RACK_MODULE_ELEMENTS` to `rack_modules::mod_elements::mod_trigger_cc()`.
    - Updated C3 `RackUI::p1p2DiscreteCount()` with 2-state boolean wire mapping for CC 64, `tools/rack_panel.html` with a momentary `PLAY` button, and `docs/ui-protocol.md`.
 
+### Rack T5 — Mod-Assign Sweep Wiping Fix & Authoritative TELEM Sync (2026-11-10)
+
+1. **Mod-Assign Sweep Overwriting & Unrouting Bug:**
+   - **Root cause:** While the user held the encoder push button and rotated a pot to choose a modulation source, `RackPots::potTask()` was calling `applyModAssign(p, choice)` live on **every single intermediate choice** as the pot swept across values.
+     Because each mod source in `g_mod_engine.src[10]` supports one destination, sweeping through choice 5 (`EUC 1`) immediately stole `EUC 1` away from `PLAY` (CC 64). When the user continued rotating to choice 6 or beyond, `applyModAssign` saw `localSrc == 5` and sent `SendModSet(4, destParam(4), 0)`, actively clearing `EUC 1` to 0 (`OFF`). Furthermore, pots near 12 o'clock center (like `PITCH`) start at choice 5 (`EUC 1`), causing any touch to immediately steal and clear `EUC 1`. Finally, `assignPotLocked` was not guarded against re-evaluating, allowing channel noise to hop between pots while held.
+   - **Fix:**
+     - In `rack-uimcu/main/RackPots.cpp`:
+       - Guarded `assignPotLocked < 0` so the pot selection locks firmly onto the first pot that moves >= 25 counts from anchor.
+       - During rotation while button is held: ONLY update the screen top bar (`RackUI::NoteAssignPot(p, choice)`) and record `assignLastChoice = choice`. Completely removed `applyModAssign` from the rotation loop so zero frames are sent while sweeping.
+       - On button release (`if (pushActive)`): call `applyModAssign((uint8_t)assignPotLocked, assignLastChoice)` **once** to commit the user's finalized choice.
+       - In `applyModAssign`: when mapping a source to a cell, clear any other cell in `s_potModSrc` that was previously using that source.
+     - In `rack-rp2350/src/ui_link.h`:
+       - When a `MOD_SET` frame modifies a `dest` parameter (`pl[1] == n - 1`), RP2350 immediately responds with `ui_link_send_telem(g_ui_active_page, kUiTelemFull, 0)`, giving C3 authoritative real-time confirmation of the new routing matrix without requiring page switches.
+   - **Flashing & Status:**
+     - Built and flashed `firmware.uf2` to RP2350 (`COM15`) and `rack-uimcu.bin` to ESP32-C3 (`COM22`). Both boards online and communicating.
+   - **Hardware verification:** Confirmed working on hardware by the user (2026-11-10): mapping is completely stable across P1/P2, and changing or clearing mod assignments on other parameters no longer unmaps PLAY. Committed: `227ad5a`.
+
+
+
 
 
 
