@@ -192,11 +192,12 @@ static const UiPageCell kUiPageElementsP1[] = {
     {26, "POSITION",   kUiColorWhite},
     {27, "SPACE",      kUiColorWhite},
 };
-// elements — P2: selectors (CC 28/29) + PLAY trigger (CC 64) that are unique to P2.
+// elements — P2: selectors (CC 28/29) + PLAY trigger (CC 64) + VCA (CC 7).
 static const UiPageCell kUiPageElementsP2[] = {
     {28, "MODEL",      kUiColorWhite},
     {29, "OMINOUS",    kUiColorWhite},
     {64, "PLAY",       kUiColorWhite},
+    {7,  "VCA",        kUiColorWhite},
 };
 // clouds — P1: SIZE/TEXTURE teal, POSITION/DENSITY pink, rest white.
 static const UiPageCell kUiPageCloudsP1[] = {
@@ -233,7 +234,7 @@ static const UiPageCell kUiPagePlaitsP1[] = {
     {24, "AUX",        kUiColorWhite},
     {64, "TRIG",       kUiColorWhite},
 };
-// rings — P1: panel colors (all white). CC 64 = STRUM pseudo-CC. 11 cells.
+// rings — P1: panel colors (all white). CC 64 = STRUM pseudo-CC. 12 cells.
 static const UiPageCell kUiPageRingsP1[] = {
     {14, "STRUCTURE",  kUiColorWhite},
     {15, "BRIGHTNESS", kUiColorWhite},
@@ -246,16 +247,17 @@ static const UiPageCell kUiPageRingsP1[] = {
     {22, "CHORD TB",   kUiColorWhite},
     {23, "CHORD",      kUiColorWhite},
     {64, "STRUM",      kUiColorWhite},
+    {7,  "VCA",        kUiColorWhite},
 };
 
-// [module][0 = P1, 1 = P2]. Elements has 3 unique params on P2 (MODEL CC 28,
-// OMINOUS CC 29, PLAY CC 64). Clouds, Plaits, and Rings have all parameters on P1, so P2
+// [module][0 = P1, 1 = P2]. Elements has 4 unique params on P2 (MODEL CC 28,
+// OMINOUS CC 29, PLAY CC 64, VCA CC 7). Clouds, Plaits, and Rings have all parameters on P1, so P2
 // has count = 0 (no duplicate params).
 static const UiPageTable kUiPages[RACK_MODULE_COUNT][2] = {
-    { {kUiPageElementsP1, 16}, {kUiPageElementsP2, 3} },   // elements
+    { {kUiPageElementsP1, 16}, {kUiPageElementsP2, 4} },   // elements
     { {kUiPageCloudsP1, 16},   {nullptr, 0} },             // clouds
     { {kUiPagePlaitsP1, 13},   {nullptr, 0} },             // plaits
-    { {kUiPageRingsP1, 11},    {nullptr, 0} },             // rings
+    { {kUiPageRingsP1, 12},    {nullptr, 0} },             // rings
 };
 static const UiPageTable kUiPageEmpty = { nullptr, 0 };   // unused fallback
 
@@ -432,6 +434,13 @@ static uint32_t g_ui_last_rx_ms = 0;
 // clouds alias bank 40-48 without index arithmetic.
 static uint8_t g_ui_cc_cache[RACK_MODULE_COUNT][128];
 
+// Restore cached parameter value to module (used by mod_set_dest on unassign)
+void ui_link_restore_cached_cc(uint8_t mod, uint8_t cc) {
+  if (mod < RACK_MODULE_COUNT && cc < 128) {
+    kRackModules[mod].control_change(cc, g_ui_cc_cache[mod][cc]);
+  }
+}
+
 // Last page the C3 requested (delta policy target; default P1).
 static uint8_t g_ui_active_page = kUiPageP1;
 
@@ -460,6 +469,10 @@ static void ui_link_uart_init() {
   Serial1.setFIFOSize(512);
   Serial1.setPinout(kPinUiTx, kPinUiRx);
   Serial1.begin(921600, SERIAL_8N1);
+  for (uint8_t m = 0; m < RACK_MODULE_COUNT; ++m) {
+    g_ui_cc_cache[m][7] = 127;   // VCA default full open (1.0)
+  }
+  g_ui_cc_cache[RACK_MODULE_PLAITS][25] = 102; // Plaits default shared_level = 0.8 (~102/127)
 }
 
 // ===================== TX =====================
@@ -500,13 +513,16 @@ static uint8_t ui_link_cell_flags(uint8_t cc, uint8_t mod) {
     if (s.dest_cc != cc) continue;
     if (first_src < 0) first_src = (int8_t)i;
     routed = true;
-    const bool want_continuous = (s.type == MOD_LFO || s.type == MOD_ADSR);
+    const bool can_continuous = (s.type == MOD_LFO || s.type == MOD_ADSR ||
+                                s.type == MOD_GATE || s.type == MOD_EUCLID);
+    const bool can_trigger = (s.type == MOD_EUCLID || s.type == MOD_GATE);
     bool ok = false;
-    if (want_continuous) {
+    if (can_continuous) {
       for (uint8_t k = 0; k < d->continuous_count; ++k) {
         if (d->continuous[k] == cc) { ok = true; break; }
       }
-    } else {
+    }
+    if (!ok && can_trigger) {
       for (uint8_t k = 0; k < d->trigger_count; ++k) {
         if (d->trigger_cc[k] == cc) { ok = true; break; }
       }

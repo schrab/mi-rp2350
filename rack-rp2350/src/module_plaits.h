@@ -43,24 +43,24 @@ static const uint32_t kI2sWords = 16;     // = 16 ms bank at 48 kHz
 static const uint32_t kStallUs = 900;     // >2x the 500 us block period
 
 static const char* const kCcMap =
-    "14 timbre, 15 morph, 16 harmonics, 17 macro/model-cv, 18 lpg-colour, "
+    "7 vca, 14 timbre, 15 morph, 16 harmonics, 17 macro/model-cv, 18 lpg-colour, "
     "19 decay, 20 fm-amount, 21 timbre-mod, 22 morph-mod, 23 engine(0-97), "
     "24 aux-option, 25 level";
-// T3 mod destinations: the patch/modulation parameters 14-22 + 25 accept
+// T3 mod destinations: the patch/modulation parameters 7, 14-22 + 25 accept
 // continuous modulation (17/20/21/22 keep their control_change range mappings,
 // applied at float precision). 23 (engine catalog index) and 24 (aux output
 // option) are EXCLUDED — catalog/option selectors must not be modulated; the
 // engine change also re-Inits the engine mid-render, so a per-block write
 // would retrigger it every block. Pseudo-CC 64 (sustain pedal — verified
 // unused by all four CC maps) = the TRIG input: pulse-kind, full velocity.
-static const uint8_t kModContinuousCcs[] = {14, 15, 16, 17, 18, 19, 20, 21,
+static const uint8_t kModContinuousCcs[] = {7, 14, 15, 16, 17, 18, 19, 20, 21,
                                             22, 25};
 static const uint8_t kModTriggerCcs[] = {64};
 static const uint8_t kModTriggerKinds[] = {RACK_TRIG_PULSE};
 static const RackModDestinations kModDestinations = {
-    "plaits: continuous 14-22,25 (23/24 excluded: engine/aux selectors) | "
+    "plaits: continuous 7,14-22,25 (23/24 excluded: engine/aux selectors) | "
     "triggers: 64 trig (pulse, full velocity)",
-    10, kModContinuousCcs,
+    11, kModContinuousCcs,
     1, kModTriggerCcs, kModTriggerKinds,
 };
 
@@ -352,6 +352,7 @@ void control_change(uint8_t cc, uint8_t val) {
     case 24:
       if (val <= 2) s->pending_aux_option = static_cast<int8_t>(val);
       break;
+    case 7:
     case 25: s->shared_level = v; break;
     default: break;
   }
@@ -369,6 +370,8 @@ bool mod_set_cc_float(uint8_t cc, float v) {
   if (v < 0.0f) v = 0.0f;
   if (v > 1.0f) v = 1.0f;
   switch (cc) {
+    case 7:
+    case 25: s->shared_level      = v; break;
     case 14: s->shared_timbre     = v; break;
     case 15: s->shared_morph      = v; break;
     case 16: s->shared_harmonics  = v; break;
@@ -378,7 +381,6 @@ bool mod_set_cc_float(uint8_t cc, float v) {
     case 20: s->shared_fm_amount  = v * 2.0f - 1.0f; break;
     case 21: s->shared_timbre_mod = v * 2.0f - 1.0f; break;
     case 22: s->shared_morph_mod  = v * 2.0f - 1.0f; break;
-    case 25: s->shared_level      = v; break;
     default: return false;
   }
   return true;

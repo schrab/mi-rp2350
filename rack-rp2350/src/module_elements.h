@@ -53,7 +53,7 @@ static const uint32_t kStallUs = 900;     // >2x the 500 us block period
 
 // Registry strings (see module_registry.h).
 static const char* const kCcMap =
-    "1 pitch, 11 strength, 14 env-shape, 15-16 bow, 17-19 blow, 20-22 strike, "
+    "1 pitch, 7 vca, 11 strength, 14 env-shape, 15-16 bow, 17-19 blow, 20-22 strike, "
     "23 geometry, 24 brightness, 25 damping, 26 position, 27 space, "
     "28 model, 29 easter-egg, 64 play";
 // T3 mod destinations: every float-parameter CC of the map accepts continuous
@@ -61,13 +61,13 @@ static const char* const kCcMap =
 // is overridden while a source is routed to CC 11). Selectors 28/29 are
 // excluded (int model/easter-egg switches — not modulable). Pseudo-CC 64
 // accepts trigger modulation (PLAY: triggers exciter strike & envelope).
-static const uint8_t kModContinuousCcs[] = {1, 11, 14, 15, 16, 17, 18, 19,
+static const uint8_t kModContinuousCcs[] = {1, 7, 11, 14, 15, 16, 17, 18, 19,
                                             20, 21, 22, 23, 24, 25, 26, 27};
 static const uint8_t kModTriggerCcs[] = {64};
 static const uint8_t kModTriggerKinds[] = {RACK_TRIG_PULSE};
 static const RackModDestinations kModDestinations = {
-    "elements: continuous 1,11,14-27 | triggers: 64 play (pulse)",
-    16, kModContinuousCcs,
+    "elements: continuous 1,7,11,14-27 | triggers: 64 play (pulse)",
+    17, kModContinuousCcs,
     1, kModTriggerCcs, kModTriggerKinds,
 };
 
@@ -86,8 +86,9 @@ struct State {
   volatile int8_t pending_resonator_model;
   volatile int8_t pending_easter_egg;
 
-  // CC 1 (PITCH: -24..+24 st) / CC 11 shared values (standalone midi.h pattern).
+  // CC 1 (PITCH: -24..+24 st) / CC 7 (VCA) / CC 11 shared values (standalone midi.h pattern).
   volatile float shared_pitch;
+  volatile float shared_vca;
   volatile float shared_strength;
 
   // CC 64 (PLAY: internal exciter trigger / gate)
@@ -115,6 +116,7 @@ void init_at(uint8_t* base) {
   s->pending_resonator_model = -1;
   s->pending_easter_egg = -1;
   s->shared_pitch = 0.0f;
+  s->shared_vca = 1.0f;
   s->shared_strength = 0.8f;
   s->pending_play_pulse = false;
   s->play_latched_gate = false;
@@ -195,8 +197,8 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
     s->part.Process(s->perf_state, s->blow_in, s->strike_in, s->main_out,
                     s->aux_out, chunk);
     for (size_t i = 0; i < chunk; ++i) {
-      out_l[done + i] = s->main_out[i];
-      out_r[done + i] = s->aux_out[i];
+      out_l[done + i] = s->main_out[i] * s->shared_vca;
+      out_r[done + i] = s->aux_out[i] * s->shared_vca;
     }
     done += chunk;
   }
@@ -249,7 +251,7 @@ void render() {
   // block periods -> I2S output stalled. g_render_gain is the swap-mute ramp
   // (1.0 in normal render; 0..1 ramped by the core-1 swap sequence).
   uint32_t w0 = time_us_32();
-  const float gain = g_render_gain;
+  const float gain = g_render_gain * s->shared_vca;
   for (size_t i = 0; i < kBlockSize; ++i) {
     int16_t l = stmlib::Clip16(
         static_cast<int32_t>(s->main_out[i] * 32768.0f * gain));
@@ -276,6 +278,7 @@ void control_change(uint8_t cc, uint8_t val) {
   elements::Patch* p = s->part.mutable_patch();
   switch (cc) {
     case 1:  s->shared_pitch = (v - 0.5f) * 48.0f; break; // CC 1 = PITCH: -24..+24 semitones
+    case 7:  s->shared_vca = v; break;
     case 11: s->shared_strength = v; break;
     case 14: p->exciter_envelope_shape = v; break;
     case 15: p->exciter_bow_level = v; break;
@@ -334,6 +337,7 @@ bool mod_set_cc_float(uint8_t cc, float v) {
   elements::Patch* p = s->part.mutable_patch();
   switch (cc) {
     case 1:  s->shared_pitch = (v - 0.5f) * 48.0f; break; // CC 1 = PITCH: -24..+24 semitones
+    case 7:  s->shared_vca = v; break;
     case 11: s->shared_strength = v; break;
     case 14: p->exciter_envelope_shape = v; break;
     case 15: p->exciter_bow_level = v; break;

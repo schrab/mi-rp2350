@@ -78,6 +78,9 @@
 
 #include "pico/time.h"           // time_us_32 (static inline, pico-sdk 2.x)
 
+// Forward declaration of ui_link helper to restore cached parameter values on mod unassign.
+void ui_link_restore_cached_cc(uint8_t mod, uint8_t cc);
+
 #include "module_registry.h"     // RackModuleInfo / RackModDestinations / ids
 
 // The four adapters (included by main.cpp BEFORE this header) provide, per
@@ -319,6 +322,15 @@ static int8_t mod_trigger_kind(uint8_t module_id, uint8_t cc) {
     if (d->trigger_cc[i] == cc) return static_cast<int8_t>(d->trigger_kind[i]);
   }
   return -1;
+}
+
+// Check if a destination CC is continuous on a module.
+static bool mod_is_continuous(uint8_t module_id, uint8_t cc) {
+  const RackModDestinations* d = kRackModules[module_id].mod_destinations;
+  for (uint8_t i = 0; i < d->continuous_count; ++i) {
+    if (d->continuous[i] == cc) return true;
+  }
+  return false;
 }
 
 // ===================== defaults (.bss is zero; these are the bench states) ==
@@ -571,26 +583,51 @@ void mod_engine_process_block(uint8_t active_module) {
     // ---- 4) destination routing (resolved against the ACTIVE module) ----
     const uint8_t dest = s.dest_cc;
     if (dest == 0) { s.was_high = 0; continue; }
+    const bool is_cont = mod_is_continuous(active_module, dest);
+    const int8_t kind = mod_trigger_kind(active_module, dest);
+
     if (s.type == MOD_LFO || s.type == MOD_ADSR) {
-      mod_write_cc(active_module, dest, s.out);     // continuous, float-level
-    } else {
-      const bool high = (s.type == MOD_EUCLID) ? (s.p.eu.level != 0)
-                                               : (s.out > 0.5f);
-      const int8_t kind = mod_trigger_kind(active_module, dest);
-      if (kind < 0) { s.was_high = 0; continue; }   // inert (logged at set)
-      if (kind == RACK_TRIG_LATCH) {
-        if (high != (bool)s.was_high) {             // freeze follows the level
-          mod_fire_trigger(active_module, dest, high);
-          s.was_high = high ? 1u : 0u;
-        }
-      } else {                                      // PULSE destinations
-        if (s.type == MOD_EUCLID) {
-          // Every masked step re-fires (consecutive hits each get an edge).
-          if (wraps && s.p.eu.level) mod_fire_trigger(active_module, dest, true);
-        } else if (high && !s.was_high) {           // gate: rising edges only
-          mod_fire_trigger(active_module, dest, true);
+      if (is_cont) {
+        mod_write_cc(active_module, dest, s.out);     // continuous, float-level
+      } else {
+        s.was_high = 0;
+      }
+    } else if (s.type == MOD_GATE) {
+      if (is_cont) {
+        mod_write_cc(active_module, dest, s.out);     // rhythmic gate level (0.0 / 1.0)
+      } else if (kind >= 0) {
+        const bool high = (s.out > 0.5f);
+        if (kind == RACK_TRIG_LATCH) {
+          if (high != (bool)s.was_high) {
+            mod_fire_trigger(active_module, dest, high);
+          }
+        } else {
+          if (high && !s.was_high) {
+            mod_fire_trigger(active_module, dest, true);
+          }
         }
         s.was_high = high ? 1u : 0u;
+      } else {
+        s.was_high = 0;
+      }
+    } else if (s.type == MOD_EUCLID) {
+      if (is_cont) {
+        mod_write_cc(active_module, dest, s.out);     // euclidean level (0.0 / 1.0)
+      } else if (kind >= 0) {
+        if (kind == RACK_TRIG_LATCH) {
+          const bool high = (s.p.eu.level != 0);
+          if (high != (bool)s.was_high) {
+            mod_fire_trigger(active_module, dest, high);
+          }
+          s.was_high = high ? 1u : 0u;
+        } else {
+          if (wraps && s.p.eu.level) {
+            mod_fire_trigger(active_module, dest, true);
+          }
+          s.was_high = s.p.eu.level ? 1u : 0u;
+        }
+      } else {
+        s.was_high = 0;
       }
     }
   }
@@ -664,8 +701,29 @@ static const char* mod_src_name(uint8_t idx) {
 static void mod_set_dest(uint8_t src_idx, uint8_t cc) {
   ModEngine& e = g_mod_engine;
   ModSource& s = e.src[src_idx];
+  const uint8_t old_cc = s.dest_cc;
   s.dest_cc = cc;
   s.was_high = 0;                 // no stale edge into the new destination
+
+  // If old destination was continuous and no other source is driving it,
+  // restore panel's static value from cache.
+  if (old_cc != 0 && old_cc != cc) {
+    const RackModuleInfo& m_old = kRackModules[g_active_module];
+    bool old_was_cont = false;
+    for (uint8_t i = 0; i < m_old.mod_destinations->continuous_count; ++i) {
+      if (m_old.mod_destinations->continuous[i] == old_cc) { old_was_cont = true; break; }
+    }
+    if (old_was_cont) {
+      bool other_routed = false;
+      for (uint8_t i = 0; i < MOD_SOURCE_COUNT; ++i) {
+        if (i != src_idx && e.src[i].dest_cc == old_cc) { other_routed = true; break; }
+      }
+      if (!other_routed) {
+        ui_link_restore_cached_cc(g_active_module, old_cc);
+      }
+    }
+  }
+
   if (cc == 0) {
     Serial.printf("mod: %s destination cleared (panel regains the parameter)\r\n",
                   mod_src_name(src_idx));
@@ -680,19 +738,21 @@ static void mod_set_dest(uint8_t src_idx, uint8_t cc) {
   for (uint8_t i = 0; i < d->trigger_count; ++i) {
     if (d->trigger_cc[i] == cc) { trigger_ok = true; break; }
   }
-  const bool want_continuous = (s.type == MOD_LFO || s.type == MOD_ADSR);
-  if (want_continuous && continuous_ok) {
+  const bool can_continuous = (s.type == MOD_LFO || s.type == MOD_ADSR ||
+                              s.type == MOD_GATE || s.type == MOD_EUCLID);
+  const bool can_trigger = (s.type == MOD_EUCLID || s.type == MOD_GATE);
+
+  if (can_continuous && continuous_ok) {
     Serial.printf("mod: %s -> %s CC %u (continuous): the panel's static value "
                   "is overridden while routed\r\n",
                   mod_src_name(src_idx), m.name, cc);
-  } else if (!want_continuous && trigger_ok) {
+  } else if (can_trigger && trigger_ok) {
     Serial.printf("mod: %s -> %s CC %u (trigger)\r\n",
                   mod_src_name(src_idx), m.name, cc);
   } else {
-    Serial.printf("mod: WARNING: %s -> CC %u is INERT on %s (%s source wants "
-                  "%s; see 'module')\r\n", mod_src_name(src_idx), cc, m.name,
-                  want_continuous ? "continuous" : "trigger",
-                  want_continuous ? "a continuous CC" : "a trigger input");
+    Serial.printf("mod: WARNING: %s -> CC %u is INERT on %s (%s source cannot drive %s)\r\n",
+                  mod_src_name(src_idx), cc, m.name, mod_src_name(src_idx),
+                  (continuous_ok ? "continuous CC" : (trigger_ok ? "trigger input" : "unknown CC")));
   }
 }
 
@@ -1066,7 +1126,9 @@ static void mod_print_dest_state(uint8_t src_idx) {
   }
   const RackModuleInfo& m = kRackModules[g_active_module];
   const RackModDestinations* d = m.mod_destinations;
-  const bool want_continuous = (s.type == MOD_LFO || s.type == MOD_ADSR);
+  const bool can_continuous = (s.type == MOD_LFO || s.type == MOD_ADSR ||
+                              s.type == MOD_GATE || s.type == MOD_EUCLID);
+  const bool can_trigger = (s.type == MOD_EUCLID || s.type == MOD_GATE);
   bool cont = false, trig = false;
   for (uint8_t i = 0; i < d->continuous_count; ++i) {
     if (d->continuous[i] == s.dest_cc) { cont = true; break; }
@@ -1075,8 +1137,8 @@ static void mod_print_dest_state(uint8_t src_idx) {
     if (d->trigger_cc[i] == s.dest_cc) { trig = true; break; }
   }
   char tag[12];
-  if (want_continuous && cont) snprintf(tag, sizeof(tag), "cont");
-  else if (!want_continuous && trig) snprintf(tag, sizeof(tag), "trig");
+  if (can_continuous && cont) snprintf(tag, sizeof(tag), "cont");
+  else if (can_trigger && trig) snprintf(tag, sizeof(tag), "trig");
   else snprintf(tag, sizeof(tag), "INERT!");
   Serial.printf("dest=%u(%s on %s)", s.dest_cc, tag, m.name);
 }

@@ -42,23 +42,22 @@ static const uint32_t kI2sWords = 16;     // = 16 ms bank at 32 kHz
 static const uint32_t kStallUs = 1400;    // ~1.8x the 750 us block period
 
 static const char* const kCcMap =
-    "14 structure, 15 brightness, 16 damping, 17 position, 18 model/fx, "
-    "19 polyphony, 20 mode, 21 waveform, 22 chord-table, 23 chord";
-// T3 mod destinations: the four float patch parameters 14-17 accept continuous
-// modulation; CC 23 (chord index) is included as a STEPPED destination (the
-// value is rounded into the pending_chord int8 and clamped against the active
+    "7 vca, 14 structure, 15 brightness, 16 damping, 17 position, "
+    "18 model/fx, 19 polyphony, 20 mode, 21 waveform, 22 chord-table, "
+    "23 chord, 64 strum";
+// T3 mod destinations: 7, 14-17 + 23 accept continuous modulation (23 writes the
 // chord table at fill time — modulating it sweeps chords). 18-22 are EXCLUDED
 // (model/fx, polyphony, mode, waveform, chord-table selectors — per-block
 // selector writes would spam the between-blocks apply path with no musical
 // meaning). Pseudo-CC 64 (verified unused by all four maps) = the STRUM
 // input: pulse-kind, one block per rising edge (same path as MIDI note-on).
-static const uint8_t kModContinuousCcs[] = {14, 15, 16, 17, 23};
+static const uint8_t kModContinuousCcs[] = {7, 14, 15, 16, 17, 23};
 static const uint8_t kModTriggerCcs[] = {64};
 static const uint8_t kModTriggerKinds[] = {RACK_TRIG_PULSE};
 static const RackModDestinations kModDestinations = {
-    "rings: continuous 14-17,23 (18-22 excluded: model/poly/mode/wave/"
+    "rings: continuous 7,14-17,23 (18-22 excluded: model/poly/mode/wave/"
     "chord-table selectors) | triggers: 64 strum (pulse)",
-    5, kModContinuousCcs,
+    6, kModContinuousCcs,
     1, kModTriggerCcs, kModTriggerKinds,
 };
 
@@ -76,6 +75,7 @@ struct State {
 
   // Panel parameters (core 0 writes, core 1 copies into the fresh per-block
   // Patch — same shared-state pattern as the standalone port).
+  volatile float shared_vca;         // CC 7
   volatile float shared_structure;   // CC 14 (clamped <= 0.9995)
   volatile float shared_brightness;  // CC 15
   volatile float shared_damping;     // CC 16
@@ -137,6 +137,7 @@ void init_at(uint8_t* base) {
   uint16_t* reverb_buffer = reinterpret_cast<uint16_t*>(g_rack_buffer_arena);
   memset(reverb_buffer, 0, 32768 * sizeof(uint16_t));
 
+  s->shared_vca = 1.0f;
   s->shared_structure = 0.5f;
   s->shared_brightness = 0.5f;
   s->shared_damping = 0.5f;
@@ -255,8 +256,8 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
     s->part.Process(perf, patch, s->in, s->out, s->aux, n);
   }
   for (size_t i = 0; i < n; ++i) {
-    out_l[i] = s->out[i];
-    out_r[i] = s->aux[i];
+    out_l[i] = s->out[i] * s->shared_vca;
+    out_r[i] = s->aux[i] * s->shared_vca;
   }
 }
 
@@ -371,7 +372,7 @@ void render() {
   // ports use) = stalled. Clip16 is OURS (rings clips at the codec write).
   // g_render_gain is the swap-mute ramp (1.0 in normal render).
   uint32_t w0 = time_us_32();
-  const float gain = g_render_gain;
+  const float gain = g_render_gain * s->shared_vca;
   for (size_t i = 0; i < kBlockSize; ++i) {
     const int16_t l = static_cast<int16_t>(
         stmlib::Clip16(static_cast<int32_t>(s->out[i] * 32768.0f * gain)));
@@ -398,6 +399,7 @@ void note_off(uint8_t note) {
 void control_change(uint8_t cc, uint8_t val) {
   const float v = (float)val / 127.0f;
   switch (cc) {
+    case 7:  s->shared_vca = v; break;
     case 14: s->shared_structure = v; break;
     case 15: s->shared_brightness = v; break;
     case 16: s->shared_damping    = v; break;
@@ -485,6 +487,7 @@ bool mod_set_cc_float(uint8_t cc, float v) {
   if (v < 0.0f) v = 0.0f;
   if (v > 1.0f) v = 1.0f;
   switch (cc) {
+    case 7:  s->shared_vca = v; break;
     case 14: s->shared_structure = v; break;
     case 15: s->shared_brightness = v; break;
     case 16: s->shared_damping    = v; break;
