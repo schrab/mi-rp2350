@@ -218,17 +218,15 @@ static const UiPageCell kUiPageCloudsP1[] = {
     {65, "FREEZE",     kUiColorWhite},
     {66, "TRIG",       kUiColorWhite},
 };
-// plaits — P1: all white.
+// plaits — P1: 11 cells.
 static const UiPageCell kUiPagePlaitsP1[] = {
+    {1,  "PITCH",      kUiColorWhite},
     {14, "TIMBRE",     kUiColorWhite},
     {15, "MORPH",      kUiColorWhite},
     {16, "HARMONICS",  kUiColorWhite},
     {17, "MACRO",      kUiColorWhite},
     {18, "LPG",        kUiColorWhite},
     {19, "DECAY",      kUiColorWhite},
-    {20, "FM AMT",     kUiColorWhite},
-    {21, "TIM MOD",    kUiColorWhite},
-    {22, "MORPH MOD",  kUiColorWhite},
     {25, "LEVEL",      kUiColorWhite},
     {23, "ENGINE",     kUiColorWhite},
     {24, "AUX",        kUiColorWhite},
@@ -256,7 +254,7 @@ static const UiPageCell kUiPageRingsP1[] = {
 static const UiPageTable kUiPages[RACK_MODULE_COUNT][2] = {
     { {kUiPageElementsP1, 16}, {kUiPageElementsP2, 4} },   // elements
     { {kUiPageCloudsP1, 16},   {nullptr, 0} },             // clouds
-    { {kUiPagePlaitsP1, 13},   {nullptr, 0} },             // plaits
+    { {kUiPagePlaitsP1, 11},   {nullptr, 0} },             // plaits
     { {kUiPageRingsP1, 12},    {nullptr, 0} },             // rings
 };
 static const UiPageTable kUiPageEmpty = { nullptr, 0 };   // unused fallback
@@ -471,6 +469,7 @@ static void ui_link_uart_init() {
   Serial1.begin(921600, SERIAL_8N1);
   for (uint8_t m = 0; m < RACK_MODULE_COUNT; ++m) {
     g_ui_cc_cache[m][7] = 127;   // VCA default full open (1.0)
+    g_ui_cc_cache[m][1] = 64;    // PITCH default center (0 st)
   }
   g_ui_cc_cache[RACK_MODULE_PLAITS][25] = 102; // Plaits default shared_level = 0.8 (~102/127)
 }

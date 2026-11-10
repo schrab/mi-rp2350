@@ -47,23 +47,18 @@ static const uint32_t kStallUs = 900;     // >2x the 500 us block period
 
 static const char* const kCcMap =
     "7 vca, 14 timbre, 15 morph, 16 harmonics, 17 macro/model-cv, 18 lpg-colour, "
-    "19 decay, 20 fm-amount, 21 timbre-mod, 22 morph-mod, 23 engine(0-97), "
-    "24 aux-option, 25 level";
-// T3 mod destinations: the patch/modulation parameters 7, 14-22 + 25 accept
-// continuous modulation (17/20/21/22 keep their control_change range mappings,
-// applied at float precision). 23 (engine catalog index) and 24 (aux output
-// option) are EXCLUDED — catalog/option selectors must not be modulated; the
-// engine change also re-Inits the engine mid-render, so a per-block write
-// would retrigger it every block. Pseudo-CC 64 (sustain pedal — verified
-// unused by all four CC maps) = the TRIG input: pulse-kind, full velocity.
-static const uint8_t kModContinuousCcs[] = {7, 14, 15, 16, 17, 18, 19, 20, 21,
-                                            22, 25};
+    "1 pitch(-24..+24st), 7 vca/level, 14 timbre, 15 morph, 16 harmonics, "
+    "17 macro, 18 lpg-colour, 19 decay, 23 engine(0-97), 24 aux-option, "
+    "25 level, 64 trig";
+// T3 mod destinations: continuous 1, 7, 14-19, 25 (17 keeps macro mapping;
+// 1 = pitch -24..+24 st). 23/24 excluded (selectors). Pseudo-CC 64 = TRIG.
+static const uint8_t kModContinuousCcs[] = {1, 7, 14, 15, 16, 17, 18, 19, 25};
 static const uint8_t kModTriggerCcs[] = {64};
 static const uint8_t kModTriggerKinds[] = {RACK_TRIG_PULSE};
 static const RackModDestinations kModDestinations = {
-    "plaits: continuous 7,14-22,25 (23/24 excluded: engine/aux selectors) | "
+    "plaits: continuous 1,7,14-19,25 (23/24 excluded: engine/aux selectors) | "
     "triggers: 64 trig (pulse, full velocity)",
-    11, kModContinuousCcs,
+    9, kModContinuousCcs,
     1, kModTriggerCcs, kModTriggerKinds,
 };
 
@@ -79,15 +74,16 @@ struct State {
   plaits::Voice::Frame frames[kBlockSize];  // interleaved stereo shorts
 
   // Panel parameters (core 0 writes, core 1 copies into the Patch/Modulations).
+  volatile float shared_pitch;       // CC 1: PITCH (-24..+24 st)
   volatile float shared_timbre;      // CC 14
   volatile float shared_morph;       // CC 15
   volatile float shared_harmonics;   // CC 16
   volatile float shared_macro_cv;    // CC 17: (val-64)/127
   volatile float shared_lpg_colour;  // CC 18
   volatile float shared_decay;       // CC 19
-  volatile float shared_fm_amount;   // CC 20: v*2-1
-  volatile float shared_timbre_mod;  // CC 21: v*2-1
-  volatile float shared_morph_mod;   // CC 22: v*2-1
+  volatile float shared_fm_amount;   // CC 20 (unused, neutral 0.0)
+  volatile float shared_timbre_mod;  // CC 21 (unused, neutral 0.0)
+  volatile float shared_morph_mod;   // CC 22 (unused, neutral 0.0)
   volatile float shared_level;       // CC 25 / CC 7
 
   // TRIG (CC 64): latched gate switch + pending edge
@@ -129,6 +125,7 @@ void init_at(uint8_t* base) {
   s->active_engine_report = 0;
   s->trig_latched = false;
   s->pending_trig_pulse = false;
+  s->shared_pitch = 0.0f;
   s->shared_timbre = 0.5f;
   s->shared_morph = 0.5f;
   s->shared_harmonics = 0.5f;
@@ -209,7 +206,7 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
     s->mod.trigger = 0.0f;
   }
 
-  s->patch.note = shared_note;
+  s->patch.note = shared_note + s->shared_pitch;
   s->patch.harmonics = s->shared_harmonics;
   s->patch.timbre = s->shared_timbre;
   s->patch.morph = s->shared_morph;
@@ -281,7 +278,7 @@ void render() {
   }
 
   // --- Patch fill (units documented in plaits-rp2350/src/main.cpp) ---
-  s->patch.note = shared_note;
+  s->patch.note = shared_note + s->shared_pitch;
   s->patch.harmonics = s->shared_harmonics;
   s->patch.timbre = s->shared_timbre;
   s->patch.morph = s->shared_morph;
@@ -367,6 +364,12 @@ void note_off(uint8_t note) {
 void control_change(uint8_t cc, uint8_t val) {
   const float v = (float)val / 127.0f;
   switch (cc) {
+    case 1:
+      // CC 1 = PITCH: -24..+24 semitones around standard pitch (val 64 = 0)
+      s->shared_pitch = (val < 64)
+          ? (float)(val - 64) * (24.0f / 64.0f)
+          : (float)(val - 64) * (24.0f / 63.0f);
+      break;
     case 14: s->shared_timbre     = v; break;
     case 15: s->shared_morph      = v; break;
     case 16: s->shared_harmonics  = v; break;
@@ -376,10 +379,6 @@ void control_change(uint8_t cc, uint8_t val) {
     case 17: s->shared_macro_cv = ((float)val - 64.0f) / 127.0f; break;
     case 18: s->shared_lpg_colour = v; break;
     case 19: s->shared_decay      = v; break;
-    // Modulation amounts span [-1, +1] like the panel pots; CC 64 = off.
-    case 20: s->shared_fm_amount  = v * 2.0f - 1.0f; break;
-    case 21: s->shared_timbre_mod = v * 2.0f - 1.0f; break;
-    case 22: s->shared_morph_mod  = v * 2.0f - 1.0f; break;
     // ENGINE: raw value = registry index (0-97). Values beyond the catalog
     // are ignored; applied between render blocks.
     case 23:
@@ -407,13 +406,14 @@ void control_change(uint8_t cc, uint8_t val) {
 // engine only runs while not swapping, so `s` is always the live state.
 
 // Continuous destination write (0..1 virtual CC position, float precision).
-// CCs 17/20/21/22 apply the SAME range mappings control_change applies to a
-// CC byte (macro centered at v=64/127; the ±1 modulation amounts), so a routed
+// CCs 1/17 apply the SAME range mappings control_change applies to a
+// CC byte (macro centered at v=64/127; pitch -24..+24 st), so a routed
 // LFO sweeps the full panel range at level 1.0. 23/24 excluded (selectors).
 bool mod_set_cc_float(uint8_t cc, float v) {
   if (v < 0.0f) v = 0.0f;
   if (v > 1.0f) v = 1.0f;
   switch (cc) {
+    case 1:  s->shared_pitch      = (v - 0.5f) * 48.0f; break; // CC 1 = PITCH: -24..+24 st
     case 7:
     case 25: s->shared_level      = v; break;
     case 14: s->shared_timbre     = v; break;
@@ -422,9 +422,6 @@ bool mod_set_cc_float(uint8_t cc, float v) {
     case 17: s->shared_macro_cv   = (v * 127.0f - 64.0f) / 127.0f; break;
     case 18: s->shared_lpg_colour = v; break;
     case 19: s->shared_decay      = v; break;
-    case 20: s->shared_fm_amount  = v * 2.0f - 1.0f; break;
-    case 21: s->shared_timbre_mod = v * 2.0f - 1.0f; break;
-    case 22: s->shared_morph_mod  = v * 2.0f - 1.0f; break;
     default: return false;
   }
   return true;

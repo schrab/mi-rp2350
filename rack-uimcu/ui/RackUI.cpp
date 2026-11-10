@@ -259,8 +259,8 @@ namespace CTAG {
                     barMax = n - 1;
                     return idx;
                 }
-                if ((mod & 3) == 0 && cc == 1) {
-                    // Elements PITCH: -24..+24 st (potVal 64 = 0)
+                if (cc == 1) {
+                    // PITCH: -24..+24 st (potVal 64 = 0)
                     int v = ((int)potVal * 48 + 63) / 127 - 24;
                     barVal = potVal;
                     barMax = 127;
