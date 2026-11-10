@@ -1960,6 +1960,30 @@ gestures, BLE) are next per the wiring table.
      - Built and flashed `firmware.uf2` to RP2350 (`COM15`) and `rack-uimcu.bin` to ESP32-C3 (`COM22`). Both boards online and communicating.
    - **Hardware verification:** Confirmed working on hardware by the user (2026-11-10): mapping is completely stable across P1/P2, and changing or clearing mod assignments on other parameters no longer unmaps PLAY. Committed: `227ad5a`.
 
+### Rack T5 — Continuous Gate Modulation & Plugin Output Volume (VCA) (2026-11-10)
+
+1. **Continuous Gate & Euclidean Modulation Dispatch:**
+   - **Root cause:** `mod_engine_process_block()` branched strictly by source type: `MOD_LFO` and `MOD_ADSR` were dispatched to continuous destinations via `mod_write_cc()`, while `MOD_GATE` and `MOD_EUCLID` only checked `mod_trigger_kind()`. Any destination lacking a trigger input (like Plaits `LEVEL` CC 25) returned `kind < 0` and was dropped as inert.
+   - **Fix:** In `mod_engine.h`:
+     - Added `mod_is_continuous(module_id, cc)` helper.
+     - For `MOD_GATE`: if `is_cont`, dispatch `mod_write_cc(active_module, dest, s.out)` (rhythmic 0.0/1.0 square gate for audio chopping/stuttering); if trigger, handle rising edges and latches.
+     - For `MOD_EUCLID`: if `is_cont`, dispatch `mod_write_cc(active_module, dest, s.out)` (euclidean 0.0/1.0 pulse level); if trigger, handle step pulse.
+     - In `mod_set_dest()`: determine `can_continuous = (LFO || ADSR || GATE || EUCLID)` and `can_trigger = (EUCLID || GATE)`. Log continuous routing if valid, trigger routing if valid, and only log `INERT` if neither.
+     - When unassigning or switching a continuous destination (`dest == 0`), automatically restore the panel's static knob value from `g_ui_cc_cache` via `ui_link_restore_cached_cc()`.
+     - In `ui_link.h`: updated `ui_link_cell_flags()` to clear `kUiFlagInert` when GATE or EUCLID are routed to continuous CCs.
+
+2. **Master Output Volume (VCA, CC 7) across Modules:**
+   - **Elements (`module_elements.h`):** Added `shared_vca` (CC 7, 0..127 float 0.0..1.0, default 1.0f). Multiplies output in `render()` and `chain_render_a()`. Added to `kCcMap` and `kModContinuousCcs` (count 17). Placed on **Elements P2** (Cell 3, pot 4; P2 count expands to 4: `MODEL`, `OMINOUS`, `PLAY`, `VCA`).
+   - **Rings (`module_rings.h`):** Added `shared_vca` (CC 7, 0..127 float 0.0..1.0, default 1.0f). Multiplies output in `render()` and `chain_render_a()`. Added to `kCcMap` and `kModContinuousCcs` (count 6). Placed on **Rings P1** (Cell 11, pot 12; P1 count expands to 12).
+   - **Plaits (`module_plaits.h`):** Aliased CC 7 to `shared_level` (pot 10 on P1) in `control_change()` and `mod_set_cc_float()`. Added CC 7 to `kModContinuousCcs` (count 11).
+   - **UI Cache Defaults:** Initialized CC 7 cache defaults to 127 across all modules in `ui_link_uart_init()`, and Plaits CC 25 default to 102.
+
+3. **Build, Flash & Bench Test:**
+   - Built with PlatformIO: all four targets (`rack-elements`, `rack-clouds`, `rack-plaits`, `rack-rings`) compiled cleanly.
+   - Flashed RP2350 via 1200-baud touch and `firmware.uf2` copy to `E:\`.
+   - Verified via serial console: `mod gate1 dest 7` routes as continuous on Elements without inert flag, `mod gate1 dest 0` restores static value, module switches to Plaits (CC 7/25 continuous) and Rings (CC 7 continuous) run with zero stalls and low process times (~58 µs Plaits, ~291 µs Rings, ~154 µs Elements).
+   - Committed: `386a243`.
+
 
 
 
