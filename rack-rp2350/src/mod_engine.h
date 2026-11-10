@@ -211,6 +211,14 @@ struct ModEngine {
 };
 extern ModEngine g_mod_engine;   // DEFINED in main.cpp — plain .bss, NOT arenas
 
+// Check if any modulation source is currently routed to destination cc.
+bool mod_is_dest_routed(uint8_t cc) {
+  for (uint8_t i = 0; i < MOD_SOURCE_COUNT; ++i) {
+    if (g_mod_engine.src[i].dest_cc == cc) return true;
+  }
+  return false;
+}
+
 // ===================== small helpers =====================
 static inline float mod_clamp01(float v) {
   return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
@@ -705,15 +713,18 @@ static void mod_set_dest(uint8_t src_idx, uint8_t cc) {
   s.dest_cc = cc;
   s.was_high = 0;                 // no stale edge into the new destination
 
-  // If old destination was continuous and no other source is driving it,
+  // If old destination was routed and no other source is driving it,
   // restore panel's static value from cache.
   if (old_cc != 0 && old_cc != cc) {
     const RackModuleInfo& m_old = kRackModules[g_active_module];
-    bool old_was_cont = false;
+    bool old_was_cont = false, old_was_trig = false;
     for (uint8_t i = 0; i < m_old.mod_destinations->continuous_count; ++i) {
       if (m_old.mod_destinations->continuous[i] == old_cc) { old_was_cont = true; break; }
     }
-    if (old_was_cont) {
+    for (uint8_t i = 0; i < m_old.mod_destinations->trigger_count; ++i) {
+      if (m_old.mod_destinations->trigger_cc[i] == old_cc) { old_was_trig = true; break; }
+    }
+    if (old_was_cont || old_was_trig) {
       bool other_routed = false;
       for (uint8_t i = 0; i < MOD_SOURCE_COUNT; ++i) {
         if (i != src_idx && e.src[i].dest_cc == old_cc) { other_routed = true; break; }

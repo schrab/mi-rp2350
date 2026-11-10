@@ -23,6 +23,9 @@
 #include "rack_arena.h"
 #include "module_registry.h"     // RackModDestinations (T3 mod routing table)
 
+// Forward declaration of mod_engine destination query (defined in mod_engine.h).
+bool mod_is_dest_routed(uint8_t cc);
+
 namespace rack_modules {
 namespace mod_plaits {
 
@@ -85,7 +88,11 @@ struct State {
   volatile float shared_fm_amount;   // CC 20: v*2-1
   volatile float shared_timbre_mod;  // CC 21: v*2-1
   volatile float shared_morph_mod;   // CC 22: v*2-1
-  volatile float shared_level;       // CC 25
+  volatile float shared_level;       // CC 25 / CC 7
+
+  // TRIG (CC 64): latched gate switch + pending edge
+  volatile bool  trig_latched;       // CC 64 pot: false (0) = unpatched, true (127) = patched
+  volatile bool  pending_trig_pulse; // pulse trigger on rising edge (from CC 64 or mod)
 
   volatile int8_t   pending_engine;      // -1 none, 0..97 engine
   volatile int8_t   pending_aux_option;  // -1 none, 0/1/2 aux option
@@ -120,6 +127,8 @@ void init_at(uint8_t* base) {
   s->pending_aux_option = -1;
   s->pending_trigger = -1.0f;
   s->active_engine_report = 0;
+  s->trig_latched = false;
+  s->pending_trig_pulse = false;
   s->shared_timbre = 0.5f;
   s->shared_morph = 0.5f;
   s->shared_harmonics = 0.5f;
@@ -181,6 +190,18 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
     s->patch.aux_output_option = static_cast<uint8_t>(s->pending_aux_option);
     s->pending_aux_option = -1;
   }
+
+  if (s->pending_trig_pulse) {
+    s->pending_trig_pulse = false;
+    s->pending_trigger = 1.0f;
+  }
+
+  const bool trig_routed = ::mod_is_dest_routed(64);
+  const bool level_routed = ::mod_is_dest_routed(25) || ::mod_is_dest_routed(7);
+
+  const bool trig_patched = s->trig_latched || trig_routed;
+  const bool level_patched = level_routed;
+
   if (s->pending_trigger > -0.5f) {
     s->mod.trigger = s->pending_trigger;
     s->pending_trigger = -1.0f;
@@ -204,7 +225,7 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
   s->mod.harmonics = 0.0f;
   s->mod.timbre = 0.0f;
   s->mod.morph = 0.0f;
-  s->mod.level = shared_gate ? s->shared_level : 0.0f;
+  s->mod.level = level_patched ? s->shared_level : 0.0f;
   s->mod.hard_sync = 0;
   for (size_t i = 0; i < n; ++i) {
     s->mod.frequency_audio[i] = 0.0f;
@@ -213,13 +234,14 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
   s->mod.frequency_patched = false;
   s->mod.timbre_patched = false;
   s->mod.morph_patched = false;
-  s->mod.trigger_patched = true;
-  s->mod.level_patched = true;
+  s->mod.trigger_patched = trig_patched;
+  s->mod.level_patched = level_patched;
 
   s->voice.Render(s->patch, s->mod, s->frames, n);
+  const float vca = level_patched ? 1.0f : s->shared_level;
   for (size_t i = 0; i < n; ++i) {
-    out_l[i] = static_cast<float>(s->frames[i].out) / 32768.0f;
-    out_r[i] = static_cast<float>(s->frames[i].aux) / 32768.0f;
+    out_l[i] = (static_cast<float>(s->frames[i].out) / 32768.0f) * vca;
+    out_r[i] = (static_cast<float>(s->frames[i].aux) / 32768.0f) * vca;
   }
 }
 
@@ -238,7 +260,18 @@ void render() {
     s->pending_aux_option = -1;
   }
 
-  // TRIG pulse: one block high at the note-on velocity, then low so
+  if (s->pending_trig_pulse) {
+    s->pending_trig_pulse = false;
+    s->pending_trigger = 1.0f;
+  }
+
+  const bool trig_routed = ::mod_is_dest_routed(64);
+  const bool level_routed = ::mod_is_dest_routed(25) || ::mod_is_dest_routed(7);
+
+  const bool trig_patched = s->trig_latched || trig_routed;
+  const bool level_patched = level_routed;
+
+  // TRIG pulse: one block high at the note-on/pulse velocity, then low so
   // trigger_state_ clears. Rapid re-notes each get their own edge.
   if (s->pending_trigger > -0.5f) {
     s->mod.trigger = s->pending_trigger;
@@ -258,14 +291,14 @@ void render() {
   s->patch.decay = s->shared_decay;
   s->patch.lpg_colour = s->shared_lpg_colour;
 
-  // --- Modulations fill: TRIG + LEVEL patched, everything else unpatched ---
+  // --- Modulations fill: TRIG + LEVEL reflect patch state, everything else unpatched ---
   s->mod.engine = s->shared_macro_cv;  // fourth macro under model_cv_option=1
   s->mod.note = 0.0f;
   s->mod.frequency = 0.0f;
   s->mod.harmonics = 0.0f;
   s->mod.timbre = 0.0f;
   s->mod.morph = 0.0f;
-  s->mod.level = shared_gate ? s->shared_level : 0.0f;  // held = sustain, off = release
+  s->mod.level = level_patched ? s->shared_level : 0.0f;
   s->mod.hard_sync = 0;
   for (size_t i = 0; i < kBlockSize; ++i) {
     s->mod.frequency_audio[i] = 0.0f;  // unused: PLAITS_BUILD_FREQUENCY_OFFSET_FM=0
@@ -274,8 +307,8 @@ void render() {
   s->mod.frequency_patched = false;
   s->mod.timbre_patched = false;
   s->mod.morph_patched = false;
-  s->mod.trigger_patched = true;
-  s->mod.level_patched = true;
+  s->mod.trigger_patched = trig_patched;
+  s->mod.level_patched = level_patched;
 
   uint32_t t0 = time_us_32();
   // Render() every block (the original firmware contract: plaits.cc:254).
@@ -288,11 +321,16 @@ void render() {
   if (dt > proc_us_max) proc_us_max = dt;
   s->active_engine_report = (uint32_t)s->voice.active_engine();
 
+  // Master VCA: when LEVEL is unpatched (LPG bypass or internal ping), scale
+  // output directly by shared_level; when LEVEL is patched by mod, LPG already
+  // applies compressed_level.
+  const float vca = level_patched ? 1.0f : s->shared_level;
+
   // Meters: OUT/AUX block RMS, max since the last 2 s report.
   float out_acc = 0.0f, aux_acc = 0.0f;
   for (size_t i = 0; i < kBlockSize; ++i) {
-    const float l = static_cast<float>(s->frames[i].out) * gain / 32768.0f;
-    const float r = static_cast<float>(s->frames[i].aux) * gain / 32768.0f;
+    const float l = static_cast<float>(s->frames[i].out) * gain * vca / 32768.0f;
+    const float r = static_cast<float>(s->frames[i].aux) * gain * vca / 32768.0f;
     out_acc += l * l;
     aux_acc += r * r;
   }
@@ -305,8 +343,8 @@ void render() {
   // blocks free every 500 us; > 900 us = stalled.
   uint32_t w0 = time_us_32();
   for (size_t i = 0; i < kBlockSize; ++i) {
-    const int16_t out = static_cast<int16_t>(s->frames[i].out * gain);
-    const int16_t aux = static_cast<int16_t>(s->frames[i].aux * gain);
+    const int16_t out = static_cast<int16_t>(s->frames[i].out * gain * vca);
+    const int16_t aux = static_cast<int16_t>(s->frames[i].aux * gain * vca);
     i2s.write16(out, aux);
   }
   if (time_us_32() - w0 > kStallUs) {
@@ -354,6 +392,12 @@ void control_change(uint8_t cc, uint8_t val) {
       break;
     case 7:
     case 25: s->shared_level = v; break;
+    // TRIG pseudo-CC (64): val >= 64 patches TRIG and starts envelope pulse;
+    // val < 64 unpatches TRIG (restores LPG bypass if LEVEL is unpatched).
+    case 64:
+      s->trig_latched = (val >= 64);
+      if (val >= 64) s->pending_trig_pulse = true;
+      break;
     default: break;
   }
 }
@@ -391,7 +435,7 @@ bool mod_set_cc_float(uint8_t cc, float v) {
 // uses; 1.0 = accent ceiling of the 0.3..1.0 pulse voltage).
 bool mod_trigger_cc(uint8_t cc, bool high) {
   if (cc == 64) {
-    if (high) s->pending_trigger = 1.0f;
+    if (high) s->pending_trig_pulse = true;
     return true;
   }
   return false;

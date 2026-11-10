@@ -233,7 +233,7 @@ namespace CTAG {
                 const uint8_t n = p1p2DiscreteCount(mod, cc, wireBool);
                 if (n > 1) {
                     if (wireBool) return potVal >= 64 ? 127 : 0;
-                    uint8_t idx = (uint8_t)(((uint16_t)potVal * n) / 128);
+                    uint8_t idx = (uint8_t)(((uint16_t)potVal * n) / 127);
                     if (idx >= n) idx = (uint8_t)(n - 1);
                     return idx;
                 }
@@ -253,7 +253,7 @@ namespace CTAG {
                 bool wireBool = false;
                 const uint8_t n = p1p2DiscreteCount(mod, cc, wireBool);
                 if (n > 1) {
-                    int idx = ((int)potVal * n) / 128;
+                    int idx = ((int)potVal * n) / 127;
                     if (idx >= n) idx = n - 1;
                     barVal = idx;
                     barMax = n - 1;
