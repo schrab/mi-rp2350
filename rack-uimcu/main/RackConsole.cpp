@@ -8,6 +8,7 @@ esp_log vprintf hand-off); the command set is the rack's.
 
 #include "PresetStore.hpp"
 #include "RackLink.hpp"
+#include "BtMidiReceiver.hpp"
 #include "RackPots.hpp"
 #include "RackUI.hpp"
 #include "BtMidiReceiver.hpp"
@@ -56,6 +57,8 @@ namespace CTAG {
                 printf("  heap          free-heap report\r\n");
                 printf("  preset        T4a bank status (save <0-15> / "
                        "load <0-15> / clear)\r\n");
+                printf("  ble           BLE-MIDI status (on|off|per|cen|"
+                       "scan)\r\n");
             }
 
             void consoleTask(void *) {
@@ -138,6 +141,9 @@ namespace CTAG {
                                        "display path works again\r\n");
                             } else if (!strncasecmp(line, "preset", 6)) {
                                 PresetStore::ConsoleCmd(line + 6);
+                            } else if (!strncasecmp(line, "ble", 3)) {
+                                CTAG::DRIVERS::BtMidiReceiver::ConsoleCmd(
+                                    line + 3);
                             } else if (!strcasecmp(line, "heap")) {
                                 printf("heap free=%u largest=%u (internal "
                                        "8-bit; FB=%u B)\r\n",

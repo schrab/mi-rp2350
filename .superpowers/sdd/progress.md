@@ -2165,3 +2165,56 @@ already in the running C3 firmware — no reflash needed):
   MSYSTEM cleared (the .bat does that + sets IDF_PATH/python-env/
   toolchain PATH for this machine: IDF v5.4.2 at ~/esp/v5.4.2).**
 - BLE-MIDI central bench script + capture helpers stay in tools/ for T7.
+### Rack T5 — BLE-MIDI dual-role + SMC-PAD central WORKING (2026-11-11)
+
+- **Stage 6 peripheral benched first** (bleak central sender,
+  `tools/ble_midi_sender.py`): 12/12 notes + 12 CCs delivered, 0 drops,
+  heap healthy (103 KB free with NimBLE + FB + active connection). CDC
+  gotcha recorded: Adafruit_USBD_CDC gates TX on DTR — a serial capture
+  without DTR reads nothing.
+- **Central mode added** (user request: connect the desk's SMC-PAD):
+  dual-role `BtMidiReceiver` — PERIPHERAL (advertise "Rack UI", the
+  benched stage-6 path) / CENTRAL (scan → auto-connect to the first
+  BLE-MIDI advertiser → subscribe → the SAME parseBleMidi → SendMidi
+  funnel). Role switch + on/off from SYS page cells 9/10 (pot 9 = BLE
+  on/off, pot 10 = BLE MOD PER/CEN — C3-local, NVS-persisted) and the
+  console (`ble [status|on|off|per|cen|scan]`). Mode switch terminates
+  the current role's connection and restarts the other (DISCONNECT
+  handler follows the NEW mode; role of the live connection tracked via
+  ble_gap_conn_find's desc.role).
+- **ROOT CAUSE of the silent pad (the long debugging story):** the pad
+  (JieLi BR25 / M-VAVE family, MIDI I/O chr = SINCO UUID
+  7772E5DB-3868-4112-A1A9-F2669D106BF3, NOT the Apple C702) accepts the
+  connection and even a bare CCCD write, but its stock firmware only
+  ARMS THE STREAM for the full chained subscribe of the ctag uimcu C3
+  panel: explicit MTU exchange on connect → service/chr discovery →
+  0x2902 CCCD via RELIABLE write → Apple-spec READ of the MIDI I/O
+  characteristic (chained so one GATT procedure is in flight) →
+  write_no_rsp keepalive {0x80,0x80,0xF8}. Also `ble_store_config_init()`
+  in Init and the uimcu sdkconfig (NVS_PERSIST=y, BT_CTRL_BLE_MAX_ACT=10,
+  NO host flow control — an earlier flow-control experiment came from
+  the WRONG reference: the classic-ESP32 bba config, not the C3 uimcu).
+- **Dead ends eliminated with evidence:** IDF 5.4.2 vs 6.1 (both silent
+  with the wrong flow — the 6.1 build needed explicit NimBLE include
+  dirs in main/CMakeLists.txt since 6.x stopped propagating them);
+  subscribe-everything (all 4 notify chars — EBUSY races + pointless);
+  250 ms note-off keepalive (no effect alone); fast conn interval (no
+  effect alone); PC-side bleak subscribe (the pad DROPS WinRT centrals
+  ~2 s in — even after successful pairing — so the PC could never
+  receive either). The ctag-tbd BBA builds exclude BtMidiReceiver
+  entirely (radio-free) — the working reference was the uimcu C3 panel
+  project at /home/ubuntu/ctag-tbd/uimcu (found by diffing all ctag
+  branches/builds).
+- **Bench (hardware, user playing):** pad → C3 central → RP2350 notes
+  live (`notes=` 221→273 while watched), IN/OUT meters hot, rings
+  envelopes firing, zero stalls; C3 `ble status`: msgs=547 drops=0.
+  Reference copy of the proven upstream file kept at
+  `tools/ctag_uimcu_BtMidiReceiver.cpp`.
+- **Bench tooling lessons recorded:** WSL builds on /mnt/c are slow AND
+  ninja/CMake can reuse stale state across FS boundary edits (a
+  CMakeLists edit did not reconfigure until forced); build in the WSL
+  native FS (~/rack-uimcu61 pattern) or locally via
+  tools/build_uimcu.bat. ALWAYS verify "Project build complete" +
+  zero `error:` lines before flashing (a broken grep once flashed a
+  stale binary), and confirm the board actually rebooted (fresh
+  uptime timestamps in the boot log).

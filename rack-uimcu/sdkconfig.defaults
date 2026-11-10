@@ -24,3 +24,12 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_ESP_INT_WDT_TIMEOUT_MS=5000
 
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# BLE central: match the working ctag uimcu C3 panel sdkconfig verbatim
+# (the config that streams from the SMC-PAD on this same chip): NimBLE
+# NVS persist, 10 controller BLE activities, and NO host flow control.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_NVS_PERSIST=y
+CONFIG_BT_CTRL_BLE_MAX_ACT=10
+CONFIG_BT_CTRL_BLE_MAX_ACT_EFF=10

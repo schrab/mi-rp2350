@@ -9,6 +9,7 @@ acks drive the UI" — the C3 never invents values; missing TELEM = dashes).
 #include "Display.hpp"
 #include "RackLink.hpp"
 #include "PresetStore.hpp"
+#include "BtMidiReceiver.hpp"
 #include "RackPots.hpp"
 #include "input/UserInput.hpp"
 #include "BtMidiReceiver.hpp"
@@ -442,12 +443,14 @@ namespace CTAG {
                     return v;
                 }
                 if (slot == 8) {
-                    int v = ((int)potVal * 4) / 128;
-                    if (v > 3) v = 3;
+                    int v = ((int)potVal * 16) / 128;
+                    if (v > 15) v = 15;
                     barVal = v;
-                    barMax = 3;
+                    barMax = 15;
                     return v;
                 }
+                // slots 9/10 (BLE ON, BLE MODE) are C3-local booleans — the
+                // generic >= 64 boolean below fits both.
                 int v = potVal >= 64 ? 1 : 0;
                 barVal = v;
                 barMax = 1;
@@ -674,6 +677,16 @@ namespace CTAG {
                             pName = dispVal ? "ON" : "OFF";
                         } else if (slot == 7) {
                             pName = dispVal ? "MIDI" : "INT";
+                        } else if (slot == 9) {
+                            // T4a-era: C3-local BLE radio (the cell IS the
+                            // state; the wire TELEM never carries it).
+                            pName = CTAG::DRIVERS::BtMidiReceiver::Enabled()
+                                        ? "ON" : "OFF";
+                        } else if (slot == 10) {
+                            pName = CTAG::DRIVERS::BtMidiReceiver::Mode() ==
+                                            CTAG::DRIVERS::BtMidiReceiver::
+                                                kModeCentral
+                                        ? "CEN" : "PER";
                         }
                     }
 
@@ -710,25 +723,40 @@ namespace CTAG {
 
         static void renderPage() {
             for (int slot = 0; slot < 16; ++slot) {
-                // SYS pot 8 = the C3-LOCAL preset slot cell (no TELEM cell
-                // exists — the RP2350 owns no slot state until T4a).
-                if (s_page == 7 && slot == 8 && s_fullArrived) {
-                    const uint8_t presetPotVal =
-                        (uint8_t)(((uint16_t)s_presetSlot * 127) / 15);
+                // SYS pots 8/9/10 = C3-LOCAL cells (no TELEM cells exist):
+                // 8 = preset slot, 9 = BLE radio, 10 = BLE role. The
+                // RP2350 owns no state for these — the C3 renders + acts.
+                if (s_page == 7 && slot >= 8 && slot <= 10 && s_fullArrived) {
+                    uint8_t potVal = 0;
+                    const char *label = "PRESET";
+                    if (slot == 8) {
+                        potVal = (uint8_t)(((uint16_t)s_presetSlot * 127) / 15);
+                    } else if (slot == 9) {
+                        potVal = CTAG::DRIVERS::BtMidiReceiver::Enabled()
+                                     ? 127 : 0;
+                        label = "BLE";
+                    } else {
+                        potVal =
+                            CTAG::DRIVERS::BtMidiReceiver::Mode() ==
+                                    CTAG::DRIVERS::BtMidiReceiver::kModeCentral
+                                ? 127
+                                : 0;
+                        label = "BLE MOD";
+                    }
                     int8_t pdir = 0;
                     const uint8_t pick = RackPots::PickupPending(slot, pdir)
                                              ? (uint8_t)(pdir > 0 ? 2 : 1)
                                              : 0;
                     CellSnap &ps = s_rendered[slot];
                     if (s_pageDirty || !ps.present ||
-                        ps.value != presetPotVal || ps.pick != pick ||
-                        strcmp(ps.label, "PRESET") != 0) {
+                        ps.value != potVal || ps.pick != pick ||
+                        strcmp(ps.label, label) != 0) {
                         ps.present = true;
-                        ps.value = presetPotVal;
+                        ps.value = potVal;
                         ps.flags = 0;
                         ps.color = 2;               // teal class
                         ps.pick = pick;
-                        snprintf(ps.label, sizeof(ps.label), "PRESET");
+                        snprintf(ps.label, sizeof(ps.label), "%s", label);
                         renderCell(slot);
                     }
                     continue;
@@ -853,7 +881,8 @@ namespace CTAG {
                 if (pot == 5 || pot == 15) n = 10;   // ADSR DIV (0..9)
             } else if (s_page == 7) {
                 if (pot == 4) n = 3;          // CHAIN PR (1..3)
-                else if (pot == 8) n = 4;     // PRESET (0..3)
+                else if (pot == 8) n = 16;    // PRESET slot (0..15)
+                else if (pot == 9 || pot == 10) n = 2; // BLE ON (0/1), BLE MODE (PER/CEN)
                 else if (pot < 4 || pot == 5 || pot == 7 || pot == 14 || pot == 15) n = 2; // Modules 0..3, CHAIN ON 5, CLKSRC 7, TELEM D 14, TELEM F 15
             }
             if (n >= 2 && n <= 19) {
@@ -1101,6 +1130,32 @@ namespace CTAG {
                             if (s_presetSlot != slotIdx) {
                                 s_presetSlot = slotIdx;
                                 s_pageDirty = true;
+                            }
+                        } else if (pot == 9 || pot == 10) {
+                            // T4a-era: C3-local BLE radio / role pots. The
+                            // bucket deadband quantizes potVal to 0/1; act
+                            // on the quantized state change. (No TELEM
+                            // cache write — these cells are C3-owned.)
+                            const uint8_t want =
+                                potVal >= 64 ? 1 : 0;
+                            if (pot == 9) {
+                                if (s_lastWireSent[9] != want) {
+                                    s_lastWireSent[9] = want;
+                                    CTAG::DRIVERS::BtMidiReceiver::SetEnabled(
+                                        want != 0);
+                                    s_pageDirty = true;
+                                }
+                            } else {
+                                const uint8_t wantMode =
+                                    CTAG::DRIVERS::BtMidiReceiver::kModeCentral;
+                                if (s_lastWireSent[10] != want) {
+                                    s_lastWireSent[10] = want;
+                                    CTAG::DRIVERS::BtMidiReceiver::SetMode(
+                                        want ? wantMode
+                                             : CTAG::DRIVERS::BtMidiReceiver::
+                                                   kModePeripheral);
+                                    s_pageDirty = true;
+                                }
                             }
                         }
                     }

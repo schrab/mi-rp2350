@@ -131,6 +131,25 @@ event per detent (GPIO-ISR quadrature, seed detent table).
   `pots` dumps raw + mapped values. Uncalibrated pots work full-range.
 - `ui` — link + page state; `page <0-5>` — page switch without the
   encoder; `heap` — free-heap report (NimBLE + 43 KB FB + link rings).
+- `ble` — BLE-MIDI status (`on|off|per|cen|scan`). The C3 runs BLE-MIDI
+  in ONE of two roles:
+  - **PERIPHERAL** (default): advertises "Rack UI" with the standard
+    BLE-MIDI service — a central (phone/DAW) connects and sends MIDI.
+  - **CENTRAL**: scans and auto-connects to the first advertiser carrying
+    the BLE-MIDI service (the desk's SMC-PAD), then subscribes with the
+    ctag uimcu panel's chained flow — explicit MTU exchange, 0x2902 CCCD
+    via RELIABLE write, the Apple-spec READ of the MIDI I/O
+    characteristic, then a `write_no_rsp` keepalive. That chain (vs. a
+    bare CCCD write) is what makes the pad's stock firmware actually
+    stream — benched 2026-11-11: pad → C3 → RP2350 notes live, 547 msgs
+    0 drops. The pad's MIDI I/O characteristic is its SINCO variant
+    (`7772E5DB-3868-4112-A1A9-F2669D106BF3`), not the Apple C702.
+  - SYS page cells: pot 9 = `BLE` on/off, pot 10 = `BLE MOD`
+    (`PER`/`CEN`) — both C3-local (NVS-persisted across power cycles).
+    Role switches tear the current role down and start the other.
+  - Reference copy of the proven upstream file:
+    `tools/ctag_uimcu_BtMidiReceiver.cpp` (from the ctag-tbd uimcu
+    panel — read the header before touching the flow).
 - `preset` — T4a bank status (partition ready, autosave seq, boot-restore
   flag); `preset save <0-15>` / `preset load <0-15>` — the bank flows via
   the link; `preset clear` — wipe slots + autosave. The bank lives in the

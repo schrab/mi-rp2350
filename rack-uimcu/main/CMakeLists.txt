@@ -36,3 +36,16 @@ idf_component_register(
             "${UI}/Display.cpp"
             "${UI}/RackUI.cpp"
         INCLUDE_DIRS "." "${UI}")
+
+# IDF 6.x stopped propagating the bt component's NimBLE include dirs to
+# dependents (the 5.4-era build got them transitively). BtMidiReceiver.cpp
+# includes the NimBLE host headers directly — add the paths explicitly.
+if(CONFIG_BT_ENABLED)
+    target_include_directories(${COMPONENT_LIB} PRIVATE
+        "${IDF_PATH}/components/bt/host/nimble/nimble/nimble/host/include"
+        "${IDF_PATH}/components/bt/host/nimble/nimble/nimble/include"
+        "${IDF_PATH}/components/bt/host/nimble/nimble/porting/nimble/include"
+        "${IDF_PATH}/components/bt/host/nimble/nimble/porting/npl/freertos/include"
+        "${IDF_PATH}/components/bt/host/nimble/esp-hci/include"
+        "${IDF_PATH}/components/bt/porting/include")
+endif()
