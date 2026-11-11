@@ -106,7 +106,6 @@ namespace CTAG {
         static uint8_t s_overlaySel = 0;      // 0-3
         static bool s_fullArrived = false;    // TELEM snapshot for s_page
         static uint8_t s_presetSlot = 0;      // SYS: C3-local selection
-        static uint8_t s_sysRing = 0;         // SYS push-ring position
         static bool s_blinkPhase = false;     // 2 Hz inert-cell blink
         static uint8_t s_activePot = 0xFF;    // last moved pot (0-15)
         static uint8_t s_assignPot = 0xFF;    // pot being mapped while held
@@ -167,8 +166,8 @@ namespace CTAG {
             wireIsBool127 = false;
             switch (mod & 3) {
                 case 0: // Elements
-                    if (cc == 28) return 3;   // MODEL: 0..2
-                    if (cc == 29) return 2;   // OMINOUS: 0..1
+                    if (cc == 28) return 4;   // MODEL: 0..3 (MODAL, STRING, STRINGS, OMINOUS)
+                    if (cc == 29) return 2;   // OMINOUS: 0..1 (legacy)
                     if (cc == 64) {
                         wireIsBool127 = true;
                         return 2;             // PLAY: <64 vs >=64
@@ -479,15 +478,7 @@ namespace CTAG {
             // module + page (TELEM header; dashes before the first snapshot; SYS is global)
             char buf[24];
             if (s_page == 7) {
-                // T4a: flag the armed preset action (ring items 3/4) so
-                // SAVE vs LOAD is readable before the push.
-                if (s_sysRing == 3) {
-                    snprintf(buf, sizeof(buf), "SYSTEM SAVE>");
-                } else if (s_sysRing == 4) {
-                    snprintf(buf, sizeof(buf), "SYSTEM LOAD>");
-                } else {
-                    snprintf(buf, sizeof(buf), "SYSTEM");
-                }
+                snprintf(buf, sizeof(buf), "SYSTEM");
             } else if (s_page == 8) {
                 snprintf(buf, sizeof(buf), "%s", kPageNames[s_page]);
             } else if (s_page >= 2 && s_page <= 6) {
@@ -615,8 +606,8 @@ namespace CTAG {
                         if (wireBool) {
                             pName = dispVal ? "ON" : "OFF";
                         } else if ((s_cur.module & 3) == 0 && c.cc == 28) {
-                            static const char *const kElemModels[3] = { "MODAL", "STRING", "STRINGS" };
-                            pName = (dispVal >= 0 && dispVal < 3) ? kElemModels[dispVal] : "---";
+                            static const char *const kElemModels[4] = { "MODAL", "STRING", "STRINGS", "OMINOUS" };
+                            pName = (dispVal >= 0 && dispVal < 4) ? kElemModels[dispVal] : "---";
                         } else if ((s_cur.module & 3) == 1 && c.cc == 23) {
                             static const char *const kCloudModes[3] = { "GRAN", "STRE", "LOOP" };
                             pName = (dispVal >= 0 && dispVal < 3) ? kCloudModes[dispVal] : "---";
@@ -825,73 +816,12 @@ namespace CTAG {
                 snprintf(snap.label, sizeof(snap.label), "%s", c.label);
                 renderCell(slot);
             }
-            // SYS page: the push-ring marker (yellow 1-px underline under
-            // the cell the NEXT short push will act on).
-            if (s_page == 7 && s_fullArrived) {
-                for (int slot = 0; slot < 16; ++slot) {
-                    // ring: 0 module/pair(0) 1 engage(5) 2 preset-slot(8)
-                    // 3 preset-SAVE(8) 4 preset-LOAD(8) 5 telem-d(14)
-                    // 6 telem-f(15)
-                    static const int ringCell[7] = { 0, 5, 8, 8, 8, 14, 15 };
-                    const bool marked = ringCell[s_sysRing] == slot;
-                    const int x = cellX(slot), y = cellY(slot);
-                    Display::FillRect(x, y + BAR_DY + 3, cellW(slot) - 2, 1,
-                                      marked ? Display::kYellow
-                                             : Display::kBlack);
-                }
-            }
             s_pageDirty = false;
         }
 
         // ===================== page / gesture actions =====================
         static const uint8_t kPairA[4] = { 0, 0, 2, 3 };  // 1=elem 2=plaits 3=rings
         static constexpr uint8_t kChainB = 1;             // clouds in all pairs
-
-        static void sysRingAction() {
-            // Engaged flag + configured pair from the MODULE cell (cell 0):
-            // its value encoding works for BOTH modes with the same formula
-            // (not chained: module*32 -> 0/1/2 for elem/plaits/rings, clouds
-            // degrades to elements; chained: (pair-1)*64 -> 0/1/2).
-            const bool engaged = s_fullArrived && s_cur.count > 5 &&
-                                 s_cur.cell[5].value >= 64;
-            uint8_t pair = s_fullArrived && s_cur.count > 0
-                               ? (uint8_t)(1 + ((uint16_t)s_cur.cell[0].value * 3) / 128)
-                               : 1;
-            if (pair < 1 || pair > 3) pair = 1;
-            switch (s_sysRing) {
-                case 0: {  // chain pair cycle (engage state preserved)
-                    const uint8_t next = (uint8_t)(pair % 3 + 1);
-                    if (engaged) {
-                        RackLink::SendChainRoute(kPairA[next], kChainB, 0);
-                        RackLink::SendChainRoute(kPairA[next], kChainB, 1);
-                    } else {
-                        RackLink::SendChainRoute(kPairA[next], kChainB, 0);
-                    }
-                    break;
-                }
-                case 1:  // chain engage toggle
-                    RackLink::SendChainRoute(kPairA[pair], kChainB,
-                                             engaged ? 0 : 1);
-                    break;
-                case 2:  // preset slot cycle (0-15; pot 8 also selects)
-                    s_presetSlot = (uint8_t)((s_presetSlot + 1) & 15);
-                    s_pageDirty = true;
-                    break;
-                case 3:  // T4a: SAVE current rack state into the slot
-                    PresetStore::SaveTo(s_presetSlot);
-                    s_pageDirty = true;
-                    break;
-                case 4:  // T4a: LOAD the slot into the rack
-                    PresetStore::LoadFrom(s_presetSlot);
-                    s_pageDirty = true;
-                    break;
-                case 5: RackLink::SendSysToggle(RackLink::kSysTelemDelta); break;
-                case 6: RackLink::SendSysToggle(RackLink::kSysTelemFull); break;
-            }
-            s_sysRing = (uint8_t)((s_sysRing + 1) % 7);
-            s_stripDirty = true;   // T4a: SYSTEM SAVE/LOAD hint follows the ring
-            s_pendingRefreshUs = esp_timer_get_time() + 45000;
-        }
 
         void RackUI::GetPotBucketBounds(uint8_t pot, const PotTarget &t,
                                         uint8_t &lo, uint8_t &hi) {
@@ -1123,8 +1053,6 @@ namespace CTAG {
                                 if (s_lastWireSent[pot] != wantPair) {
                                     s_lastWireSent[pot] = wantPair;
                                     RackLink::SendChainRoute(
-                                        kPairA[wantPair], kChainB, 0);
-                                    RackLink::SendChainRoute(
                                         kPairA[wantPair], kChainB, 1);
                                     s_pendingRefreshUs =
                                         esp_timer_get_time() + 45000;
@@ -1263,37 +1191,36 @@ namespace CTAG {
                                     (s_overlaySel + ev.delta + 4) & 3);
                                 s_stripDirty = true;
                             } else {
-                                int p = (int)s_page;
-                                int steps = ev.delta;
-                                // The chain-B panel (page 8) exists only
-                                // while a chain is engaged.
+                                // When chained: Page 1 = Chain-A (0), Page 2 = Chain-B (8),
+                                // followed by modulations (2-6), and SYS (7) is always last.
                                 const bool chained =
                                     s_cur.tail_valid && s_cur.chain != 0;
-                                const int pmax = chained ? 8 : 7;
-                                while (steps > 0) {
-                                    p++;
-                                    if (p == 1 && !ModuleHasP2(s_cur.module)) {
-                                        p++; // skip empty P2
+                                static const uint8_t kPagesChained[8] = {
+                                    0, 8, 2, 3, 4, 5, 6, 7
+                                };
+                                static const uint8_t kPagesUnchainedP2[8] = {
+                                    0, 1, 2, 3, 4, 5, 6, 7
+                                };
+                                static const uint8_t kPagesUnchained[7] = {
+                                    0, 2, 3, 4, 5, 6, 7
+                                };
+                                const uint8_t *pageList = chained ? kPagesChained
+                                    : (ModuleHasP2(s_cur.module) ? kPagesUnchainedP2 : kPagesUnchained);
+                                const int pageCount = chained ? 8
+                                    : (ModuleHasP2(s_cur.module) ? 8 : 7);
+
+                                int curIdx = 0;
+                                for (int i = 0; i < pageCount; ++i) {
+                                    if (pageList[i] == s_page) {
+                                        curIdx = i;
+                                        break;
                                     }
-                                    if (p == 8 && !chained) {
-                                        p++; // skip the chain-B page
-                                    }
-                                    if (p > pmax) { p = pmax; break; }
-                                    steps--;
                                 }
-                                while (steps < 0) {
-                                    p--;
-                                    if (p == 8 && !chained) {
-                                        p--; // skip the chain-B page
-                                    }
-                                    if (p == 1 && !ModuleHasP2(s_cur.module)) {
-                                        p--; // skip empty P2
-                                    }
-                                    if (p < 0) { p = 0; break; }
-                                    steps++;
-                                }
-                                if (p != (int)s_page) {
-                                    SetPage((uint8_t)p);
+                                int newIdx = curIdx + ev.delta;
+                                if (newIdx < 0) newIdx = 0;
+                                if (newIdx >= pageCount) newIdx = pageCount - 1;
+                                if (pageList[newIdx] != s_page) {
+                                    SetPage(pageList[newIdx]);
                                 }
                             }
                             break;
@@ -1303,9 +1230,7 @@ namespace CTAG {
                             s_stripDirty = true;
                             break;
                         case InputEvent::PUSH_SHORT:
-                            if (s_page == 7) {
-                                sysRingAction();
-                            }
+                            // Short push: no-op (legacy sysRing removed)
                             break;
                         case InputEvent::PUSH_RELEASE:
                             if (s_overlay) {

@@ -294,12 +294,14 @@ void control_change(uint8_t cc, uint8_t val) {
     case 25: p->resonator_damping = v; break;
     case 26: p->resonator_position = v; break;
     case 27: p->space = v; break;
-    // Resonator model selector: 0 modal / 1 string / 2 strings (values > 2
-    // ignored). Handed to core 1 via pending_resonator_model (applied between
-    // render blocks).
+    // Resonator model selector: 0 modal / 1 string / 2 strings / 3 ominous.
+    // Handed to core 1 via pending_resonator_model & pending_easter_egg.
     case 28:
       if (val <= 2) {
         s->pending_resonator_model = static_cast<int8_t>(val);
+        s->pending_easter_egg = 0;
+      } else if (val == 3) {
+        s->pending_easter_egg = 1;
       }
       break;
     // Ominous-voice (easter egg) selector: 0 = normal, 1..127 = ominous.

@@ -2249,3 +2249,24 @@ User-requested UX round:
 - **Hardware flash check**: Serial uptime verified both boards (RP2350
   COM15 @ 32,895s, ESP32-C3 COM22 @ 32,949s) had not been reflashed since
   ~03:04 AM; commit b82b856 was never flashed to hardware prior to this fix.
+
+### Rack T5 — Chained variant switching, SYS cleanup, chain-B order, Elements ominous fold (2026-11-11)
+
+- **Direct chain-pair switching**:
+  - Root cause of chain turning off: `RackUI.cpp` was sending `SendChainRoute(pair, 1, 0)` immediately followed by `SendChainRoute(pair, 1, 1)`. RP2350 `cmd_chain` rejected re-engaging when `a != g_chain.a` with "a different pair needs 'chain off' first". The deferred `chain off` on Core 1 then disengaged the chain.
+  - Fix: Removed spurious `engage = 0` transmission in `RackUI.cpp#ApplyPotAction`. In `rack-rp2350/src/main.cpp#cmd_chain`, allowed seamless pair switching when `a != g_chain.a`; in `do_chain_engage()`, conditionally ramp-down using `chain_ramp_down_chain()` if chain was already active.
+- **Removed legacy SYS yellow underline & encoder push**:
+  - The 1-px yellow underline under cell slots on SYS and `sysRingAction()` short push cycling were legacy scaffolding from T5 before SYS parameters were assigned directly to pots.
+  - Fix: Completely removed `s_sysRing` variable, the yellow underline rendering in `renderPage()`, `sysRingAction()`, and simplified SYS strip title to "SYSTEM". Encoder short push is a clean no-op.
+- **Page ordering (Chain-A -> Chain-B -> MODs -> SYS)**:
+  - SYSTEM (page 7) is always guaranteed as the last page.
+  - When chained: navigation order is `kPagesChained[8] = { 0, 8, 2, 3, 4, 5, 6, 7 }`, placing `CLOUDS B` (page 8) right after Chain-A (page 0) and before modulation pages (2-6).
+  - When unchained (Elements): `kPagesUnchainedP2[8] = { 0, 1, 2, 3, 4, 5, 6, 7 }`.
+  - When unchained (Clouds/Plaits/Rings): `kPagesUnchained[7] = { 0, 2, 3, 4, 5, 6, 7 }`.
+- **Elements MODEL & OMINOUS consolidation**:
+  - Folded `OMINOUS` into CC 28 (`MODEL`) as a 4th discrete mode (`MODAL`, `STRING`, `STRINGS`, `OMINOUS`).
+  - In `module_elements.h`, CC 28 values 0..2 select resonator models and set `pending_easter_egg = 0`; value 3 sets `pending_easter_egg = 1`.
+  - Removed CC 29 `OMINOUS` from `kUiPageElementsP2` (cell count reduced from 4 to 3: `MODEL`, `PLAY`, `VCA`).
+  - Updated `RackUI.cpp` discrete count to 4 and added `OMINOUS` to `kElemModels` text table.
+- **Future plan noted (Live Performance layout)**:
+  - Target UX: In chained mode, merge the most-used performance controls from both modules onto Page 1 (e.g. key timbral/resonator/grain controls), and put remaining secondary controls onto Page 2, rather than strict single-module pages. To be designed and grouped in a future update.

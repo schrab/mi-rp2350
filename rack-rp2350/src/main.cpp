@@ -898,8 +898,12 @@ static void do_chain_engage() {
   const uint8_t old_active = g_active_module;
   const uint32_t t0 = time_us_32();
 
-  // (a) MUTE through the current single-module render + silence flush.
-  chain_ramp_down_single();
+  // (a) MUTE through the current render + silence flush.
+  if (g_chain.active) {
+    chain_ramp_down_chain();
+  } else {
+    chain_ramp_down_single();
+  }
   chain_flush_silence(kRackModules[old_active].i2s_buffers,
                       kRackModules[old_active].i2s_words);
 
@@ -1368,10 +1372,8 @@ static void cmd_chain(const char* args) {
   if (g_chain.active) {
     if (static_cast<uint8_t>(a) == g_chain.a) {
       Serial.println("rack: chain: that pair is already engaged");
-    } else {
-      Serial.println("rack: chain: a different pair needs 'chain off' first");
+      return;
     }
-    return;
   }
   const RackWindowSection& sa = rack_window_section(static_cast<uint8_t>(a));
   const RackWindowSection& sb = rack_window_section(RACK_MODULE_CLOUDS);
