@@ -2352,14 +2352,10 @@ User-requested UX round:
       2. `resonator_damping = 0.7f;` instead of upstream's default `0.25f`. Because mode Q scales inversely with damping (`lut_4_decades`), 0.7 choked mode Q down to ~2,000, muting all low-frequency mode ringing. At 0.25, mode Q exceeds 100,000, sustaining rich acoustic low end.
       3. `previous_position_ = 0.0f;` had been stripped from `Resonator::Init()`, leaving pickup position interpolation uninitialized.
     - **Fix**: Set default boot model to `RESONATOR_MODEL_MODAL`, default damping to `0.25f`, default space to `0.5f`, and restored `previous_position_ = 0.0f;`.
-- **Overclocking Audit (280 MHz)**:
-  - With `RACK_ENABLE_USB_HOST = 0`, the PIO-USB 12 MHz multiple constraint (`F_CPU % 12000000UL`) is lifted.
-  - At 240 MHz, full 52-mode modal synthesis + mod engine + stereo reverb peaked at 464–504 µs (right at the 496 µs budget).
-  - Overclocking to 280 MHz (`board_build.f_cpu = 280000000L`):
-    - Completely safe at default 1.1V core voltage.
-    - Native USB CDC (`Serial`) uses dedicated 48 MHz USB PLL from 12 MHz crystal (unaffected).
-    - UART0 to UI MCU (`Serial1` @ 921600 baud) automatically recalculates fractional divisors.
-    - I2S (PCM5102A on PIO2) divides 280 MHz by `136 + 23/32` for exact 32 kHz BCLK.
-    - Reduces worst-case Process time down to ~398–430 µs, securing solid headroom.
+- **Overclocking & Clock Speed Audit (240 MHz vs 280 MHz)**:
+  - While USB host bit-banging is disabled (`RACK_ENABLE_USB_HOST = 0`), running the system clock at 280 MHz clocks the external QSPI flash memory at 140 MHz (RP2350 default flash divider /2).
+  - External SPI/QSPI flash chips (rated for 133 MHz max) experience instruction fetch timing violations and bit corruption at 140 MHz, causing boot freezes and HardFault crashes.
+  - Reverting to 240 MHz (`board_build.f_cpu = 240000000L`) clocks the flash at 120 MHz (safe, zero flash bit flips).
+  - Telemetry at 240 MHz confirms `max Process: 444–481 us (budget 496 us)` with `0 i2s stalls`, completely stable audio and link.
 - **Built & Flashed**:
-  - Rebuilt and flashed `rack-elements` at 280 MHz to `COM15`. Link and audio streaming active.
+  - Rebuilt and flashed `rack-elements` at 240 MHz to `COM15` (`c1e344a`). Link and audio streaming active.
