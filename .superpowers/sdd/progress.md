@@ -2360,3 +2360,19 @@ User-requested UX round:
 - **Built & Flashed**:
   - Rebuilt and flashed `rack-elements` at 240 MHz to `COM15` (`c1e344a`). Link and audio streaming active.
   - **User hardware verified**: "ok, now it sounds stable and looks like no volume drops". Modal resonator low end, strike transients, and full reverb decay confirmed clean.
+
+### Rack T8 — Rings Pitch / Frequency Parameter Restoration (`647b866`, 2026-11-11)
+
+- **Audit Findings**:
+  - Upstream Mutable Instruments Rings physical Eurorack module has a central **FREQUENCY** pot that controls root tuning (`performance_state.tonic`), which transposes the resonator modes / string tuning across all models.
+  - The standalone port (`rings-rp2350`) previously hardcoded `perf.tonic = 0.0f;` and omitted the frequency knob, assuming pitch would only come from MIDI note numbers.
+  - In `rack-rp2350/src/module_rings.h`, CC 1 was unhandled and missing from the UI cell table `kUiPageRingsP1`.
+- **Implementation**:
+  - Added `volatile float shared_pitch;` to `State` in [`rack-rp2350/src/module_rings.h`](file:///C:/Users/schra/Developer/mi-rp2350/rack-rp2350/src/module_rings.h).
+  - Mapped CC 1 in `control_change()` (-24..+24 semitones around center value 64) and continuous modulation via `mod_set_cc_float()`.
+  - Wired `perf.tonic = s->shared_pitch;` in both `render()` and `chain_render_a()`.
+  - Added `{1, "PITCH", kUiColorWhite}` as cell 0 (pot 0) in `kUiPageRingsP1` ([`rack-rp2350/src/ui_link.h`](file:///C:/Users/schra/Developer/mi-rp2350/rack-rp2350/src/ui_link.h)).
+  - Updated `kUiPages` count to 13 cells, updated [`docs/ui-protocol.md`](file:///C:/Users/schra/Developer/mi-rp2350/docs/ui-protocol.md) and [`tools/rack_panel.html`](file:///C:/Users/schra/Developer/mi-rp2350/tools/rack_panel.html).
+- **Built & Flashed**:
+  - Rebuilt and flashed unified firmware to `COM15` (`647b866`).
+  - Switched to Rings live; verified `max Process: 278 us (budget 750 us)`, 0 I2S stalls. Pot 0 now controls Pitch/Frequency (-24..+24 st).
