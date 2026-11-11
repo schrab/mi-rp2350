@@ -2376,3 +2376,22 @@ User-requested UX round:
 - **Built & Flashed**:
   - Rebuilt and flashed unified firmware to `COM15` (`647b866`).
   - Switched to Rings live; verified `max Process: 278 us (budget 750 us)`, 0 I2S stalls. Pot 0 now controls Pitch/Frequency (-24..+24 st).
+
+### Rack T9 — Rings Front Panel Pot Layout Rearrangement (`292c03e`, 2026-11-11)
+
+- **Audit & Pot Mapping**:
+  - Front panel physical potentiometers are grouped in 3 rows (6 / 4 / 6):
+    - Row 0 (physical p1..p6 / pot indices 0..5)
+    - Row 1 (physical p7..p10 / pot indices 6..9)
+    - Row 2 (physical p11..p16 / pot indices 10..15)
+  - Rearranged `kUiPageRingsP1` in [`rack-rp2350/src/ui_link.h`](file:///C:/Users/schra/Developer/mi-rp2350/rack-rp2350/src/ui_link.h) to 16 slots:
+    - **Row 0**: p1 BRIGHTNESS (CC 15), p2 DAMPING (CC 16), p3 POSITION (CC 17), p4..p6 empty (CC 0, label `""`).
+    - **Row 1**: p7 PITCH (CC 1), p8 STRUCTURE (CC 14), p9 STRUM (CC 64), p10 VCA (CC 7).
+    - **Row 2**: p11 MODEL/FX (CC 18), p12 CHORD TB (CC 22), p13 CHORD (CC 23), p14 MODE (CC 20), p15 WAVE (CC 21), p16 POLY (CC 19).
+  - Empty cells (`cc == 0`) safely ignored in `ui_link_cell_flags()`, delta sending, `ui_link_observe_cc()`, and `ASSIGN_CYCLE`.
+  - Added safety guard in [`rack-uimcu/ui/RackUI.cpp`](file:///C:/Users/schra/Developer/mi-rp2350/rack-uimcu/ui/RackUI.cpp) `GetPotTarget()` to ignore empty/unlabeled pots.
+  - Updated [`docs/ui-protocol.md`](file:///C:/Users/schra/Developer/mi-rp2350/docs/ui-protocol.md) and [`tools/rack_panel.html`](file:///C:/Users/schra/Developer/mi-rp2350/tools/rack_panel.html).
+- **Built & Flashed**:
+  - Rebuilt `rack-elements` environment and flashed to RP2350 on `COM15` (`292c03e`).
+  - Switched to `mod=rings` live; report confirms: `max Process: 258 us (budget 750 us) | i2s stalls: 0 (+0)`.
+  - In-memory `uitest` verified 6/6 test cases PASS. Ready for user hardware verification on physical front panel.
