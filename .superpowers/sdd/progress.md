@@ -2270,3 +2270,25 @@ User-requested UX round:
   - Updated `RackUI.cpp` discrete count to 4 and added `OMINOUS` to `kElemModels` text table.
 - **Future plan noted (Live Performance layout)**:
   - Target UX: In chained mode, merge the most-used performance controls from both modules onto Page 1 (e.g. key timbral/resonator/grain controls), and put remaining secondary controls onto Page 2, rather than strict single-module pages. To be designed and grouped in a future update.
+
+### Rack T5 — Fix DSP crash during live chained variant switching (2026-11-11)
+
+- **Root Cause Analysis**:
+  - `cmd_chain` on Core 0 previously wrote `g_chain.a = static_cast<uint8_t>(a);` directly into global state.
+  - While chained, Core 1 executes `chain_render_block()` every 750 µs, which checks `switch (g_chain.a)`.
+  - Overwriting `g_chain.a` from Core 0 caused Core 1 to immediately execute the new module's render (`chain_render_a`) before:
+    1. The new module's hot image was copied into the SRAM window via `rack_window_copy()`.
+    2. The new module's state was initialized in the object arena via `init_chain_a()` / `init_at()`.
+  - Furthermore, `do_chain_engage()` called `chain_ramp_down_chain()`, which called `chain_render_block()` 5 times to ramp down gain, executing against the uninitialized new module.
+  - This resulted in an immediate HardFault on Core 1, halting DSP while I2S DMA continued looping static/noise.
+- **Fix**:
+  - Decoupled target slot state: Introduced `g_pending_chain_a` and `g_pending_chain_b`.
+  - Core 0 only writes `g_pending_chain_a` and `g_pending_chain_b` and queues `g_pending_chain = 1`. `g_chain.a` is never touched by Core 0.
+  - Core 1 consumes `g_pending_chain` at the block boundary and passes `(req_a, req_b)` into `do_chain_engage(new_a, new_b)`.
+  - During step (a) MUTE: `chain_ramp_down_chain()` safely renders `old_chain_a` (which is fully resident and initialized) to fade cleanly to 0, then flushes chain DMA buffers.
+  - During step (b) COPY: copies both `new_a` and `new_b` into the window.
+  - During step (c) I2S: if already chained, skips redundant I2S reconfig.
+  - During step (d) INIT: initializes `new_a` and `new_b` in the object and buffer arenas, replays CCs.
+  - During step (e) GO CHAIN: updates `g_chain.a = new_a`, `g_chain.b = new_b`, and `g_active_module = new_a`.
+  - During step (f) UNMUTE: ramps up audio through `chain_render_block()`, now safely executing `new_a`.
+  - In `rack_request_switch`: if called while chained, routes requests to `cmd_chain` instead of rejecting, enabling smooth module switching from UI overlay.

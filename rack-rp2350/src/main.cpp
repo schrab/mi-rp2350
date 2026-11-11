@@ -311,6 +311,8 @@ static ChainState g_chain = { false, RACK_MODULE_ELEMENTS, RACK_MODULE_CLOUDS };
 // Pending transition slot: core 0 (console) queues, core 1 consumes at a
 // block boundary (one transition per loop1 call, g_swapping held throughout).
 static volatile int8_t g_pending_chain = -1;    // -1 none / 1 engage / 0 disengage
+static volatile int8_t g_pending_chain_a = -1;  // target A slot (elements/plaits/rings)
+static volatile int8_t g_pending_chain_b = -1;  // target B slot (clouds)
 static volatile bool g_pending_chain_a_reinit = false;  // A-swap while chained
 // Chain transition stats hand-off (core 1 sets, core 0 prints once).
 static volatile bool g_chain_report_ready = false;
@@ -522,6 +524,8 @@ void rack_module_control_change(uint8_t cc, uint8_t val) {
 //                through CC 23/24),
 //   otherwise:   rejected with the window math (a chained swap target must
 //                have its hot image fit the A slot below the B slot).
+static void cmd_chain(const char* args);
+
 void rack_request_switch(uint8_t module_id) {
   if (module_id >= RACK_MODULE_COUNT) return;
   preset_mark_dirty();           // T4a: active module is persistent state
@@ -537,17 +541,11 @@ void rack_request_switch(uint8_t module_id) {
                      "T6; mode/quality via CC 23/24)");
       return;
     }
-    const RackWindowSection& sa = rack_window_section(module_id);
-    const RackWindowSection& sb = rack_window_section(RACK_MODULE_CLOUDS);
-    const uint32_t b_offset = (uint32_t)(sb.window_start -
-                                         rack_window_section(
-                                             RACK_MODULE_ELEMENTS).window_start);
-    Serial.printf("rack: chain: swap to %s rejected while chained (%s hot "
-                  "image %u B > A slot %u B below the clouds-B slot; "
-                  "chain-capable A: elements, rings, plaits)\r\n",
-                  kRackModules[module_id].name, sa.name,
-                  (unsigned)(sa.window_end - sa.window_start),
-                  (unsigned)b_offset);
+    // Chained module switch requested (e.g. from UI overlay or CC 32):
+    // Switch the chain pair to <module_id> -> Clouds!
+    char args[16];
+    snprintf(args, sizeof(args), "%u 1", module_id);
+    cmd_chain(args);
     return;
   }
   if (module_id == g_active_module) return;
@@ -892,37 +890,44 @@ static void chain_ramp_down_chain() {
 // copy restore the old image and stay single) -> I2S reconfigure to the
 // chain grid bank (core 0 via the handshake) -> re-Init BOTH slots at the
 // chain rate context -> unmute through the chain render.
-static void do_chain_engage() {
-  const uint8_t a = g_chain.a;                 // validated by cmd_chain
-  const uint8_t b = g_chain.b;                 // RACK_MODULE_CLOUDS
+static void do_chain_engage(uint8_t new_a, uint8_t new_b) {
   const uint8_t old_active = g_active_module;
+  const uint8_t old_chain_a = g_chain.a;
+  const bool already_chained = g_chain.active;
   const uint32_t t0 = time_us_32();
 
   // (a) MUTE through the current render + silence flush.
-  if (g_chain.active) {
+  if (already_chained) {
+    // When already chained, g_chain.a is still old_chain_a (resident & initialized)!
+    // chain_render_block() safely ramps down using old_chain_a.
     chain_ramp_down_chain();
+    chain_flush_silence(kChainI2sBuffers, kChainI2sWords);
   } else {
+    // Single-module mode: ramp down using the active single module.
     chain_ramp_down_single();
+    chain_flush_silence(kRackModules[old_active].i2s_buffers,
+                        kRackModules[old_active].i2s_words);
   }
-  chain_flush_silence(kRackModules[old_active].i2s_buffers,
-                      kRackModules[old_active].i2s_words);
 
-  // (b) COPY both slot images (idempotent: the A copy re-plants A even when
-  // A == the old active module; the B copy re-plants clouds after any
-  // single-module use that spanned the B-slot region).
+  // (b) COPY both slot images: new_a into A slot, new_b into B slot.
   uint32_t src_sum = 0, dst_sum = 0;
-  const uint32_t copied_a = rack_window_copy(a, &src_sum, &dst_sum);
+  const uint32_t copied_a = rack_window_copy(new_a, &src_sum, &dst_sum);
   const bool a_ok = (src_sum == dst_sum);
   uint32_t copied_b = 0;
   bool b_ok = false;
   if (a_ok) {
     src_sum = dst_sum = 0;
-    copied_b = rack_window_copy(b, &src_sum, &dst_sum);
+    copied_b = rack_window_copy(new_b, &src_sum, &dst_sum);
     b_ok = (src_sum == dst_sum);
   }
   if (!a_ok || !b_ok) {
-    // Corrupt copy: restore the old module's image and stay single-module.
-    rack_window_copy(old_active, nullptr, nullptr);
+    // Corrupt copy: restore the old module's image.
+    if (already_chained) {
+      rack_window_copy(old_chain_a, nullptr, nullptr);
+      rack_window_copy(RACK_MODULE_CLOUDS, nullptr, nullptr);
+    } else {
+      rack_window_copy(old_active, nullptr, nullptr);
+    }
     g_chain_report_ms = (time_us_32() - t0) / 1000;
     g_chain_report_bytes = copied_a + copied_b;
     g_chain_report_kind = 1;
@@ -932,35 +937,36 @@ static void do_chain_engage() {
     return;
   }
 
-  // (c) I2S reconfigure to the chain grid/bank — REQUESTED from core 1,
-  // PERFORMED by core 0 (same ISR-affinity rule as the swap handshake).
-  g_chain_i2s_rate = kChainRate;
-  g_chain_i2s_buffers = kChainI2sBuffers;
-  g_chain_i2s_words = kChainI2sWords;
-  g_chain_i2s_ack = false;
-  g_chain_i2s_result = false;
-  g_chain_i2s_request = true;
-  const uint32_t i2s_t0 = time_us_32();
-  while (!g_chain_i2s_ack && time_us_32() - i2s_t0 < 1000000UL) {
-    delay(1);
-  }
-  const bool i2s_ok = g_chain_i2s_ack && g_chain_i2s_result;
-  if (!i2s_ok) {
-    // Same failure posture as the swap: stay muted, report the fault.
-    g_chain_report_ms = (time_us_32() - t0) / 1000;
-    g_chain_report_bytes = copied_a + copied_b;
-    g_chain_report_kind = 1;
-    g_chain_report_ok = false;
-    g_chain_report_ready = true;
-    g_swapping = false;
-    return;
+  // (c) I2S reconfigure to the chain grid/bank:
+  // If already chained, I2S is ALREADY running at kChainRate (32k), kChainI2sBuffers (32), kChainI2sWords (16)!
+  if (!already_chained) {
+    g_chain_i2s_rate = kChainRate;
+    g_chain_i2s_buffers = kChainI2sBuffers;
+    g_chain_i2s_words = kChainI2sWords;
+    g_chain_i2s_ack = false;
+    g_chain_i2s_result = false;
+    g_chain_i2s_request = true;
+    const uint32_t i2s_t0 = time_us_32();
+    while (!g_chain_i2s_ack && time_us_32() - i2s_t0 < 1000000UL) {
+      delay(1);
+    }
+    const bool i2s_ok = g_chain_i2s_ack && g_chain_i2s_result;
+    if (!i2s_ok) {
+      g_chain_report_ms = (time_us_32() - t0) / 1000;
+      g_chain_report_bytes = copied_a + copied_b;
+      g_chain_report_kind = 1;
+      g_chain_report_ok = false;
+      g_chain_report_ready = true;
+      g_swapping = false;
+      return;
+    }
   }
 
-  // (d) INIT both slots at the chain rate context. Object arena: A at
-  // offset 0 (its single-module placement), clouds-B AFTER A's state; the
-  // buffer arena: A's carve at 0 (the adapters' own), clouds-B above it
+  // (d) INIT both slots at the chain rate context. Object arena: new_a at
+  // offset 0 (its single-module placement), clouds-B AFTER new_a's state; the
+  // buffer arena: new_a's carve at 0 (the adapters' own), clouds-B above it
   // with the chained split.
-  switch (a) {
+  switch (new_a) {
     case RACK_MODULE_ELEMENTS:
       rack_modules::mod_elements::init_at(g_rack_object_arena);
       break;
@@ -972,26 +978,28 @@ static void do_chain_engage() {
       break;
   }
   {
-    const size_t a_state = (a == RACK_MODULE_ELEMENTS)
+    const size_t a_state = (new_a == RACK_MODULE_ELEMENTS)
         ? rack_modules::mod_elements::state_size()
-        : (a == RACK_MODULE_PLAITS)
+        : (new_a == RACK_MODULE_PLAITS)
             ? rack_modules::mod_plaits::state_size()
             : rack_modules::mod_rings::state_size();
     uint8_t* b_obj = g_rack_object_arena + ((a_state + 7u) & ~(size_t)7u);
     uint8_t* b_buf =
-        g_rack_buffer_arena + kChainABufferBytes[a];
+        g_rack_buffer_arena + kChainABufferBytes[new_a];
     rack_modules::mod_clouds::init_chain_b(
         b_obj, b_buf, kChainCloudsLargeBytes,
         b_buf + kChainCloudsLargeBytes, kChainCloudsSmallBytes);
   }
   // T4a: replay both slots' observed CC values over the factory defaults.
-  preset_replay_module(a);
-  preset_replay_module(RACK_MODULE_CLOUDS);
+  preset_replay_module(new_a);
+  preset_replay_module(new_b);
 
-  // (e) GO CHAIN: active module = the A slot (notes/CC/mod destinations
+  // (e) GO CHAIN: active module = the new A slot (notes/CC/mod destinations
   // bind there), the mod engine runs the chain grid.
   g_chain.active = true;
-  g_active_module = a;
+  g_chain.a = new_a;
+  g_chain.b = new_b;
+  g_active_module = new_a;
   g_mod_chain_grid = kChainBlockSize;
   g_mod_chain_rate_khz = (uint8_t)(kChainRate / 1000);
   proc_us_max = 0;              // the transition must not read as a max
@@ -1142,7 +1150,11 @@ void loop1() {
     g_pending_chain = -1;
     g_swapping = true;
     if (chain_req == 1) {
-      do_chain_engage();
+      const uint8_t req_a = static_cast<uint8_t>(g_pending_chain_a);
+      const uint8_t req_b = static_cast<uint8_t>(g_pending_chain_b);
+      g_pending_chain_a = -1;
+      g_pending_chain_b = -1;
+      do_chain_engage(req_a, req_b);
     } else {
       do_chain_disengage();
     }
@@ -1418,8 +1430,8 @@ static void cmd_chain(const char* args) {
                   (unsigned)buf_needed, (unsigned)kRackBufferArenaBytes);
     return;
   }
-  g_chain.a = static_cast<uint8_t>(a);
-  g_chain.b = RACK_MODULE_CLOUDS;
+  g_pending_chain_a = static_cast<int8_t>(a);
+  g_pending_chain_b = static_cast<int8_t>(RACK_MODULE_CLOUDS);
   g_pending_chain = 1;
   preset_mark_dirty();           // T4a: chain state is persistent
   Serial.printf("rack: chain %s->clouds validated (window %u+%u of %u B, "
