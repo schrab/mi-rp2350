@@ -2394,4 +2394,5 @@ User-requested UX round:
 - **Built & Flashed**:
   - Rebuilt `rack-elements` environment and flashed to RP2350 on `COM15` (`292c03e`).
   - Switched to `mod=rings` live; report confirms: `max Process: 258 us (budget 750 us) | i2s stalls: 0 (+0)`.
-  - In-memory `uitest` verified 6/6 test cases PASS. Ready for user hardware verification on physical front panel.
+  - In-memory `uitest` verified 6/6 test cases PASS.
+  - **User hardware verified**: "all fine". Physical front-panel pots p1..p3, p7..p10, p11..p16 confirmed responding correctly to all Rings parameters with proper layout and blank slots on p4..p6.
