@@ -369,8 +369,9 @@ preset LOAD -> telem-deltas toggle -> telem-full toggle -> wrap.
 Chain-B panel (page 8, `kUiPageChainB`): while a chain is engaged the C3
 navigation gains one extra page after P2 showing the **B slot's**
 (clouds) parameters — the cells are the CLOUDS P1 registry table (the
-alias bank 40-48 + 23/24/65/66 are exactly the B-directed CCs the chain
-dispatcher accepts), values read live from the CLOUDS CC cache (the
+alias bank 40-50 + 65/66 are exactly the B-directed CCs the chain
+dispatcher accepts: 40-48 grain params -> 14-22, 49 mode -> 23, 50 quality -> 24;
+CC 23 and 24 belong to Chain A), values read live from the CLOUDS CC cache (the
 observe hook double-writes B-directed CCs there while chained). Pot
 writes on the page address clouds-B through the existing chain path;
 leaving the chain snaps the C3 back to P1. Not reachable when no chain

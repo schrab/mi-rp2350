@@ -18,17 +18,16 @@
                  While chained: value == A slot = fresh A re-Init, == B
                  (clouds) rejected, other values rejected (window math).
     CC 33/34/35  mod-engine bench mux: source (0-11) / param / value.
-    CC 23/24/65/66  while chained these go to the B slot (clouds), plus the
-                 clouds GRAIN ALIAS BANK CC 40-48 = 14-22 (position..reverb —
-                 always on: single-module clouds and chained-B alike, because
-                 native 14-22 belong to the A module's map while chained).
+    CC 40-50, 65/66 while chained these go to the B slot (clouds):
+                 clouds GRAIN ALIAS BANK CC 40-48 = 14-22 (position..reverb),
+                 CC 49 = mode (23), CC 50 = quality (24; locked to 16-stereo
+                 while chained), CC 65 = freeze, CC 66 = trigger.
+                 CC 23 and 24 belong to the active Chain A module (plaits
+                 engine/aux, elements geometry/brightness, rings chord-tb/chord).
                  The panel mirrors that with a DUAL-PANEL layout: A (sound
                  source) and clouds (effect stage) side by side, the clouds
                  panel fully live except the exciter knobs 1/11/13 (the
-                 exciter is bypassed while chained). The A panel's CC 23/24
-                 knobs are retagged "→ CLOUDS" and disabled (the A parameter
-                 stays reachable via the MOD ENGINE, whose destinations bind
-                 to A).
+                 exciter is bypassed while chained) and quality (locked).
   Per-module maps live in the section headers (they are the adapters'
   kCcMap registry strings).
 
@@ -460,11 +459,11 @@ const MODULES = [
     { cc:46, label:'SPREAD',    variant:'white', def:.5 },
     { cc:47, label:'FEEDBACK',  variant:'white', def:0 },
     { cc:48, label:'REVERB',    variant:'white', def:38/127 },
-    { cc:23, label:'MODE',      variant:'white', def:0,
+    { cc:49, label:'MODE',      variant:'white', def:0,
       steps: { labels:['GRANULAR','STRETCH','LOOP'], bytes:[0,1,2] },
       deadIdx: [1],
       note: 'while chained: STRETCH rejected (granular/looping only)' },
-    { cc:24, label:'QUALITY',   variant:'white', def:0,
+    { cc:50, label:'QUALITY',   variant:'white', def:0,
       steps: { labels:['16-STEREO','16-MONO','8-STEREO','8-MONO'], bytes:[0,1,2,3] } },
     { cc:65, label:'FREEZE',    latch:1, def:0 },
     { cc:66, label:'TRIG',      moment:1, def:0 },
@@ -835,15 +834,14 @@ function resetModulePanel(mi) {
 }
 
 /* which CCs a module tab may still send while a chain is engaged:
-   A slot: everything EXCEPT 23/24 (hijacked to clouds-B); clouds tab: the
-   grain bank 40-48 + 23/24/65/66 all reach clouds-B — only the exciter
-   knobs 1/11/13 die (the exciter is bypassed while chained, real frames
-   feed the granulator); every other tab: nothing (its CCs would land on
-   the A slot with a different meaning) */
+   A slot: all CCs reach A (no hijacked CCs); clouds tab: the
+   grain bank 40-48 + 49 (mode) / 65/66 reach clouds-B — only the exciter
+   knobs 1/11/13 die (bypassed while chained) and CC 50 (quality locked);
+   every other tab: nothing (its CCs would land on the A slot with a different meaning) */
 function chainDead(mi, cc) {
   if (!chainActive) return false;
-  if (mi === chainA) return cc === 23 || cc === 24;
-  if (mi === 1) return cc === 1 || cc === 11 || cc === 13;
+  if (mi === chainA) return false;
+  if (mi === 1) return cc === 1 || cc === 11 || cc === 13 || cc === 50;
   return true;
 }
 
@@ -882,10 +880,8 @@ function requestModule(mi) {
                   `CC 32 = ${mi} \u2192 ${MODULES[mi].name} (not connected)`, out ? 'ok' : 'err');
 }
 
-/* dim/disable the controls a chain takes out of reach, and retag the
-   hijacked A-slot CCs (23/24) so the tab views stay truthful while chained */
+/* dim/disable the controls a chain takes out of reach so the tab views stay truthful while chained */
 function applyChainUI() {
-  const hijack = { 23: 'CC 23 \u2192 CLOUDS MODE', 24: 'CC 24 \u2192 CLOUDS QUALITY' };
   MODULES.forEach((mod, mi) => {
     for (const c of controlsByMod[mi].values()) {
       if (!c.cell) continue;
@@ -897,17 +893,13 @@ function applyChainUI() {
         continue;
       }
       cell.classList.remove('hijacked');
-      if (mi === chainA && (c.cc === 23 || c.cc === 24)) {
-        cell.classList.add('dead', 'hijacked');
-        if (c.tagEl && hijack[c.cc]) c.tagEl.textContent = hijack[c.cc];
-        cell.title = 'while chained this CC drives the clouds-B slot, not '
-          + mod.name.toLowerCase()
-          + ' \u2014 the A parameter stays reachable via the MOD ENGINE (destinations bind to A)';
-      } else if (chainDead(mi, c.cc)) {
+      if (chainDead(mi, c.cc)) {
         cell.classList.add('dead');
         cell.title = mi === 1
-          ? 'chained: the exciter is bypassed \u2014 the chain feeds real audio '
-            + 'frames into the granulator, so the exciter knobs have no effect'
+          ? (c.cc === 50
+              ? 'chained: quality is locked to 16-bit stereo (0) to protect the partitioned workspace'
+              : 'chained: the exciter is bypassed \u2014 the chain feeds real audio '
+                + 'frames into the granulator, so the exciter knobs have no effect')
           : 'chained: this CC would reach the A slot (' + MODULES[chainA].name
             + ') with a different meaning';
       } else {

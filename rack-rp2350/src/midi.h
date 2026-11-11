@@ -96,22 +96,19 @@ void rack_mod_bench_cc(uint8_t cc, uint8_t val);
 // in both modes, so its clouds view needs no chain-state knowledge. Native
 // wire CCs 14-22 keep their existing meaning everywhere (A's panel params
 // while chained; clouds' own params in single-module mode).
-static const uint8_t kCloudsAliasCcBase = 40;   // 40-48 -> clouds 14-22
+static const uint8_t kCloudsAliasCcBase = 40;   // 40-48 -> clouds 14-22, 49 -> 23, 50 -> 24
 // DEFINED in main.cpp: true when the alias band should take the registry
 // path (single-module clouds). While chained the band is grabbed by
 // rack_chain_wants_cc below and translated inside rack_chain_control_change.
 bool rack_clouds_alias_active();
 
 // T6 chain-mode CC intercept (DEFINED in main.cpp). While a chain is
-// engaged, CCs 23/24/65/66 AND the clouds grain alias bank 40-48 (see
-// kCloudsAliasCcBase) belong to the B slot (clouds) and are handled by the
-// chain machinery (mode clamp / quality / freeze / trig / grain params);
-// every other CC goes to the A slot (the sound source) through the normal
-// registry dispatch. CC 23 is dual-mapped in every module map (elements
-// geometry / plaits engine / rings chord) — while chained it means clouds-B
-// mode, so the A slot loses CC 23/24 to the clamp (the mod engine can still
-// drive A's parameters — destinations bind to A). 65/66 are unused by all
-// four maps; 40-48 is unused everywhere (the alias bank's free range).
+// engaged, the clouds alias bank 40-50 (see kCloudsAliasCcBase) AND CCs 65/66
+// belong to the B slot (clouds) and are handled by the chain machinery
+// (grain params / mode clamp / quality / freeze / trig); every other CC goes
+// to the A slot through the normal registry dispatch. In particular, CC 23
+// and CC 24 belong to the active Chain A module (plaits engine/aux, elements
+// geometry/brightness, rings chord-tb/chord).
 bool rack_chain_wants_cc(uint8_t cc);
 void rack_chain_control_change(uint8_t cc, uint8_t val);
 
@@ -222,9 +219,15 @@ inline void midiControlChange(uint8_t cc, uint8_t val) {
   // only when clouds itself is the active module — other actives leave the
   // band untouched (unused CCs in their maps). While chained the band is
   // intercepted by rack_chain_wants_cc below and routed to the B slot.
-  if (cc >= kCloudsAliasCcBase && cc <= kCloudsAliasCcBase + 8 &&
+  if (cc >= kCloudsAliasCcBase && cc <= kCloudsAliasCcBase + 10 &&
       rack_clouds_alias_active()) {
-    rack_module_control_change(static_cast<uint8_t>(cc - kCloudsAliasCcBase + 14), val);
+    if (cc <= kCloudsAliasCcBase + 8) {
+      rack_module_control_change(static_cast<uint8_t>(cc - kCloudsAliasCcBase + 14), val);
+    } else if (cc == kCloudsAliasCcBase + 9) {
+      rack_module_control_change(23, val);  // 49 -> MODE
+    } else if (cc == kCloudsAliasCcBase + 10) {
+      rack_module_control_change(24, val);  // 50 -> QUALITY
+    }
     return;
   }
   if (rack_chain_wants_cc(cc)) {

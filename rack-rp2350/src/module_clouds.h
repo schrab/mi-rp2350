@@ -267,7 +267,9 @@ void chain_render_b(const float* in_l, const float* in_r,
     s->pending_playback_mode = -1;
   }
   if (s->pending_quality >= 0) {
-    s->processor.set_quality(s->pending_quality);
+    int8_t q = s->pending_quality;
+    if (s->chain_b) q = 0; // Chained partition strictly requires 16-bit stereo
+    s->processor.set_quality(q);
     s->pending_quality = -1;
   }
   if (s->pending_freeze >= 0) {
@@ -331,7 +333,9 @@ void render() {
     s->pending_playback_mode = -1;
   }
   if (s->pending_quality >= 0) {
-    s->processor.set_quality(s->pending_quality);
+    int8_t q = s->pending_quality;
+    if (s->chain_b) q = 0; // Chained partition strictly requires 16-bit stereo
+    s->processor.set_quality(q);
     s->pending_quality = -1;
   }
   if (s->pending_freeze >= 0) {
@@ -446,13 +450,19 @@ void control_change(uint8_t cc, uint8_t val) {
     // remains fully available single-module (its hot body is inlined in the
     // SRAM-resident ProcessGranular).
     case 23:
-      if (val <= 2) s->pending_playback_mode = static_cast<int8_t>(val);
+      if (val <= 2) {
+        if (s->chain_b && val == 1) break;
+        s->pending_playback_mode = static_cast<int8_t>(val);
+      }
       break;
     // Quality selector: 0 = 16-bit stereo, 1 = 16-bit mono, 2 = 8-bit stereo,
     // 3 = 8-bit mono. Changing quality resets the recording buffers in
-    // Prepare().
+    // Prepare(). While chained, strictly locked to 0 (16-bit stereo) because
+    // mono/8-bit modes overflow or corrupt the partitioned workspace.
     case 24:
-      if (val <= 3) s->pending_quality = static_cast<int8_t>(val);
+      if (val <= 3) {
+        s->pending_quality = s->chain_b ? 0 : static_cast<int8_t>(val);
+      }
       break;
     // FREEZE: absolute held value (the panel knows the switch state).
     case 65: s->pending_freeze = val >= 64 ? 1 : 0; break;

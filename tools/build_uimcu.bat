@@ -3,7 +3,7 @@ rem Build helper for rack-uimcu on this machine (Windows + Git Bash host).
 rem
 rem WHY THIS EXISTS: idf.py's __main__ silently skips main() whenever the
 rem MSYSTEM env var is present (the "MSys/Mingw is no longer supported"
-rem warning) — and Git Bash injects MSYSTEM into EVERY child process, so
+rem warning) ??? and Git Bash injects MSYSTEM into EVERY child process, so
 rem idf.py invoked from a Git Bash shell prints the warning and exits 0
 rem without doing anything. Running the build through cmd.exe (which never
 rem sets MSYSTEM) is the reliable path.
@@ -13,7 +13,7 @@ rem   cmd /c tools\build_uimcu.bat            (default: build)
 rem   cmd /c tools\build_uimcu.bat flash COM22
 rem   cmd /c tools\build_uimcu.bat build
 setlocal
-rem Git Bash injects MSYSTEM into child processes (cmd inherits it) — the
+rem Git Bash injects MSYSTEM into child processes (cmd inherits it) ??? the
 rem idf.py guard keys on that var, so clear it here first.
 set MSYSTEM=
 set MSYSTEM_CARCH=

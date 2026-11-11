@@ -217,8 +217,8 @@ static const UiPageCell kUiPageCloudsP1[] = {
     {46, "SPREAD",     kUiColorWhite},
     {47, "FEEDBACK",   kUiColorWhite},
     {48, "REVERB",     kUiColorWhite},
-    {23, "MODE",       kUiColorWhite},
-    {24, "QUALITY",    kUiColorWhite},
+    {49, "MODE",       kUiColorWhite},
+    {50, "QUALITY",    kUiColorWhite},
     {65, "FREEZE",     kUiColorWhite},
     {66, "TRIG",       kUiColorWhite},
 };
@@ -922,13 +922,37 @@ void ui_link_observe_cc(uint8_t cc, uint8_t val) {
   const uint8_t mod = g_active_module;
   g_ui_cc_cache[mod][cc] = val;
   g_ui_cc_seen[mod][cc >> 4] |= (uint16_t)(1u << (cc & 15));
-  // Chain-B observation: while engaged, the B-directed CCs (23/24/65/66 +
-  // the clouds alias bank 40-48) ALSO land in the CLOUDS cache so the
-  // chain-B page's TELEM reads live values.
+  // Sync clouds alias 49/50 with native 23/24 in cache for standalone mode
+  if (mod == RACK_MODULE_CLOUDS) {
+    if (cc == 23) {
+      g_ui_cc_cache[RACK_MODULE_CLOUDS][49] = val;
+      g_ui_cc_seen[RACK_MODULE_CLOUDS][49 >> 4] |= (uint16_t)(1u << (49 & 15));
+    } else if (cc == 24) {
+      g_ui_cc_cache[RACK_MODULE_CLOUDS][50] = val;
+      g_ui_cc_seen[RACK_MODULE_CLOUDS][50 >> 4] |= (uint16_t)(1u << (50 & 15));
+    } else if (cc == 49) {
+      g_ui_cc_cache[RACK_MODULE_CLOUDS][23] = val;
+      g_ui_cc_seen[RACK_MODULE_CLOUDS][23 >> 4] |= (uint16_t)(1u << (23 & 15));
+    } else if (cc == 50) {
+      g_ui_cc_cache[RACK_MODULE_CLOUDS][24] = val;
+      g_ui_cc_seen[RACK_MODULE_CLOUDS][24 >> 4] |= (uint16_t)(1u << (24 & 15));
+    }
+  }
+  // Chain-B observation: while engaged, the B-directed CCs (clouds alias bank
+  // 40-50 + 65/66) ALSO land in the CLOUDS cache so the chain-B page's TELEM reads
+  // live values.
   if (g_chain.active && rack_chain_wants_cc(cc)) {
-    g_ui_cc_cache[RACK_MODULE_CLOUDS][cc] = val;
+    uint8_t cval = (cc == 50) ? 0 : val;
+    g_ui_cc_cache[RACK_MODULE_CLOUDS][cc] = cval;
     g_ui_cc_seen[RACK_MODULE_CLOUDS][cc >> 4] |=
         (uint16_t)(1u << (cc & 15));
+    if (cc == 49) {
+      g_ui_cc_cache[RACK_MODULE_CLOUDS][23] = cval;
+      g_ui_cc_seen[RACK_MODULE_CLOUDS][23 >> 4] |= (uint16_t)(1u << (23 & 15));
+    } else if (cc == 50) {
+      g_ui_cc_cache[RACK_MODULE_CLOUDS][24] = 0;
+      g_ui_cc_seen[RACK_MODULE_CLOUDS][24 >> 4] |= (uint16_t)(1u << (24 & 15));
+    }
   }
   preset_mark_dirty();             // T4a: a received CC is persistent state
   // Throttled (>= 50 ms) single-cell delta, gated by the C3's

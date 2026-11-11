@@ -561,19 +561,17 @@ bool rack_clouds_alias_active() {
   return !g_chain.active && g_active_module == RACK_MODULE_CLOUDS;
 }
 
-// T6 chain CC intercept (declared in midi.h): while chained, CCs 23/24/65/66
-// AND the clouds grain alias bank 40-48 drive the B slot (clouds) —
-// everything else reaches the A slot through the normal registry dispatch.
-// 23/24 collide with every chain-A module's map (elements geometry/
-// brightness, plaits engine/aux, rings chord/-) — while chained they mean
-// clouds mode/quality; the A slot's parameters stay reachable through the
-// mod engine (destinations bind to A). The 40-48 band is translated to
-// clouds' native 14-22 so controllers get the FULL clouds grain surface
-// while chained, not just mode/quality/freeze/trig.
+// T6 chain CC intercept (declared in midi.h): while chained, the clouds
+// alias bank CC 40-50 (40-48 grain params -> clouds 14-22, 49 mode -> clouds 23,
+// 50 quality -> clouds 24) AND CCs 65/66 (freeze/trig) drive the B slot
+// (clouds) — everything else reaches the A slot through the normal registry
+// dispatch.
+// In particular, CC 23 and CC 24 belong entirely to the active chain-A module
+// (plaits engine/aux, elements geometry/brightness, rings chord-tb/chord).
 bool rack_chain_wants_cc(uint8_t cc) {
   return g_chain.active &&
-         (cc == 23 || cc == 24 || cc == 65 || cc == 66 ||
-          (cc >= kCloudsAliasCcBase && cc <= kCloudsAliasCcBase + 8));
+         ((cc >= kCloudsAliasCcBase && cc <= kCloudsAliasCcBase + 10) ||
+          cc == 65 || cc == 66);
 }
 
 void rack_chain_control_change(uint8_t cc, uint8_t val) {
@@ -590,23 +588,31 @@ void rack_chain_control_change(uint8_t cc, uint8_t val) {
         static_cast<uint8_t>(cc - kCloudsAliasCcBase + 14), val);
     return;
   }
+  if (cc == kCloudsAliasCcBase + 9) { // 49 -> clouds-B MODE (clouds 23)
+    // clouds-B playback-mode CLAMP (chain mode = granular/looping ONLY):
+    // clouds' mode enum is 0 granular / 1 stretch / 2 looping / 3
+    // spectral. 1 (stretch) and 3 (spectral) are REJECTED while chained —
+    // stretch stays available in single-module mode, spectral is excluded
+    // everywhere (T2). The adapter's apply-time clamp is belt-and-braces.
+    if (val == 0 || val == 2) {
+      rack_modules::mod_clouds::control_change(23, val);
+    } else {
+      Serial.printf("rack: chain: clouds-B mode %u rejected while chained "
+                    "(granular 0 / looping 2 only)\r\n", val);
+    }
+    return;
+  }
+  if (cc == kCloudsAliasCcBase + 10) { // 50 -> clouds-B QUALITY (clouds 24)
+    // Chained partition strictly requires 16-bit stereo (quality 0).
+    rack_modules::mod_clouds::control_change(24, 0);
+    return;
+  }
   switch (cc) {
-    case 23:
-      // clouds-B playback-mode CLAMP (chain mode = granular/looping ONLY):
-      // clouds' mode enum is 0 granular / 1 stretch / 2 looping / 3
-      // spectral. 1 (stretch) and 3 (spectral) are REJECTED while chained —
-      // stretch stays available in single-module mode, spectral is excluded
-      // everywhere (T2). The adapter's apply-time clamp is belt-and-braces.
-      if (val == 0 || val == 2) {
-        rack_modules::mod_clouds::control_change(23, val);
-      } else {
-        Serial.printf("rack: chain: clouds-B mode %u rejected while chained "
-                      "(granular 0 / looping 2 only)\r\n", val);
-      }
+    case 65: // FREEZE
+    case 66: // TRIG
+      rack_modules::mod_clouds::control_change(cc, val);
       break;
     default:
-      // 24 quality / 65 freeze / 66 trig: no collision with any chain-A map.
-      rack_modules::mod_clouds::control_change(cc, val);
       break;
   }
 }

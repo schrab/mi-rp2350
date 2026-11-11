@@ -214,8 +214,14 @@ void preset_replay_module(uint8_t mod) {
         rack_modules::mod_rings::chain_rejects_cc((uint8_t)cc, val)) {
       continue;                          // chained-rings budget clamp
     }
-    if (mod == RACK_MODULE_CLOUDS && cc >= 40 && cc <= 48) {
-      kRackModules[mod].control_change(static_cast<uint8_t>(cc - 40 + 14), val);
+    if (mod == RACK_MODULE_CLOUDS && cc >= 40 && cc <= 50) {
+      if (cc <= 48) {
+        kRackModules[mod].control_change(static_cast<uint8_t>(cc - 40 + 14), val);
+      } else if (cc == 49) {
+        kRackModules[mod].control_change(23, val);
+      } else if (cc == 50) {
+        kRackModules[mod].control_change(24, val);
+      }
       continue;
     }
     kRackModules[mod].control_change((uint8_t)cc, val);

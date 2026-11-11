@@ -63,6 +63,7 @@ void GranularProcessor::Init(
   previous_playback_mode_ = PLAYBACK_MODE_LAST;
   reset_buffers_ = true;
   dry_wet_ = 0.0f;
+  silence_ = false;
     
     sr_ = 48000.f;      // vb, init sample rate
     
