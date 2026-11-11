@@ -2460,3 +2460,18 @@ User-requested UX round:
     - Elements -> Clouds: engaged 41 ms; `out=51` wet.
     - Rings -> Clouds: engaged 43 ms; note strumming verified `in=315 out=119`.
     - Verified all 4 quality modes (0: `32-16`, 1: `32-8`, 2: `16-16`, 3: `16-8`) run clean with 0 stalls and low process times (~275-526 µs, well within 750 µs budget). Ready for user testing.
+
+### Rack T12: Elements P2 Page in Chained Mode Navigation (2026-11-12)
+- **User Issue**:
+  - "in chained mode elements have only one page and single mode's P2 parameters MODEL PLAY and VCA not available."
+- **Root Cause Analysis**:
+  - In `rack-uimcu/ui/RackUI.cpp`, chained page navigation was hardcoded to `kPagesChained[8] = { 0, 8, 2, 3, 4, 5, 6, 7 }`.
+  - It assumed Chain A only ever had Page 0 (P1), omitting Page 1 (P2: MODEL on CC 28, PLAY on CC 64, VCA on CC 7) when Elements was the active Chain-A sound source.
+  - RP2350 telemetry (`ui_link.h`) and DSP (`module_elements.h`) already fully supported Page 1 for Elements while chained; only the C3 UI MCU encoder page list skipped it.
+- **Implementation**:
+  - In `rack-uimcu/ui/RackUI.cpp`, added `kPagesChainedP2[9] = { 0, 1, 8, 2, 3, 4, 5, 6, 7 }`.
+  - When chained with Elements (`ModuleHasP2(s_cur.module) == true`), encoder rotates through 9 pages: P1 -> P2 -> CLOUDS B -> MOD-LFO 1/2 -> MOD-LFO 3/4 -> MOD-TRIG -> MOD-GATE -> MOD-ENV -> SYS.
+  - When chained with Plaits or Rings (`ModuleHasP2(s_cur.module) == false`), encoder retains the 8-page sequence (skipping P2).
+- **Built & Hardware Verified**:
+  - `rack-uimcu` compiled and flashed to `COM22` (`31084e4`).
+  - Switched chain to Elements -> Clouds; verified C3 requests and receives `telem page=1 mod=0 mode=0 count=3` (MODEL, PLAY, VCA).
