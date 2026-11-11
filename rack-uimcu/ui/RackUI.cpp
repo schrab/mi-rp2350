@@ -962,6 +962,7 @@ namespace CTAG {
                 // rides the TELEM flags bits 3-6 (source id + 1).
                 if (!s_fullArrived || pot >= s_cur.count) return false;
                 if (s_page == 8 && pot < 3) return false; // pots 0-2 (exciter) blank on chained Clouds-B
+                if (s_cur.cell[pot].label[0] == '\0' || s_cur.cell[pot].cc == 0) return false; // empty pot
                 out.kind = PotTarget::kCC;
                 out.cc = s_cur.cell[pot].cc;
                 out.value = s_cur.cell[pot].value;

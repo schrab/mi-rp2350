@@ -236,21 +236,29 @@ static const UiPageCell kUiPagePlaitsP1[] = {
     {24, "AUX",        kUiColorWhite},
     {64, "TRIG",       kUiColorWhite},
 };
-// rings — P1: panel colors (all white). CC 1 = PITCH (FREQUENCY), CC 64 = STRUM pseudo-CC. 13 cells.
-static const UiPageCell kUiPageRingsP1[] = {
-    {1,  "PITCH",      kUiColorWhite},
-    {14, "STRUCTURE",  kUiColorWhite},
-    {15, "BRIGHTNESS", kUiColorWhite},
-    {16, "DAMPING",    kUiColorWhite},
-    {17, "POSITION",   kUiColorWhite},
-    {18, "MODEL/FX",   kUiColorWhite},
-    {19, "POLY",       kUiColorWhite},
-    {20, "MODE",       kUiColorWhite},
-    {21, "WAVE",       kUiColorWhite},
-    {22, "CHORD TB",   kUiColorWhite},
-    {23, "CHORD",      kUiColorWhite},
-    {64, "STRUM",      kUiColorWhite},
-    {7,  "VCA",        kUiColorWhite},
+// rings — P1: physical front-panel order (16 slots: Row 0 has 3 cells + 3 empty;
+// Row 1 has 4 cells: PITCH, STRUCTURE, STRUM, VCA;
+// Row 2 has 6 cells: MODEL/FX, CHORD TB, CHORD, MODE, WAVE, POLY).
+static const UiPageCell kUiPageRingsP1[16] = {
+    // Row 0 (pots 0..5 / physical p1..p6):
+    {15, "BRIGHTNESS", kUiColorWhite}, // p1
+    {16, "DAMPING",    kUiColorWhite}, // p2
+    {17, "POSITION",   kUiColorWhite}, // p3
+    {0,  "",           kUiColorWhite}, // p4 (empty)
+    {0,  "",           kUiColorWhite}, // p5 (empty)
+    {0,  "",           kUiColorWhite}, // p6 (empty)
+    // Row 1 (pots 6..9 / physical p7..p10):
+    {1,  "PITCH",      kUiColorWhite}, // p7
+    {14, "STRUCTURE",  kUiColorWhite}, // p8
+    {64, "STRUM",      kUiColorWhite}, // p9
+    {7,  "VCA",        kUiColorWhite}, // p10
+    // Row 2 (pots 10..15 / physical p11..p16):
+    {18, "MODEL/FX",   kUiColorWhite}, // p11
+    {22, "CHORD TB",   kUiColorWhite}, // p12
+    {23, "CHORD",      kUiColorWhite}, // p13
+    {20, "MODE",       kUiColorWhite}, // p14
+    {21, "WAVE",       kUiColorWhite}, // p15
+    {19, "POLY",       kUiColorWhite}, // p16
 };
 
 // [module][0 = P1, 1 = P2]. Elements has 3 unique params on P2 (MODEL CC 28,
@@ -260,7 +268,7 @@ static const UiPageTable kUiPages[RACK_MODULE_COUNT][2] = {
     { {kUiPageElementsP1, 16}, {kUiPageElementsP2, 3} },   // elements
     { {kUiPageCloudsP1, 16},   {nullptr, 0} },             // clouds
     { {kUiPagePlaitsP1, 11},   {nullptr, 0} },             // plaits
-    { {kUiPageRingsP1, 13},    {nullptr, 0} },             // rings
+    { {kUiPageRingsP1, 16},    {nullptr, 0} },             // rings
 };
 static const UiPageTable kUiPageEmpty = { nullptr, 0 };   // unused fallback
 
@@ -537,6 +545,7 @@ static void ui_link_send_frame(uint8_t type, const uint8_t* payload,
 // TELEM flags for one cell (see kUiFlag*). Bits 3-6 carry the FIRST routed
 // source id + 1 so the C3's assign gesture knows what it is cycling from.
 static uint8_t ui_link_cell_flags(uint8_t cc, uint8_t mod) {
+  if (cc == 0) return 0;
   uint8_t flags = 0;
   bool routed = false, inert = false;
   int8_t first_src = -1;
@@ -843,7 +852,7 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
       const UiPageTable& t = kUiPages[mod][page];
       int8_t idx = -1;
       for (uint8_t i = 0; i < t.count; ++i) {
-        if (t.cells[i].cc == delta_cc) { idx = (int8_t)i; break; }
+        if (t.cells[i].cc != 0 && t.cells[i].cc == delta_cc) { idx = (int8_t)i; break; }
       }
       if (idx < 0) return;                        // not a cell of this page
       c = t.cells[idx].cc;
@@ -943,7 +952,7 @@ void ui_link_observe_cc(uint8_t cc, uint8_t val) {
   if (now - last_delta_ms < 50) return;
   const UiPageTable& t = kUiPages[mod][g_ui_active_page];
   for (uint8_t i = 0; i < t.count; ++i) {
-    if (t.cells[i].cc == cc) {
+    if (t.cells[i].cc != 0 && t.cells[i].cc == cc) {
       last_delta_ms = now;
       ui_link_send_telem(g_ui_active_page, kUiTelemDelta, cc);
       return;
@@ -1117,6 +1126,10 @@ static void ui_link_dispatch() {
           break;
         }
         const uint8_t cc = t.cells[arg].cc;
+        if (cc == 0) {
+          Serial.printf("ui: ASSIGN_CYCLE cell %u is empty\r\n", arg);
+          break;
+        }
         int8_t cur = -1;                       // first source routing this CC
         for (uint8_t i = 0; i < MOD_SOURCE_COUNT; ++i) {
           if (g_mod_engine.src[i].dest_cc == cc) { cur = (int8_t)i; break; }

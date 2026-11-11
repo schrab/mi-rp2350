@@ -264,23 +264,26 @@ chained, where native 14-22 belong to the A slot). P2 count = 0 (no duplicate pa
 
 P2 count = 0 (no duplicate page).
 
-### rings — P1 (13 cells; 3 pots empty, all white)
+### rings — P1 (16 cells: 13 params + 3 empty, all white)
 
-| cell | cc | label |
-|------|----|-------|
-| 0 | 1 | PITCH (FREQUENCY) |
-| 1 | 14 | STRUCTURE |
-| 2 | 15 | BRIGHTNESS |
-| 3 | 16 | DAMPING |
-| 4 | 17 | POSITION |
-| 5 | 18 | MODEL/FX |
-| 6 | 19 | POLY |
-| 7 | 20 | MODE |
-| 8 | 21 | WAVE |
-| 9 | 22 | CHORD TB |
-| 10 | 23 | CHORD |
-| 11 | 64 | STRUM (momentary) |
-| 12 | 7 | VCA |
+| cell | pot | cc | label |
+|------|-----|----|-------|
+| 0 | 0 (p1) | 15 | BRIGHTNESS |
+| 1 | 1 (p2) | 16 | DAMPING |
+| 2 | 2 (p3) | 17 | POSITION |
+| 3 | 3 (p4) | 0  | (empty) |
+| 4 | 4 (p5) | 0  | (empty) |
+| 5 | 5 (p6) | 0  | (empty) |
+| 6 | 6 (p7) | 1  | PITCH (FREQUENCY) |
+| 7 | 7 (p8) | 14 | STRUCTURE |
+| 8 | 8 (p9) | 64 | STRUM (momentary) |
+| 9 | 9 (p10)| 7  | VCA |
+| 10 | 10 (p11)| 18 | MODEL/FX |
+| 11 | 11 (p12)| 22 | CHORD TB |
+| 12 | 12 (p13)| 23 | CHORD |
+| 13 | 13 (p14)| 20 | MODE |
+| 14 | 14 (p15)| 21 | WAVE |
+| 15 | 15 (p16)| 19 | POLY |
 
 P2 = elements has 2 unique parameters (MODEL CC 28, OMINOUS CC 29); clouds, plaits, rings have count = 0 (no duplicate parameters). Page navigation automatically skips P2 when the active module has no secondary parameter page (P1 navigates directly to/from MOD-LFO 1/2).
 
