@@ -33,7 +33,7 @@ namespace CTAG {
         // — the pot index IS the cell index on these pages.
         struct SrcParam { uint8_t src, param; };
         static const SrcParam kNoSet = { 0xFF, 0xFF };
-        static const SrcParam kModPotMap[5][16] = {
+        static const SrcParam kModPotMap[6][16] = {
             {   // MOD-LFO 1/2 (page 2): LFO 1 (pots 0..5), LFO 2 (pots 10..15)
                 {0, 1}, {0, 2}, {0, 3}, {0, 4}, {0, 0}, {0, 6},
                 kNoSet, kNoSet, kNoSet, kNoSet,
@@ -58,6 +58,11 @@ namespace CTAG {
                 {8, 1}, {8, 2}, {8, 3}, {8, 4}, {8, 0}, {8, 6},
                 kNoSet, kNoSet, kNoSet, kNoSet,
                 {9, 1}, {9, 2}, {9, 3}, {9, 4}, {9, 0}, {9, 6},
+            },
+            {   // MOD-ARP (page 7): ARP 1 (pots 0..5), ARP 2 (pots 10..15)
+                {10, 0}, {10, 1}, {10, 2}, {10, 3}, {10, 4}, {10, 6},
+                kNoSet, kNoSet, kNoSet, kNoSet,
+                {11, 0}, {11, 1}, {11, 2}, {11, 3}, {11, 4}, {11, 6},
             },
         };
 
@@ -141,8 +146,8 @@ namespace CTAG {
         };
         static CellSnap s_rendered[16];
 
-        static const char *kPageNames[9] = {
-            "P1", "P2", "MOD-LFO 1/2", "MOD-LFO 3/4", "MOD-TRIG", "MOD-GATE", "MOD-ENV", "SYS", "CLOUDS B",
+        static const char *kPageNames[10] = {
+            "P1", "P2", "MOD-LFO 1/2", "MOD-LFO 3/4", "MOD-TRIG", "MOD-GATE", "MOD-ENV", "MOD-ARP", "SYS", "CLOUDS B",
         };
         // Plaits engine aliases (id order = the catalog order the RP2350's
         // CC 23 uses; names shortened for the cell value font).
@@ -159,10 +164,11 @@ namespace CTAG {
             "CLAP", "PERC", "FFRM", "BUBBLE", "ZXPH", "ZXPU", "ACID", "SSAW",
         };
         static const char *kModNames[4] = { "ELEMENTS", "CLOUDS", "PLAITS", "RINGS" };
-        static const char *kSrcNames[11] = {
+        static const char *kSrcNames[13] = {
             "OFF",  "LFO1", "LFO2", "LFO3", "LFO4",
             "EUC1", "EUC2",
             "GAT1", "GAT2", "ADS1", "ADS2",
+            "ARP1", "ARP2",
         };
 
         static inline bool ModuleHasP2(uint8_t mod) {
@@ -175,7 +181,7 @@ namespace CTAG {
         static uint8_t p1p2DiscreteCount(uint8_t page, uint8_t mod, uint8_t cc,
                                          bool &wireIsBool127) {
             wireIsBool127 = false;
-            if (page == 8 && (cc == 23 || cc == 49)) {
+            if (page == 9 && (cc == 23 || cc == 49)) {
                 // Clouds-B MODE: 2 options (GRANULAR 0, LOOPING 2)
                 return 2;
             }
@@ -189,7 +195,7 @@ namespace CTAG {
                     }
                     break;
                 case 1: // Clouds
-                    if (cc == 23 || cc == 49) return (page == 8) ? 2 : 3;   // MODE: 0..2
+                    if (cc == 23 || cc == 49) return (page == 9) ? 2 : 3;   // MODE: 0..2
                     if (cc == 24 || cc == 50) return 4;                     // QUALITY: 0..3 (all 4 supported)
                     if (cc == 65 || cc == 66) {
                         wireIsBool127 = true;
@@ -222,11 +228,11 @@ namespace CTAG {
         uint8_t RackUI::WireToPotValue(uint8_t page, uint8_t mod,
                                        uint8_t slot, uint8_t cc,
                                        uint8_t wireVal) {
-            if (page <= 1 || page == 8) {
-                if (page == 8 && (cc == 23 || cc == 49)) {
+            if (page <= 1 || page == 9) {
+                if (page == 9 && (cc == 23 || cc == 49)) {
                     return wireVal >= 2 ? 127 : 0;
                 }
-                const uint8_t modForPage = (page == 8) ? 1 : mod;
+                const uint8_t modForPage = (page == 9) ? 1 : mod;
                 bool wireBool = false;
                 const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
                 if (n > 1) {
@@ -240,7 +246,7 @@ namespace CTAG {
                 // LFO/ENV MODE: 0 or 127
                 return wireVal >= 64 ? 127 : 0;
             }
-            if (page == 7) {
+            if (page == 8) {
                 if (slot == 0) return wireVal;
                 if (slot >= 1 && slot <= 4) return 0;
                 if (slot == 5 || slot == 7 || slot == 14 || slot == 15) {
@@ -257,11 +263,11 @@ namespace CTAG {
                                        uint8_t slot, uint8_t cc,
                                        uint8_t potVal) {
             (void)slot;
-            if (page <= 1 || page == 8) {
-                if (page == 8 && (cc == 23 || cc == 49)) {
+            if (page <= 1 || page == 9) {
+                if (page == 9 && (cc == 23 || cc == 49)) {
                     return potVal >= 64 ? 2 : 0;
                 }
-                const uint8_t modForPage = (page == 8) ? 1 : mod;
+                const uint8_t modForPage = (page == 9) ? 1 : mod;
                 bool wireBool = false;
                 const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
                 if (n > 1) {
@@ -282,14 +288,14 @@ namespace CTAG {
                                      int &barVal, int &barMax) {
             barVal = potVal;
             barMax = 127;
-            if (page <= 1 || page == 8) {
-                if (page == 8 && (cc == 23 || cc == 49)) {
+            if (page <= 1 || page == 9) {
+                if (page == 9 && (cc == 23 || cc == 49)) {
                     int idx = potVal >= 64 ? 1 : 0;
                     barVal = idx;
                     barMax = 1;
                     return idx;
                 }
-                const uint8_t modForPage = (page == 8) ? 1 : mod;
+                const uint8_t modForPage = (page == 9) ? 1 : mod;
                 bool wireBool = false;
                 const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
                 if (n > 1) {
@@ -299,7 +305,7 @@ namespace CTAG {
                     barMax = n - 1;
                     return idx;
                 }
-                if (cc == 1 || (page == 8 && cc == 42) || ((modForPage & 3) == 1 && cc == 42)) {
+                if (cc == 1 || (page == 9 && cc == 42) || ((modForPage & 3) == 1 && cc == 42)) {
                     // PITCH: -24..+24 st (potVal 64 = 0)
                     int v = ((int)potVal * 48 + 63) / 127 - 24;
                     barVal = potVal;
@@ -458,6 +464,61 @@ namespace CTAG {
                 return potVal;
             }
             if (page == 7) {
+                // MOD-ARP:
+                // P1/P2 ALGO (0, 10): 0..8 (3 algos * 3 octave ranges)
+                if (slot == 0 || slot == 10) {
+                    int algo = (potVal < 43) ? 0 : (potVal < 86 ? 1 : 2);
+                    int oct = 1 + ((potVal % 43) * 3) / 43;
+                    if (oct > 3) oct = 3;
+                    barVal = algo * 3 + (oct - 1);
+                    barMax = 8;
+                    return barVal;
+                }
+                // P1/P2 ROOT (1, 11): 0 = MIDI, 1..61 = Note 24..84 (C1..C6)
+                if (slot == 1 || slot == 11) {
+                    if (potVal == 0) {
+                        barVal = 0; barMax = 61;
+                        return 0; // 0 = MIDI
+                    }
+                    int note = 24 + ((int)(potVal - 1) * 60) / 126;
+                    if (note > 84) note = 84;
+                    barVal = note - 24 + 1;
+                    barMax = 61;
+                    return note;
+                }
+                // P1/P2 SCAL (2, 12): 0..15 scale/chord
+                if (slot == 2 || slot == 12) {
+                    int v = ((int)potVal * 16) / 128;
+                    if (v > 15) v = 15;
+                    barVal = v;
+                    barMax = 15;
+                    return v;
+                }
+                // P1/P2 DENS (3, 13): 0..100 (%)
+                if (slot == 3 || slot == 13) {
+                    int v = ((int)potVal * 100 + 63) / 127;
+                    barVal = potVal;
+                    barMax = 127;
+                    return v;
+                }
+                // P1/P2 GRV (4, 14): 0..100 (%)
+                if (slot == 4 || slot == 14) {
+                    int v = ((int)potVal * 100 + 63) / 127;
+                    barVal = potVal;
+                    barMax = 127;
+                    return v;
+                }
+                // P1/P2 DIV (5, 15): 0..9 division
+                if (slot == 5 || slot == 15) {
+                    int v = ((int)potVal * 10) / 128;
+                    if (v > 9) v = 9;
+                    barVal = v;
+                    barMax = 9;
+                    return v;
+                }
+                return potVal;
+            }
+            if (page == 8) {
                 // SYS: 0 MODULE (dual-purpose: 4 module slots / 3 chain-pair
                 // slots while engaged), 5 CHAIN ON (0..1), 6 BPM (20..300),
                 // 7 CLKSRC (0..1), 8 PRESET (0..15), 9 BLE (0..1),
@@ -507,11 +568,11 @@ namespace CTAG {
             int x = 2;
             // module + page (TELEM header; dashes before the first snapshot; SYS is global)
             char buf[24];
-            if (s_page == 7) {
+            if (s_page == 8) {
                 snprintf(buf, sizeof(buf), "SYSTEM");
-            } else if (s_page == 8) {
+            } else if (s_page == 9) {
                 snprintf(buf, sizeof(buf), "%s", kPageNames[s_page]);
-            } else if (s_page >= 2 && s_page <= 6) {
+            } else if (s_page >= 2 && s_page <= 7) {
                 snprintf(buf, sizeof(buf), "%s", kPageNames[s_page]);
             } else if (s_cur.valid) {
                 snprintf(buf, sizeof(buf), "%s %s",
@@ -544,7 +605,7 @@ namespace CTAG {
             if (s_bannerExpireUs != 0 && esp_timer_get_time() < s_bannerExpireUs) {
                 Display::DrawString(x, 1, s_bannerText, Display::FONT_VALUE,
                                     Display::kYellow);
-            } else if (s_page == 7 && s_pressStartUs != 0 && UserInput::IsPressed()) {
+            } else if (s_page == 8 && s_pressStartUs != 0 && UserInput::IsPressed()) {
                 const int64_t elapsed = esp_timer_get_time() - s_pressStartUs;
                 if (elapsed >= 3000000) {
                     Display::DrawString(x, 1, ">SAVED<", Display::FONT_VALUE,
@@ -564,17 +625,17 @@ namespace CTAG {
             } else if (s_assignArmed) {
                 if (s_assignPot < 16) {
                     snprintf(buf, sizeof(buf), ">MOD %s<",
-                             kSrcNames[s_assignSrc <= 10 ? s_assignSrc : 0]);
+                             kSrcNames[s_assignSrc <= 12 ? s_assignSrc : 0]);
                 } else {
                     snprintf(buf, sizeof(buf), ">MOD<");
                 }
                 Display::DrawString(x, 1, buf, Display::FONT_VALUE,
                                     Display::kYellow);
-            } else if ((s_page <= 1 || s_page == 8) && s_activePot < 16 && s_fullArrived) {
+            } else if ((s_page <= 1 || s_page == 9) && s_activePot < 16 && s_fullArrived) {
                 const uint8_t rsrc = (uint8_t)(
                     (s_cur.cell[s_activePot].flags & RackLink::kFlagSrcMask) >>
                     RackLink::kFlagSrcShift);
-                if (rsrc > 0 && rsrc <= 10) {
+                if (rsrc > 0 && rsrc <= 12) {
                     snprintf(buf, sizeof(buf), "MOD:%s", kSrcNames[rsrc]);
                     Display::DrawString(x, 1, buf, Display::FONT_VALUE,
                                         Display::kYellow);
@@ -646,13 +707,13 @@ namespace CTAG {
                     static const char *const kEnvModeNames[2] = { "GATE", "RTRG" };
                     static const char *const kChainPairNames[3] = { "E>C", "P>C", "R>C" };
 
-                    if (s_page <= 1 || s_page == 8) {
-                        const uint8_t modForPage = (s_page == 8) ? 1 : (s_cur.module & 3);
+                    if (s_page <= 1 || s_page == 9) {
+                        const uint8_t modForPage = (s_page == 9) ? 1 : (s_cur.module & 3);
                         bool wireBool = false;
                         (void)p1p2DiscreteCount(s_page, modForPage, c.cc, wireBool);
                         if (wireBool) {
                             pName = dispVal ? "ON" : "OFF";
-                        } else if (s_page == 8 && (c.cc == 23 || c.cc == 49)) {
+                        } else if (s_page == 9 && (c.cc == 23 || c.cc == 49)) {
                             static const char *const kCloudBModes[2] = { "GRAN", "LOOP" };
                             pName = (dispVal >= 0 && dispVal < 2) ? kCloudBModes[dispVal] : "---";
                         } else if (modForPage == 0 && c.cc == 28) {
@@ -738,6 +799,41 @@ namespace CTAG {
                             pName = (dispVal >= 0 && dispVal < 10) ? kDivNames[dispVal] : "---";
                         }
                     } else if (s_page == 7) {
+                        // MOD-ARP:
+                        static const char *const kArpAlgoNames[9] = {
+                            "HYP.1", "HYP.2", "HYP.3",
+                            "BAR.1", "BAR.2", "BAR.3",
+                            "GRD.1", "GRD.2", "GRD.3"
+                        };
+                        static const char *const kArpScaleNames[16] = {
+                            "ION", "DOR", "PHR", "LYD", "MIX", "AEO", "PMAJ", "PMIN",
+                            "ION+", "DOR+", "PHR+", "LYD+", "MIX+", "AEO+", "PMA+", "PMI+"
+                        };
+                        static const char *const kNoteNames[12] = {
+                            "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
+                        };
+                        if (slot == 0 || slot == 10) {
+                            pName = (dispVal >= 0 && dispVal < 9) ? kArpAlgoNames[dispVal] : "---";
+                        } else if (slot == 1 || slot == 11) {
+                            if (dispVal == 0) {
+                                pName = "MIDI";
+                            } else if (dispVal >= 24 && dispVal <= 84) {
+                                int oct = (dispVal / 12) - 1;
+                                snprintf(bufText, sizeof(bufText), "%s%d", kNoteNames[dispVal % 12], oct);
+                                pName = bufText;
+                            } else {
+                                pName = "---";
+                            }
+                        } else if (slot == 2 || slot == 12) {
+                            pName = (dispVal >= 0 && dispVal < 16) ? kArpScaleNames[dispVal] : "---";
+                        } else if (slot == 3 || slot == 4 || slot == 13 || slot == 14) {
+                            // DENS and GROOVE are percentage
+                            snprintf(bufText, sizeof(bufText), "%d%%", dispVal);
+                            pName = bufText;
+                        } else if (slot == 5 || slot == 15) {
+                            pName = (dispVal >= 0 && dispVal < 10) ? kDivNames[dispVal] : "---";
+                        }
+                    } else if (s_page == 8) {
                         // SYS:
                         if (slot == 0) {
                             // The dual-purpose selector pot — text aliases:
@@ -803,7 +899,7 @@ namespace CTAG {
                 // SYS pots 8/9/10 = C3-LOCAL cells (no TELEM cells exist):
                 // 8 = preset slot, 9 = BLE radio, 10 = BLE role. The
                 // RP2350 owns no state for these — the C3 renders + acts.
-                if (s_page == 7 && slot >= 8 && slot <= 10 && s_fullArrived) {
+                if (s_page == 8 && slot >= 8 && slot <= 10 && s_fullArrived) {
                     uint8_t potVal = 0;
                     const char *label = "PRESET";
                     if (slot == 8) {
@@ -878,8 +974,8 @@ namespace CTAG {
             lo = t.value;
             hi = t.value;
             uint8_t n = 0;
-            if (s_page <= 1 || s_page == 8) {
-                const uint8_t modForPage = (s_page == 8) ? 1 : s_cur.module;
+            if (s_page <= 1 || s_page == 9) {
+                const uint8_t modForPage = (s_page == 9) ? 1 : s_cur.module;
                 bool wireBool = false;
                 n = p1p2DiscreteCount(s_page, modForPage, t.cc, wireBool);
                 if (n == 0 && (modForPage & 3) == 1 && t.cc == 13) n = 5;
@@ -900,6 +996,10 @@ namespace CTAG {
                 if (pot == 4 || pot == 14) n = 2;    // ADSR MODE (0..1)
                 if (pot == 5 || pot == 15) n = 10;   // ADSR DIV (0..9)
             } else if (s_page == 7) {
+                if (pot == 0 || pot == 10) n = 9;    // ARP ALGO (0..8)
+                if (pot == 2 || pot == 12) n = 16;   // ARP SCAL (0..15)
+                if (pot == 5 || pot == 15) n = 10;   // ARP DIV (0..9)
+            } else if (s_page == 8) {
                 if (pot == 0) {
                     // ONE selector: 4 slots (modules) when no chain, 3
                     // slots (chain pairs) while engaged.
@@ -941,7 +1041,7 @@ namespace CTAG {
         }
 
         void RackUI::SetPage(uint8_t page) {
-            if (page > 8 || page == s_page) return;
+            if (page > 9 || page == s_page) return;
             s_page = page;
             s_fullArrived = false;      // dashes until the snapshot lands
             s_activePot = 0xFF;
@@ -957,11 +1057,11 @@ namespace CTAG {
             out.value = 0;
             out.routedSrc = 0;
             if (pot > 15) return false;
-            if (s_page <= 1 || s_page == 8) {
+            if (s_page <= 1 || s_page == 9) {
                 // P1/P2/CLOUDS B: the ACTIVE page cell's CC (TELEM-driven). routedSrc
                 // rides the TELEM flags bits 3-6 (source id + 1).
                 if (!s_fullArrived || pot >= s_cur.count) return false;
-                if (s_page == 8 && pot < 3) return false; // pots 0-2 (exciter) blank on chained Clouds-B
+                if (s_page == 9 && pot < 3) return false; // pots 0-2 (exciter) blank on chained Clouds-B
                 if (s_cur.cell[pot].label[0] == '\0' || s_cur.cell[pot].cc == 0) return false; // empty pot
                 out.kind = PotTarget::kCC;
                 out.cc = s_cur.cell[pot].cc;
@@ -971,7 +1071,7 @@ namespace CTAG {
                     RackLink::kFlagSrcShift);
                 return true;
             }
-            if (s_page >= 2 && s_page <= 6) {
+            if (s_page >= 2 && s_page <= 7) {
                 const SrcParam &sp = kModPotMap[s_page - 2][pot];
                 if (sp.src == 0xFF) return false;
                 out.kind = PotTarget::kMod;
@@ -981,7 +1081,7 @@ namespace CTAG {
                                 ? s_cur.cell[pot].value : 0;
                 return true;
             }
-            if (s_page == 7) {
+            if (s_page == 8) {
                 if (!s_fullArrived) return false;
                 if ((pot == 0 || pot == 5) && pot < s_cur.count) {
                     out.kind = PotTarget::kSys;
@@ -1037,7 +1137,7 @@ namespace CTAG {
             NoteActivePot(pot);
             switch (t.kind) {
                 case PotTarget::kCC: {
-                    const uint8_t modForPage = (s_page == 8) ? 1 : s_cur.module;
+                    const uint8_t modForPage = (s_page == 9) ? 1 : s_cur.module;
                     const uint8_t wireVal =
                         PotToWireValue(s_page, modForPage, pot, t.cc, potVal);
                     RackLink::TelemLocalCellWrite(pot, potVal);
@@ -1060,7 +1160,7 @@ namespace CTAG {
                     break;
                 }
                 case PotTarget::kSys: {
-                    if (s_page == 7 && pot == 7) {
+                    if (s_page == 8 && pot == 7) {
                         // SYS CLKSRC (0 = INT, 1 = MIDI)
                         const uint8_t wantClk = potVal >= 64 ? 1 : 0;
                         RackLink::TelemLocalCellWrite(pot, potVal);
@@ -1075,7 +1175,7 @@ namespace CTAG {
                         }
                         break;
                     }
-                    if (s_page == 7) {
+                    if (s_page == 8) {
                         if (pot == 0) {
                             // ONE selector pot (dual-purpose, the value text
                             // shows which): not chained = module select over
@@ -1241,7 +1341,7 @@ namespace CTAG {
                         s_pressStartUs = nowUs;
                         s_sysSaveTriggered = false;
                     }
-                    if (s_page == 7) {
+                    if (s_page == 8) {
                         const int64_t elapsed = nowUs - s_pressStartUs;
                         if (elapsed >= 3000000 && !s_sysSaveTriggered) {
                             s_sysSaveTriggered = true;
@@ -1273,32 +1373,32 @@ namespace CTAG {
                                 s_overlaySel = (uint8_t)(
                                     (s_overlaySel + ev.delta + 4) & 3);
                                 s_stripDirty = true;
-                            } else if (s_page == 7 && pressed) {
+                            } else if (s_page == 8 && pressed) {
                                 // Ignore accidental rotation while holding to save on SYS page
                             } else {
                                 // When chained: Chain-A P1 (0), optionally Chain-A P2 (1 if Elements),
-                                // Chain-B (8), followed by modulations (2-6), and SYS (7) is always last.
+                                // Chain-B (9), followed by modulations (2-7), and SYS (8) is always last.
                                 const bool chained =
                                     s_cur.tail_valid && s_cur.chain != 0;
                                 const bool hasP2 = ModuleHasP2(s_cur.module);
-                                static const uint8_t kPagesChainedP2[9] = {
-                                    0, 1, 8, 2, 3, 4, 5, 6, 7
+                                static const uint8_t kPagesChainedP2[10] = {
+                                    0, 1, 9, 2, 3, 4, 5, 6, 7, 8
                                 };
-                                static const uint8_t kPagesChained[8] = {
-                                    0, 8, 2, 3, 4, 5, 6, 7
+                                static const uint8_t kPagesChained[9] = {
+                                    0, 9, 2, 3, 4, 5, 6, 7, 8
                                 };
-                                static const uint8_t kPagesUnchainedP2[8] = {
-                                    0, 1, 2, 3, 4, 5, 6, 7
+                                static const uint8_t kPagesUnchainedP2[9] = {
+                                    0, 1, 2, 3, 4, 5, 6, 7, 8
                                 };
-                                static const uint8_t kPagesUnchained[7] = {
-                                    0, 2, 3, 4, 5, 6, 7
+                                static const uint8_t kPagesUnchained[8] = {
+                                    0, 2, 3, 4, 5, 6, 7, 8
                                 };
                                 const uint8_t *pageList = chained
                                     ? (hasP2 ? kPagesChainedP2 : kPagesChained)
                                     : (hasP2 ? kPagesUnchainedP2 : kPagesUnchained);
                                 const int pageCount = chained
-                                    ? (hasP2 ? 9 : 8)
-                                    : (hasP2 ? 8 : 7);
+                                    ? (hasP2 ? 10 : 9)
+                                    : (hasP2 ? 9 : 8);
 
                                 int curIdx = 0;
                                 for (int i = 0; i < pageCount; ++i) {
@@ -1316,7 +1416,7 @@ namespace CTAG {
                             }
                             break;
                         case InputEvent::PUSH_HOLD:
-                            if (s_page == 7) {
+                            if (s_page == 8) {
                                 // Long press on SYS page is handled by timer (3s SAVE)
                                 s_assignArmed = false;
                             } else {
@@ -1326,7 +1426,7 @@ namespace CTAG {
                             }
                             break;
                         case InputEvent::PUSH_SHORT:
-                            if (s_page == 7) {
+                            if (s_page == 8) {
                                 PresetStore::LoadFrom(s_presetSlot);
                                 char b[24];
                                 snprintf(b, sizeof(b), "LOADED P%u", s_presetSlot);
@@ -1334,7 +1434,7 @@ namespace CTAG {
                             }
                             break;
                         case InputEvent::PUSH_RELEASE:
-                            if (s_page == 7) {
+                            if (s_page == 8) {
                                 s_assignArmed = false;
                                 s_overlay = false;
                                 s_stripDirty = true;
@@ -1370,7 +1470,7 @@ namespace CTAG {
                 PresetStore::Poll();
                 // The chain-B panel exists only while a chain is engaged —
                 // leaving the chain while on it snaps back to P1.
-                if (s_page == 8 && !(s_cur.tail_valid && s_cur.chain != 0)) {
+                if (s_page == 9 && !(s_cur.tail_valid && s_cur.chain != 0)) {
                     SetPage(0);
                 }
 

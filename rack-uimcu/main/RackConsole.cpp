@@ -47,8 +47,8 @@ namespace CTAG {
             void printHelp() {
                 printf("rack console commands:\r\n");
                 printf("  ui            link + page state\r\n");
-                printf("  page <0-5>    switch page (0 P1, 1 P2, 2 MOD-A, "
-                       "3 MOD-B, 4 MOD-C, 5 SYS)\r\n");
+                printf("  page <0-9>    switch page (0 P1, 1 P2, 2 LFO1/2, "
+                       "3 LFO3/4, 4 TRIG, 5 GATE, 6 ENV, 7 ARP, 8 SYS, 9 CLD-B)\r\n");
                 printf("  pots          raw + mapped HC4067 pot values\r\n");
                 printf("  calib         8 s pot min/max sweep -> NVS\r\n");
                 printf("  calib clear   reset pot calibration\r\n");
@@ -101,8 +101,8 @@ namespace CTAG {
                                            BtMidiReceiver::DropCount());
                             } else if (!strncasecmp(line, "page ", 5)) {
                                 const int p = atoi(line + 5);
-                                if (p < 0 || p > 5) {
-                                    printf("page 0-5\r\n");
+                                if (p < 0 || p >= RackLink::kPageCount) {
+                                    printf("page 0-%d\r\n", RackLink::kPageCount - 1);
                                 } else {
                                     RackUI::SetPage((uint8_t)p);
                                     printf("page -> %d (dashes until the "

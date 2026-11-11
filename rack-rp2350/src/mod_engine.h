@@ -107,8 +107,10 @@ extern volatile uint8_t g_mod_chain_rate_khz;   // 0 = off, else rate/1000
 
 // ===================== source taxonomy =====================
 enum ModSourceType : uint8_t {
-  MOD_LFO = 0, MOD_EUCLID = 1, MOD_GATE = 2, MOD_ADSR = 3,
+  MOD_LFO = 0, MOD_EUCLID = 1, MOD_GATE = 2, MOD_ADSR = 3, MOD_ARP = 4,
 };
+static const uint8_t MOD_TYPE_COUNT = 5;
+
 enum ModWave : uint8_t {
   MOD_WAVE_SINE = 0, MOD_WAVE_TRI = 1, MOD_WAVE_SAW = 2, MOD_WAVE_SQR = 3,
   MOD_WAVE_SH = 4,
@@ -122,11 +124,19 @@ enum ModClockSel : uint8_t {
 enum ModAdsrState : uint8_t {
   MOD_ENV_IDLE = 0, MOD_ENV_A = 1, MOD_ENV_D = 2, MOD_ENV_S = 3, MOD_ENV_R = 4,
 };
+enum ModArpAlgo : uint8_t {
+  MOD_ARP_HYP1 = 0,     // HYP-1 Acid / W7 Chord-Drift + Mutate + Fill Bar
+  MOD_ARP_BARLOW = 1,   // Barlow Indispensability + Sioros-Guedes Syncopation
+  MOD_ARP_GRIDS = 2,    // 2D Topographic Trance-Gate (Grids) + Nibble Arp
+};
 
-// Source ids (CC 33 values): 0-3 LFO1-4, 4-7 EU1-4, 8-9 GATE1-2, 10-11 ADSR1-2.
-// 4+2+2+2 = 10 sources total (4x LFO, 2x Euclid, 2x Gate, 2x ADSR).
-static const uint8_t MOD_SOURCE_COUNT = 10;
+// Source ids (CC 33 values): 0-3 LFO1-4, 4-5 EU1-2, 6-7 GATE1-2, 8-9 ADSR1-2, 10-11 ARP1-2.
+// 4+2+2+2+2 = 12 sources total.
+static const uint8_t MOD_SOURCE_COUNT = 12;
 static const uint8_t MOD_SRC_EU_FIRST = 4;    // odometer source for telemetry
+static const uint8_t MOD_SRC_ARP_FIRST = 10;  // arp1 = 10, arp2 = 11
+static const uint8_t MOD_ARP_COUNT = 2;
+static const uint8_t MOD_DEST_VOICE = 127;    // universal voice pitch+gate pseudo-CC
 
 // Clock divisions: PPQ ticks per division cycle (24 PPQ = quarter note).
 // All divisors are integers in 24 PPQ (triplets included).
@@ -140,13 +150,31 @@ static const uint8_t MOD_DIVISION_COUNT = 10;
 // Per-source parameter names/counts — the CC 34 param indexes and the console
 // `mod <src> <param> <value>` names use the SAME tables. The last three
 // params of every type are uniformly clk / div / dest.
-static const char* const kModParamNames[4][8] = {
+static const char* const kModParamNames[5][8] = {
     {"mode", "rate", "wave", "phase", "level", "clk", "div", "dest"},  // LFO
     {"steps", "pulses", "rot", "clk", "div", "dest"},                  // EUCLID
     {"mode", "dens", "sync", "glen", "clk", "div", "dest"},            // GATE
     {"mode", "atk", "dec", "sus", "rel", "clk", "div", "dest"},        // ADSR
+    {"algo", "root", "scale", "dens", "groove", "clk", "div", "dest"}, // ARP
 };
-static const uint8_t kModParamCount[4] = {8, 6, 7, 8};
+static const uint8_t kModParamCount[5] = {8, 6, 7, 8, 8};
+
+// Compact 16-step pattern + harmony state for arp1 and arp2 (64 B per instance).
+struct ModArpStep {
+  uint8_t flags;   // bit 0: gate, bit 1: accent, bit 2: slide
+  int8_t  off;     // scale steps above current chord degree
+  int8_t  oct;     // octave offset (0..range-1)
+};
+
+struct ModArpExt {
+  ModArpStep steps[16];
+  uint8_t scale_st[12];
+  uint8_t nsteps;
+  uint8_t chord_nt;
+  int8_t  deg;
+  uint8_t bar_count;
+  uint8_t dd_fill;
+};
 
 struct ModSource {
   // common
@@ -157,7 +185,7 @@ struct ModSource {
   float   clk_phase;     // 0..1 division-cycle phase (LFO wave phase when clocked)
   float   out;           // last output (0..1) — telemetry
   uint8_t was_high;      // last trigger-source level (edge detect)
-  uint32_t rng;          // per-source LCG state (S&H)
+  uint32_t rng;          // per-source LCG state (S&H / generative arp)
   float   sh_value;      // S&H held value
   float   sh_acc;        // S&H 1 Hz re-trigger accumulator (Hz mode)
   union {
@@ -169,6 +197,25 @@ struct ModSource {
              uint32_t rng_state; uint8_t cur_preset; } gate;
     struct { float a_s, d_s, s_lvl, r_s; uint8_t retrig, env_state; float env;
              uint32_t ticks; } adsr;
+    struct {
+      uint8_t algo;           // 0=HYP1, 1=BARLOW, 2=GRIDS
+      uint8_t range;          // 1..3 octaves
+      uint8_t root_param;     // 0 = MIDI follow, 24..84 = fixed root MIDI note
+      uint8_t midi_root;      // last captured external MIDI note (default 48 = C3)
+      uint8_t last_out_note;  // last note written to shared_note by this arp
+      uint8_t scale_idx;      // 0..15 (low 3 bits = mode 0..7, bit 3 = chord flavor)
+      uint8_t density;        // 0..100
+      uint8_t groove;         // 0..100 (syncopation / morph / mutate+slide)
+      uint8_t step;           // 0..15 current step
+      uint8_t cur_note;       // active step MIDI note (28..96)
+      uint8_t level;          // 1 if current step is gated
+      uint8_t cur_acc;        // 1 if current step is accented
+      uint8_t cur_hold;       // 1 if current step has slide (full-step gate)
+      uint8_t retrig_edge;    // 1 if step should re-fire trigger (not a slide)
+      uint8_t held;           // 1 if previous step left voice sounding
+      uint8_t ext_idx;        // 0 for arp1, 1 for arp2
+      uint32_t ticks;         // step odometer
+    } arp;
   } p;
 };
 
@@ -210,6 +257,7 @@ struct ModEngine {
   ModStamp ring[kModStampRingSize];
   // ---- sources ----
   ModSource src[MOD_SOURCE_COUNT];
+  ModArpExt arp_ext[MOD_ARP_COUNT];
   // ---- telemetry (core 1 writes, core 0 prints + resets each 2 s report) ---
   volatile uint32_t mod_us_max;       // engine block cost, max since report
   volatile uint32_t telem_midi_ticks; // F8 consumed since last report
@@ -229,9 +277,17 @@ static inline float mod_clamp01(float v) {
   return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
 }
 
-static inline float mod_rand01(ModSource& s) {
+static inline uint32_t mod_u32_rand(ModSource& s) {
   s.rng = s.rng * 1664525u + 1013904223u;
-  return (float)(s.rng >> 8) * (1.0f / 16777216.0f);
+  return s.rng;
+}
+
+static inline float mod_rand01(ModSource& s) {
+  return (float)(mod_u32_rand(s) >> 8) * (1.0f / 16777216.0f);
+}
+
+static inline uint8_t mod_irand(ModSource& s, uint8_t n) {
+  return n > 0 ? (uint8_t)(((mod_u32_rand(s) >> 16) * n) >> 16) : 0;
 }
 
 // LFO wave, UNIPOLAR 0..1 (the routed destination value is this x level;
@@ -474,6 +530,205 @@ static void mod_gate_recompute(ModSource& s) {
   s.p.gate.level = (s.p.gate.mask >> (15 - s.p.gate.step)) & 1u;
 }
 
+// ===================== MOD_ARP: 3-Algo Melody & Trance-Gate Engine ===========
+// Modes: Ionian, Dorian, Phrygian, Lydian, Mixolydian, Aeolian, PentMaj, PentMin
+static const uint16_t kArpModePools[8] = {
+    0x0AB5u, 0x06ADu, 0x06B5u, 0x0ABDu, 0x0AADu, 0x05ADu, 0x0125u, 0x04A9u
+};
+
+static const uint8_t kBarlowSyncOrder[8] = {0, 4, 8, 12, 2, 6, 10, 14};
+
+// 2D Topographic Trance-Gate Nodes (Mutable Instruments Grids style, 4 corners)
+// Node 00: Offbeat/Alternate | Node 10: Forward Gallop (3+1)
+// Node 01: Tresillo / Clave  | Node 11: Vanguard Anthem Chopper
+static const uint8_t kGridsNode00[16] = {220, 40, 255, 60, 180, 20, 240, 80, 200, 30, 250, 50, 170, 10, 230, 110};
+static const uint8_t kGridsNode10[16] = {255, 190, 210, 20, 240, 170, 200, 30, 250, 185, 205, 15, 235, 175, 220, 90};
+static const uint8_t kGridsNode01[16] = {255, 20, 60, 230, 40, 80, 240, 30, 140, 210, 50, 90, 225, 35, 160, 195};
+static const uint8_t kGridsNode11[16] = {255, 50, 200, 175, 30, 225, 60, 190, 40, 235, 70, 180, 245, 160, 80, 210};
+
+static inline uint8_t mod_u8_mix(uint8_t a, uint8_t b, uint8_t bal) {
+  return (uint8_t)(((uint16_t)a * (255u - bal) + (uint16_t)b * bal) >> 8);
+}
+
+static void mod_arp_rebuild_scale(ModSource& s) {
+  ModArpExt& ext = g_mod_engine.arp_ext[s.p.arp.ext_idx];
+  const uint16_t pool = kArpModePools[s.p.arp.scale_idx & 0x07u] | 1u;
+  uint8_t m = 0;
+  for (uint8_t i = 0; i < 12; ++i) {
+    if ((pool >> i) & 1u) ext.scale_st[m++] = i;
+  }
+  ext.nsteps = m ? m : 7;
+  if (ext.deg >= (int8_t)ext.nsteps) ext.deg = 0;
+  ext.chord_nt = (ext.nsteps >= 6) ? 4 : 3;
+}
+
+// HYP-1 W7 weighted random bar-line chord progression
+static void mod_arp_next_chord(ModSource& s) {
+  ModArpExt& ext = g_mod_engine.arp_ext[s.p.arp.ext_idx];
+  static const uint8_t kW7[7] = {40, 20, 10, 30, 30, 30, 4};
+  uint32_t w[12], sum = 0;
+  for (uint8_t i = 0; i < ext.nsteps; ++i) {
+    w[i] = (i == (uint8_t)ext.deg) ? 0u
+         : (ext.nsteps == 7) ? kW7[i]
+         : (i == 0) ? 30u : 15u;
+    sum += w[i];
+  }
+  uint32_t r = mod_irand(s, (uint8_t)(sum ? sum : 1));
+  uint8_t next_deg = 0;
+  for (uint8_t i = 0; i < ext.nsteps; ++i) {
+    if (r < w[i] && w[i] > 0) { next_deg = i; break; }
+    r -= w[i];
+  }
+  if (next_deg == (uint8_t)ext.deg) {
+    next_deg = (ext.deg == 0 && ext.nsteps > 1) ? 1 : 0;
+  }
+  ext.deg = (int8_t)next_deg;
+}
+
+// Pick chord-tone offset (even scale steps) or passing tone
+static int8_t mod_arp_pick_offset(ModSource& s, const ModArpExt& ext, bool strong_beat) {
+  const bool extended_chord = (s.p.arp.scale_idx & 0x08u) != 0;
+  if (strong_beat || mod_irand(s, 100) < 80) {
+    uint8_t idx = mod_irand(s, ext.chord_nt);
+    int8_t off = (int8_t)(2 * idx);
+    if (extended_chord && idx == 2) off = 6; // 9th/Sus flavor skips 5th for 7th/9th
+    if (mod_irand(s, 100) < 15) off = (int8_t)(off + ext.nsteps);
+    return off;
+  }
+  return (int8_t)mod_irand(s, ext.nsteps);
+}
+
+// Roll a single step for Algo 0 (HYP-1 ac_roll)
+static void mod_arp_roll_hyp1_step(ModSource& s, ModArpExt& ext, uint8_t st) {
+  ModArpStep& step = ext.steps[st];
+  const uint8_t dens = s.p.arp.density;
+  const uint8_t eff_dens = (st == 0) ? (dens + 30 > 100 ? 100 : dens + 30) : dens;
+  const bool gate = mod_irand(s, 100) < eff_dens;
+  const bool acc  = mod_irand(s, 100) < 30;
+  const bool sld  = mod_irand(s, 100) < ((uint16_t)s.p.arp.groove * 70 / 100);
+  step.flags = (gate ? 1u : 0u) | (acc ? 2u : 0u) | (sld ? 4u : 0u);
+  step.off = mod_arp_pick_offset(s, ext, (st & 3u) == 0u);
+  const uint8_t rng_oct = s.p.arp.range ? s.p.arp.range : 1;
+  step.oct = (mod_irand(s, 100) < 55) ? 0 : (int8_t)mod_irand(s, rng_oct);
+}
+
+// Rebuild all 16 steps for the currently selected algorithm (0=HYP1, 1=BARLOW, 2=GRIDS)
+static void mod_arp_rebuild_pattern(ModSource& s) {
+  ModArpExt& ext = g_mod_engine.arp_ext[s.p.arp.ext_idx];
+  mod_arp_rebuild_scale(s);
+  const uint8_t rng_oct = s.p.arp.range ? s.p.arp.range : 1;
+
+  if (s.p.arp.algo == MOD_ARP_HYP1) {
+    for (uint8_t st = 0; st < 16; ++st) {
+      mod_arp_roll_hyp1_step(s, ext, st);
+    }
+    return;
+  }
+
+  if (s.p.arp.algo == MOD_ARP_BARLOW) {
+    // 1. Deterministic Barlow 4/4 metrical skeleton
+    const uint8_t active_steps = (uint8_t)((uint16_t)s.p.arp.density * 16 / 100);
+    const uint8_t threshold = (active_steps >= 16) ? 0 : (16 - active_steps);
+    uint8_t on[16], sld[16];
+    for (uint8_t i = 0; i < 16; ++i) {
+      on[i] = (kBarlow16[i] >= threshold) ? 1u : 0u;
+      sld[i] = 0u;
+    }
+    // 2. Sioros-Guedes weak-strong left-shift anticipation with anti-offset rule
+    const uint8_t sync_prob = (uint8_t)((uint16_t)s.p.arp.groove * 220 / 100);
+    const uint8_t tie_prob  = (uint8_t)((uint16_t)s.p.arp.groove * 140 / 100);
+    bool prev_shifted = false;
+    for (uint8_t c = 0; c < 8; ++c) {
+      const uint8_t i = kBarlowSyncOrder[c];
+      const uint8_t prev_i = (i + 15u) & 0x0Fu;
+      if (on[i] && !on[prev_i] && !prev_shifted) {
+        if (mod_irand(s, 255) < sync_prob) {
+          on[prev_i] = 1u;
+          if (mod_irand(s, 255) < tie_prob) {
+            sld[prev_i] = 1u; // anticipated pickup glides into strong beat
+          } else {
+            on[i] = 0u;       // true syncopation (strong beat muted)
+          }
+          prev_shifted = true;
+        } else {
+          prev_shifted = false;
+        }
+      } else {
+        prev_shifted = false;
+      }
+    }
+    // 3. Assign pitch offsets by metrical indispensability
+    static const int8_t kChordWalk[4] = {0, 4, 2, 6};
+    for (uint8_t st = 0; st < 16; ++st) {
+      const uint8_t w = kBarlow16[st];
+      const bool acc = (w >= 13) || (sld[st] != 0);
+      ext.steps[st].flags = (on[st] ? 1u : 0u) | (acc ? 2u : 0u) | (sld[st] ? 4u : 0u);
+      if (w >= 12) {
+        ext.steps[st].off = kChordWalk[(st >> 2) & 3u]; // anchor beats on root/5th/3rd
+        ext.steps[st].oct = 0;
+      } else if (w >= 8) {
+        ext.steps[st].off = (int8_t)(2 * ((st >> 1) % ext.chord_nt)); // offbeats on chord tones
+        ext.steps[st].oct = (rng_oct > 1 && (st & 4u)) ? 1 : 0;
+      } else {
+        ext.steps[st].off = mod_arp_pick_offset(s, ext, false);
+        ext.steps[st].oct = (rng_oct > 1) ? (int8_t)mod_irand(s, rng_oct) : 0;
+      }
+    }
+    return;
+  }
+
+  // MOD_ARP_GRIDS: 2D Topographic Trance-Gate + Call-and-Response Nibble Phrasing
+  const uint8_t g = s.p.arp.groove;
+  const uint8_t morph_x = (g <= 50) ? (uint8_t)(g * 5) : (uint8_t)(255 - (g - 50) * 3);
+  const uint8_t morph_y = (uint8_t)((uint16_t)g * 255 / 100);
+  const uint8_t chaos   = (g > 65) ? (uint8_t)((g - 65) * 4) : 0;
+  const uint8_t fill    = (uint8_t)((uint16_t)s.p.arp.density * 255 / 100);
+  const uint8_t cutoff  = 255u - fill;
+
+  // ABAC call-and-response chord-tone motifs (4-step nibbles)
+  static const int8_t kMotifA[4] = {0, 2, 4, 2};
+  static const int8_t kMotifB[4] = {2, 4, 6, 4};
+  static const int8_t kMotifC[4] = {0, 4, 6, 7};
+
+  for (uint8_t st = 0; st < 16; ++st) {
+    const uint8_t top = mod_u8_mix(kGridsNode00[st], kGridsNode10[st], morph_x);
+    const uint8_t bot = mod_u8_mix(kGridsNode01[st], kGridsNode11[st], morph_x);
+    int16_t val = mod_u8_mix(top, bot, morph_y);
+    if (chaos > 0) {
+      int16_t jit = ((((int16_t)mod_irand(s, 255)) - 128) * chaos) >> 8;
+      val += jit;
+      if (val < 0) val = 0;
+      if (val > 255) val = 255;
+    }
+    const bool gate = ((uint8_t)val > cutoff);
+    const bool acc  = gate && (val >= 192);
+    const bool sld  = gate && (val >= 225) && ((st & 3u) != 3u);
+    ext.steps[st].flags = (gate ? 1u : 0u) | (acc ? 2u : 0u) | (sld ? 4u : 0u);
+
+    const uint8_t beat = st >> 2;
+    const uint8_t sub  = st & 3u;
+    const int8_t* motif = (beat == 0 || beat == 2) ? kMotifA : (beat == 1 ? kMotifB : kMotifC);
+    ext.steps[st].off = motif[sub];
+    ext.steps[st].oct = (acc && rng_oct > 1) ? (int8_t)((st & 1u) % rng_oct) : 0;
+  }
+}
+
+// Compute MIDI note (28..96) for a step
+static uint8_t mod_arp_calc_note(const ModSource& s, const ModArpExt& ext,
+                                 const ModArpStep& step) {
+  const uint8_t base_root = (s.p.arp.root_param == 0)
+      ? (s.p.arp.midi_root ? s.p.arp.midi_root : 48u)
+      : s.p.arp.root_param;
+  const int d = (int)ext.deg + (int)step.off;
+  const int nst = (int)(ext.nsteps ? ext.nsteps : 7);
+  const int deg_mod = ((d % nst) + nst) % nst;
+  const int oct_div = d >= 0 ? (d / nst) : -1;
+  int note = (int)base_root + (int)ext.scale_st[deg_mod] + 12 * (oct_div + (int)step.oct);
+  while (note > 96) note -= 12;
+  while (note < 28) note += 12;
+  return (uint8_t)note;
+}
+
 // ===================== engine -> adapter dispatch =====================
 // Continuous destination write (active module only — its adapter state is the
 // live one). Returns false when the CC is not a continuous destination there.
@@ -505,6 +760,7 @@ static void mod_fire_trigger(uint8_t module_id, uint8_t cc, bool high) {
 
 // Trigger-kind of a destination CC on a module (-1 = not a trigger there).
 static int8_t mod_trigger_kind(uint8_t module_id, uint8_t cc) {
+  if (cc == MOD_DEST_VOICE) return RACK_TRIG_PULSE; // universal voice pitch+gate target
   const RackModDestinations* d = kRackModules[module_id].mod_destinations;
   for (uint8_t i = 0; i < d->trigger_count; ++i) {
     if (d->trigger_cc[i] == cc) return static_cast<int8_t>(d->trigger_kind[i]);
@@ -533,7 +789,7 @@ void mod_engine_init() {
   for (uint8_t i = 0; i < MOD_SOURCE_COUNT; ++i) {
     ModSource& s = e.src[i];
     s.type = (i < 4) ? MOD_LFO : (i < 6) ? MOD_EUCLID
-           : (i < 8) ? MOD_GATE : MOD_ADSR;
+           : (i < 8) ? MOD_GATE : (i < 10) ? MOD_ADSR : MOD_ARP;
     s.clock_sel = MOD_CLK_GLOBAL;
     s.division = 2;                // 1/4 default (gates override below)
     s.dest_cc = 0;                 // nothing routes until the bench routes it
@@ -562,12 +818,24 @@ void mod_engine_init() {
       s.p.gate.rng_state = 0x12345678u + ((uint32_t)i * 0x9e3779b9u);
       s.p.gate.cur_preset = 0;
       mod_gate_recompute(s);
-    } else {                       // MOD_ADSR
+    } else if (s.type == MOD_ADSR) {
       s.p.adsr.a_s = 0.005f;       // 5 ms
       s.p.adsr.d_s = 0.100f;       // 100 ms
       s.p.adsr.s_lvl = 0.5f;
       s.p.adsr.r_s = 0.200f;       // 200 ms
       s.p.adsr.retrig = 0;         // gate-follow from the note stack
+    } else {                       // MOD_ARP (arp1 = 10, arp2 = 11)
+      s.division = 4;              // 1/16 default
+      s.p.arp.ext_idx = (uint8_t)(i - MOD_SRC_ARP_FIRST);
+      s.p.arp.algo = (i == MOD_SRC_ARP_FIRST) ? MOD_ARP_HYP1 : MOD_ARP_BARLOW;
+      s.p.arp.range = 2;
+      s.p.arp.root_param = 0;      // 0 = MIDI root follow by default
+      s.p.arp.midi_root = 48;      // C3 fallback before first MIDI note
+      s.p.arp.scale_idx = 5;       // Aeolian (natural minor)
+      s.p.arp.density = 62;
+      s.p.arp.groove = 40;
+      s.p.arp.cur_note = 48;
+      mod_arp_rebuild_pattern(s);
     }
   }
 }
@@ -591,6 +859,9 @@ static void mod_rephase_midi_sources() {
       s.p.adsr.env = 0.0f;
       s.p.adsr.env_state = MOD_ENV_IDLE;
       s.p.adsr.ticks = 0;
+    } else if (s.type == MOD_ARP) {
+      s.p.arp.step = 0;
+      s.p.arp.held = 0;
     }
   }
 }
@@ -756,7 +1027,7 @@ void mod_engine_process_block(uint8_t active_module) {
           s.out += 0.2f * (target - s.out);
           if (s.out < 0.01f) s.out = 0.0f;
         }
-      } else {  // MOD_ADSR
+      } else if (s.type == MOD_ADSR) {
         bool gate;
         if (s.p.adsr.retrig) {
           // Clock-retrigger mode: the envelope re-fires on every division
@@ -797,6 +1068,76 @@ void mod_engine_process_block(uint8_t active_module) {
           }
         }
         s.out = s.p.adsr.env;
+      } else {  // MOD_ARP (Switchable 3-Algo Melody & Gate Generator)
+        ModArpExt& ext = e.arp_ext[s.p.arp.ext_idx];
+        // Capture external MIDI note-ons when in MIDI Follow mode (root_param == 0)
+        const uint8_t sn = (uint8_t)(shared_note + 0.5f);
+        if (sn >= 12 && sn <= 108 && sn != s.p.arp.last_out_note) {
+          s.p.arp.midi_root = sn;
+        }
+        if (wraps && clock_running) {
+          const uint8_t prev_st = s.p.arp.step;
+          s.p.arp.step = (uint8_t)((s.p.arp.step + wraps) & 0x0Fu);
+          s.p.arp.ticks += wraps;
+          const uint8_t st = s.p.arp.step;
+
+          // Bar-line wrap (step 0): chord drift, mutation, and fill-bar state
+          if (st < prev_st || (s.p.arp.ticks & 0x0Fu) == 0u) {
+            ext.bar_count++;
+            const uint8_t drift_bars = (s.p.arp.groove >= 60) ? 4 : 8;
+            if (ext.bar_count >= drift_bars) {
+              ext.bar_count = 0;
+              if (s.p.arp.groove > 15) mod_arp_next_chord(s);
+              ext.dd_fill = 0;
+            } else if (ext.bar_count == drift_bars - 1 && s.p.arp.groove >= 50) {
+              ext.dd_fill = 1; // Fill bar right before chord/pattern change
+            }
+
+            if (s.p.arp.algo == MOD_ARP_HYP1) {
+              // HYP-1 ac_mutate: in-place step mutation on loop wrap
+              const uint8_t mut_prob = (uint8_t)((uint16_t)s.p.arp.groove * 25 / 100);
+              for (uint8_t k = 0; k < 16; ++k) {
+                if (mod_irand(s, 100) < mut_prob) mod_arp_roll_hyp1_step(s, ext, k);
+              }
+            } else {
+              // Barlow / Grids: refresh syncopation / chaos variations on the bar
+              mod_arp_rebuild_pattern(s);
+            }
+          }
+
+          // Evaluate step (or rising chord-tone fill run on steps 8..15 of fill bar)
+          ModArpStep cur_step = ext.steps[st];
+          const bool in_fill = (ext.dd_fill != 0) && (st >= 8) && (s.p.arp.algo == MOD_ARP_HYP1);
+          if (in_fill) {
+            cur_step.flags = 1u | ((st >= 12) ? 2u : 0u); // gate on, accent on 12..15
+            cur_step.off = (int8_t)((st - 8u) * 2u);      // rising chord run 0..14
+            cur_step.oct = 0;
+          }
+
+          if (cur_step.flags & 1u) {
+            const ModArpStep& prev_step = ext.steps[prev_st];
+            const bool prev_slid = !in_fill && ((prev_step.flags & 5u) == 5u) && s.p.arp.held;
+            const uint8_t next_note = mod_arp_calc_note(s, ext, cur_step);
+            s.p.arp.retrig_edge = !(prev_slid && next_note != s.p.arp.cur_note) ? 1u : 0u;
+            s.p.arp.cur_note = next_note;
+            s.p.arp.cur_acc  = (cur_step.flags & 2u) ? 1u : 0u;
+            s.p.arp.cur_hold = (cur_step.flags & 4u) ? 1u : 0u;
+            s.p.arp.level    = 1u;
+            s.p.arp.held     = 1u;
+          } else {
+            s.p.arp.level       = 0u;
+            s.p.arp.retrig_edge = 0u;
+            s.p.arp.held        = 0u;
+          }
+        }
+
+        // Gate window: 100% if slide/hold bit is set, else 55% (HYP-1 303 gate)
+        const float g_win = s.p.arp.cur_hold ? 1.0f : 0.55f;
+        const bool gate_open = clock_running && s.p.arp.level && (s.clk_phase < g_win);
+        const float target = gate_open ? (s.p.arp.cur_acc ? 1.0f : 0.72f) : 0.0f;
+        // Click-free asymmetric slew (~2 ms attack, ~12 ms release) for continuous CCs
+        const float slew = (target > s.out) ? (dt / 0.002f) : (dt / 0.012f);
+        s.out += (target - s.out) * (slew > 1.0f ? 1.0f : slew);
       }
 
       // Clocked-LFO wave output (the other types wrote s.out in their case).
@@ -818,6 +1159,31 @@ void mod_engine_process_block(uint8_t active_module) {
         mod_write_cc(active_module, dest, s.out);     // continuous, float-level
       } else {
         s.was_high = 0;
+      }
+    } else if (s.type == MOD_ARP) {
+      const int8_t trig_kind = mod_trigger_kind(active_module, dest);
+      const bool is_voice_pitch = (dest == 1 || dest == 42 || dest == MOD_DEST_VOICE);
+      if (trig_kind >= 0 || is_voice_pitch) {
+        const float g_win = s.p.arp.cur_hold ? 1.0f : 0.55f;
+        const bool high = clock_running && s.p.arp.level && (s.clk_phase < g_win);
+        if (high) {
+          s.p.arp.last_out_note = s.p.arp.cur_note;
+          shared_note = s.p.arp.cur_note;
+          shared_gate = 1;
+        } else if (s.was_high) {
+          shared_gate = 0;
+        }
+        if (trig_kind == RACK_TRIG_LATCH) {
+          if (high != (bool)s.was_high) mod_fire_trigger(active_module, dest, high);
+        } else if (wraps && s.p.arp.level && s.p.arp.retrig_edge) {
+          // Fire module trigger (CC 64 on Plaits/Rings/Elements, CC 66 on Clouds)
+          const uint8_t trig_cc = (trig_kind >= 0 && dest != MOD_DEST_VOICE) ? dest
+                                : (active_module == RACK_MODULE_CLOUDS ? 66 : 64);
+          mod_fire_trigger(active_module, trig_cc, true);
+        }
+        s.was_high = high ? 1u : 0u;
+      } else {
+        mod_write_cc(active_module, dest, s.out);
       }
     } else if (s.type == MOD_GATE) {
       if (is_cont) {
@@ -911,7 +1277,7 @@ void rack_mod_clock_realtime(uint8_t status) {
 // are aligned 32-bit atomics read by core 1 (same benign-race class as the
 // existing panel CC writes). Works during swaps (engine state is swap-safe).
 static uint8_t mod_param_count_of(uint8_t type) {
-  return kModParamCount[type < 4 ? type : 0];
+  return kModParamCount[type < MOD_TYPE_COUNT ? type : 0];
 }
 
 // Canonical source names (also used by the dest ack + `mod <src>` dumps).
@@ -919,7 +1285,9 @@ static const char* mod_src_name(uint8_t idx) {
   static const char* const kNames[MOD_SOURCE_COUNT] = {
       "lfo1", "lfo2", "lfo3", "lfo4",
       "eu1", "eu2",
-      "gate1", "gate2", "adsr1", "adsr2",
+      "gate1", "gate2",
+      "adsr1", "adsr2",
+      "arp1", "arp2",
   };
   return kNames[idx < MOD_SOURCE_COUNT ? idx : 0];
 }
@@ -936,22 +1304,13 @@ static void mod_set_dest(uint8_t src_idx, uint8_t cc) {
   // If old destination was routed and no other source is driving it,
   // restore panel's static value from cache.
   if (old_cc != 0 && old_cc != cc) {
-    const RackModuleInfo& m_old = kRackModules[g_active_module];
-    bool old_was_cont = false, old_was_trig = false;
-    for (uint8_t i = 0; i < m_old.mod_destinations->continuous_count; ++i) {
-      if (m_old.mod_destinations->continuous[i] == old_cc) { old_was_cont = true; break; }
+    if (s.type == MOD_ARP) shared_gate = 0;
+    bool other_routed = false;
+    for (uint8_t i = 0; i < MOD_SOURCE_COUNT; ++i) {
+      if (i != src_idx && e.src[i].dest_cc == old_cc) { other_routed = true; break; }
     }
-    for (uint8_t i = 0; i < m_old.mod_destinations->trigger_count; ++i) {
-      if (m_old.mod_destinations->trigger_cc[i] == old_cc) { old_was_trig = true; break; }
-    }
-    if (old_was_cont || old_was_trig) {
-      bool other_routed = false;
-      for (uint8_t i = 0; i < MOD_SOURCE_COUNT; ++i) {
-        if (i != src_idx && e.src[i].dest_cc == old_cc) { other_routed = true; break; }
-      }
-      if (!other_routed) {
-        ui_link_restore_cached_cc(g_active_module, old_cc);
-      }
+    if (!other_routed) {
+      ui_link_restore_cached_cc(g_active_module, old_cc);
     }
   }
 
@@ -962,12 +1321,18 @@ static void mod_set_dest(uint8_t src_idx, uint8_t cc) {
   }
   const RackModuleInfo& m = kRackModules[g_active_module];
   const RackModDestinations* d = m.mod_destinations;
-  bool continuous_ok = false, trigger_ok = false;
+  bool continuous_ok = false, trigger_ok = (cc == MOD_DEST_VOICE && s.type == MOD_ARP);
   for (uint8_t i = 0; i < d->continuous_count; ++i) {
     if (d->continuous[i] == cc) { continuous_ok = true; break; }
   }
   for (uint8_t i = 0; i < d->trigger_count; ++i) {
     if (d->trigger_cc[i] == cc) { trigger_ok = true; break; }
+  }
+  const bool is_voice_pitch = (cc == 1 || cc == 42 || cc == MOD_DEST_VOICE);
+  if (s.type == MOD_ARP && (trigger_ok || is_voice_pitch || continuous_ok)) {
+    Serial.printf("mod: %s -> %s CC %u (%s)\r\n", mod_src_name(src_idx), m.name,
+                  cc, (trigger_ok || is_voice_pitch) ? "voice pitch+gate+trig" : "slewed gate CV");
+    return;
   }
   const bool can_continuous = (s.type == MOD_LFO || s.type == MOD_ADSR ||
                               s.type == MOD_GATE || s.type == MOD_EUCLID);
@@ -1071,13 +1436,39 @@ static void mod_apply_cc_value(uint8_t src_idx, uint8_t param, uint8_t val) {
         default: break;
       }
       break;
-    default:  // MOD_ADSR
+    case MOD_ADSR:
       switch (param) {
         case 0: s.p.adsr.retrig = val < 64 ? 0 : 1; break;   // gate / retrig
         case 1: s.p.adsr.a_s = mod_adsr_s_from_cc(val); break;
         case 2: s.p.adsr.d_s = mod_adsr_s_from_cc(val); break;
         case 3: s.p.adsr.s_lvl = val / 127.0f; break;
         case 4: s.p.adsr.r_s = mod_adsr_s_from_cc(val); break;
+        default: break;
+      }
+      break;
+    default:  // MOD_ARP
+      switch (param) {
+        case 0: // algo (0..42=HYP1, 43..85=BARLOW, 86..127=GRIDS; sub-range sets 1..3 oct)
+          s.p.arp.algo = (val < 43) ? MOD_ARP_HYP1
+                       : (val < 86) ? MOD_ARP_BARLOW : MOD_ARP_GRIDS;
+          s.p.arp.range = (uint8_t)(1 + ((val % 43) * 3) / 43);
+          mod_arp_rebuild_pattern(s);
+          break;
+        case 1: // root (0 = MIDI Follow, 1..127 -> MIDI note 24..84)
+          s.p.arp.root_param = (val == 0) ? 0 : (uint8_t)(24 + ((uint16_t)(val - 1) * 60) / 126);
+          break;
+        case 2: // scale (0..127 -> 0..15 scale+chord pool)
+          s.p.arp.scale_idx = (uint8_t)(((uint16_t)val * 16) / 128);
+          mod_arp_rebuild_pattern(s);
+          break;
+        case 3: // dens (0..127 -> 0..100%)
+          s.p.arp.density = (uint8_t)(((uint16_t)val * 100) / 127);
+          mod_arp_rebuild_pattern(s);
+          break;
+        case 4: // groove (0..127 -> 0..100%)
+          s.p.arp.groove = (uint8_t)(((uint16_t)val * 100) / 127);
+          mod_arp_rebuild_pattern(s);
+          break;
         default: break;
       }
       break;
@@ -1213,6 +1604,7 @@ static bool mod_set_param_console(uint8_t src_idx, uint8_t param,
   }
   if (param == tail + 2) {                               // dest
     if (!strcasecmp(tok, "off")) { mod_set_dest(src_idx, 0); return true; }
+    if (!strcasecmp(tok, "voice")) { mod_set_dest(src_idx, MOD_DEST_VOICE); return true; }
     if (tok[0] >= '0' && tok[0] <= '9') {
       const long v = atol(tok);
       if (v >= 0 && v <= 127) { mod_set_dest(src_idx, (uint8_t)v); return true; }
@@ -1302,7 +1694,7 @@ static bool mod_set_param_console(uint8_t src_idx, uint8_t param,
           return true;
         default: return false;
       }
-    default:  // MOD_ADSR
+    case MOD_ADSR:
       switch (param) {
         case 0:                                          // mode
           if (!strcasecmp(tok, "gate") || !strcasecmp(tok, "follow")) {
@@ -1328,6 +1720,44 @@ static bool mod_set_param_console(uint8_t src_idx, uint8_t param,
                 return true;
         default: return false;
       }
+    default:  // MOD_ARP
+      switch (param) {
+        case 0: // algo
+          if (!strcasecmp(tok, "hyp1") || !strcasecmp(tok, "acid")) s.p.arp.algo = MOD_ARP_HYP1;
+          else if (!strcasecmp(tok, "barlow") || !strcasecmp(tok, "sync")) s.p.arp.algo = MOD_ARP_BARLOW;
+          else if (!strcasecmp(tok, "grids") || !strcasecmp(tok, "trance")) s.p.arp.algo = MOD_ARP_GRIDS;
+          else s.p.arp.algo = (uint8_t)(v < 0 ? 0 : (v > 2 ? 2 : v));
+          mod_arp_rebuild_pattern(s);
+          return true;
+        case 1: // root
+          if (!strcasecmp(tok, "midi") || !strcasecmp(tok, "follow") || !strcasecmp(tok, "auto")) {
+            s.p.arp.root_param = 0; return true;
+          }
+          s.p.arp.root_param = (uint8_t)(v <= 0 ? 0 : (v < 24 ? 24 : (v > 84 ? 84 : v)));
+          return true;
+        case 2: { // scale
+          static const char* const kScNames[8] = {
+              "ionian", "dorian", "phrygian", "lydian", "mixo", "aeolian", "pentmaj", "pentmin"
+          };
+          for (uint8_t i = 0; i < 8; ++i) {
+            if (!strcasecmp(tok, kScNames[i])) {
+              s.p.arp.scale_idx = i; mod_arp_rebuild_pattern(s); return true;
+            }
+          }
+          s.p.arp.scale_idx = (uint8_t)(v < 0 ? 0 : (v > 15 ? 15 : v));
+          mod_arp_rebuild_pattern(s);
+          return true;
+        }
+        case 3: // dens
+          s.p.arp.density = (uint8_t)(v < 0 ? 0 : (v > 100 ? 100 : v));
+          mod_arp_rebuild_pattern(s);
+          return true;
+        case 4: // groove
+          s.p.arp.groove = (uint8_t)(v < 0 ? 0 : (v > 100 ? 100 : v));
+          mod_arp_rebuild_pattern(s);
+          return true;
+        default: return false;
+      }
   }
 }
 
@@ -1350,12 +1780,12 @@ void mod_engine_cmd_mod(const char* args) {
   const char* p = args;
   char tok[32];
   if (!mod_next_token(p, tok, sizeof(tok))) {
-    Serial.println("usage: mod <0-9|lfo1-4|eu1-2|gate1-2|adsr1-2> <param> <value>");
+    Serial.println("usage: mod <0-11|lfo1-4|eu1-2|gate1-2|adsr1-2|arp1-2> <param> <value>");
     return;
   }
   const int8_t src = mod_parse_source(tok);
   if (src < 0) {
-    Serial.println("mod: unknown source (0-9 or lfo1-4 / eu1-2 / gate1-2 / adsr1-2)");
+    Serial.println("mod: unknown source (0-11 or lfo1-4 / eu1-2 / gate1-2 / adsr1-2 / arp1-2)");
     return;
   }
   if (!mod_next_token(p, tok, sizeof(tok))) {
@@ -1388,9 +1818,16 @@ static void mod_print_dest_state(uint8_t src_idx) {
   }
   const RackModuleInfo& m = kRackModules[g_active_module];
   const RackModDestinations* d = m.mod_destinations;
+  if (s.dest_cc == MOD_DEST_VOICE) {
+    Serial.printf("dest=127(voice on %s)", m.name);
+    return;
+  }
+  const bool is_voice_pitch = (s.dest_cc == 1 || s.dest_cc == 42);
   const bool can_continuous = (s.type == MOD_LFO || s.type == MOD_ADSR ||
-                              s.type == MOD_GATE || s.type == MOD_EUCLID);
-  const bool can_trigger = (s.type == MOD_EUCLID || s.type == MOD_GATE);
+                              s.type == MOD_GATE || s.type == MOD_EUCLID ||
+                              s.type == MOD_ARP);
+  const bool can_trigger = (s.type == MOD_EUCLID || s.type == MOD_GATE ||
+                            s.type == MOD_ARP);
   bool cont = false, trig = false;
   for (uint8_t i = 0; i < d->continuous_count; ++i) {
     if (d->continuous[i] == s.dest_cc) { cont = true; break; }
@@ -1398,8 +1835,10 @@ static void mod_print_dest_state(uint8_t src_idx) {
   for (uint8_t i = 0; i < d->trigger_count; ++i) {
     if (d->trigger_cc[i] == s.dest_cc) { trig = true; break; }
   }
-  char tag[12];
-  if (can_continuous && cont) snprintf(tag, sizeof(tag), "cont");
+  char tag[16];
+  if (s.type == MOD_ARP && (is_voice_pitch || trig)) snprintf(tag, sizeof(tag), "voice+trig");
+  else if (s.type == MOD_ARP && cont) snprintf(tag, sizeof(tag), "gate-cv");
+  else if (can_continuous && cont) snprintf(tag, sizeof(tag), "cont");
   else if (can_trigger && trig) snprintf(tag, sizeof(tag), "trig");
   else snprintf(tag, sizeof(tag), "INERT!");
   Serial.printf("dest=%u(%s on %s)", s.dest_cc, tag, m.name);
@@ -1431,7 +1870,7 @@ void mod_engine_cmd_modq(const char* args) {
     static const char* const kClk[3] = {"global", "internal", "midi"};
     Serial.printf("mod: %2u %-5s clk=%-8s div=%-5s ", i,
                   s.type == MOD_LFO ? "LFO" : s.type == MOD_EUCLID ? "EU"
-                  : s.type == MOD_GATE ? "GATE" : "ADSR",
+                  : s.type == MOD_GATE ? "GATE" : s.type == MOD_ADSR ? "ADSR" : "ARP",
                   kClk[s.clock_sel], kModDivisions[s.division].name);
     switch (s.type) {
       case MOD_LFO: {
@@ -1462,7 +1901,7 @@ void mod_engine_cmd_modq(const char* args) {
                       s.p.gate.step, (unsigned long)s.p.gate.ticks,
                       mod_print_fixed(b2, sizeof(b2), s.out));
         break;
-      default:
+      case MOD_ADSR:
         Serial.printf("mode=%s atk=%sms dec=%sms sus=%s rel=%sms out=%s",
                       s.p.adsr.retrig ? "retrig" : "gate",
                       mod_print_fixed(b1, sizeof(b1), s.p.adsr.a_s * 1000.0f),
@@ -1471,6 +1910,21 @@ void mod_engine_cmd_modq(const char* args) {
                       mod_print_fixed(b4, sizeof(b4), s.p.adsr.r_s * 1000.0f),
                       mod_print_fixed(b5, sizeof(b5), s.out));
         break;
+      default: { // MOD_ARP
+        static const char* const kAlgo[3] = {"hyp1", "barlow", "grids"};
+        static const char* const kSc[8] = {
+            "ionian", "dorian", "phryg", "lydian", "mixo", "aeolian", "pentmaj", "pentmin"};
+        const ModArpExt& ext = e.arp_ext[s.p.arp.ext_idx];
+        Serial.printf("algo=%s(%uoct) root=%s(%u) scale=%s dens=%u%% groove=%u%% deg=%d note=%u step=%u out=%s",
+                      kAlgo[s.p.arp.algo % 3], s.p.arp.range,
+                      s.p.arp.root_param == 0 ? "midi" : "fix",
+                      s.p.arp.root_param == 0 ? s.p.arp.midi_root : s.p.arp.root_param,
+                      kSc[s.p.arp.scale_idx & 7u],
+                      s.p.arp.density, s.p.arp.groove, (int)ext.deg,
+                      s.p.arp.cur_note, s.p.arp.step,
+                      mod_print_fixed(b1, sizeof(b1), s.out));
+        break;
+      }
     }
     Serial.print(' ');
     mod_print_dest_state(i);
@@ -1550,7 +2004,8 @@ void mod_engine_report_tail(char* buf, size_t n) {
       case MOD_LFO: c = s.p.lfo.hz_mode ? 'h' : (running ? 'L' : '.'); break;
       case MOD_EUCLID: c = running ? 'e' : '.'; break;
       case MOD_GATE: c = running ? 'g' : '.'; break;
-      default: c = (s.p.adsr.env > 0.01f) ? 'A' : 'a'; break;
+      case MOD_ADSR: c = (s.p.adsr.env > 0.01f) ? 'A' : 'a'; break;
+      default: c = running ? 'M' : '.'; break; // MOD_ARP
     }
     states[i] = c;
   }
@@ -1615,12 +2070,20 @@ static uint16_t mod_engine_preset_write(uint8_t* p) {
         memcpy(pl + 8, &s.p.gate.gate_len, 4);
         pl[12] = s.p.gate.cur_preset;
         break;
-      default:  // MOD_ADSR
+      case MOD_ADSR:
         memcpy(pl + 0, &s.p.adsr.a_s, 4);
         memcpy(pl + 4, &s.p.adsr.d_s, 4);
         memcpy(pl + 8, &s.p.adsr.s_lvl, 4);
         memcpy(pl + 12, &s.p.adsr.r_s, 4);
         pl[16] = s.p.adsr.retrig;
+        break;
+      default: // MOD_ARP
+        pl[0] = s.p.arp.algo;
+        pl[1] = s.p.arp.range;
+        pl[2] = s.p.arp.root_param;
+        pl[3] = s.p.arp.scale_idx;
+        pl[4] = s.p.arp.density;
+        pl[5] = s.p.arp.groove;
         break;
     }
     memcpy(w, pl, 24); w += 24;
@@ -1645,7 +2108,7 @@ static uint16_t mod_engine_preset_read(const uint8_t* p) {
   e.bpm = bpm;
   for (uint8_t i = 0; i < MOD_SOURCE_COUNT; ++i) {
     ModSource& s = e.src[i];
-    const uint8_t type = (*r < 4) ? *r : 0xFF;
+    const uint8_t type = (*r < 5) ? *r : 0xFF;
     const uint8_t clock_sel = r[1] < 3 ? r[1] : 0;
     const uint8_t division = r[2] < MOD_DIVISION_COUNT ? r[2] : 3;  // 1/8
     const uint8_t dest_cc = r[3];
@@ -1664,8 +2127,16 @@ static uint16_t mod_engine_preset_read(const uint8_t* p) {
         case MOD_EUCLID: s.p.eu.steps = 16; s.p.eu.pulses = 4; break;
         case MOD_GATE: s.p.gate.mode = 0; s.p.gate.density = 8;
                        s.p.gate.len = 16; s.p.gate.gate_len = 0.5f; break;
-        default: s.p.adsr.a_s = 0.01f; s.p.adsr.d_s = 0.2f;
-                 s.p.adsr.s_lvl = 0.7f; s.p.adsr.r_s = 0.3f; break;
+        case MOD_ADSR: s.p.adsr.a_s = 0.01f; s.p.adsr.d_s = 0.2f;
+                       s.p.adsr.s_lvl = 0.7f; s.p.adsr.r_s = 0.3f; break;
+        default: // MOD_ARP
+          s.p.arp.algo = (i == MOD_SRC_ARP_FIRST) ? MOD_ARP_HYP1 : MOD_ARP_BARLOW;
+          s.p.arp.range = (i == MOD_SRC_ARP_FIRST) ? 2 : 1;
+          s.p.arp.scale_idx = 5; // Aeolian
+          s.p.arp.density = (i == MOD_SRC_ARP_FIRST) ? 65 : 12;
+          s.p.arp.groove = (i == MOD_SRC_ARP_FIRST) ? 45 : 30;
+          s.p.arp.ext_idx = (uint8_t)((i >= MOD_SRC_ARP_FIRST) ? (i - MOD_SRC_ARP_FIRST) : 0);
+          break;
       }
     }
     s.clock_sel = clock_sel;
@@ -1702,7 +2173,7 @@ static uint16_t mod_engine_preset_read(const uint8_t* p) {
         s.p.gate.cur_preset = pl[12];
         mod_gate_recompute(s);
         break;
-      default: {  // MOD_ADSR
+      case MOD_ADSR: {
         float v;
         memcpy(&v, pl + 0, 4);
         s.p.adsr.a_s = (v > 0.0f && v <= 10.0f) ? v : 0.01f;
@@ -1713,6 +2184,17 @@ static uint16_t mod_engine_preset_read(const uint8_t* p) {
         memcpy(&v, pl + 12, 4);
         s.p.adsr.r_s = (v > 0.0f && v <= 10.0f) ? v : 0.3f;
         s.p.adsr.retrig = pl[16] ? 1 : 0;
+        break;
+      }
+      default: {  // MOD_ARP
+        s.p.arp.algo = pl[0] <= 2 ? pl[0] : 0;
+        s.p.arp.range = (pl[1] >= 1 && pl[1] <= 3) ? pl[1] : 1;
+        s.p.arp.root_param = pl[2] <= 84 ? pl[2] : 0;
+        s.p.arp.scale_idx = pl[3] <= 15 ? pl[3] : 5;
+        s.p.arp.density = pl[4] <= 100 ? pl[4] : 50;
+        s.p.arp.groove = pl[5] <= 100 ? pl[5] : 50;
+        s.p.arp.ext_idx = (uint8_t)((i >= MOD_SRC_ARP_FIRST) ? (i - MOD_SRC_ARP_FIRST) : 0);
+        mod_arp_rebuild_pattern(s);
         break;
       }
     }

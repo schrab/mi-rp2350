@@ -85,29 +85,31 @@ namespace CTAG {
             volatile uint8_t pickTarget[NPOTS];    // cell value to align to
 
             // ---- per-pot modulation assign tracking (per P1/P2 page) ----
-            uint8_t s_potModSrc[2][NPOTS];         // [page 0..1][pot 0..15]: 0 = OFF, 1..10 = LFO1..ADS2
+            uint8_t s_potModSrc[2][NPOTS];         // [page 0..1][pot 0..15]: 0 = OFF, 1..12 = LFO1..ARP2
             int64_t s_lastAssignUs[NPOTS];         // echo guard for cell flags
 
             // The per-source SPEED param a pot rides on a mod-routed cell
             // (user spec 2026-11-08: "like for LFO - its changing LFO rate").
             // MUST MATCH the kModParamNames indexes in
             // rack-rp2350/src/mod_engine.h: LFO 1 = rate, EU 4 = div,
-            // GATE 5 = div, ADSR 6 = div. (Gate-follow ADSR ignores div —
+            // GATE 5 = div, ADSR 6 = div, ARP 6 = div. (Gate-follow ADSR ignores div —
             // the ride is a no-op there; retrigger mode rides the speed.)
             uint8_t rideParam(uint8_t src) {
                 if (src <= 3) return 1;            // LFO: rate
                 if (src <= 5) return 4;            // EUclid: clock division
                 if (src <= 7) return 5;            // rhythmic gate: division (param 5)
-                return 6;                          // ADSR: division
+                if (src <= 9) return 6;            // ADSR: division
+                return 6;                          // ARP: division
             }
 
             // Per-source `dest` param index in rack-rp2350/src/mod_engine.h:
-            // LFO(0..3) = 7, EUCLID(4..5) = 5, GATE(6..7) = 6, ADSR(8..9) = 7.
+            // LFO(0..3) = 7, EUCLID(4..5) = 5, GATE(6..7) = 6, ADSR(8..9) = 7, ARP(10..11) = 7.
             uint8_t destParam(uint8_t src) {
                 if (src <= 3) return 7;
                 if (src <= 5) return 5;
                 if (src <= 7) return 6;            // rhythmic gate: dest (param 6)
-                return 7;
+                if (src <= 9) return 7;            // ADSR: dest (param 7)
+                return 7;                          // ARP: dest (param 7)
             }
 
             // Linearize the pressed ADC reading (0..~3560 while the 470R push
@@ -187,7 +189,7 @@ namespace CTAG {
                     t.kind != RackUI::PotTarget::kCC) {
                     return;
                 }
-                const uint8_t curSrc = t.routedSrc; // 0 = OFF, 1..10 = LFO1..ADS2
+                const uint8_t curSrc = t.routedSrc; // 0 = OFF, 1..12 = LFO1..ARP2
                 const uint8_t pg = RackUI::GetPage() <= 1 ? RackUI::GetPage() : 0;
                 const uint8_t localSrc = s_potModSrc[pg][pot];
                 s_lastAssignUs[pot] = esp_timer_get_time();
@@ -195,11 +197,11 @@ namespace CTAG {
                 RackLink::TelemLocalAssignWrite(pot, modChoice);
 
                 if (modChoice == 0) {
-                    if (localSrc >= 1 && localSrc <= 10) {
+                    if (localSrc >= 1 && localSrc <= 12) {
                         const uint8_t oldIdx = (uint8_t)(localSrc - 1);
                         RackLink::SendModSet(oldIdx, destParam(oldIdx), 0);
                     }
-                    if (curSrc >= 1 && curSrc <= 10 && curSrc != localSrc) {
+                    if (curSrc >= 1 && curSrc <= 12 && curSrc != localSrc) {
                         const uint8_t prevIdx = (uint8_t)(curSrc - 1);
                         RackLink::SendModSet(prevIdx, destParam(prevIdx), 0);
                     }
@@ -209,11 +211,11 @@ namespace CTAG {
 
                 if (modChoice == localSrc && modChoice == curSrc) return;
 
-                if (localSrc >= 1 && localSrc <= 10 && localSrc != modChoice) {
+                if (localSrc >= 1 && localSrc <= 12 && localSrc != modChoice) {
                     const uint8_t oldIdx = (uint8_t)(localSrc - 1);
                     RackLink::SendModSet(oldIdx, destParam(oldIdx), 0);
                 }
-                if (curSrc >= 1 && curSrc <= 10 && curSrc != modChoice &&
+                if (curSrc >= 1 && curSrc <= 12 && curSrc != modChoice &&
                     curSrc != localSrc) {
                     const uint8_t prevIdx = (uint8_t)(curSrc - 1);
                     RackLink::SendModSet(prevIdx, destParam(prevIdx), 0);
@@ -366,12 +368,12 @@ namespace CTAG {
                                     const uint8_t pos = pressedPosFromRaw(r);
 
                                     // Fully CCW: raw <= 80 or pos <= 10 -> 0 (OFF / unmap)
-                                    // CW: pos 11..127 -> 1..10 (LFO1..ADS2)
+                                    // CW: pos 11..127 -> 1..12 (LFO1..ARP2)
                                     uint8_t choice = 0;
                                     if (r > 80 && pos > 10) {
                                         choice = (uint8_t)(
-                                            1 + ((int)(pos - 11) * 10) / 117);
-                                        if (choice > 10) choice = 10;
+                                            1 + ((int)(pos - 11) * 12) / 117);
+                                        if (choice > 12) choice = 12;
                                     }
 
                                     // Immediately update the top bar so user sees the live choice.

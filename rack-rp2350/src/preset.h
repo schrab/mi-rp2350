@@ -57,23 +57,23 @@ static void cmd_chain(const char* args);
 
 // ---- format ----
 static const uint8_t kPresetMagic[4] = {'R', 'K', 'P', 'R'};
-static const uint8_t kPresetVersion = 1;
+static const uint8_t kPresetVersion = 2;
 //  [0..3]   magic "RKPR"
 //  [4]      version
 //  [5]      active module id
 //  [6]      chain active (0/1)
 //  [7]      chain pair index (1 elements->clouds / 2 plaits / 3 rings)
-//  [8..292]  mod-engine record (285 B: global_clock + bpm f32 + 10x28)
-//  [293..356] cc_seen[4][16] (64 B)
-//  [357..868] cc_cache[4][128] (512 B)
-//  [869..870] crc16-CCITT LE over [0..868]
+//  [8..348] mod-engine record (341 B: global_clock + bpm f32 + 12x28)
+//  [349..412] cc_seen[4][16] (64 B)
+//  [413..924] cc_cache[4][128] (512 B)
+//  [925..926] crc16-CCITT LE over [0..924]
 // Derived from the real record sizes — a hardcoded 301 here once assumed a
 // 293-byte mod record that mod_engine_preset_write never produced (285 B:
 // 1 + 4 + 10x28), shifting the cache/crc down and leaving stack garbage in
 // bytes 871-878 of every dump (bench-caught 2026-11-11).
 static const uint16_t kPresetOffMod = 8;
 static const uint16_t kPresetModLen =
-    5 + MOD_SOURCE_COUNT * kModPresetSrcRecord;                     // 285
+    5 + MOD_SOURCE_COUNT * kModPresetSrcRecord;                     // 341
 static const uint16_t kPresetOffSeen =
     kPresetOffMod + kPresetModLen;                                  // 293
 static const uint16_t kPresetOffCache =
@@ -167,7 +167,7 @@ static void preset_apply_blob(const uint8_t* buf) {
   memcpy(g_ui_cc_seen, buf + kPresetOffSeen, RACK_MODULE_COUNT * 16);
   memcpy(g_ui_cc_cache, buf + kPresetOffCache, RACK_MODULE_COUNT * 128);
   mod_engine_preset_read(buf + kPresetOffMod);
-  Serial.printf("preset: applied clock (%s, %lu.%lu bpm) + 10 mod sources + "
+  Serial.printf("preset: applied clock (%s, %lu.%lu bpm) + 12 mod sources + "
                 "4-module CC cache\r\n",
                 g_mod_engine.global_clock ? "midi" : "internal",
                 (unsigned long)(int)g_mod_engine.bpm,

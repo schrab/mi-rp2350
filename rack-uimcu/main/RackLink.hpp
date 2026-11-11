@@ -112,12 +112,13 @@ namespace CTAG {
             static constexpr uint8_t kPageModTrig   = 4;
             static constexpr uint8_t kPageModGate   = 5;
             static constexpr uint8_t kPageModEnv    = 6;
-            static constexpr uint8_t kPageSys       = 7;
-            // Chain-B panel (page 8): while a chain is engaged the RP2350
+            static constexpr uint8_t kPageModArp    = 7;
+            static constexpr uint8_t kPageSys       = 8;
+            // Chain-B panel (page 9): while a chain is engaged the RP2350
             // serves the CLOUDS P1 registry table with the B slot's live
             // values — the C3 navigates to it only while chained.
-            static constexpr uint8_t kPageChainB    = 8;
-            static constexpr uint8_t kPageCount     = 9;
+            static constexpr uint8_t kPageChainB    = 9;
+            static constexpr uint8_t kPageCount     = 10;
 
             // UART_NUM_0 GPIO4(TX)/GPIO5(RX) @ 921600 8N1 + boot self-tests
             // (codec round-trip + uart_set_loop_back hardware loopback) +

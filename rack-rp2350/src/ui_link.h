@@ -104,7 +104,7 @@ static const uint8_t kUiSysClockToggle = 2;  // global clock internal <-> midi
 // SET_GLOBAL item ids (UI_CMD action 5, [item][value 0-127]).
 static const uint8_t kUiGlobalBpm = 0;       // value -> 20 + v*280/127 BPM
 
-// Page ids.
+// Page ids (kUiPageModArp inserted at 7 so MOD pages stay contiguous 2..7).
 static const uint8_t kUiPageP1        = 0;
 static const uint8_t kUiPageP2        = 1;
 static const uint8_t kUiPageModLfo12  = 2;
@@ -112,13 +112,14 @@ static const uint8_t kUiPageModLfo34  = 3;
 static const uint8_t kUiPageModTrig   = 4;
 static const uint8_t kUiPageModGate   = 5;
 static const uint8_t kUiPageModEnv    = 6;
-static const uint8_t kUiPageSys       = 7;
+static const uint8_t kUiPageModArp    = 7;
+static const uint8_t kUiPageSys       = 8;
 // Chain-B panel (T5 UX): while a chain is engaged the C3 gains a page
 // showing the B slot's (clouds) parameters — the cells are the CLOUDS P1
 // registry table (the alias bank CCs 40-48 + 23/24/65/66 are exactly the
 // B-directed CCs the chain dispatcher accepts while engaged).
-static const uint8_t kUiPageChainB    = 8;
-static const uint8_t kUiPageCount     = 9;
+static const uint8_t kUiPageChainB    = 9;
+static const uint8_t kUiPageCount     = 10;
 
 // TELEM modes: 0 = full snapshot, 1 = single-cell delta (same format).
 static const uint8_t kUiTelemFull  = 0;
@@ -129,9 +130,7 @@ static const uint8_t kUiFlagModRouted = 1 << 0;  // a mod source drives this CC
 static const uint8_t kUiFlagChainB    = 1 << 1;  // cell belongs to the chain B slot
 static const uint8_t kUiFlagInert     = 1 << 2;  // routing exists but is inert/rejected
 // Flags bits 3-6 = the FIRST mod source routed to this CC, +1 (0 = unrouted;
-// 1-10 = source 0-9). The mod-assign gesture needs to know WHICH source
-// drives the cell; the summary bit0 stays "any route exists" (multiple
-// sources may share a destination — the cycle tracks the first).
+// 1-12 = source 0-11). Fits in the 4-bit mask (0..15).
 static const uint8_t kUiFlagSrcShift  = 3;
 static const uint8_t kUiFlagSrcMask   = 0x0F << kUiFlagSrcShift;  // bit7 reserved 0
 
@@ -409,6 +408,30 @@ static const UiAuxCell kUiModEnvCells[16] = {
     {"A2 DIV",  kUiColorTeal, 9, 6},
 };
 
+// MOD-ARP: 2x Switchable 3-Algo Melody/Arp Generators (Row 0 = ARP 1, Row 2 = ARP 2)
+// Params: 0=algo(HYP1/BARLOW/GRIDS), 1=root(0=MIDI,1..127=Note), 2=scale, 3=dens, 4=groove, 5=clk, 6=div
+static const UiAuxCell kUiModArpCells[16] = {
+    // Row 0: ARP 1 (pots 0..5)
+    {"P1 ALGO", kUiColorPink, 10, 0},
+    {"P1 ROOT", kUiColorPink, 10, 1},
+    {"P1 SCAL", kUiColorPink, 10, 2},
+    {"P1 DENS", kUiColorPink, 10, 3},
+    {"P1 GRV",  kUiColorPink, 10, 4},
+    {"P1 DIV",  kUiColorPink, 10, 6},
+    // Row 1: empty (pots 6..9 — matches LFO/TRIG/GATE/ENV layout)
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    {"", kUiColorWhite, 0xFF, 0xFF},
+    // Row 2: ARP 2 (pots 10..15)
+    {"P2 ALGO", kUiColorPink, 11, 0},
+    {"P2 ROOT", kUiColorPink, 11, 1},
+    {"P2 SCAL", kUiColorPink, 11, 2},
+    {"P2 DENS", kUiColorPink, 11, 3},
+    {"P2 GRV",  kUiColorPink, 11, 4},
+    {"P2 DIV",  kUiColorPink, 11, 6},
+};
+
 // SYS: ONE module selector pot (dual-purpose: module select when no chain,
 // chain-pair select while engaged — the C3 renders text names), chain
 // engage, master BPM pot, master clock source toggle, preset slot,
@@ -556,8 +579,10 @@ static uint8_t ui_link_cell_flags(uint8_t cc, uint8_t mod) {
     if (first_src < 0) first_src = (int8_t)i;
     routed = true;
     const bool can_continuous = (s.type == MOD_LFO || s.type == MOD_ADSR ||
-                                s.type == MOD_GATE || s.type == MOD_EUCLID);
-    const bool can_trigger = (s.type == MOD_EUCLID || s.type == MOD_GATE);
+                                 s.type == MOD_GATE || s.type == MOD_EUCLID ||
+                                 s.type == MOD_ARP);
+    const bool can_trigger = (s.type == MOD_EUCLID || s.type == MOD_GATE ||
+                              s.type == MOD_ARP);
     bool ok = false;
     if (can_continuous) {
       for (uint8_t k = 0; k < d->continuous_count; ++k) {
@@ -651,13 +676,30 @@ static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
           case 5: return (uint8_t)(((uint16_t)s.division * 127) / (MOD_DIVISION_COUNT - 1));
           default: return 0;
         }
-      default:  // MOD_ADSR
+      case MOD_ADSR:
         switch (c.param) {
           case 0: return s.p.adsr.retrig ? 127 : 0;
           case 1: return ui_mod_adsr_s_val(s.p.adsr.a_s);
           case 2: return ui_mod_adsr_s_val(s.p.adsr.d_s);
           case 3: return (uint8_t)(s.p.adsr.s_lvl * 127.0f + 0.5f);
           case 4: return ui_mod_adsr_s_val(s.p.adsr.r_s);
+          case 5: return s.clock_sel == MOD_CLK_GLOBAL ? 0 : (s.clock_sel == MOD_CLK_INTERNAL ? 64 : 127);
+          case 6: return (uint8_t)(((uint16_t)s.division * 127) / (MOD_DIVISION_COUNT - 1));
+          default: return 0;
+        }
+      default:  // MOD_ARP
+        switch (c.param) {
+          case 0: {
+            const uint8_t base = (s.p.arp.algo >= 2) ? 86 : (s.p.arp.algo == 1 ? 43 : 0);
+            const uint8_t rng = (s.p.arp.range > 1) ? (uint8_t)((s.p.arp.range - 1) * 15) : 0;
+            return (uint8_t)(base + rng);
+          }
+          case 1:
+            if (s.p.arp.root_param == 0) return 0;
+            return (uint8_t)(1 + (((uint16_t)(s.p.arp.root_param - 24) * 126 + 30) / 60));
+          case 2: return ui_ceil_div((uint16_t)s.p.arp.scale_idx * 128u, 16u);
+          case 3: return (uint8_t)(((uint16_t)s.p.arp.density * 127 + 50) / 100);
+          case 4: return (uint8_t)(((uint16_t)s.p.arp.groove * 127 + 50) / 100);
           case 5: return s.clock_sel == MOD_CLK_GLOBAL ? 0 : (s.clock_sel == MOD_CLK_INTERNAL ? 64 : 127);
           case 6: return (uint8_t)(((uint16_t)s.division * 127) / (MOD_DIVISION_COUNT - 1));
           default: return 0;
@@ -788,6 +830,7 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
       else if (page == kUiPageModTrig) { a = kUiModTrigCells; count = 16; }
       else if (page == kUiPageModGate) { a = kUiModGateCells; count = 16; }
       else if (page == kUiPageModEnv) { a = kUiModEnvCells; count = 16; }
+      else if (page == kUiPageModArp) { a = kUiModArpCells; count = 16; }
       else if (page == kUiPageSys) { a = kUiSysCells; count = 16; }
       if (a != nullptr) {
         for (uint8_t i = 0; i < count; ++i) {
@@ -818,6 +861,7 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
          : page == kUiPageModTrig ? kUiModTrigCells[i].label
          : page == kUiPageModGate ? kUiModGateCells[i].label
          : page == kUiPageModEnv ? kUiModEnvCells[i].label
+         : page == kUiPageModArp ? kUiModArpCells[i].label
                                  : kUiSysCells[i].label);
       size_t l = strlen(lab) + 1;                 // include the NUL
       memcpy(&pl[n], lab, l);
@@ -867,6 +911,7 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
       else if (page == kUiPageModTrig) { a = kUiModTrigCells; cnt = 16; }
       else if (page == kUiPageModGate) { a = kUiModGateCells; cnt = 16; }
       else if (page == kUiPageModEnv) { a = kUiModEnvCells; cnt = 16; }
+      else if (page == kUiPageModArp) { a = kUiModArpCells; cnt = 16; }
       else if (page == kUiPageSys) { a = kUiSysCells; cnt = 16; }
       if (a == nullptr) return;
       // delta_cc names the cell index (kUiModCellBase + i).
@@ -897,13 +942,14 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
 // this header — it is included earlier in the TU).
 static void ui_link_send_mod_delta(uint8_t src, uint8_t param) {
   const uint8_t page = g_ui_active_page;
-  if (page < kUiPageModLfo12 || page > kUiPageModEnv) return;
+  if (page < kUiPageModLfo12 || page > kUiPageModArp) return;
   const UiAuxCell* a = nullptr; uint8_t cnt = 0;
   if (page == kUiPageModLfo12) { a = kUiModLfo12Cells; cnt = 16; }
   else if (page == kUiPageModLfo34) { a = kUiModLfo34Cells; cnt = 16; }
   else if (page == kUiPageModTrig) { a = kUiModTrigCells; cnt = 16; }
   else if (page == kUiPageModGate) { a = kUiModGateCells; cnt = 16; }
   else if (page == kUiPageModEnv) { a = kUiModEnvCells; cnt = 16; }
+  else if (page == kUiPageModArp) { a = kUiModArpCells; cnt = 16; }
   else return;                                  // SYS cells are not mod params
   for (uint8_t i = 0; i < cnt; ++i) {
     if (a[i].src == src && a[i].param == param) {
