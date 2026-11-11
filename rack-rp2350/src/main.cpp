@@ -2100,9 +2100,10 @@ void loop() {
   // --- stuck-gate watchdog (defensive; identical in all four ports) ---
   // A lost note-off would leave the module gated forever. Forcing the gate
   // off ends the incident; this logs once per incident.
-  if (shared_gate && now - last_note_event_ms > 30000UL) {
+  if (note_stack.size > 0 && shared_gate && now - last_note_event_ms > 30000UL) {
     shared_gate = false;
     note_stack.clear();
+    last_note_event_ms = now;
     Serial.println("WARNING: gate stuck >30s (lost note-off?) - forced off, note stack cleared");
   }
 
