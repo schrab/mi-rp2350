@@ -2359,3 +2359,4 @@ User-requested UX round:
   - Telemetry at 240 MHz confirms `max Process: 444–481 us (budget 496 us)` with `0 i2s stalls`, completely stable audio and link.
 - **Built & Flashed**:
   - Rebuilt and flashed `rack-elements` at 240 MHz to `COM15` (`c1e344a`). Link and audio streaming active.
+  - **User hardware verified**: "ok, now it sounds stable and looks like no volume drops". Modal resonator low end, strike transients, and full reverb decay confirmed clean.
