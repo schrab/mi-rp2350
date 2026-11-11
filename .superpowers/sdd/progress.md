@@ -2422,3 +2422,41 @@ User-requested UX round:
   - Rebuilt unified RP2350 firmware (`rack-elements`) and flashed to `COM15`.
   - Rebuilt ESP32-C3 UI MCU firmware with `build_uimcu.bat` and flashed to `COM22`.
   - Live serial report confirms `plaits>clouds` running stable at `max Process: 169 us (budget 750 us) | i2s stalls: 0 (+0)`. Ready for hardware verification.
+
+### Rack T11 — Chained Clouds 85k/43k Buffer Sizing, Unlocked Quality Switch & Density Dead Zone Resolution (`46786b5`, 2026-11-11)
+
+- **User Issue**:
+  - "quality switch not working in clouds. wet output is silent"
+  - "with all chained modules wet output in clouds is silent"
+- **Root Cause Analysis**:
+  1. **Why Quality Switch Was Not Working**: In commit `a729a72`, CC 50 / CC 24 was clamped/locked to 0 across firmware (`main.cpp`, `module_clouds.h`, `ui_link.h`) and UI MCU (`RackUI.cpp`) because mono modes previously overflowed the workspace buffer.
+  2. **Why Wet Output Was Silent (Clouds Density Center Dead Zone)**:
+     - Pot telemetry read directly from ESP32-C3 showed:
+       - Pot 8 (DRY/WET): `127` (100% wet, dry path muted)
+       - Pot 11 (REVERB): `0` (reverb off)
+       - Pot 6 (DENSITY): `65` (exact center detent)
+     - In upstream Mutable Instruments Clouds (`granular_processor.cc`), Density centered at 0.50 (MIDI value 64) calculates `overlap == 0.0f` and intentionally spawns exactly ZERO grains.
+     - With 100% wet mix, 0 grains spawned, and 0 reverb, wet output is pure digital 0.0f (silence). Turning Density clockwise (random grains) or counter-clockwise (periodic grains), or turning Reverb up, immediately restores full wet output.
+  3. **Why Mono Modes Previously Produced White Noise**:
+     - In mono (`num_channels_ == 1`), `GranularProcessor::Prepare()` assigns `workspace = small_buffer`.
+     - The workspace requires 42,520 bytes (Diffuser 8,192 B + Reverb 32,768 B + Correlator 1,560 B).
+     - The old split was 98,304 B large + 32,768 B small; since 32,768 B < 42,520 B, `BufferAllocator::Allocate` returned `NULL`, leaving reverb delay line pointers at `0x00000000` (flash base), generating loud white noise.
+- **Implementation**:
+  1. **85 KiB / 43 KiB Buffer Split**:
+     - Changed chained partition to `kChainCloudsLargeBytes = 87040` (85 KiB) and `kChainCloudsSmallBytes = 44032` (43 KiB) = 131,072 B (128 KiB).
+     - Stereo (quality 0 / 2): sample memory = 44,032 B (0.688 s/ch), workspace = 87,040 - 44,032 = 43,008 B (fits 42,520 B with 488 B headroom).
+     - Mono (quality 1 / 3): sample memory = 87,040 B (1.36 s), workspace = 44,032 B (fits 42,520 B with 1,512 B headroom).
+     - Both stereo and mono modes fit with positive headroom and zero NULL pointer crashes.
+  2. **Stereo-to-Mono Mixdown**:
+     - Re-enabled input mixdown in `granular_processor.cc` for `num_channels_ == 1` so stereo outputs from Chain A (e.g. Plaits out + aux) are summed into mono rather than dropping channel R.
+  3. **Unlocked Quality Selection**:
+     - Removed clamps on CC 50 / CC 24 in `main.cpp`, `module_clouds.h`, `ui_link.h`, `RackUI.cpp`, and `rack_panel.html`.
+     - Pot 13 on page 8 (Clouds-B) now smoothly selects between all 4 quality modes: `32-16`, `32-8`, `16-16`, and `16-8`.
+- **Built & Hardware Verified**:
+  - Unified RP2350 firmware compiled and flashed to `COM15` (`46786b5`).
+  - ESP32-C3 UI MCU firmware compiled and flashed to `COM22`.
+  - Real hardware audio tests over USB-MIDI across all 3 Chain A sound sources:
+    - Plaits -> Clouds: `in=282 out=182` with Density=100; verified dead zone at Density=64 produces `in=282 out=0`.
+    - Elements -> Clouds: engaged 41 ms; `out=51` wet.
+    - Rings -> Clouds: engaged 43 ms; note strumming verified `in=315 out=119`.
+    - Verified all 4 quality modes (0: `32-16`, 1: `32-8`, 2: `16-16`, 3: `16-8`) run clean with 0 stalls and low process times (~275-526 µs, well within 750 µs budget). Ready for user testing.
