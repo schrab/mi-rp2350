@@ -129,7 +129,7 @@ void init_at(uint8_t* base) {
   uint32_t seed[3] = {0x1fff7a10, 0x1fff7a10, 0x1fff7a10};
   s->part.Seed(seed, 3);
   s->part.set_easter_egg(false);
-  s->part.set_resonator_model(elements::RESONATOR_MODEL_STRING);
+  s->part.set_resonator_model(elements::RESONATOR_MODEL_MODAL);
 
   s->patch = s->part.mutable_patch();
   // sensible default: active exciters with strike/bow/blow present
@@ -146,9 +146,9 @@ void init_at(uint8_t* base) {
   p->exciter_signature = 0.0f;
   p->resonator_geometry = 0.25f;
   p->resonator_brightness = 0.4f;
-  p->resonator_damping = 0.7f;
+  p->resonator_damping = 0.25f;
   p->resonator_position = 0.3f;
-  p->space = 0.4f;
+  p->space = 0.5f;
 }
 
 void init() { init_at(g_rack_object_arena); }

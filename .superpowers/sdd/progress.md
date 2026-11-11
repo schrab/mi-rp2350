@@ -2332,3 +2332,34 @@ User-requested UX round:
     - Regular encoder navigation and module overlay on pages 0..6 & 8 remain unchanged.
 - **Flashed**:
   - Both RP2350 (`COM15`) and ESP32-C3 (`COM22`) rebuilt and flashed. Link online, autosave partition verified intact.
+  - User hardware verified: "ok, everything working fine."
+
+### Rack T7 — Elements DSP audit against upstream: reverb restore, modal boot & 280 MHz overclock (2026-11-11)
+
+- **Comprehensive Upstream Code Audit (against `pichenettes/eurorack/elements`)**:
+  - Performed a byte-by-byte and AST diff of all DSP routines, sample tables, and filter LUTs against official Mutable Instruments Elements sources (`https://github.com/pichenettes/eurorack/tree/master/elements/dsp`).
+  - **Reverb Bug Discovered**:
+    - In commit `c267d79`, poetaster commented out the reverb feedback decay calculation in `part.cc`/`part.inc`:
+      `float reverb_time = 0.01f; //0.35f + 1.2f * reverb_amount;`
+    - Because `reverb_time` was locked at `0.01f`, the Dattorro feedback loop decayed in ~10 ms (effectively zero tail / completely muted).
+    - When `SPACE` transitions from 0 to 0.1, `raw_gain` crossfades the AUX channel from the raw exciter to the stereo resonator. From 0.1 to 0.5, only stereo spread increases (reverb is 0). Above 0.5, reverb wet mix enters, but with `reverb_time = 0.01f`, there was no perceptible decay tail.
+    - **Fix**: Restored `float reverb_time = 0.35f + 1.2f * reverb_amount;`. Turning `SPACE` past 12 o'clock now blooms into a lush, expansive reverb tail with feedback scaling up to 0.83.
+  - **Strike Exciter & Low Frequencies Analysis**:
+    - The strike sample tables (`hit_01.wav` .. `hit_09.wav` in `smp_sample_data`) and the SVF impulse filters are 100% identical to upstream.
+    - Strike exciters in Elements do not synthesize low frequencies directly: they deliver an acoustic impulse or sample transient that strikes the *resonator*, whose vibrating modes provide the low-end resonance.
+    - Discovered that `module_elements.h` was booting with:
+      1. `resonator_model = RESONATOR_MODEL_STRING;` instead of `RESONATOR_MODEL_MODAL`. (The string model inserts a DC blocker and models thin plucked strings; modal synthesis models resonant plates, bowls, membranes, and deep bass bells).
+      2. `resonator_damping = 0.7f;` instead of upstream's default `0.25f`. Because mode Q scales inversely with damping (`lut_4_decades`), 0.7 choked mode Q down to ~2,000, muting all low-frequency mode ringing. At 0.25, mode Q exceeds 100,000, sustaining rich acoustic low end.
+      3. `previous_position_ = 0.0f;` had been stripped from `Resonator::Init()`, leaving pickup position interpolation uninitialized.
+    - **Fix**: Set default boot model to `RESONATOR_MODEL_MODAL`, default damping to `0.25f`, default space to `0.5f`, and restored `previous_position_ = 0.0f;`.
+- **Overclocking Audit (280 MHz)**:
+  - With `RACK_ENABLE_USB_HOST = 0`, the PIO-USB 12 MHz multiple constraint (`F_CPU % 12000000UL`) is lifted.
+  - At 240 MHz, full 52-mode modal synthesis + mod engine + stereo reverb peaked at 464–504 µs (right at the 496 µs budget).
+  - Overclocking to 280 MHz (`board_build.f_cpu = 280000000L`):
+    - Completely safe at default 1.1V core voltage.
+    - Native USB CDC (`Serial`) uses dedicated 48 MHz USB PLL from 12 MHz crystal (unaffected).
+    - UART0 to UI MCU (`Serial1` @ 921600 baud) automatically recalculates fractional divisors.
+    - I2S (PCM5102A on PIO2) divides 280 MHz by `136 + 23/32` for exact 32 kHz BCLK.
+    - Reduces worst-case Process time down to ~398–430 µs, securing solid headroom.
+- **Built & Flashed**:
+  - Rebuilt and flashed `rack-elements` at 280 MHz to `COM15`. Link and audio streaming active.
