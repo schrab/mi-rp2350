@@ -2475,3 +2475,4 @@ User-requested UX round:
 - **Built & Hardware Verified**:
   - `rack-uimcu` compiled and flashed to `COM22` (`31084e4`).
   - Switched chain to Elements -> Clouds; verified C3 requests and receives `telem page=1 mod=0 mode=0 count=3` (MODEL, PLAY, VCA).
+  - User hardware verified on physical board: Elements P2 page is fully accessible and functional in chained mode ("yes all fine now").
