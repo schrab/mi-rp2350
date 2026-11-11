@@ -714,8 +714,11 @@ namespace CTAG {
             taskENTER_CRITICAL(&telemMux);
             s_telem.module = newMod;
             if (s_telem.valid && s_telem.page == 7) {
-                for (uint8_t i = 0; i < 4 && i < s_telem.count; ++i) {
-                    s_telem.cell[i].value = (i == newMod) ? 127 : 0;
+                if (s_telem.count > 0) {
+                    s_telem.cell[0].value = (uint8_t)(newMod * 32);
+                }
+                for (uint8_t i = 1; i < 5 && i < s_telem.count; ++i) {
+                    s_telem.cell[i].value = 0;
                 }
             }
             s_telem_dirty = true;

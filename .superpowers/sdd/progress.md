@@ -2220,7 +2220,7 @@ already in the running C3 firmware — no reflash needed):
   uptime timestamps in the boot log).
 ### Rack T5 — SYS one-pot module/pair selector, chain-B page, text aliases (2026-11-11)
 
-User-requested UX round (all built green, flashed, on-hardware):
+User-requested UX round:
 - **SYS single selector pot** (cell 0, dual-purpose): not chained = the
   active module over 4 slots; engaged = the chain pair over 3 slots
   (switching re-engages off->on with the new pair). The old 4-pot module
@@ -2229,6 +2229,12 @@ User-requested UX round (all built green, flashed, on-hardware):
   E>C/P>C/R>C. The value encoding (module*32 / (pair-1)*64) works for
   BOTH modes under one decode formula (1 + val*3/128 gives the pair for
   the ring + CHAIN ON paths).
+- **Wire & local switch fix:** `WireToPotValue` in `RackUI.cpp` passes
+  through the wire value for cell 0 on SYS (no longer overwrites with 127/0
+  from the old 4-pot radio code) and zeroes cells 1-4; `TelemLocalSysSwitch`
+  in `RackLink.cpp` sets `cell[0].value = newMod * 32` instead of 4-pot
+  radio values; `GetPotTarget` on SYS disables blank cells 1-4 and enables
+  C3-local BLE pots 9/10 with `/ 15` preset slot scaling.
 - **Chain-B page (page 8, kUiPageChainB)**: while engaged, the C3
   navigation gains a CLOUDS B page after P2 = the CLOUDS P1 registry
   table with live B values (the observe hook double-writes B-directed
@@ -2240,7 +2246,6 @@ User-requested UX round (all built green, flashed, on-hardware):
 - **Plaits text aliases on P1**: ENGINE (CC 23) shows all 98 catalog
   aliases (VA/DX7B/MODAL/ACID/... — collision-checked, short forms);
   AUX (CC 24, 3 states) shows AUX/STER/SUB.
-- Post-flash USB-enumeration glitch noted: the C3 dropped off USB after
-  an esptool hard_reset and only came back on a physical replug (the
-  firmware was running fine the whole time — bench after a reflash
-  needs the replug check first, not a rebuild).
+- **Hardware flash check**: Serial uptime verified both boards (RP2350
+  COM15 @ 32,895s, ESP32-C3 COM22 @ 32,949s) had not been reflashed since
+  ~03:04 AM; commit b82b856 was never flashed to hardware prior to this fix.

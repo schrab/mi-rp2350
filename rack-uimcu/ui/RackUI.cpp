@@ -223,13 +223,8 @@ namespace CTAG {
                 return wireVal >= 64 ? 127 : 0;
             }
             if (page == 7) {
-                if (slot < 4) return (mod == slot) ? 127 : 0;
-                if (slot == 4) {
-                    // CHAIN PR: wire is 1..3
-                    if (wireVal <= 1) return 0;
-                    if (wireVal == 2) return 64;
-                    return 127;
-                }
+                if (slot == 0) return wireVal;
+                if (slot >= 1 && slot <= 4) return 0;
                 if (slot == 5 || slot == 7 || slot == 14 || slot == 15) {
                     return wireVal ? 127 : 0;
                 }
@@ -1005,7 +1000,7 @@ namespace CTAG {
             }
             if (s_page == 7) {
                 if (!s_fullArrived) return false;
-                if (pot < 6 && pot < s_cur.count) {
+                if ((pot == 0 || pot == 5) && pot < s_cur.count) {
                     out.kind = PotTarget::kSys;
                     out.cc = pot;
                     out.value = s_cur.cell[pot].value;
@@ -1026,7 +1021,22 @@ namespace CTAG {
                 if (pot == 8) {
                     out.kind = PotTarget::kSys;
                     out.cc = 8;
-                    out.value = (uint8_t)(((uint16_t)s_presetSlot * 127) / 3);
+                    out.value = (uint8_t)(((uint16_t)s_presetSlot * 127) / 15);
+                    return true;
+                }
+                if (pot == 9) {
+                    out.kind = PotTarget::kSys;
+                    out.cc = 9;
+                    out.value = CTAG::DRIVERS::BtMidiReceiver::Enabled() ? 127 : 0;
+                    return true;
+                }
+                if (pot == 10) {
+                    out.kind = PotTarget::kSys;
+                    out.cc = 10;
+                    out.value = CTAG::DRIVERS::BtMidiReceiver::Mode() ==
+                                        CTAG::DRIVERS::BtMidiReceiver::kModeCentral
+                                    ? 127
+                                    : 0;
                     return true;
                 }
                 if ((pot == 14 || pot == 15) && pot < s_cur.count) {
