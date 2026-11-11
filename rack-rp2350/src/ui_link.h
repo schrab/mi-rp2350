@@ -745,13 +745,22 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
       // while chained). The cells' CCs are exactly what the chain
       // dispatcher accepts for B (23/24/65/66 + the alias bank 40-48),
       // so C3 pot writes on this page just work through that path.
+      // Cells 0..2 (EX TONE, EX LEVEL, EX SRC) are blanked while chained
+      // because clouds receives module A audio and its exciter is bypassed.
       const UiPageTable& t = kUiPages[RACK_MODULE_CLOUDS][kUiPageP1];
       count = t.count;
       for (uint8_t i = 0; i < count; ++i) {
-        cc[i] = t.cells[i].cc;
-        val[i] = g_ui_cc_cache[RACK_MODULE_CLOUDS][t.cells[i].cc];
-        flg[i] = 0;
-        col[i] = t.cells[i].color;
+        if (i < 3) {
+          cc[i] = 0;
+          val[i] = 0;
+          flg[i] = 0;
+          col[i] = 0;
+        } else {
+          cc[i] = t.cells[i].cc;
+          val[i] = g_ui_cc_cache[RACK_MODULE_CLOUDS][t.cells[i].cc];
+          flg[i] = 0;
+          col[i] = t.cells[i].color;
+        }
       }
     } else if (page <= kUiPageP2) {
       const UiPageTable& t = kUiPages[mod][page];
@@ -789,8 +798,9 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
     // Labels in cell order.
     for (uint8_t i = 0; i < count; ++i) {
       const char* lab = (page == kUiPageChainB)
-          ? (i < kUiPages[RACK_MODULE_CLOUDS][kUiPageP1].count
-                 ? kUiPages[RACK_MODULE_CLOUDS][kUiPageP1].cells[i].label : "")
+          ? ((i < 3) ? ""
+                     : (i < kUiPages[RACK_MODULE_CLOUDS][kUiPageP1].count
+                            ? kUiPages[RACK_MODULE_CLOUDS][kUiPageP1].cells[i].label : ""))
           : (page <= kUiPageP2)
           ? (i < kUiPages[mod][page].count ? kUiPages[mod][page].cells[i].label : "")
           : (page == kUiPageModLfo12 ? kUiModLfo12Cells[i].label
@@ -819,7 +829,7 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
       // 23/24/65/66) — value straight from the CLOUDS cache.
       const UiPageTable& t = kUiPages[RACK_MODULE_CLOUDS][kUiPageP1];
       int8_t idx = -1;
-      for (uint8_t i = 0; i < t.count; ++i) {
+      for (uint8_t i = 3; i < t.count; ++i) {
         if (t.cells[i].cc == delta_cc) { idx = (int8_t)i; break; }
       }
       if (idx < 0) return;                        // not a cell of this page

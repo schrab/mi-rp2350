@@ -179,8 +179,8 @@ static void preset_apply_blob(const uint8_t* buf) {
   if (want_chain) {
     const uint8_t a = kPresetPairA[pair];
     if (!g_chain.active || g_chain.a != a) {
-      g_chain.a = a;
-      g_chain.b = RACK_MODULE_CLOUDS;
+      g_pending_chain_a = static_cast<int8_t>(a);
+      g_pending_chain_b = static_cast<int8_t>(RACK_MODULE_CLOUDS);
       g_pending_chain = 1;
       Serial.printf("preset: chain %s->clouds queued (pair %u)\r\n",
                     kRackModules[a].name, pair);
@@ -213,6 +213,10 @@ void preset_replay_module(uint8_t mod) {
     if (mod == RACK_MODULE_RINGS &&
         rack_modules::mod_rings::chain_rejects_cc((uint8_t)cc, val)) {
       continue;                          // chained-rings budget clamp
+    }
+    if (mod == RACK_MODULE_CLOUDS && cc >= 40 && cc <= 48) {
+      kRackModules[mod].control_change(static_cast<uint8_t>(cc - 40 + 14), val);
+      continue;
     }
     kRackModules[mod].control_change((uint8_t)cc, val);
   }

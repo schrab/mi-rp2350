@@ -2292,3 +2292,43 @@ User-requested UX round:
   - During step (e) GO CHAIN: updates `g_chain.a = new_a`, `g_chain.b = new_b`, and `g_active_module = new_a`.
   - During step (f) UNMUTE: ramps up audio through `chain_render_block()`, now safely executing `new_a`.
   - In `rack_request_switch`: if called while chained, routes requests to `cmd_chain` instead of rejecting, enabling smooth module switching from UI overlay.
+
+### Rack T5 — Fix unresponsive pots on Clouds B page and remove exciter parameters (2026-11-11)
+
+- **Root Cause Analysis (Unresponsive Pots on Page 8)**:
+  - `RackUI::GetPotTarget` in `RackUI.cpp` only handled `s_page <= 1`, `s_page >= 2 && s_page <= 6`, and `s_page == 7`. For `s_page == 8` (`CLOUDS B`), it fell through to `return false;`.
+  - When `GetPotTarget` returned `false`, `RackPots.cpp` discarded all pot inputs on page 8, making all pots completely unresponsive.
+- **Exciter Parameter Removal in Chained Mode**:
+  - Mutable Instruments Clouds in hardware is an audio effect without internal oscillators. The standalone port added an internal test exciter (`EX TONE`, `EX LEVEL`, `EX SRC`) to make Clouds playable standalone over MIDI without audio inputs.
+  - In chained mode (`E>C`, `P>C`, `R>C`), Clouds receives audio directly from Module A, bypassing and silencing the test exciter.
+  - Updated `ui_link.h` on RP2350: for `kUiPageChainB`, cells 0..2 are blanked (empty label `""`, zeroed telemetry), so the UI clears slots 0..2 to black.
+  - In `RackUI.cpp`: pots 0..2 on page 8 return `false` in `GetPotTarget`.
+- **Clouds B Parameter Mapping**:
+  - `GetPotTarget`: routes pots 3..15 on `s_page == 8` to `PotTarget::kCC`.
+  - `ApplyPotAction`, `WireToPotValue`, `PotToWireValue`, `potToDisplayValue`, `renderCell`, and `GetPotBucketBounds`:
+    - Use `modForPage = (s_page == 8) ? 1 : ...` so Clouds parameter definitions apply on page 8 regardless of slot A's active module.
+    - `MODE` (CC 23): constrained to 2 options (0 = GRANULAR, 1 = LOOPING -> wire 2), matching the firmware chain clamp.
+    - `QUALITY` (CC 24): 4 options (`32-16`, `32-8`, `16-16`, `16-8`).
+    - `FREEZE` (CC 65) and `TRIG` (CC 66): 2-state toggles (`OFF`/`ON`).
+    - `PITCH` (CC 42): -24..+24 st display.
+- **Flashed & Verified**:
+  - Both ESP32-C3 (`COM22`) and RP2350 (`COM15`) built and flashed successfully. Link online and responsive.
+  - User hardware verified: "Clouds page B working fine now."
+
+### Rack T6 — Preset system audit, chain replay fixes & SYS page manual save/load gestures (2026-11-11)
+
+- **Preset System & Autosave Audit**:
+  - Verified autosave runs in background (3 s debounce) pushing 871 B blob across UART to ESP32-C3 flash partition (`presets`, rotating 4 sectors) and restoring on boot.
+  - **Bug Fix 1 in `preset.h` (`preset_apply_blob`)**:
+    - Loading a preset with a chain pair previously wrote directly to `g_chain.a = a;` without setting `g_pending_chain_a/b`. Updated to use non-racing handoff (`g_pending_chain_a = a; g_pending_chain_b = RACK_MODULE_CLOUDS; g_pending_chain = 1;`).
+  - **Bug Fix 2 in `preset.h` (`preset_replay_module`)**:
+    - Replaying Clouds (slot B) previously sent raw CC 40..48 to `control_change`, which only handled 14..22. Added translation `cc - 40 + 14` so Clouds grain parameters restore on preset/swap replay.
+- **Manual Preset Save & Load Gestures on SYS Page**:
+  - When the yellow ring was previously removed from page 7, encoder short-push became a no-op, disabling the physical trigger for `PresetStore::SaveTo()` and `LoadFrom()`.
+  - Added dedicated encoder gestures on SYS page (`s_page == 7`) in `RackUI.cpp`:
+    - **Short push** (`InputEvent::PUSH_SHORT`): Triggers `PresetStore::LoadFrom(s_presetSlot)` and shows `"LOADED P<slot>"` banner on the status strip for 2 seconds.
+    - **Long press (3s)**: Monitored via `UserInput::IsPressed()`. Displays countdown `"SAVE IN 3s..."`, `"SAVE IN 2s..."`, `"SAVE IN 1s..."` on the status strip. At 3.0s, triggers `PresetStore::SaveTo(s_presetSlot)` and shows `"SAVED P<slot>"` banner for 2.5 seconds. Releasing early cancels without saving.
+    - Encoder rotation while pressed on page 7 is ignored to prevent accidental page switching.
+    - Regular encoder navigation and module overlay on pages 0..6 & 8 remain unchanged.
+- **Flashed**:
+  - Both RP2350 (`COM15`) and ESP32-C3 (`COM22`) rebuilt and flashed. Link online, autosave partition verified intact.

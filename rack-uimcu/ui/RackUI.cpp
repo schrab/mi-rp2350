@@ -118,6 +118,17 @@ namespace CTAG {
         static bool s_stripDirty = true;
         static bool s_pageDirty = true;
 
+        static int64_t s_pressStartUs = 0;
+        static bool s_sysSaveTriggered = false;
+        static char s_bannerText[24] = {0};
+        static int64_t s_bannerExpireUs = 0;
+
+        static void showBanner(const char *text, uint32_t durationMs = 2000) {
+            snprintf(s_bannerText, sizeof(s_bannerText), "%s", text);
+            s_bannerExpireUs = esp_timer_get_time() + (int64_t)durationMs * 1000;
+            s_stripDirty = true;
+        }
+
         // Rendered-cell diff snapshot (skip unchanged cells). pick: the
         // soft-takeover arrow state (0 none / 1 '<' left of value / 2 '>'
         // right of value) — tracked so arrow flips redraw even without any
@@ -161,9 +172,13 @@ namespace CTAG {
         // Return discrete option count N (2..98) if (page, mod, slot, cc) is
         // a stepped selector on P1/P2 whose wire byte is 0..N-1 (or 0/127 for
         // 2-state triggers/toggles); 0 if continuous 0..127.
-        static uint8_t p1p2DiscreteCount(uint8_t mod, uint8_t cc,
+        static uint8_t p1p2DiscreteCount(uint8_t page, uint8_t mod, uint8_t cc,
                                          bool &wireIsBool127) {
             wireIsBool127 = false;
+            if (page == 8 && cc == 23) {
+                // Clouds-B MODE: 2 options (GRANULAR 0, LOOPING 2)
+                return 2;
+            }
             switch (mod & 3) {
                 case 0: // Elements
                     if (cc == 28) return 4;   // MODEL: 0..3 (MODAL, STRING, STRINGS, OMINOUS)
@@ -207,9 +222,13 @@ namespace CTAG {
         uint8_t RackUI::WireToPotValue(uint8_t page, uint8_t mod,
                                        uint8_t slot, uint8_t cc,
                                        uint8_t wireVal) {
-            if (page <= 1) {
+            if (page <= 1 || page == 8) {
+                if (page == 8 && cc == 23) {
+                    return wireVal >= 2 ? 127 : 0;
+                }
+                const uint8_t modForPage = (page == 8) ? 1 : mod;
                 bool wireBool = false;
-                const uint8_t n = p1p2DiscreteCount(mod, cc, wireBool);
+                const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
                 if (n > 1) {
                     if (wireBool) return wireVal >= 64 ? 127 : 0;
                     const uint8_t clamped = wireVal < n ? wireVal : (uint8_t)(n - 1);
@@ -238,9 +257,13 @@ namespace CTAG {
                                        uint8_t slot, uint8_t cc,
                                        uint8_t potVal) {
             (void)slot;
-            if (page <= 1) {
+            if (page <= 1 || page == 8) {
+                if (page == 8 && cc == 23) {
+                    return potVal >= 64 ? 2 : 0;
+                }
+                const uint8_t modForPage = (page == 8) ? 1 : mod;
                 bool wireBool = false;
-                const uint8_t n = p1p2DiscreteCount(mod, cc, wireBool);
+                const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
                 if (n > 1) {
                     if (wireBool) return potVal >= 64 ? 127 : 0;
                     uint8_t idx = (uint8_t)(((uint16_t)potVal * n) / 127);
@@ -259,9 +282,16 @@ namespace CTAG {
                                      int &barVal, int &barMax) {
             barVal = potVal;
             barMax = 127;
-            if (page <= 1) {
+            if (page <= 1 || page == 8) {
+                if (page == 8 && cc == 23) {
+                    int idx = potVal >= 64 ? 1 : 0;
+                    barVal = idx;
+                    barMax = 1;
+                    return idx;
+                }
+                const uint8_t modForPage = (page == 8) ? 1 : mod;
                 bool wireBool = false;
-                const uint8_t n = p1p2DiscreteCount(mod, cc, wireBool);
+                const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
                 if (n > 1) {
                     int idx = ((int)potVal * n) / 127;
                     if (idx >= n) idx = n - 1;
@@ -269,14 +299,14 @@ namespace CTAG {
                     barMax = n - 1;
                     return idx;
                 }
-                if (cc == 1) {
+                if (cc == 1 || (page == 8 && cc == 42) || ((modForPage & 3) == 1 && cc == 42)) {
                     // PITCH: -24..+24 st (potVal 64 = 0)
                     int v = ((int)potVal * 48 + 63) / 127 - 24;
                     barVal = potVal;
                     barMax = 127;
                     return v;
                 }
-                if ((mod & 3) == 1 && cc == 13) {
+                if ((modForPage & 3) == 1 && cc == 13) {
                     // Clouds EX SRC: 5 exciter modes (0..4)
                     int idx = ((int)potVal * 5) / 128;
                     if (idx > 4) idx = 4;
@@ -284,7 +314,7 @@ namespace CTAG {
                     barMax = 4;
                     return idx;
                 }
-                if ((mod & 3) == 3 && cc == 19) {
+                if ((modForPage & 3) == 3 && cc == 19) {
                     // Rings POLY: 1..4
                     int idx = potVal / 32;
                     if (idx > 3) idx = 3;
@@ -510,8 +540,24 @@ namespace CTAG {
                                                 : Display::kWhite);
                 x += Display::StringWidth(buf, Display::FONT_VALUE) + 6;
             }
-            // assign-mode / overlay / active-mod-source indicator
-            if (s_overlay) {
+            // assign-mode / overlay / banner / active-mod-source indicator
+            if (s_bannerExpireUs != 0 && esp_timer_get_time() < s_bannerExpireUs) {
+                Display::DrawString(x, 1, s_bannerText, Display::FONT_VALUE,
+                                    Display::kYellow);
+            } else if (s_page == 7 && s_pressStartUs != 0 && UserInput::IsPressed()) {
+                const int64_t elapsed = esp_timer_get_time() - s_pressStartUs;
+                if (elapsed >= 3000000) {
+                    Display::DrawString(x, 1, ">SAVED<", Display::FONT_VALUE,
+                                        Display::kTeal);
+                } else if (elapsed >= 500000) {
+                    char hbuf[24];
+                    int rem = 3 - (int)(elapsed / 1000000);
+                    if (rem < 1) rem = 1;
+                    snprintf(hbuf, sizeof(hbuf), "SAVE IN %ds...", rem);
+                    Display::DrawString(x, 1, hbuf, Display::FONT_VALUE,
+                                        Display::kYellow);
+                }
+            } else if (s_overlay) {
                 snprintf(buf, sizeof(buf), ">%s<", kModNames[s_overlaySel & 3]);
                 Display::DrawString(x, 1, buf, Display::FONT_VALUE,
                                     Display::kYellow);
@@ -524,7 +570,7 @@ namespace CTAG {
                 }
                 Display::DrawString(x, 1, buf, Display::FONT_VALUE,
                                     Display::kYellow);
-            } else if (s_page <= 1 && s_activePot < 16 && s_fullArrived) {
+            } else if ((s_page <= 1 || s_page == 8) && s_activePot < 16 && s_fullArrived) {
                 const uint8_t rsrc = (uint8_t)(
                     (s_cur.cell[s_activePot].flags & RackLink::kFlagSrcMask) >>
                     RackLink::kFlagSrcShift);
@@ -600,25 +646,29 @@ namespace CTAG {
                     static const char *const kEnvModeNames[2] = { "GATE", "RTRG" };
                     static const char *const kChainPairNames[3] = { "E>C", "P>C", "R>C" };
 
-                    if (s_page <= 1) {
+                    if (s_page <= 1 || s_page == 8) {
+                        const uint8_t modForPage = (s_page == 8) ? 1 : (s_cur.module & 3);
                         bool wireBool = false;
-                        (void)p1p2DiscreteCount(s_cur.module, c.cc, wireBool);
+                        (void)p1p2DiscreteCount(s_page, modForPage, c.cc, wireBool);
                         if (wireBool) {
                             pName = dispVal ? "ON" : "OFF";
-                        } else if ((s_cur.module & 3) == 0 && c.cc == 28) {
+                        } else if (s_page == 8 && c.cc == 23) {
+                            static const char *const kCloudBModes[2] = { "GRAN", "LOOP" };
+                            pName = (dispVal >= 0 && dispVal < 2) ? kCloudBModes[dispVal] : "---";
+                        } else if (modForPage == 0 && c.cc == 28) {
                             static const char *const kElemModels[4] = { "MODAL", "STRING", "STRINGS", "OMINOUS" };
                             pName = (dispVal >= 0 && dispVal < 4) ? kElemModels[dispVal] : "---";
-                        } else if ((s_cur.module & 3) == 1 && c.cc == 23) {
+                        } else if (modForPage == 1 && c.cc == 23) {
                             static const char *const kCloudModes[3] = { "GRAN", "STRE", "LOOP" };
                             pName = (dispVal >= 0 && dispVal < 3) ? kCloudModes[dispVal] : "---";
-                        } else if ((s_cur.module & 3) == 1 && c.cc == 24) {
+                        } else if (modForPage == 1 && c.cc == 24) {
                             static const char *const kCloudQual[4] = { "32-16", "32-8", "16-16", "16-8" };
                             pName = (dispVal >= 0 && dispVal < 4) ? kCloudQual[dispVal] : "---";
-                        } else if ((s_cur.module & 3) == 2 && c.cc == 23) {
+                        } else if (modForPage == 2 && c.cc == 23) {
                             // Plaits ENGINE: the catalog alias for the index.
                             pName = (dispVal >= 0 && dispVal < 98)
                                         ? kPlaitsEngineNames[dispVal] : "---";
-                        } else if ((s_cur.module & 3) == 2 && c.cc == 24) {
+                        } else if (modForPage == 2 && c.cc == 24) {
                             // Plaits AUX option: 0 aux model / 1 stereo /
                             // 2 suboscillator.
                             static const char *const kPlaitsAux[3] = {
@@ -626,7 +676,7 @@ namespace CTAG {
                             };
                             pName = (dispVal >= 0 && dispVal < 3)
                                         ? kPlaitsAux[dispVal] : "---";
-                        } else if ((s_cur.module & 3) == 3) {
+                        } else if (modForPage == 3) {
                             int ringMode = 0;
                             for (uint8_t i = 0; i < s_cur.count; ++i) {
                                 if (s_cur.cell[i].cc == 20) {
@@ -828,11 +878,12 @@ namespace CTAG {
             lo = t.value;
             hi = t.value;
             uint8_t n = 0;
-            if (s_page <= 1) {
+            if (s_page <= 1 || s_page == 8) {
+                const uint8_t modForPage = (s_page == 8) ? 1 : s_cur.module;
                 bool wireBool = false;
-                n = p1p2DiscreteCount(s_cur.module, t.cc, wireBool);
-                if (n == 0 && (s_cur.module & 3) == 1 && t.cc == 13) n = 5;
-                if (n == 0 && (s_cur.module & 3) == 3 && t.cc == 19) n = 4;
+                n = p1p2DiscreteCount(s_page, modForPage, t.cc, wireBool);
+                if (n == 0 && (modForPage & 3) == 1 && t.cc == 13) n = 5;
+                if (n == 0 && (modForPage & 3) == 3 && t.cc == 19) n = 4;
                 if (n > 12) n = 0; // 98-engine selector behaves as continuous
             } else if (s_page == 2 || s_page == 3) {
                 if (pot == 1 || pot == 11) n = 5;    // LFO WAVE (0..4)
@@ -906,10 +957,11 @@ namespace CTAG {
             out.value = 0;
             out.routedSrc = 0;
             if (pot > 15) return false;
-            if (s_page <= 1) {
-                // P1/P2: the ACTIVE page cell's CC (TELEM-driven). routedSrc
+            if (s_page <= 1 || s_page == 8) {
+                // P1/P2/CLOUDS B: the ACTIVE page cell's CC (TELEM-driven). routedSrc
                 // rides the TELEM flags bits 3-6 (source id + 1).
                 if (!s_fullArrived || pot >= s_cur.count) return false;
+                if (s_page == 8 && pot < 3) return false; // pots 0-2 (exciter) blank on chained Clouds-B
                 out.kind = PotTarget::kCC;
                 out.cc = s_cur.cell[pot].cc;
                 out.value = s_cur.cell[pot].value;
@@ -984,8 +1036,9 @@ namespace CTAG {
             NoteActivePot(pot);
             switch (t.kind) {
                 case PotTarget::kCC: {
+                    const uint8_t modForPage = (s_page == 8) ? 1 : s_cur.module;
                     const uint8_t wireVal =
-                        PotToWireValue(s_page, s_cur.module, pot, t.cc, potVal);
+                        PotToWireValue(s_page, modForPage, pot, t.cc, potVal);
                     RackLink::TelemLocalCellWrite(pot, potVal);
                     if (s_lastWireSent[pot] != wireVal) {
                         s_lastWireSent[pot] = wireVal;
@@ -1179,6 +1232,35 @@ namespace CTAG {
 
         void RackUI::TaskFunction(void *) {
             while (true) {
+                const bool pressed = UserInput::IsPressed();
+                const int64_t nowUs = esp_timer_get_time();
+
+                if (pressed) {
+                    if (s_pressStartUs == 0) {
+                        s_pressStartUs = nowUs;
+                        s_sysSaveTriggered = false;
+                    }
+                    if (s_page == 7) {
+                        const int64_t elapsed = nowUs - s_pressStartUs;
+                        if (elapsed >= 3000000 && !s_sysSaveTriggered) {
+                            s_sysSaveTriggered = true;
+                            PresetStore::SaveTo(s_presetSlot);
+                            char b[24];
+                            snprintf(b, sizeof(b), "SAVED P%u", s_presetSlot);
+                            showBanner(b, 2500);
+                        } else if (elapsed >= 500000) {
+                            s_stripDirty = true;
+                        }
+                    }
+                } else {
+                    s_pressStartUs = 0;
+                }
+
+                if (s_bannerExpireUs != 0 && nowUs >= s_bannerExpireUs) {
+                    s_bannerExpireUs = 0;
+                    s_stripDirty = true;
+                }
+
                 // ---- input ----
                 InputEvent ev;
                 while (UserInput::GetEvent(ev, 0)) {
@@ -1190,6 +1272,8 @@ namespace CTAG {
                                 s_overlaySel = (uint8_t)(
                                     (s_overlaySel + ev.delta + 4) & 3);
                                 s_stripDirty = true;
+                            } else if (s_page == 7 && pressed) {
+                                // Ignore accidental rotation while holding to save on SYS page
                             } else {
                                 // When chained: Page 1 = Chain-A (0), Page 2 = Chain-B (8),
                                 // followed by modulations (2-6), and SYS (7) is always last.
@@ -1225,14 +1309,30 @@ namespace CTAG {
                             }
                             break;
                         case InputEvent::PUSH_HOLD:
-                            s_assignArmed = true;
-                            s_assignPot = 0xFF;
-                            s_stripDirty = true;
+                            if (s_page == 7) {
+                                // Long press on SYS page is handled by timer (3s SAVE)
+                                s_assignArmed = false;
+                            } else {
+                                s_assignArmed = true;
+                                s_assignPot = 0xFF;
+                                s_stripDirty = true;
+                            }
                             break;
                         case InputEvent::PUSH_SHORT:
-                            // Short push: no-op (legacy sysRing removed)
+                            if (s_page == 7) {
+                                PresetStore::LoadFrom(s_presetSlot);
+                                char b[24];
+                                snprintf(b, sizeof(b), "LOADED P%u", s_presetSlot);
+                                showBanner(b, 2000);
+                            }
                             break;
                         case InputEvent::PUSH_RELEASE:
+                            if (s_page == 7) {
+                                s_assignArmed = false;
+                                s_overlay = false;
+                                s_stripDirty = true;
+                                break;
+                            }
                             if (s_overlay) {
                                 // Release CONFIRMS the selected module.
                                 RackLink::TelemLocalSysSwitch(s_overlaySel);
