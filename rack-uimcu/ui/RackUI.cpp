@@ -179,10 +179,6 @@ namespace CTAG {
                 // Clouds-B MODE: 2 options (GRANULAR 0, LOOPING 2)
                 return 2;
             }
-            if (page == 8 && (cc == 24 || cc == 50)) {
-                // Clouds-B QUALITY: locked to 16-bit stereo (1 option)
-                return 1;
-            }
             switch (mod & 3) {
                 case 0: // Elements
                     if (cc == 28) return 4;   // MODEL: 0..3 (MODAL, STRING, STRINGS, OMINOUS)
@@ -194,7 +190,7 @@ namespace CTAG {
                     break;
                 case 1: // Clouds
                     if (cc == 23 || cc == 49) return (page == 8) ? 2 : 3;   // MODE: 0..2
-                    if (cc == 24 || cc == 50) return (page == 8) ? 1 : 4;   // QUALITY: 0..3
+                    if (cc == 24 || cc == 50) return 4;                     // QUALITY: 0..3 (all 4 supported)
                     if (cc == 65 || cc == 66) {
                         wireIsBool127 = true;
                         return 2;             // FREEZE / TRIG: <64 vs >=64
@@ -229,9 +225,6 @@ namespace CTAG {
             if (page <= 1 || page == 8) {
                 if (page == 8 && (cc == 23 || cc == 49)) {
                     return wireVal >= 2 ? 127 : 0;
-                }
-                if (page == 8 && (cc == 24 || cc == 50)) {
-                    return 0;
                 }
                 const uint8_t modForPage = (page == 8) ? 1 : mod;
                 bool wireBool = false;
@@ -268,9 +261,6 @@ namespace CTAG {
                 if (page == 8 && (cc == 23 || cc == 49)) {
                     return potVal >= 64 ? 2 : 0;
                 }
-                if (page == 8 && (cc == 24 || cc == 50)) {
-                    return 0;
-                }
                 const uint8_t modForPage = (page == 8) ? 1 : mod;
                 bool wireBool = false;
                 const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
@@ -298,11 +288,6 @@ namespace CTAG {
                     barVal = idx;
                     barMax = 1;
                     return idx;
-                }
-                if (page == 8 && (cc == 24 || cc == 50)) {
-                    barVal = 0;
-                    barMax = 0;
-                    return 0;
                 }
                 const uint8_t modForPage = (page == 8) ? 1 : mod;
                 bool wireBool = false;
@@ -670,8 +655,6 @@ namespace CTAG {
                         } else if (s_page == 8 && (c.cc == 23 || c.cc == 49)) {
                             static const char *const kCloudBModes[2] = { "GRAN", "LOOP" };
                             pName = (dispVal >= 0 && dispVal < 2) ? kCloudBModes[dispVal] : "---";
-                        } else if (s_page == 8 && (c.cc == 24 || c.cc == 50)) {
-                            pName = "32-16";
                         } else if (modForPage == 0 && c.cc == 28) {
                             static const char *const kElemModels[4] = { "MODAL", "STRING", "STRINGS", "OMINOUS" };
                             pName = (dispVal >= 0 && dispVal < 4) ? kElemModels[dispVal] : "---";

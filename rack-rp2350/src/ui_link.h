@@ -942,15 +942,14 @@ void ui_link_observe_cc(uint8_t cc, uint8_t val) {
   // 40-50 + 65/66) ALSO land in the CLOUDS cache so the chain-B page's TELEM reads
   // live values.
   if (g_chain.active && rack_chain_wants_cc(cc)) {
-    uint8_t cval = (cc == 50) ? 0 : val;
-    g_ui_cc_cache[RACK_MODULE_CLOUDS][cc] = cval;
+    g_ui_cc_cache[RACK_MODULE_CLOUDS][cc] = val;
     g_ui_cc_seen[RACK_MODULE_CLOUDS][cc >> 4] |=
         (uint16_t)(1u << (cc & 15));
     if (cc == 49) {
-      g_ui_cc_cache[RACK_MODULE_CLOUDS][23] = cval;
+      g_ui_cc_cache[RACK_MODULE_CLOUDS][23] = val;
       g_ui_cc_seen[RACK_MODULE_CLOUDS][23 >> 4] |= (uint16_t)(1u << (23 & 15));
     } else if (cc == 50) {
-      g_ui_cc_cache[RACK_MODULE_CLOUDS][24] = 0;
+      g_ui_cc_cache[RACK_MODULE_CLOUDS][24] = val;
       g_ui_cc_seen[RACK_MODULE_CLOUDS][24 >> 4] |= (uint16_t)(1u << (24 & 15));
     }
   }

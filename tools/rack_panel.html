@@ -20,14 +20,14 @@
     CC 33/34/35  mod-engine bench mux: source (0-11) / param / value.
     CC 40-50, 65/66 while chained these go to the B slot (clouds):
                  clouds GRAIN ALIAS BANK CC 40-48 = 14-22 (position..reverb),
-                 CC 49 = mode (23), CC 50 = quality (24; locked to 16-stereo
-                 while chained), CC 65 = freeze, CC 66 = trigger.
+                 CC 49 = mode (23), CC 50 = quality (24),
+                 CC 65 = freeze, CC 66 = trigger.
                  CC 23 and 24 belong to the active Chain A module (plaits
                  engine/aux, elements geometry/brightness, rings chord-tb/chord).
                  The panel mirrors that with a DUAL-PANEL layout: A (sound
                  source) and clouds (effect stage) side by side, the clouds
                  panel fully live except the exciter knobs 1/11/13 (the
-                 exciter is bypassed while chained) and quality (locked).
+                 exciter is bypassed while chained).
   Per-module maps live in the section headers (they are the adapters'
   kCcMap registry strings).
 
@@ -835,13 +835,13 @@ function resetModulePanel(mi) {
 
 /* which CCs a module tab may still send while a chain is engaged:
    A slot: all CCs reach A (no hijacked CCs); clouds tab: the
-   grain bank 40-48 + 49 (mode) / 65/66 reach clouds-B — only the exciter
-   knobs 1/11/13 die (bypassed while chained) and CC 50 (quality locked);
+   grain bank 40-48 + 49 (mode) / 50 (quality) / 65/66 reach clouds-B — only the exciter
+   knobs 1/11/13 die (bypassed while chained);
    every other tab: nothing (its CCs would land on the A slot with a different meaning) */
 function chainDead(mi, cc) {
   if (!chainActive) return false;
   if (mi === chainA) return false;
-  if (mi === 1) return cc === 1 || cc === 11 || cc === 13 || cc === 50;
+  if (mi === 1) return cc === 1 || cc === 11 || cc === 13;
   return true;
 }
 
@@ -896,10 +896,8 @@ function applyChainUI() {
       if (chainDead(mi, c.cc)) {
         cell.classList.add('dead');
         cell.title = mi === 1
-          ? (c.cc === 50
-              ? 'chained: quality is locked to 16-bit stereo (0) to protect the partitioned workspace'
-              : 'chained: the exciter is bypassed \u2014 the chain feeds real audio '
-                + 'frames into the granulator, so the exciter knobs have no effect')
+          ? 'chained: the exciter is bypassed \u2014 the chain feeds real audio '
+            + 'frames into the granulator, so the exciter knobs have no effect'
           : 'chained: this CC would reach the A slot (' + MODULES[chainA].name
             + ') with a different meaning';
       } else {

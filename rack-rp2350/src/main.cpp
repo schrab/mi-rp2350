@@ -334,15 +334,16 @@ static const uint32_t kChainStallUs = 1400; // ~1.8x the 750 us block period
 static const uint32_t kChainI2sBuffers = 32;
 static const uint32_t kChainI2sWords = 16;
 
-// CHAINED CLOUDS BUFFER SPLIT (documented deviation): the buffer arena is
-// exactly full for the elements/rings pairs (chain A carve 65,536 + clouds
-// 131,072 = 196,608), so chained clouds runs large 98,304 B (= 32,768 B
-// sample memory ch0 + 65,536 B FX workspace — the FX depth is IDENTICAL to
-// the standalone) + small 32,768 B (sample memory ch1) = 0.512 s/channel
-// sample memory vs the standalone's 1.024 s. Grain parameters are
-// unaffected; only the maximum loop length / grain-window reach halves.
-static const size_t kChainCloudsLargeBytes = 98304;
-static const size_t kChainCloudsSmallBytes = 32768;
+// CHAINED CLOUDS BUFFER SPLIT: the buffer arena is exactly full for the
+// elements/rings pairs (chain A carve 65,536 + clouds 131,072 = 196,608).
+// Chained clouds carves large 87,040 B (85 KiB) + small 44,032 B (43 KiB) = 131,072 B.
+// This supports ALL 4 quality settings safely:
+// - Stereo (quality 0 / 2): sample memory = 44,032 B (0.688 s/ch @ 32 kHz),
+//   workspace = large - small = 43,008 B (diffuser 8KB + reverb 32KB + correlator 1.5KB = 42,520 B; fits with 488 B headroom).
+// - Mono (quality 1 / 3): sample memory = 87,040 B (1.36 s @ 32 kHz),
+//   workspace = small = 44,032 B (fits 42,520 B with 1,512 B headroom).
+static const size_t kChainCloudsLargeBytes = 87040;
+static const size_t kChainCloudsSmallBytes = 44032;
 // Chain A slots carve the buffer arena from offset 0 (all three A adapters
 // hard-carve there, same as single-module mode); clouds-B carves above the
 // A carve. Per-A carve size (elements reverb / rings reverb 64 KB, plaits
@@ -603,8 +604,9 @@ void rack_chain_control_change(uint8_t cc, uint8_t val) {
     return;
   }
   if (cc == kCloudsAliasCcBase + 10) { // 50 -> clouds-B QUALITY (clouds 24)
-    // Chained partition strictly requires 16-bit stereo (quality 0).
-    rack_modules::mod_clouds::control_change(24, 0);
+    if (val <= 3) {
+      rack_modules::mod_clouds::control_change(24, val);
+    }
     return;
   }
   switch (cc) {

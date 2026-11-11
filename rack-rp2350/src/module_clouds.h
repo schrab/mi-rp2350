@@ -190,18 +190,12 @@ void init() { init_at(g_rack_object_arena); }
 // OBJECT arena (offset chosen by the caller); the buffers carve from the
 // CALLER's region of the BUFFER arena (above the chain A carve).
 //
-// CHAINED SPLIT (documented deviation): the caller passes
-//   large = 98,304 B (= 32,768 sample memory ch0 + 65,536 FX workspace)
-//   small = 32,768 B (sample memory ch1)
-// GranularProcessor::Init's stereo partition takes the per-channel sample
-// memory = the SMALL size from the front of the large buffer + the whole
-// small buffer, and the FX workspace = large - small (granular_processor.cc
-// Prepare(): buffer_size[0] = buffer_size[1] = buffer_size_[1]; workspace =
-// buffer_size_[0] - buffer_size_[1]). So vs the standalone split (64+64 KB
-// sample memory, 64 KB FX) the chained split keeps the FX workspace
-// IDENTICAL and halves the sample memory to 0.512 s/channel (32,768 B =
-// 16,384 stereo frames @ 32 kHz) — forced by the buffer arena's exact fit
-// (chain A carve 65,536 + 98,304 + 32,768 = 196,608 = the full arena).
+// CHAINED SPLIT: caller passes
+//   large = 87,040 B (85 KiB)
+//   small = 44,032 B (43 KiB) = 131,072 B total (128 KiB)
+// This split safely accommodates both stereo and mono modes:
+// Stereo (0/2): sample memory = 44,032 B (0.688 s/ch), workspace = 43,008 B (fits 42,520 B needed).
+// Mono (1/3): sample memory = 87,040 B (1.36 s), workspace = 44,032 B (fits 42,520 B needed).
 void init_chain_b(uint8_t* obj_base, uint8_t* large, size_t large_bytes,
                   uint8_t* small, size_t small_bytes) {
   s = new (obj_base) State();
@@ -267,9 +261,7 @@ void chain_render_b(const float* in_l, const float* in_r,
     s->pending_playback_mode = -1;
   }
   if (s->pending_quality >= 0) {
-    int8_t q = s->pending_quality;
-    if (s->chain_b) q = 0; // Chained partition strictly requires 16-bit stereo
-    s->processor.set_quality(q);
+    s->processor.set_quality(s->pending_quality);
     s->pending_quality = -1;
   }
   if (s->pending_freeze >= 0) {
@@ -333,9 +325,7 @@ void render() {
     s->pending_playback_mode = -1;
   }
   if (s->pending_quality >= 0) {
-    int8_t q = s->pending_quality;
-    if (s->chain_b) q = 0; // Chained partition strictly requires 16-bit stereo
-    s->processor.set_quality(q);
+    s->processor.set_quality(s->pending_quality);
     s->pending_quality = -1;
   }
   if (s->pending_freeze >= 0) {
@@ -457,11 +447,10 @@ void control_change(uint8_t cc, uint8_t val) {
       break;
     // Quality selector: 0 = 16-bit stereo, 1 = 16-bit mono, 2 = 8-bit stereo,
     // 3 = 8-bit mono. Changing quality resets the recording buffers in
-    // Prepare(). While chained, strictly locked to 0 (16-bit stereo) because
-    // mono/8-bit modes overflow or corrupt the partitioned workspace.
+    // Prepare().
     case 24:
       if (val <= 3) {
-        s->pending_quality = s->chain_b ? 0 : static_cast<int8_t>(val);
+        s->pending_quality = static_cast<int8_t>(val);
       }
       break;
     // FREEZE: absolute held value (the panel knows the switch state).

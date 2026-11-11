@@ -203,13 +203,13 @@ CLOUDS_RAM_CODE(process) void GranularProcessor::Process(
     // vb, we have to copy input signal!
     copy(&in[0], &in[size], &in_[0]);
     
-    // vb, we always use stereo input
-//  if (num_channels_ == 1) {
-//    for (size_t i = 0; i < size; ++i) {
-//      in_[i].l = (in_[i].l + in_[i].r) * 0.5f;
-//      in_[i].r = in_[i].l;
-//    }
-//  }
+    // Mix stereo input to mono for 1-channel modes so both L and R (e.g. aux) are recorded.
+    if (num_channels_ == 1) {
+      for (size_t i = 0; i < size; ++i) {
+        in_[i].l = (in_[i].l + in_[i].r) * 0.5f;
+        in_[i].r = in_[i].l;
+      }
+    }
   
   // Apply feedback, with high-pass filtering to prevent build-ups at very
   // low frequencies (causing large DC swings).
