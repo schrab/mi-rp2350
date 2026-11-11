@@ -1085,6 +1085,7 @@ namespace CTAG {
         uint8_t RackUI::GetModule() { return s_cur.module; }
 
         bool RackUI::AssignModeActive() { return s_assignArmed; }
+        bool RackUI::OverlayActive() { return s_overlay; }
 
         void RackUI::NoteActivePot(uint8_t pot) {
             if (pot < 16 && s_activePot != pot) {

@@ -68,6 +68,7 @@ namespace CTAG {
 
             // True while the mod-assign gesture is armed (push held).
             static bool AssignModeActive();
+            static bool OverlayActive();
 
             // RackPots asks for the ACTIVE page's cell at a pot position.
             static bool GetPotTarget(uint8_t pot, PotTarget &out);

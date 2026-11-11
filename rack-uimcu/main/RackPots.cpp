@@ -326,6 +326,7 @@ namespace CTAG {
                                 for (int i = 0; i < NPOTS; ++i) {
                                     assignAnchorRaw[i] = rawSweep[i];
                                     assignFiltRaw[i] = rawSweep[i];
+                                    assignAnchorPos[i] = pressedPosFromRaw(rawSweep[i]);
                                     RackUI::PotTarget t;
                                     if (RackUI::GetPotTarget((uint8_t)i, t) &&
                                         t.kind == RackUI::PotTarget::kCC) {
@@ -341,21 +342,33 @@ namespace CTAG {
                                         (assignFiltRaw[i] * 3 + rawSweep[i] + 2) >> 2;
                                 }
 
-                                if (assignPotLocked < 0) {
-                                    // Check which pot has moved most from its anchor
-                                    int maxDelta = 0;
-                                    int maxPot = -1;
-                                    for (int i = 0; i < NPOTS; ++i) {
-                                        int d = assignFiltRaw[i] - assignAnchorRaw[i];
-                                        if (d < 0) d = -d;
-                                        if (d > maxDelta) {
-                                            maxDelta = d;
-                                            maxPot = i;
-                                        }
+                                // Check which valid mod-target pot has moved most from its anchor in angle space
+                                int maxDelta = 0;
+                                int maxPot = -1;
+                                for (int i = 0; i < NPOTS; ++i) {
+                                    RackUI::PotTarget t;
+                                    if (!RackUI::GetPotTarget((uint8_t)i, t) ||
+                                        t.kind != RackUI::PotTarget::kCC || t.cc == 0) {
+                                        continue;
                                     }
+                                    const uint8_t curPos = pressedPosFromRaw(assignFiltRaw[i]);
+                                    int d = (int)curPos - (int)assignAnchorPos[i];
+                                    if (d < 0) d = -d;
+                                    if (d > maxDelta) {
+                                        maxDelta = d;
+                                        maxPot = i;
+                                    }
+                                }
 
-                                    // Lock onto the pot that moved by >= 25 raw counts
-                                    if (maxDelta >= 25 && maxPot >= 0) {
+                                if (assignPotLocked < 0) {
+                                    // Not locked yet: require deliberate turn of >= 5 angle steps on a valid cell
+                                    if (maxDelta >= 5 && maxPot >= 0) {
+                                        assignPotLocked = (int8_t)maxPot;
+                                        assignTurnedMask |= (uint16_t)(1u << maxPot);
+                                    }
+                                } else {
+                                    // Already locked: if the user turns a DIFFERENT valid cell by >= 10 steps, switch to it
+                                    if (maxPot >= 0 && maxPot != assignPotLocked && maxDelta >= 10) {
                                         assignPotLocked = (int8_t)maxPot;
                                         assignTurnedMask |= (uint16_t)(1u << maxPot);
                                     }
@@ -391,7 +404,7 @@ namespace CTAG {
                     if (pushActive) {
                         pushActive = false;
                         UserInput::SetPushRaw(false);
-                        if (assignPotLocked >= 0 && assignLastChoice != 0xFF) {
+                        if (!RackUI::OverlayActive() && assignPotLocked >= 0 && assignLastChoice != 0xFF) {
                             applyModAssign((uint8_t)assignPotLocked, assignLastChoice);
                         }
                     }
