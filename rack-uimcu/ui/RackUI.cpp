@@ -1276,10 +1276,14 @@ namespace CTAG {
                             } else if (s_page == 7 && pressed) {
                                 // Ignore accidental rotation while holding to save on SYS page
                             } else {
-                                // When chained: Page 1 = Chain-A (0), Page 2 = Chain-B (8),
-                                // followed by modulations (2-6), and SYS (7) is always last.
+                                // When chained: Chain-A P1 (0), optionally Chain-A P2 (1 if Elements),
+                                // Chain-B (8), followed by modulations (2-6), and SYS (7) is always last.
                                 const bool chained =
                                     s_cur.tail_valid && s_cur.chain != 0;
+                                const bool hasP2 = ModuleHasP2(s_cur.module);
+                                static const uint8_t kPagesChainedP2[9] = {
+                                    0, 1, 8, 2, 3, 4, 5, 6, 7
+                                };
                                 static const uint8_t kPagesChained[8] = {
                                     0, 8, 2, 3, 4, 5, 6, 7
                                 };
@@ -1289,10 +1293,12 @@ namespace CTAG {
                                 static const uint8_t kPagesUnchained[7] = {
                                     0, 2, 3, 4, 5, 6, 7
                                 };
-                                const uint8_t *pageList = chained ? kPagesChained
-                                    : (ModuleHasP2(s_cur.module) ? kPagesUnchainedP2 : kPagesUnchained);
-                                const int pageCount = chained ? 8
-                                    : (ModuleHasP2(s_cur.module) ? 8 : 7);
+                                const uint8_t *pageList = chained
+                                    ? (hasP2 ? kPagesChainedP2 : kPagesChained)
+                                    : (hasP2 ? kPagesUnchainedP2 : kPagesUnchained);
+                                const int pageCount = chained
+                                    ? (hasP2 ? 9 : 8)
+                                    : (hasP2 ? 8 : 7);
 
                                 int curIdx = 0;
                                 for (int i = 0; i < pageCount; ++i) {
