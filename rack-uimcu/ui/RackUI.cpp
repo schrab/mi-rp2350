@@ -19,6 +19,7 @@ acks drive the UI" — the C3 never invents values; missing TELEM = dashes).
 #include "freertos/task.h"
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 
 static const char *TAG = "RackUI";
 
@@ -122,6 +123,37 @@ namespace CTAG {
         static RackTelemPage s_cur;          // last TELM copy (renderer)
         static bool s_stripDirty = true;
         static bool s_pageDirty = true;
+        static volatile uint8_t s_modRideVal[16] = {
+            64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64
+        };
+        static volatile bool s_modRideDirty[16] = { false };
+
+        static void FormatModParamAndValue(uint8_t srcIdx, uint8_t potVal,
+                                           char *paramBuf, size_t paramBufLen,
+                                           char *valBuf, size_t valBufLen) {
+            static const char *const kDivNames[10] = {
+                "1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/4T", "1/8T", "16T", "32T"
+            };
+
+            if (srcIdx <= 3) {
+                // LFO 1..4: rideParam is 1 (RATE)
+                snprintf(paramBuf, paramBufLen, "RATE");
+                float hz = 0.02f * powf(1000.0f, (float)potVal / 127.0f);
+                if (hz < 0.10f) {
+                    snprintf(valBuf, valBufLen, "%.2fHz", hz);
+                } else if (hz < 10.0f) {
+                    snprintf(valBuf, valBufLen, "%.2fHz", hz);
+                } else {
+                    snprintf(valBuf, valBufLen, "%.1fHz", hz);
+                }
+            } else {
+                // EUclid (4..5), GATE (6..7), ADSR (8..9), ARP (10..11): rideParam is DIV
+                snprintf(paramBuf, paramBufLen, "DIV");
+                int idx = ((int)potVal * 10) / 128;
+                if (idx > 9) idx = 9;
+                snprintf(valBuf, valBufLen, "%s", kDivNames[idx]);
+            }
+        }
 
         static int64_t s_pressStartUs = 0;
         static bool s_sysSaveTriggered = false;
@@ -567,7 +599,7 @@ namespace CTAG {
             Display::FillRect(0, 0, Display::W, STRIP_H, Display::kBlack);
             int x = 2;
             // module + page (TELEM header; dashes before the first snapshot; SYS is global)
-            char buf[24];
+            char buf[32];
             if (s_page == 8) {
                 snprintf(buf, sizeof(buf), "SYSTEM");
             } else if (s_page == 9) {
@@ -636,7 +668,11 @@ namespace CTAG {
                     (s_cur.cell[s_activePot].flags & RackLink::kFlagSrcMask) >>
                     RackLink::kFlagSrcShift);
                 if (rsrc > 0 && rsrc <= 12) {
-                    snprintf(buf, sizeof(buf), "MOD:%s", kSrcNames[rsrc]);
+                    char pBuf[8];
+                    char vBuf[16];
+                    FormatModParamAndValue((uint8_t)(rsrc - 1), s_modRideVal[s_activePot],
+                                           pBuf, sizeof(pBuf), vBuf, sizeof(vBuf));
+                    snprintf(buf, sizeof(buf), "%s %s %s", kSrcNames[rsrc], pBuf, vBuf);
                     Display::DrawString(x, 1, buf, Display::FONT_VALUE,
                                         Display::kYellow);
                 }
@@ -863,7 +899,16 @@ namespace CTAG {
                         }
                     }
 
-                    if (pName) {
+                    const bool isModRide = (routedSrc > 0 && (s_page <= 1 || s_page == 9));
+                    if (isModRide) {
+                        char pBuf[8];
+                        char vBuf[16];
+                        FormatModParamAndValue((uint8_t)(routedSrc - 1), s_modRideVal[slot],
+                                               pBuf, sizeof(pBuf), vBuf, sizeof(vBuf));
+                        snprintf(val, sizeof(val), "%s", vBuf);
+                        barVal = s_modRideVal[slot];
+                        barMax = 127;
+                    } else if (pName) {
                         if (pPend && pdir > 0) snprintf(val, sizeof(val), "%s>", pName);
                         else if (pPend && pdir < 0) snprintf(val, sizeof(val), "<%s", pName);
                         else snprintf(val, sizeof(val), "%s", pName);
@@ -1037,6 +1082,15 @@ namespace CTAG {
             s_assignPot = pot;
             s_assignSrc = srcIdxPlus1;
             s_activePot = pot;
+            s_stripDirty = true;
+        }
+
+        void RackUI::NoteModRide(uint8_t pot, uint8_t src, uint8_t param, uint8_t val) {
+            (void)src; (void)param;
+            if (pot >= 16) return;
+            s_activePot = pot;
+            s_modRideVal[pot] = val;
+            s_modRideDirty[pot] = true;
             s_stripDirty = true;
         }
 
@@ -1529,6 +1583,13 @@ namespace CTAG {
                         if (s_rendered[slot].pick != pick) {
                             s_rendered[slot].pick = pick;
                             renderCell(slot);
+                        }
+                    }
+                    // Mod ride pot motion: redraw cell value and bar.
+                    for (uint8_t slot = 0; slot < 16; ++slot) {
+                        if (s_modRideDirty[slot]) {
+                            s_modRideDirty[slot] = false;
+                            if (s_rendered[slot].present) renderCell(slot);
                         }
                     }
                     // 2 Hz blink phase for inert cells.

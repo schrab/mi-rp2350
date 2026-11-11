@@ -230,6 +230,7 @@ namespace CTAG {
                 s_potModSrc[pg][pot] = modChoice;
                 const uint8_t newIdx = (uint8_t)(modChoice - 1);
                 RackLink::SendModSet(newIdx, destParam(newIdx), t.cc);
+                RackUI::NoteModRide(pot, newIdx, rideParam(newIdx), (uint8_t)lastValue[pot]);
             }
 
             int readChannelRaw(uint8_t ch) {
@@ -488,11 +489,11 @@ namespace CTAG {
                                         // Mod-routed cell: ride the routed
                                         // source's speed param, and show the
                                         // source name in the top bar.
-                                        RackUI::NoteActivePot(ch);
                                         const uint8_t src =
                                             (uint8_t)(t.routedSrc - 1);
-                                        RackLink::SendModSet(
-                                            src, rideParam(src), v);
+                                        const uint8_t p = rideParam(src);
+                                        RackUI::NoteModRide(ch, src, p, v);
+                                        RackLink::SendModSet(src, p, v);
                                     } else {
                                         sendTarget(ch, v);
                                     }

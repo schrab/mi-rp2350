@@ -92,6 +92,7 @@ namespace CTAG {
             // Track active / assigned pot for top-bar mod source display.
             static void NoteActivePot(uint8_t pot);
             static void NoteAssignPot(uint8_t pot, uint8_t srcIdxPlus1);
+            static void NoteModRide(uint8_t pot, uint8_t src, uint8_t param, uint8_t val);
 
             // `ui` console dump.
             static void DebugState();
