@@ -108,7 +108,8 @@ and CC 33 use):
 | 4 | MOD-TRIG | 2x Euclidean: EUC 1 (Row 0 pots 0-4) & EUC 2 (Row 2 pots 10-14): 5 params each (STPS, PULS, ROT, CLK, DIV) |
 | 5 | MOD-GATE | 2x Gate: GATE 1 (Row 0 pots 0-4) & GATE 2 (Row 2 pots 10-14): 5 params each (LEN, MASK, GLEN, CLK, DIV) |
 | 6 | MOD-ENV | 2x ADSR: ADSR 1 (Row 0 pots 0-5) & ADSR 2 (Row 2 pots 10-15): 6 params each (ATK, DEC, SUS, REL, MODE, DIV) |
-| 7 | SYSTEM | 4 module cells, chain pair + engage (Row 0 pots 0-5); telem-d, telem-f, preset (Row 1 pots 6-8); BPM (20-300) & CLKSRC (int/midi) (Row 2 pots 10-11) |
+| 7 | SYSTEM | ONE dual-purpose module/pair selector (pot 0), chain engage (pot 5); BPM (pot 6), CLKSRC (pot 7), preset slot (pot 8); telemetry gates (pots 14/15) — see the SYS table below |
+| 8 | CLOUDS B | the B slot's parameters while a chain is engaged (the CLOUDS P1 registry table with live B values); NOT served when no chain is engaged — see below |
 
 A page request (`UI_CMD` action 1) sets the RP2350's "active page" — the
 target of the throttled TELEM deltas (§5) — and replies with a full snapshot.
@@ -342,12 +343,12 @@ MOD-ENV — 2x ADSR: Row 0 = ADSR 1 (pots 0-5), Row 2 = ADSR 2 (pots 10-15):
 | 1 | 6-9 | 6-9 | - | - | (empty) | - |
 | 2 | 10-15 | 10-15 | 9 (adsr2) | same | A2 ATK/DEC/SUS/REL/MODE/DIV | teal |
 
-SYS — 16 cells (Row 0 modules & chain, Row 1 BPM, CLKSRC & preset, Row 2 telemetry gates):
+SYS — 16 cells (Row 0 module/chain, Row 1 BPM, CLKSRC & preset, Row 2 telemetry gates):
 
 | row | pot | cell | value | label |
 |-----|-----|------|-------|-------|
-| 0 | 0-3 | 0-3 | 0 (the active module = the TELEM header byte) | ELEMENTS/CLOUDS/PLAITS/RINGS |
-| 0 | 4 | 4 | configured pair index 1-3 | CHAIN PR |
+| 0 | 0 | 0 | ONE dual-purpose selector: not chained = the active module over 4 slots (module*32); chained = the engaged pair over 3 slots ((pair-1)*64) — the C3 renders text aliases (ELEMENTS/CLOUDS/PLAITS/RINGS, or E>C/P>C/R>C while engaged) | MODULE |
+| 0 | 1-4 | 1-4 | blank (the old 4-pot module radio + CHAIN PR pot folded into cell 0) | (empty) |
 | 0 | 5 | 5 | 0 off / 127 engaged | CHAIN ON |
 | 1 | 6 | 6 | 20-300 master tempo (UI_CMD action 5 BPM) | BPM |
 | 1 | 7 | 7 | 0 internal / 127 midi (UI_CMD action 3 sys id 2) | CLKSRC |
@@ -356,9 +357,19 @@ SYS — 16 cells (Row 0 modules & chain, Row 1 BPM, CLKSRC & preset, Row 2 telem
 | 2 | 15 | 15 | 0/127 pushed-full-snapshot gate (sys id 1) | TELEM F |
 
 SYS short-push ring (one action per push, marked with yellow underline;
-7 items since T4a — see §9): chain-pair cycle -> chain engage toggle ->
-preset slot cycle (0-15, pot 8 also selects) -> preset SAVE -> preset
-LOAD -> telem-deltas toggle -> telem-full toggle -> wrap.
+7 items since T4a — see §9): module/pair cycle (cell 0) -> chain engage
+toggle -> preset slot cycle (0-15, pot 8 also selects) -> preset SAVE ->
+preset LOAD -> telem-deltas toggle -> telem-full toggle -> wrap.
+
+Chain-B panel (page 8, `kUiPageChainB`): while a chain is engaged the C3
+navigation gains one extra page after P2 showing the **B slot's**
+(clouds) parameters — the cells are the CLOUDS P1 registry table (the
+alias bank 40-48 + 23/24/65/66 are exactly the B-directed CCs the chain
+dispatcher accepts), values read live from the CLOUDS CC cache (the
+observe hook double-writes B-directed CCs there while chained). Pot
+writes on the page address clouds-B through the existing chain path;
+leaving the chain snaps the C3 back to P1. Not reachable when no chain
+is engaged.
 
 ## 7. Pin map + UART setup
 

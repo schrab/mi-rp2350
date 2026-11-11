@@ -113,7 +113,12 @@ static const uint8_t kUiPageModTrig   = 4;
 static const uint8_t kUiPageModGate   = 5;
 static const uint8_t kUiPageModEnv    = 6;
 static const uint8_t kUiPageSys       = 7;
-static const uint8_t kUiPageCount     = 8;
+// Chain-B panel (T5 UX): while a chain is engaged the C3 gains a page
+// showing the B slot's (clouds) parameters — the cells are the CLOUDS P1
+// registry table (the alias bank CCs 40-48 + 23/24/65/66 are exactly the
+// B-directed CCs the chain dispatcher accepts while engaged).
+static const uint8_t kUiPageChainB    = 8;
+static const uint8_t kUiPageCount     = 9;
 
 // TELEM modes: 0 = full snapshot, 1 = single-cell delta (same format).
 static const uint8_t kUiTelemFull  = 0;
@@ -396,14 +401,17 @@ static const UiAuxCell kUiModEnvCells[16] = {
     {"A2 DIV",  kUiColorTeal, 9, 6},
 };
 
-// SYS: 4 module cells, chain pair + engage, master BPM pot,
-// master clock source toggle, preset slot, telemetry gates.
+// SYS: ONE module selector pot (dual-purpose: module select when no chain,
+// chain-pair select while engaged — the C3 renders text names), chain
+// engage, master BPM pot, master clock source toggle, preset slot,
+// telemetry gates. Cells 1-4 are blank (the old 4-pot module radio and the
+// separate CHAIN PR pot are folded into cell 0).
 static const UiAuxCell kUiSysCells[16] = {
-    {"ELEMENTS", kUiColorWhite, 0xFF, kUiAuxSelModule},
-    {"CLOUDS",   kUiColorWhite, 0xFF, kUiAuxSelModule + 1},
-    {"PLAITS",   kUiColorWhite, 0xFF, kUiAuxSelModule + 2},
-    {"RINGS",    kUiColorWhite, 0xFF, kUiAuxSelModule + 3},
-    {"CHAIN PR", kUiColorWhite, 0xFF, kUiAuxSelChainPair},
+    {"MODULE",   kUiColorWhite, 0xFF, kUiAuxSelModule},
+    {"",         kUiColorWhite, 0xFF, 0xFF},
+    {"",         kUiColorWhite, 0xFF, 0xFF},
+    {"",         kUiColorWhite, 0xFF, 0xFF},
+    {"",         kUiColorWhite, 0xFF, 0xFF},
     {"CHAIN ON", kUiColorWhite, 0xFF, kUiAuxSelChainOn},
     {"BPM",      kUiColorWhite, 0xFF, kUiAuxSelBpm},
     {"CLKSRC",   kUiColorWhite, 0xFF, kUiAuxSelClkSrc},
@@ -649,6 +657,17 @@ static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
   }
   // SYS-style selectors (src 0xFF).
   switch (c.param) {
+    case kUiAuxSelModule:
+      // ONE selector pot, dual-purpose: not chained = the ACTIVE module
+      // over 4 slots (0/32/64/96); chained = the engaged PAIR over 3
+      // slots (0/64/127 — the C3 renders E>C / P>C / R>C from the chain
+      // tail and picks the pair with the same pot).
+      if (g_chain.active) {
+        if (g_chain.a == RACK_MODULE_PLAITS) return 64;
+        if (g_chain.a == RACK_MODULE_RINGS) return 127;
+        return 0;
+      }
+      return (uint8_t)(g_active_module * 32);
     case kUiAuxSelChainPair:
       // Configured pair index (1 elements->clouds / 2 plaits->clouds /
       // 3 rings->clouds) — shown even while disengaged so the C3 knows what
@@ -721,7 +740,21 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
     uint8_t count = 0;
     // Cell pass: build the (cc,value,flags,color) quads for the page kind.
     uint8_t cc[16], val[16], flg[16], col[16];
-    if (page <= kUiPageP2) {
+    if (page == kUiPageChainB && g_chain.active) {
+      // Chain-B panel: the CLOUDS P1 registry table, values from the
+      // CLOUDS cache (B-directed CCs land there via the observe hook
+      // while chained). The cells' CCs are exactly what the chain
+      // dispatcher accepts for B (23/24/65/66 + the alias bank 40-48),
+      // so C3 pot writes on this page just work through that path.
+      const UiPageTable& t = kUiPages[RACK_MODULE_CLOUDS][kUiPageP1];
+      count = t.count;
+      for (uint8_t i = 0; i < count; ++i) {
+        cc[i] = t.cells[i].cc;
+        val[i] = g_ui_cc_cache[RACK_MODULE_CLOUDS][t.cells[i].cc];
+        flg[i] = 0;
+        col[i] = t.cells[i].color;
+      }
+    } else if (page <= kUiPageP2) {
       const UiPageTable& t = kUiPages[mod][page];
       count = t.count;
       for (uint8_t i = 0; i < count; ++i) {
@@ -756,7 +789,10 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
     }
     // Labels in cell order.
     for (uint8_t i = 0; i < count; ++i) {
-      const char* lab = (page <= kUiPageP2)
+      const char* lab = (page == kUiPageChainB)
+          ? (i < kUiPages[RACK_MODULE_CLOUDS][kUiPageP1].count
+                 ? kUiPages[RACK_MODULE_CLOUDS][kUiPageP1].cells[i].label : "")
+          : (page <= kUiPageP2)
           ? (i < kUiPages[mod][page].count ? kUiPages[mod][page].cells[i].label : "")
           : (page == kUiPageModLfo12 ? kUiModLfo12Cells[i].label
          : page == kUiPageModLfo34 ? kUiModLfo34Cells[i].label
@@ -779,7 +815,21 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
     // P1/P2, kUiModCellBase+index on MOD/SYS pages).
     const char* lab = nullptr;
     uint8_t c = 0, v = 0, f = 0, k = 0;
-    if (page <= kUiPageP2) {
+    if (page == kUiPageChainB && g_chain.active) {
+      // Chain-B deltas: delta_cc = the B cell's real CC (alias bank /
+      // 23/24/65/66) — value straight from the CLOUDS cache.
+      const UiPageTable& t = kUiPages[RACK_MODULE_CLOUDS][kUiPageP1];
+      int8_t idx = -1;
+      for (uint8_t i = 0; i < t.count; ++i) {
+        if (t.cells[i].cc == delta_cc) { idx = (int8_t)i; break; }
+      }
+      if (idx < 0) return;                        // not a cell of this page
+      c = t.cells[idx].cc;
+      v = g_ui_cc_cache[RACK_MODULE_CLOUDS][c];
+      f = 0;
+      k = t.cells[idx].color;
+      lab = t.cells[idx].label;
+    } else if (page <= kUiPageP2) {
       const UiPageTable& t = kUiPages[mod][page];
       int8_t idx = -1;
       for (uint8_t i = 0; i < t.count; ++i) {
@@ -853,17 +903,33 @@ void ui_link_observe_cc(uint8_t cc, uint8_t val) {
   const uint8_t mod = g_active_module;
   g_ui_cc_cache[mod][cc] = val;
   g_ui_cc_seen[mod][cc >> 4] |= (uint16_t)(1u << (cc & 15));
+  // Chain-B observation: while engaged, the B-directed CCs (23/24/65/66 +
+  // the clouds alias bank 40-48) ALSO land in the CLOUDS cache so the
+  // chain-B page's TELEM reads live values.
+  if (g_chain.active && rack_chain_wants_cc(cc)) {
+    g_ui_cc_cache[RACK_MODULE_CLOUDS][cc] = val;
+    g_ui_cc_seen[RACK_MODULE_CLOUDS][cc >> 4] |=
+        (uint16_t)(1u << (cc & 15));
+  }
   preset_mark_dirty();             // T4a: a received CC is persistent state
-  // Throttled delta after control_change on the active module (>= 50 ms
-  // spacing), gated by the C3's telemetry-deltas toggle (UI_CMD sys id 0).
-  // Chain-B CCs (23/24/65/66 + the clouds grain bank while chained) are
-  // B-slot writes — not cells of the A slot's page, skip.
+  // Throttled (>= 50 ms) single-cell delta, gated by the C3's
+  // telemetry-deltas toggle (UI_CMD sys id 0). Target page: the chain-B
+  // panel when the changed CC is a B-directed one and the C3 is on that
+  // page; otherwise the active module's P1/P2 page (MOD/SYS deltas come
+  // from the MOD_SET / gesture ack paths instead).
   if (!g_ui_telem_deltas_en) return;
+  static uint32_t last_delta_ms = 0;
+  const uint32_t now = millis();
+  if (g_chain.active && g_ui_active_page == kUiPageChainB &&
+      rack_chain_wants_cc(cc)) {
+    if (now - last_delta_ms < 50) return;
+    last_delta_ms = now;
+    ui_link_send_telem(kUiPageChainB, kUiTelemDelta, cc);
+    return;
+  }
   if (rack_chain_wants_cc(cc)) return;
   if (g_ui_active_page > kUiPageP2) return;     // MOD/SYS deltas come from the
                                                 // MOD_SET / gesture ack paths
-  static uint32_t last_delta_ms = 0;
-  const uint32_t now = millis();
   if (now - last_delta_ms < 50) return;
   const UiPageTable& t = kUiPages[mod][g_ui_active_page];
   for (uint8_t i = 0; i < t.count; ++i) {

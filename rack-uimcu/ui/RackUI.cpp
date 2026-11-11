@@ -131,8 +131,22 @@ namespace CTAG {
         };
         static CellSnap s_rendered[16];
 
-        static const char *kPageNames[8] = {
-            "P1", "P2", "MOD-LFO 1/2", "MOD-LFO 3/4", "MOD-TRIG", "MOD-GATE", "MOD-ENV", "SYS",
+        static const char *kPageNames[9] = {
+            "P1", "P2", "MOD-LFO 1/2", "MOD-LFO 3/4", "MOD-TRIG", "MOD-GATE", "MOD-ENV", "SYS", "CLOUDS B",
+        };
+        // Plaits engine aliases (id order = the catalog order the RP2350's
+        // CC 23 uses; names shortened for the cell value font).
+        static const char *const kPlaitsEngineNames[98] = {
+            "VA", "VA2", "VAX", "WSHP", "2OPFM", "GFRM", "HARM", "WTBL", "CHORD", "SPEECH",
+            "SPND", "LPC", "SWARM", "FNOIS", "PARTN", "ISTR", "MODAL", "BD", "SNARE", "HHAT",
+            "VAVCF", "PD", "DX7A", "DX7B", "DX7C", "WTRR", "STRMG", "CHIP", "NSPC", "GLIS",
+            "GENDY", "SCAN", "PULSR", "LOOP", "LSTP", "TAPF", "PWV", "SBBK", "ATTR", "UNDR",
+            "REED", "PFLK", "RULE", "SSP", "ZFLT", "TOY", "CSAW", "RINGM", "FOLD", "BUZZ",
+            "SYNC", "GCLD", "MORPH", "NBK", "PRTB", "SAWSQ", "SSWRM", "VOWEL", "HRMC", "VOSIM",
+            "PLUK", "BLOWN", "BELL", "DRUM", "KICK", "SNR2", "CYMB", "WSCAN", "WPAR", "FLUTED",
+            "QMRK", "VAVAR", "BOWED", "SUBO", "DMOD", "SAWC", "VFOF", "RAWFM", "TRIP", "BYTE",
+            "DIA", "SSTK", "WTCH", "WTSS", "SHAKER", "BRASS", "HELIX", "SKINS", "CZAP", "MTLW",
+            "CLAP", "PERC", "FFRM", "BUBBLE", "ZXPH", "ZXPU", "ACID", "SSAW",
         };
         static const char *kModNames[4] = { "ELEMENTS", "CLOUDS", "PLAITS", "RINGS" };
         static const char *kSrcNames[11] = {
@@ -420,14 +434,18 @@ namespace CTAG {
                 return potVal;
             }
             if (page == 7) {
-                // SYS: 0..3 modules (0..1), 4 CHAIN PR (1..3), 5 CHAIN ON (0..1),
-                // 6 BPM (20..300), 7 CLKSRC (0..1), 8 PRESET (0..3),
-                // 14 TELEM D (0..1), 15 TELEM F (0..1)
-                if (slot == 4) {
-                    int v = 1 + ((int)potVal * 3) / 128;
-                    if (v > 3) v = 3;
-                    barVal = v - 1;
-                    barMax = 2;
+                // SYS: 0 MODULE (dual-purpose: 4 module slots / 3 chain-pair
+                // slots while engaged), 5 CHAIN ON (0..1), 6 BPM (20..300),
+                // 7 CLKSRC (0..1), 8 PRESET (0..15), 9 BLE (0..1),
+                // 10 BLE MOD (0..1), 14 TELEM D (0..1), 15 TELEM F (0..1)
+                if (slot == 0) {
+                    const bool chained =
+                        s_cur.tail_valid && s_cur.chain != 0;
+                    const int n = chained ? 3 : 4;
+                    int v = ((int)potVal * n) / 128;
+                    if (v >= n) v = n - 1;
+                    barVal = v;
+                    barMax = n - 1;
                     return v;
                 }
                 if (slot == 6) {
@@ -475,6 +493,8 @@ namespace CTAG {
                 } else {
                     snprintf(buf, sizeof(buf), "SYSTEM");
                 }
+            } else if (s_page == 8) {
+                snprintf(buf, sizeof(buf), "%s", kPageNames[s_page]);
             } else if (s_page >= 2 && s_page <= 6) {
                 snprintf(buf, sizeof(buf), "%s", kPageNames[s_page]);
             } else if (s_cur.valid) {
@@ -608,6 +628,18 @@ namespace CTAG {
                         } else if ((s_cur.module & 3) == 1 && c.cc == 24) {
                             static const char *const kCloudQual[4] = { "32-16", "32-8", "16-16", "16-8" };
                             pName = (dispVal >= 0 && dispVal < 4) ? kCloudQual[dispVal] : "---";
+                        } else if ((s_cur.module & 3) == 2 && c.cc == 23) {
+                            // Plaits ENGINE: the catalog alias for the index.
+                            pName = (dispVal >= 0 && dispVal < 98)
+                                        ? kPlaitsEngineNames[dispVal] : "---";
+                        } else if ((s_cur.module & 3) == 2 && c.cc == 24) {
+                            // Plaits AUX option: 0 aux model / 1 stereo /
+                            // 2 suboscillator.
+                            static const char *const kPlaitsAux[3] = {
+                                "AUX", "STER", "SUB"
+                            };
+                            pName = (dispVal >= 0 && dispVal < 3)
+                                        ? kPlaitsAux[dispVal] : "---";
                         } else if ((s_cur.module & 3) == 3) {
                             int ringMode = 0;
                             for (uint8_t i = 0; i < s_cur.count; ++i) {
@@ -671,8 +703,17 @@ namespace CTAG {
                         }
                     } else if (s_page == 7) {
                         // SYS:
-                        if (slot == 4) {
-                            pName = (dispVal >= 1 && dispVal <= 3) ? kChainPairNames[dispVal - 1] : "---";
+                        if (slot == 0) {
+                            // The dual-purpose selector pot — text aliases:
+                            // module names when no chain, chain pairs while
+                            // engaged.
+                            const bool chained =
+                                s_cur.tail_valid && s_cur.chain != 0;
+                            pName = chained
+                                ? ((dispVal >= 0 && dispVal <= 2)
+                                       ? kChainPairNames[dispVal] : "---")
+                                : ((dispVal >= 0 && dispVal <= 3)
+                                       ? kModNames[dispVal & 3] : "---");
                         } else if (slot == 5 || slot == 14 || slot == 15) {
                             pName = dispVal ? "ON" : "OFF";
                         } else if (slot == 7) {
@@ -793,10 +834,10 @@ namespace CTAG {
             // the cell the NEXT short push will act on).
             if (s_page == 7 && s_fullArrived) {
                 for (int slot = 0; slot < 16; ++slot) {
-                    // ring: 0 chain-pair(4) 1 engage(5) 2 preset-slot(8)
+                    // ring: 0 module/pair(0) 1 engage(5) 2 preset-slot(8)
                     // 3 preset-SAVE(8) 4 preset-LOAD(8) 5 telem-d(14)
-                    // 6 telem-f(15)  (T4a: 7 items)
-                    static const int ringCell[7] = { 4, 5, 8, 8, 8, 14, 15 };
+                    // 6 telem-f(15)
+                    static const int ringCell[7] = { 0, 5, 8, 8, 8, 14, 15 };
                     const bool marked = ringCell[s_sysRing] == slot;
                     const int x = cellX(slot), y = cellY(slot);
                     Display::FillRect(x, y + BAR_DY + 3, cellW(slot) - 2, 1,
@@ -812,11 +853,14 @@ namespace CTAG {
         static constexpr uint8_t kChainB = 1;             // clouds in all pairs
 
         static void sysRingAction() {
-            // Engaged flag + configured pair from the cached SYS cells.
+            // Engaged flag + configured pair from the MODULE cell (cell 0):
+            // its value encoding works for BOTH modes with the same formula
+            // (not chained: module*32 -> 0/1/2 for elem/plaits/rings, clouds
+            // degrades to elements; chained: (pair-1)*64 -> 0/1/2).
             const bool engaged = s_fullArrived && s_cur.count > 5 &&
                                  s_cur.cell[5].value >= 64;
-            uint8_t pair = s_fullArrived && s_cur.count > 4
-                               ? (uint8_t)(1 + ((uint16_t)s_cur.cell[4].value * 3) / 128)
+            uint8_t pair = s_fullArrived && s_cur.count > 0
+                               ? (uint8_t)(1 + ((uint16_t)s_cur.cell[0].value * 3) / 128)
                                : 1;
             if (pair < 1 || pair > 3) pair = 1;
             switch (s_sysRing) {
@@ -880,10 +924,14 @@ namespace CTAG {
                 if (pot == 4 || pot == 14) n = 2;    // ADSR MODE (0..1)
                 if (pot == 5 || pot == 15) n = 10;   // ADSR DIV (0..9)
             } else if (s_page == 7) {
-                if (pot == 4) n = 3;          // CHAIN PR (1..3)
+                if (pot == 0) {
+                    // ONE selector: 4 slots (modules) when no chain, 3
+                    // slots (chain pairs) while engaged.
+                    n = (s_cur.tail_valid && s_cur.chain != 0) ? 3 : 4;
+                }
                 else if (pot == 8) n = 16;    // PRESET slot (0..15)
                 else if (pot == 9 || pot == 10) n = 2; // BLE ON (0/1), BLE MODE (PER/CEN)
-                else if (pot < 4 || pot == 5 || pot == 7 || pot == 14 || pot == 15) n = 2; // Modules 0..3, CHAIN ON 5, CLKSRC 7, TELEM D 14, TELEM F 15
+                else if (pot == 5 || pot == 7 || pot == 14 || pot == 15) n = 2; // CHAIN ON 5, CLKSRC 7, TELEM D 14, TELEM F 15
             }
             if (n >= 2 && n <= 19) {
                 int k = ((int)t.value * n) / 128;
@@ -917,7 +965,7 @@ namespace CTAG {
         }
 
         void RackUI::SetPage(uint8_t page) {
-            if (page > 7 || page == s_page) return;
+            if (page > 8 || page == s_page) return;
             s_page = page;
             s_fullArrived = false;      // dashes until the snapshot lands
             s_activePot = 0xFF;
@@ -1034,59 +1082,53 @@ namespace CTAG {
                         break;
                     }
                     if (s_page == 7) {
-                        if (pot < 4) {
-                            // Module selector radio buttons (0..3): turning
-                            // any module pot >= 64 activates that module;
-                            // turning the already-active module pot down does
-                            // not deactivate it (one module is always active).
-                            const uint8_t wantOn = potVal >= 64 ? 1 : 0;
-                            if (wantOn) {
-                                if (s_lastWireSent[pot] != 1) {
-                                    s_lastWireSent[pot] = 1;
-                                    if (s_cur.module != pot) {
-                                        RackLink::TelemLocalSysSwitch(pot);
-                                        RackLink::SendSwitch(pot);
+                        if (pot == 0) {
+                            // ONE selector pot (dual-purpose, the value text
+                            // shows which): not chained = module select over
+                            // 4 slots (ELEMENTS/CLOUDS/PLAITS/RINGS);
+                            // engaged = chain-pair select over 3 slots
+                            // (E>C/P>C/R>C) — switching re-engages with the
+                            // new pair (off->on, same as the ring action).
+                            const bool chained =
+                                s_cur.tail_valid && s_cur.chain != 0;
+                            if (!chained) {
+                                uint8_t wantMod =
+                                    (uint8_t)(((uint16_t)potVal * 4) / 128);
+                                if (wantMod > 3) wantMod = 3;
+                                RackLink::TelemLocalCellWrite(pot, potVal);
+                                if (s_lastWireSent[pot] != wantMod + 1) {
+                                    s_lastWireSent[pot] = wantMod + 1;
+                                    if (s_cur.module != wantMod) {
+                                        RackLink::TelemLocalSysSwitch(wantMod);
+                                        RackLink::SendSwitch(wantMod);
                                         s_pendingRefreshUs =
                                             esp_timer_get_time() + 45000;
-                                    } else {
-                                        RackLink::TelemLocalCellWrite(pot, 127);
                                     }
                                 }
                             } else {
-                                s_lastWireSent[pot] = 0;
-                                // Keep active module cell at 127, inactive at 0
-                                RackLink::TelemLocalCellWrite(
-                                    pot, (s_cur.module == pot) ? 127 : 0);
-                            }
-                        } else if (pot == 4) {
-                            uint8_t pair =
-                                (uint8_t)(1 + ((uint16_t)potVal * 3) / 128);
-                            if (pair > 3) pair = 3;
-                            RackLink::TelemLocalCellWrite(pot, potVal);
-                            if (s_lastWireSent[pot] != pair) {
-                                s_lastWireSent[pot] = pair;
-                                const bool engaged =
-                                    s_cur.count > 5 &&
-                                    s_cur.cell[5].value >= 64;
-                                if (engaged) {
+                                uint8_t wantPair = (uint8_t)(
+                                    1 + ((uint16_t)potVal * 3) / 128);
+                                if (wantPair > 3) wantPair = 3;
+                                RackLink::TelemLocalCellWrite(pot, potVal);
+                                if (s_lastWireSent[pot] != wantPair) {
+                                    s_lastWireSent[pot] = wantPair;
                                     RackLink::SendChainRoute(
-                                        kPairA[pair], kChainB, 0);
+                                        kPairA[wantPair], kChainB, 0);
                                     RackLink::SendChainRoute(
-                                        kPairA[pair], kChainB, 1);
-                                } else {
-                                    RackLink::SendChainRoute(
-                                        kPairA[pair], kChainB, 0);
+                                        kPairA[wantPair], kChainB, 1);
+                                    s_pendingRefreshUs =
+                                        esp_timer_get_time() + 45000;
                                 }
-                                s_pendingRefreshUs =
-                                    esp_timer_get_time() + 45000;
                             }
                         } else if (pot == 5) {
                             const uint8_t wantOn = potVal >= 64 ? 1 : 0;
                             RackLink::TelemLocalCellWrite(pot, potVal);
                             if (s_lastWireSent[pot] != wantOn) {
                                 s_lastWireSent[pot] = wantOn;
+                                // Pair from the MODULE pot's cached value
+                                // (3 slots while engaged).
                                 uint8_t pair = (uint8_t)(
-                                    1 + ((uint16_t)s_cur.cell[4].value * 3) / 128);
+                                    1 + ((uint16_t)s_cur.cell[0].value * 3) / 128);
                                 if (pair > 3) pair = 3;
                                 RackLink::SendChainRoute(
                                     kPairA[pair], kChainB, wantOn);
@@ -1213,16 +1255,27 @@ namespace CTAG {
                             } else {
                                 int p = (int)s_page;
                                 int steps = ev.delta;
+                                // The chain-B panel (page 8) exists only
+                                // while a chain is engaged.
+                                const bool chained =
+                                    s_cur.tail_valid && s_cur.chain != 0;
+                                const int pmax = chained ? 8 : 7;
                                 while (steps > 0) {
                                     p++;
                                     if (p == 1 && !ModuleHasP2(s_cur.module)) {
                                         p++; // skip empty P2
                                     }
-                                    if (p > 7) { p = 7; break; }
+                                    if (p == 8 && !chained) {
+                                        p++; // skip the chain-B page
+                                    }
+                                    if (p > pmax) { p = pmax; break; }
                                     steps--;
                                 }
                                 while (steps < 0) {
                                     p--;
+                                    if (p == 8 && !chained) {
+                                        p--; // skip the chain-B page
+                                    }
                                     if (p == 1 && !ModuleHasP2(s_cur.module)) {
                                         p--; // skip empty P2
                                     }
@@ -1273,6 +1326,11 @@ namespace CTAG {
 
                 // T4a: preset collect timeout + one-shot boot restore.
                 PresetStore::Poll();
+                // The chain-B panel exists only while a chain is engaged —
+                // leaving the chain while on it snaps back to P1.
+                if (s_page == 8 && !(s_cur.tail_valid && s_cur.chain != 0)) {
+                    SetPage(0);
+                }
 
                 // ---- render (30-60 Hz; test patterns own the screen) ----
                 if (!Display::TestPatternActive()) {

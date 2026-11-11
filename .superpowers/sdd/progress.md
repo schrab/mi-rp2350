@@ -2218,3 +2218,29 @@ already in the running C3 firmware — no reflash needed):
   zero `error:` lines before flashing (a broken grep once flashed a
   stale binary), and confirm the board actually rebooted (fresh
   uptime timestamps in the boot log).
+### Rack T5 — SYS one-pot module/pair selector, chain-B page, text aliases (2026-11-11)
+
+User-requested UX round (all built green, flashed, on-hardware):
+- **SYS single selector pot** (cell 0, dual-purpose): not chained = the
+  active module over 4 slots; engaged = the chain pair over 3 slots
+  (switching re-engages off->on with the new pair). The old 4-pot module
+  radio + the separate CHAIN PR pot are GONE (SYS cells 1-4 blank on the
+  wire). Value text aliases: ELEMENTS/CLOUDS/PLAITS/RINGS or
+  E>C/P>C/R>C. The value encoding (module*32 / (pair-1)*64) works for
+  BOTH modes under one decode formula (1 + val*3/128 gives the pair for
+  the ring + CHAIN ON paths).
+- **Chain-B page (page 8, kUiPageChainB)**: while engaged, the C3
+  navigation gains a CLOUDS B page after P2 = the CLOUDS P1 registry
+  table with live B values (the observe hook double-writes B-directed
+  CCs — 23/24/65/66 + alias bank 40-48 — into the CLOUDS cache while
+  chained; deltas target the B page when it is the C3's active page).
+  Pot writes on the page address clouds-B via the existing chain
+  dispatcher; leaving the chain snaps back to P1. Not reachable when no
+  chain is engaged. TELEM full + delta + labels all handle page 8.
+- **Plaits text aliases on P1**: ENGINE (CC 23) shows all 98 catalog
+  aliases (VA/DX7B/MODAL/ACID/... — collision-checked, short forms);
+  AUX (CC 24, 3 states) shows AUX/STER/SUB.
+- Post-flash USB-enumeration glitch noted: the C3 dropped off USB after
+  an esptool hard_reset and only came back on a physical replug (the
+  firmware was running fine the whole time — bench after a reflash
+  needs the replug check first, not a rebuild).
