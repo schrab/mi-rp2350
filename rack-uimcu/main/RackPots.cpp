@@ -88,18 +88,16 @@ namespace CTAG {
             uint8_t s_potModSrc[2][NPOTS];         // [page 0..1][pot 0..15]: 0 = OFF, 1..12 = LFO1..ARP2
             int64_t s_lastAssignUs[NPOTS];         // echo guard for cell flags
 
-            // The per-source SPEED param a pot rides on a mod-routed cell
-            // (user spec 2026-11-08: "like for LFO - its changing LFO rate").
-            // MUST MATCH the kModParamNames indexes in
-            // rack-rp2350/src/mod_engine.h: LFO 1 = rate, EU 4 = div,
-            // GATE 5 = div, ADSR 6 = div, ARP 6 = div. (Gate-follow ADSR ignores div —
-            // the ride is a no-op there; retrigger mode rides the speed.)
+            // The per-source dynamic control param a pot rides on a mod-routed cell
+            // (user spec: LFO = rate, GATE = dens, ARP = dens, EU = pulses).
+            // MUST MATCH the kModParamNames indexes in rack-rp2350/src/mod_engine.h:
+            // LFO 1 = rate, EU 1 = pulses, GATE 1 = dens, ADSR 6 = div, ARP 3 = dens.
             uint8_t rideParam(uint8_t src) {
                 if (src <= 3) return 1;            // LFO: rate
-                if (src <= 5) return 4;            // EUclid: clock division
-                if (src <= 7) return 5;            // rhythmic gate: division (param 5)
+                if (src <= 5) return 1;            // EUclid: pulses (density)
+                if (src <= 7) return 1;            // GATE: dens (density)
                 if (src <= 9) return 6;            // ADSR: division
-                return 6;                          // ARP: division
+                return 3;                          // ARP: dens (density)
             }
 
             // Per-source `dest` param index in rack-rp2350/src/mod_engine.h:

@@ -146,12 +146,27 @@ namespace CTAG {
                 } else {
                     snprintf(valBuf, valBufLen, "%.1fHz", hz);
                 }
-            } else {
-                // EUclid (4..5), GATE (6..7), ADSR (8..9), ARP (10..11): rideParam is DIV
+            } else if (srcIdx >= 4 && srcIdx <= 5) {
+                // EUCLID 1..2: rideParam is 1 (PULSES: 0..32)
+                snprintf(paramBuf, paramBufLen, "PULS");
+                int v = ((int)potVal * 32 + 63) / 127;
+                snprintf(valBuf, valBufLen, "%d", v);
+            } else if (srcIdx >= 6 && srcIdx <= 7) {
+                // GATE 1..2: rideParam is 1 (DENS: 1..16 active metrical steps)
+                snprintf(paramBuf, paramBufLen, "DENS");
+                int v = 1 + ((int)potVal * 15 + 63) / 127;
+                snprintf(valBuf, valBufLen, "%d", v);
+            } else if (srcIdx >= 8 && srcIdx <= 9) {
+                // ADSR 1..2: rideParam is 6 (DIV)
                 snprintf(paramBuf, paramBufLen, "DIV");
                 int idx = ((int)potVal * 10) / 128;
                 if (idx > 9) idx = 9;
                 snprintf(valBuf, valBufLen, "%s", kDivNames[idx]);
+            } else {
+                // ARP 1..2 (10..11): rideParam is 3 (DENS: 0..100%)
+                snprintf(paramBuf, paramBufLen, "DENS");
+                int v = ((int)potVal * 100 + 63) / 127;
+                snprintf(valBuf, valBufLen, "%d%%", v);
             }
         }
 
