@@ -497,8 +497,9 @@ const MODULES = [
 {
   name: 'RINGS', key: 'rings',
   info: '32 kHz \u00B7 24-sample blocks \u00B7 budget 750 \u00B5s \u00B7 MiniElements fork \u00B7 chord clamped by table/mode/poly',
-  ccMap: '14 structure \u00B7 15 brightness \u00B7 16 damping \u00B7 17 position \u00B7 18 model/fx \u00B7 19 polyphony \u00B7 20 mode \u00B7 21 waveform \u00B7 22 chord-table \u00B7 23 chord',
+  ccMap: '1 pitch \u00B7 14 structure \u00B7 15 brightness \u00B7 16 damping \u00B7 17 position \u00B7 18 model/fx \u00B7 19 polyphony \u00B7 20 mode \u00B7 21 waveform \u00B7 22 chord-table \u00B7 23 chord \u00B7 7 vca',
   knobs: [
+    { cc:1,  label:'PITCH',     variant:'white', def:.5 },
     { cc:14, label:'STRUCTURE', variant:'white', def:.5 },
     { cc:15, label:'BRIGHTNESS',variant:'white', def:.5 },
     { cc:16, label:'DAMPING',   variant:'white', def:.5 },
@@ -526,7 +527,7 @@ const MOD_DESTS = {
   elements: { cont: [1,11,14,15,16,17,18,19,20,21,22,23,24,25,26,27], trig: [] },
   clouds:   { cont: [14,15,16,17,18,19,20,21,22], trig: [65,66] },
   plaits:   { cont: [14,15,16,17,18,19,20,21,22,25], trig: [64] },
-  rings:    { cont: [14,15,16,17,23], trig: [64] },
+  rings:    { cont: [1,14,15,16,17,23], trig: [64] },
 };
 const TRIG_CC_NAMES = { 64: 'TRIG/STRUM', 65: 'FREEZE (latch)', 66: 'TRIG' };
 

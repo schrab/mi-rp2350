@@ -236,8 +236,9 @@ static const UiPageCell kUiPagePlaitsP1[] = {
     {24, "AUX",        kUiColorWhite},
     {64, "TRIG",       kUiColorWhite},
 };
-// rings — P1: panel colors (all white). CC 64 = STRUM pseudo-CC. 12 cells.
+// rings — P1: panel colors (all white). CC 1 = PITCH (FREQUENCY), CC 64 = STRUM pseudo-CC. 13 cells.
 static const UiPageCell kUiPageRingsP1[] = {
+    {1,  "PITCH",      kUiColorWhite},
     {14, "STRUCTURE",  kUiColorWhite},
     {15, "BRIGHTNESS", kUiColorWhite},
     {16, "DAMPING",    kUiColorWhite},
@@ -259,7 +260,7 @@ static const UiPageTable kUiPages[RACK_MODULE_COUNT][2] = {
     { {kUiPageElementsP1, 16}, {kUiPageElementsP2, 3} },   // elements
     { {kUiPageCloudsP1, 16},   {nullptr, 0} },             // clouds
     { {kUiPagePlaitsP1, 11},   {nullptr, 0} },             // plaits
-    { {kUiPageRingsP1, 12},    {nullptr, 0} },             // rings
+    { {kUiPageRingsP1, 13},    {nullptr, 0} },             // rings
 };
 static const UiPageTable kUiPageEmpty = { nullptr, 0 };   // unused fallback
 

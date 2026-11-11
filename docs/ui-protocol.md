@@ -264,10 +264,11 @@ chained, where native 14-22 belong to the A slot). P2 count = 0 (no duplicate pa
 
 P2 count = 0 (no duplicate page).
 
-### rings — P1 (11 cells; 5 pots empty, all white)
+### rings — P1 (13 cells; 3 pots empty, all white)
 
 | cell | cc | label |
 |------|----|-------|
+| 0 | 1 | PITCH (FREQUENCY) |
 | 1 | 14 | STRUCTURE |
 | 2 | 15 | BRIGHTNESS |
 | 3 | 16 | DAMPING |
@@ -279,6 +280,7 @@ P2 count = 0 (no duplicate page).
 | 9 | 22 | CHORD TB |
 | 10 | 23 | CHORD |
 | 11 | 64 | STRUM (momentary) |
+| 12 | 7 | VCA |
 
 P2 = elements has 2 unique parameters (MODEL CC 28, OMINOUS CC 29); clouds, plaits, rings have count = 0 (no duplicate parameters). Page navigation automatically skips P2 when the active module has no secondary parameter page (P1 navigates directly to/from MOD-LFO 1/2).
 
