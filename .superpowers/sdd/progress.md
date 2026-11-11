@@ -2476,3 +2476,42 @@ User-requested UX round:
   - `rack-uimcu` compiled and flashed to `COM22` (`31084e4`).
   - Switched chain to Elements -> Clouds; verified C3 requests and receives `telem page=1 mod=0 mode=0 count=3` (MODEL, PLAY, VCA).
   - User hardware verified on physical board: Elements P2 page is fully accessible and functional in chained mode ("yes all fine now").
+
+### Rack T13: Switchable Monophonic Chord Arpeggiators arp1 and arp2 (9844bb0, 2026-11-12)
+- **User Request**:
+  - Implement 3 switchable monophonic chord-arpeggiator algorithms (HYP-1 Acid/Chord Arp, Barlow + Sioros-Guedes Syncopated Arp, and Grids 2D Topographic Trance-Gate Arp) as modulation sources rp1 and rp2 (MOD_ARP, sources 10 and 11, bringing MOD_SOURCE_COUNT to 12 while preserving gate1 and gate2 completely untouched) based on the Google Argon analysis in docs/hyp1-mono-arp-algorithms.md, docs/mod_engine.h, and docs/ui_link.h.
+- **Implementation**:
+  1. **RP2350 Modulation Engine (
+ack-rp2350/src/mod_engine.h)**:
+     - Defined MOD_ARP = 4, MOD_TYPE_COUNT = 5, MOD_SOURCE_COUNT = 12, MOD_SRC_ARP_FIRST = 10, MOD_ARP_COUNT = 2, MOD_DEST_VOICE = 127.
+     - Standardized 8 parameters per ARP unit: lgo, 
+oot, scale, dens, groove, clk, div, dest.
+     - Implemented 3 algorithms:
+       - Algo 0 (HYP-1): Probabilistic step gates, slide legato (55% staccato vs 100% legato), chord voicing pools (HA_MODE_POOL), mutation, 8-bar fill turnaround.
+       - Algo 1 (Barlow): Metrical indispensability table (kBarlowSyncOrder), syncopation anticipation, ties.
+       - Algo 2 (Grids): 2D map node interpolation (kGridsNode*), topographic fill threshold, chaos jitter, continuous accent CV slewing.
+     - Sub-ranges within each third select octave range (1–3 octaves).
+     - Patching dest to 1 (PITCH), 42 (Clouds PITCH), 127 (MOD_DEST_VOICE), or trigger CCs (64/66) drives shared_note, shared_gate, and fires module triggers.
+     - Unpatching dest releases shared_gate = 0 and calls ui_link_restore_cached_cc(g_active_module, prev_cc).
+     - Console parser and status commands updated for natural names (mod arp1 algo hyp1, mod arp1 root midi, mod arp1 scale aeolian, mod arp1 dens 65, mod arp1 groove 45, mod arp1 dest voice).
+  2. **RP2350 UI Link & Presets (
+ack-rp2350/src/preset.h, ui_link.h)**:
+     - Preset format bumped to version 2 (kPresetModLen = 341 bytes, 12 sources).
+     - Page layout updated: kUiPageModArp = 7, kUiPageSys = 8, kUiPageChainB = 9, kUiPageCount = 10.
+     - Added kUiModArpCells[16] table and telemetry encoders/quantizers.
+  3. **ESP32-C3 UI Controller (
+ack-uimcu)**:
+     - RackLink.hpp: Page constants shifted (kPageModArp = 7, kPageSys = 8, kPageChainB = 9, kPageCount = 10).
+     - RackPots.cpp: Mod source assignment range expanded from 10 to 12; push-turn assignment scaled across 12 sources; ride/dest pots mapped for ARP.
+     - RackUI.cpp: Added MOD-ARP page pot mapping (kModPotMap[5]), discrete pot bucketing and value formatting (ALGO HYP.1..GRD.3, ROOT MIDI/C1..C6, SCAL ION..PMI+, DENS/GRV %, DIV 1/1..1/32T), and updated encoder page navigation lists.
+     - RackConsole.cpp: Updated page <0-9> console command bounds.
+- **Built, Flashed & Hardware Verified**:
+  - RP2350 firmware compiled and flashed to COM15 (9844bb0).
+  - ESP32-C3 UI firmware compiled and flashed to COM22 (9844bb0).
+  - RP2350 serial console confirmed:
+    - mod arp1 algo hyp1/barlow/grids switches live.
+    - mod arp1 dest voice correctly routes pitch+gate+trig to active module voice (plaits), with max Process: 34 us (budget 500 us) and 0 I2S stalls.
+    - mod arp1 dest off releases gate and restores parameter cache cleanly.
+  - ESP32-C3 console confirmed:
+    - Page 7 (MOD-ARP) displays all 16 cell values and labels for P1 (rp1) and P2 (rp2).
+    - Bidirectional link and pots are online and scanning.
