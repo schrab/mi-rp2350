@@ -2396,3 +2396,29 @@ User-requested UX round:
   - Switched to `mod=rings` live; report confirms: `max Process: 258 us (budget 750 us) | i2s stalls: 0 (+0)`.
   - In-memory `uitest` verified 6/6 test cases PASS.
   - **User hardware verified**: "all fine". Physical front-panel pots p1..p3, p7..p10, p11..p16 confirmed responding correctly to all Rings parameters with proper layout and blank slots on p4..p6.
+
+### Rack T10 — Plaits->Clouds Chained AUX / CC Hijacking & Buffer Overflow Fix (`a729a72`, 2026-11-11)
+
+- **Root Cause Analysis**:
+  - **User report**: "Plaits chained to clouds. When I switch Plaits AUX to Stereo white noise is appeared imediately on wet Clouds output. Dry is fine... in 32-8. Other quality setting - silent wet output".
+  - **CC Hijacking**: In `rack_chain_wants_cc()` ([`rack-rp2350/src/main.cpp`](file:///C:/Users/schra/Developer/mi-rp2350/rack-rp2350/src/main.cpp)), CC 23 and CC 24 were intercepted whenever a chain was active. When the user turned Plaits AUX (pot 9, CC 24 = 1 for Stereo), RP2350 intercepted CC 24 and called `rack_modules::mod_clouds::control_change(24, 1)` (Quality = 1, mono). Plaits AUX never received the CC.
+  - **Chained Clouds Buffer Overflow**: In chained mode, Clouds' small buffer is partitioned to 32,768 bytes (down from standalone's 65,536 bytes). When Quality is 0 (16-bit stereo), the Reverb/Diffuser workspace (41,368 bytes) is allocated from the large buffer (65,536-byte workspace, fits cleanly). But when Quality is set to 1 or 3 (mono), `GranularProcessor::Prepare()` allocates the workspace from `buffer_[1]` (small buffer, only 32,768 bytes), overflowing the buffer arena by 8,600 bytes and blasting digital white noise into the wet reverb/diffuser output. In quality 2/3 (8-bit), the downsampler failed under the chained block size, resulting in silence.
+  - **Uninitialized Silence Flag**: In `granular_processor.cc`, `GranularProcessor::Init()` did not explicitly initialize `silence_ = false;`.
+- **Implementation**:
+  1. **Unhijacked CC 23 & 24 for Chain A**: Removed `cc == 23 || cc == 24` from `rack_chain_wants_cc()`. Now while chained, CC 23 and CC 24 reach the active Chain A module (Plaits ENGINE & AUX, Elements GEOMETRY & BRIGHTNESS, Rings CHORD TB & CHORD).
+  2. **Clouds-B Mode & Quality Aliases (CC 49 & 50)**:
+     - Mapped CC 49 -> Clouds-B Mode (0 granular, 2 looping delay; stretch/spectral rejected).
+     - Mapped CC 50 -> Clouds-B Quality (strictly clamped to Quality 0 = 16-bit stereo).
+     - Updated `kUiPageCloudsP1` cells 12 & 13 to CC 49 and CC 50 in [`rack-rp2350/src/ui_link.h`](file:///C:/Users/schra/Developer/mi-rp2350/rack-rp2350/src/ui_link.h).
+     - Synced cache between 49/50 and 23/24 in `ui_link_observe_cc()` and `preset_replay_module()`.
+  3. **Strict Quality Locking on Chained Clouds**:
+     - Clamped `pending_quality` to 0 whenever `s->chain_b == true` in both `control_change()` and `chain_render_b()` in [`rack-rp2350/src/module_clouds.h`](file:///C:/Users/schra/Developer/mi-rp2350/rack-rp2350/src/module_clouds.h).
+  4. **GranularProcessor Initialization**:
+     - Added `silence_ = false;` to `GranularProcessor::Init()` in [`rack-rp2350/lib/clouds/clouds/dsp/granular_processor.cc`](file:///C:/Users/schra/Developer/mi-rp2350/rack-rp2350/lib/clouds/clouds/dsp/granular_processor.cc).
+  5. **UI MCU Support & Tooling**:
+     - Updated [`rack-uimcu/ui/RackUI.cpp`](file:///C:/Users/schra/Developer/mi-rp2350/rack-uimcu/ui/RackUI.cpp) to support CC 49/50 for Clouds-B Mode and locked Quality.
+     - Updated [`tools/rack_panel.html`](file:///C:/Users/schra/Developer/mi-rp2350/tools/rack_panel.html) and [`docs/ui-protocol.md`](file:///C:/Users/schra/Developer/mi-rp2350/docs/ui-protocol.md).
+- **Built & Flashed**:
+  - Rebuilt unified RP2350 firmware (`rack-elements`) and flashed to `COM15`.
+  - Rebuilt ESP32-C3 UI MCU firmware with `build_uimcu.bat` and flashed to `COM22`.
+  - Live serial report confirms `plaits>clouds` running stable at `max Process: 169 us (budget 750 us) | i2s stalls: 0 (+0)`. Ready for hardware verification.
