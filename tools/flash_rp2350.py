@@ -18,7 +18,7 @@ UF2 = sys.argv[1] if len(sys.argv) > 1 else \
 PORT = sys.argv[2] if len(sys.argv) > 2 else "COM15"
 
 
-def find_rp2350_drive(timeout=20.0):
+def find_rp2350_drive(timeout=60.0):
     """Find a removable drive labeled RP2350 (BOOTSEL MSC)."""
     kernel32 = ctypes.windll.kernel32
     t_end = time.monotonic() + timeout
@@ -40,9 +40,12 @@ def main():
     if not os.path.exists(UF2):
         sys.exit(f"no UF2 at {UF2}")
     print(f"touching {PORT} at 1200 baud (reboot to BOOTSEL)...")
-    with serial.Serial(PORT, 1200, timeout=0.5) as s:
-        s.dtr = True
-        time.sleep(0.3)
+    try:
+        with serial.Serial(PORT, 1200, timeout=0.5) as s:
+            s.dtr = True
+            time.sleep(0.3)
+    except Exception as e:
+        print(f"CDC touch skipped/failed ({e}), waiting for BOOTSEL drive...")
     root = find_rp2350_drive()
     if not root:
         sys.exit("no RP2350 BOOTSEL drive appeared (known erratics: retry "
