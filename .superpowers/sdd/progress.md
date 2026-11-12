@@ -2545,3 +2545,8 @@ ack-uimcu)**:
     - Booted into Elements (`mod=elements`), modulation engine running smoothly with 0 stalls (`i2s stalls: 0 (+0)`), process load ~89-111 us.
     - Live switching between all 5 algorithms (`mod arp1 algo hyp1/motif/markov/metro/dejavu`) and 20 scales (`mod arp1 scale acidpool/blues/...`) verified over serial telemetry.
     - UART link between RP2350 and C3 confirmed operational at 921600 baud with 0 CRC errors.
+
+- **UI Label Expansion (774d312)**:
+  - Expanded MOD-ARP cell labels in `rack-rp2350/src/ui_link.h` (`P1/P2 SCALE`, `P1/P2 GROOVE`, `P1/P2 DENS`).
+  - Expanded display value strings in `rack-uimcu/ui/RackUI.cpp` up to 8–9 characters (`HYP-1 1..3`, `MOTIF 1..3`, `MARKOV 1..3`, `METRO 1..3`, `DEJAVU 1..3`; scales `CHROM`, `IONIAN`, `DORIAN`, `PHRYGIAN`, `MAJ PENT`, `MIN PENT`, `HARM MIN`, `MEL MIN`, `PHRYGDOM`, `WHOLETON`, `OCTATON`, `HIRAJOSH`, `INSEN`, `DBL HARM`, `ACIDPOOL`; roots `MIDI`, `PARALLEL`, `W7 DRIFT`, `NEO-RIEM`).
+  - Both RP2350 (`COM15`) and ESP32-C3 (`COM22`) rebuilt and flashed.
