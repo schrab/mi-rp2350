@@ -2649,3 +2649,39 @@ ack-uimcu)**:
   - `rack-uimcu` flashed to `COM22` via `tools/build_uimcu.bat flash -p COM22`.
   - Serial verified: `COM15` reports 0 I2S stalls (`max Process: 458 us`), `COM22` connects via BLE-MIDI and receives full TELEM snapshots without dropouts or overflows.
 
+### Generative ARP Scale Preservation, Stable Root Hysteresis & Neo-Riemannian Transform Pot (`5ccdd3f`, 2026-11-12)
+- **User Requests**:
+  1. "the issue is on ARP page when i change scale and swich page then go back and the scale is not saved."
+  2. "another issue root selection is jumpy and i selecting right item is hard. it jumps over parameters."
+  3. "and how this transformations selected? ... we have free pots so if NEO selected we can adjust transformation"
+- **Root Cause & Fixes**:
+  1. **Scale Persistence Fix Across Page Swaps**:
+     - `mod_engine.h:1801` had an ad-hoc `/ 64` and `0x40u` split that mismatched `ui_link.h:825` (`* 127 / 19`) and `RackUI.cpp:535` (`* 20 / 128`), causing scale telemetry to corrupt or zero out when returning to the ARP page.
+     - Solution: Unified scale bucket math across both MCUs for all 20 scales (0..19):
+       - RP2350 set: `sc = ((uint16_t)val * 20) / 128; if (sc >= 20) sc = 19;`
+       - RP2350 telem echo: `val = (sc * 128 + 64) / 20;` (exact bucket center).
+       - C3 display/pot: `v = ((int)potVal * 20) / 128; if (v > 19) v = 19;`
+       - Every scale in 0..19 round-trips with ±3 ADC margins; scale persists identically across page switches.
+  2. **Jumpy Root Selection & Soft Takeover Fix**:
+     - Root selection packed 4 special modes (`MIDI`, `PARAL`, `W7`, `NEO`) into single ADC units 0..3 (1/128th of rotation each) and omitted pot 8 from `GetPotBucketBounds()`, disabling pickup hysteresis and causing violent jumps.
+     - Solution: Replaced mapping with 16 stable 8-ADC-wide discrete intervals (0: `MIDI`, 1: `PARAL`, 2: `W7`, 3: `NEO`, 4..15: fixed notes `C` through `B` mapping to base MIDI note 48..59 = C3..B3).
+     - Added `if (pot == 8) n = 16;` to `RackUI::GetPotBucketBounds()` on ESP32-C3 for 8-unit pickup hysteresis.
+  3. **Neo-Riemannian Transformation (`TRANS` / `NEO-OP`) Pot**:
+     - Assigned pot 7 (middle row next to ROOT) to parameter 12 on source 10 (`kModPotMap[5][7] = {10, 12};`, `kUiModArpCells[7] = {"TRANS", kUiColorYellow, 10, 12};`).
+     - Dynamic label: appears as `TRANS` when ROOT is `NEO` (3), hides as `""` (blank black slot) in other root modes.
+     - 8 voice-leading operations (16-ADC wide intervals, `n = 8` in `GetPotBucketBounds()`):
+       - `0: RAND` (random across all 6 transformations P, L, R, N, S, H)
+       - `1: P` (Parallel: Major ↔ Minor on same root)
+       - `2: L` (Leittonwechsel: Leading-tone exchange, e.g. C Maj ↔ E Min)
+       - `3: R` (Relative: Relative major/minor, e.g. C Maj ↔ A Min)
+       - `4: N` (Nebenverwandt: 4th/5th shift with quality flip, e.g. C Maj ↔ F Min)
+       - `5: S` (Slide: Moves root/5th by half-step holding 3rd, e.g. C Maj ↔ C♯ Min)
+       - `6: H` (Hexatonic Pole: Chromatic counter-pole shift, e.g. C Maj ↔ A♭ Min)
+       - `7: PLR` (Classic Neo-Riemannian cycling: random among P, L, R only)
+     - `mod_arp_next_chord()` applies the selected operation, dynamically adapts scale triads to Major or Minor, synchronizes both ARPs, and persists `neo_op` in presets (`pl[8]`).
+- **Hardware Flashed & Verified**:
+  - `rack-rp2350` (`rack-elements`) flashed to `COM15` via `tools/flash_rp2350.py`.
+  - `rack-uimcu` flashed to `COM22` via `tools/build_uimcu.bat flash -p COM22`.
+  - Verified live: RP2350 reports 0 I2S stalls (`max Process: 148 us`), ESP32-C3 restored 927-byte autosave, page 7 active, telemetry clean.
+
+
