@@ -60,9 +60,9 @@ namespace CTAG {
                 kNoSet, kNoSet, kNoSet, kNoSet,
                 {9, 1}, {9, 2}, {9, 3}, {9, 4}, {9, 0}, {9, 6},
             },
-            {   // MOD-ARP (page 7): ARP 1 (pots 0..5), ARP 2 (pots 10..15)
+            {   // MOD-ARP (page 7): ARP 1 (pots 0..5), middle row shared ROOT/SCALE (pots 8, 9), ARP 2 (pots 10..15)
                 {10, 0}, {10, 1}, {10, 2}, {10, 3}, {10, 4}, {10, 6},
-                kNoSet, kNoSet, kNoSet, kNoSet,
+                kNoSet, kNoSet, {10, 10}, {10, 11},
                 {11, 0}, {11, 1}, {11, 2}, {11, 3}, {11, 4}, {11, 6},
             },
         };
@@ -131,8 +131,8 @@ namespace CTAG {
         static void FormatModParamAndValue(uint8_t srcIdx, uint8_t potVal,
                                            char *paramBuf, size_t paramBufLen,
                                            char *valBuf, size_t valBufLen) {
-            static const char *const kDivNames[10] = {
-                "1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/4T", "1/8T", "16T", "32T"
+            static const char *const kDivNames[13] = {
+                "8/1", "4/1", "2/1", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/4T", "1/8T", "16T", "32T"
             };
 
             if (srcIdx <= 3) {
@@ -159,11 +159,11 @@ namespace CTAG {
             } else if (srcIdx >= 8 && srcIdx <= 9) {
                 // ADSR 1..2: rideParam is 6 (DIV)
                 snprintf(paramBuf, paramBufLen, "DIV");
-                int idx = ((int)potVal * 10) / 128;
-                if (idx > 9) idx = 9;
+                int idx = ((int)potVal * 13) / 128;
+                if (idx > 12) idx = 12;
                 snprintf(valBuf, valBufLen, "%s", kDivNames[idx]);
             } else {
-                // ARP 1..2 (10..11): rideParam is 3 (DENS: 0..100%)
+                // ARP 1..2 (10..11): rideParam is 1 (p[0] = DENS/PROB: 0..100%)
                 snprintf(paramBuf, paramBufLen, "DENS");
                 int v = ((int)potVal * 100 + 63) / 127;
                 snprintf(valBuf, valBufLen, "%d%%", v);
@@ -393,12 +393,12 @@ namespace CTAG {
                     barMax = 1;
                     return v;
                 }
-                // DIV (5, 15) -> 10 divisions (0..9)
+                // DIV (5, 15) -> 13 divisions (0..12)
                 if (slot == 5 || slot == 15) {
-                    int v = ((int)potVal * 10) / 128;
-                    if (v > 9) v = 9;
+                    int v = ((int)potVal * 13) / 128;
+                    if (v > 12) v = 12;
                     barVal = v;
-                    barMax = 9;
+                    barMax = 12;
                     return v;
                 }
                 return potVal;
@@ -433,12 +433,12 @@ namespace CTAG {
                     barMax = 2;
                     return v;
                 }
-                // E1/E2 DIV (4, 14) -> 0..9
+                // E1/E2 DIV (4, 14) -> 0..12
                 if (slot == 4 || slot == 14) {
-                    int v = ((int)potVal * 10) / 128;
-                    if (v > 9) v = 9;
+                    int v = ((int)potVal * 13) / 128;
+                    if (v > 12) v = 12;
                     barVal = v;
-                    barMax = 9;
+                    barMax = 12;
                     return v;
                 }
                 return potVal;
@@ -482,12 +482,12 @@ namespace CTAG {
                     barMax = 2;
                     return v;
                 }
-                // G1/G2 DIV (5, 15) -> 0..9
+                // G1/G2 DIV (5, 15) -> 0..12
                 if (slot == 5 || slot == 15) {
-                    int v = ((int)potVal * 10) / 128;
-                    if (v > 9) v = 9;
+                    int v = ((int)potVal * 13) / 128;
+                    if (v > 12) v = 12;
                     barVal = v;
-                    barMax = 9;
+                    barMax = 12;
                     return v;
                 }
                 return potVal;
@@ -500,12 +500,12 @@ namespace CTAG {
                     barMax = 1;
                     return v;
                 }
-                // A1/A2 DIV (5, 15) -> 0..9
+                // A1/A2 DIV (5, 15) -> 0..12
                 if (slot == 5 || slot == 15) {
-                    int v = ((int)potVal * 10) / 128;
-                    if (v > 9) v = 9;
+                    int v = ((int)potVal * 13) / 128;
+                    if (v > 12) v = 12;
                     barVal = v;
-                    barMax = 9;
+                    barMax = 12;
                     return v;
                 }
                 return potVal;
@@ -523,8 +523,8 @@ namespace CTAG {
                     barMax = 14;
                     return barVal;
                 }
-                // P1/P2 ROOT (1, 11): 0=MIDI, 1=PARAL, 2=W7, 3=NEO, 4..64=Note 24..84 (C1..C6)
-                if (slot == 1 || slot == 11) {
+                // SHARED ROOT (slot 8): 0=MIDI, 1=PARAL, 2=W7, 3=NEO, 24..84=Note (C1..C6)
+                if (slot == 8) {
                     if (potVal <= 3) {
                         barVal = potVal; barMax = 64;
                         return potVal;
@@ -535,35 +535,92 @@ namespace CTAG {
                     barMax = 64;
                     return note;
                 }
-                // P1/P2 SCAL (2, 12): 0..19 scale/chord
-                if (slot == 2 || slot == 12) {
+                // SHARED SCALE (slot 9): 0..19 scale/chord
+                if (slot == 9) {
                     int v = ((int)potVal * 20) / 128;
                     if (v > 19) v = 19;
                     barVal = v;
                     barMax = 19;
                     return v;
                 }
-                // P1/P2 DENS (3, 13): 0..100 (%)
-                if (slot == 3 || slot == 13) {
-                    int v = ((int)potVal * 100 + 63) / 127;
-                    barVal = potVal;
-                    barMax = 127;
-                    return v;
-                }
-                // P1/P2 GRV (4, 14): 0..100 (%)
-                if (slot == 4 || slot == 14) {
-                    int v = ((int)potVal * 100 + 63) / 127;
-                    barVal = potVal;
-                    barMax = 127;
-                    return v;
-                }
-                // P1/P2 DIV (5, 15): 0..9 division
+                // P1/P2 DIV (5, 15): 0..12 division
                 if (slot == 5 || slot == 15) {
-                    int v = ((int)potVal * 10) / 128;
-                    if (v > 9) v = 9;
+                    int v = ((int)potVal * 13) / 128;
+                    if (v > 12) v = 12;
                     barVal = v;
-                    barMax = 9;
+                    barMax = 12;
                     return v;
+                }
+                // Dynamic parameters: slots 1..4 (ARP1) and slots 11..14 (ARP2)
+                if ((slot >= 1 && slot <= 4) || (slot >= 11 && slot <= 14)) {
+                    int algo = (slot < 6) ? (s_cur.cell[0].value / 25) : (s_cur.cell[10].value / 25);
+                    if (algo > 4) algo = 4;
+                    int p_idx = (slot < 6) ? (slot - 1) : (slot - 11); // 0..3
+                    if (p_idx == 0) {
+                        // DENS / PROB: 0..100 (%)
+                        int v = ((int)potVal * 100 + 63) / 127;
+                        barVal = potVal; barMax = 127;
+                        return v;
+                    }
+                    if (algo == 0) {
+                        // HYP-1: SLID (1), ACC (2), MUTE (3) -> all %
+                        int v = ((int)potVal * 100 + 63) / 127;
+                        barVal = potVal; barMax = 127;
+                        return v;
+                    } else if (algo == 1) {
+                        // MOTIF: FORM (1: 0..3), XFORM (2: 0..3), MUTE (3: 0..100%)
+                        if (p_idx == 1 || p_idx == 2) {
+                            int v = ((int)potVal * 4) / 128;
+                            if (v > 3) v = 3;
+                            barVal = v; barMax = 3;
+                            return v;
+                        } else {
+                            int v = ((int)potVal * 100 + 63) / 127;
+                            barVal = potVal; barMax = 127;
+                            return v;
+                        }
+                    } else if (algo == 2) {
+                        // MARKOV: CONTOUR (1: 0..15), PEDAL (2: 0..3), GRAV (3: 0..100%)
+                        if (p_idx == 1) {
+                            int v = ((int)potVal * 16) / 128;
+                            if (v > 15) v = 15;
+                            barVal = v; barMax = 15;
+                            return v;
+                        } else if (p_idx == 2) {
+                            int v = ((int)potVal * 4) / 128;
+                            if (v > 3) v = 3;
+                            barVal = v; barMax = 3;
+                            return v;
+                        } else {
+                            int v = ((int)potVal * 100 + 63) / 127;
+                            barVal = potVal; barMax = 127;
+                            return v;
+                        }
+                    } else if (algo == 3) {
+                        // METRO: PULSES (1: 1..8), RATCHET (2: 0..3), ACCUM (3: 0..3)
+                        if (p_idx == 1) {
+                            int v = 1 + ((int)potVal * 7 + 63) / 127;
+                            barVal = v - 1; barMax = 7;
+                            return v;
+                        } else if (p_idx == 2 || p_idx == 3) {
+                            int v = ((int)potVal * 4) / 128;
+                            if (v > 3) v = 3;
+                            barVal = v; barMax = 3;
+                            return v;
+                        }
+                    } else { // DEJAVU (algo 4)
+                        // DEJAVU (1: 0..100), STEPS (2: 0..3), SPREAD (3: 0..100)
+                        if (p_idx == 2) {
+                            int v = ((int)potVal * 4) / 128;
+                            if (v > 3) v = 3;
+                            barVal = v; barMax = 3;
+                            return v;
+                        } else {
+                            int v = ((int)potVal * 100 + 63) / 127;
+                            barVal = potVal; barMax = 127;
+                            return v;
+                        }
+                    }
                 }
                 return potVal;
             }
@@ -754,8 +811,8 @@ namespace CTAG {
                     };
                     static const char *const kLfoModeNames[2] = { "HZ", "CLK" };
                     static const char *const kClkNames[3] = { "GLB", "INT", "MIDI" };
-                    static const char *const kDivNames[10] = {
-                        "1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/4T", "1/8T", "16T", "32T"
+                    static const char *const kDivNames[13] = {
+                        "8/1", "4/1", "2/1", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/4T", "1/8T", "16T", "32T"
                     };
                     static const char *const kEnvModeNames[2] = { "GATE", "RTRG" };
                     static const char *const kChainPairNames[3] = { "E>C", "P>C", "R>C" };
@@ -822,14 +879,14 @@ namespace CTAG {
                         } else if (slot == 4 || slot == 14) {
                             pName = (dispVal >= 0 && dispVal < 2) ? kLfoModeNames[dispVal] : "---";
                         } else if (slot == 5 || slot == 15) {
-                            pName = (dispVal >= 0 && dispVal < 10) ? kDivNames[dispVal] : "---";
+                            pName = (dispVal >= 0 && dispVal < 13) ? kDivNames[dispVal] : "---";
                         }
                     } else if (s_page == 4) {
                         // MOD-TRIG (Euclid):
                         if (slot == 3 || slot == 13) {
                             pName = (dispVal >= 0 && dispVal < 3) ? kClkNames[dispVal] : "---";
                         } else if (slot == 4 || slot == 14) {
-                            pName = (dispVal >= 0 && dispVal < 10) ? kDivNames[dispVal] : "---";
+                            pName = (dispVal >= 0 && dispVal < 13) ? kDivNames[dispVal] : "---";
                         }
                     } else if (s_page == 5) {
                         // MOD-GATE:
@@ -838,7 +895,7 @@ namespace CTAG {
                         } else if (slot == 4 || slot == 14) {
                             pName = (dispVal >= 0 && dispVal < 3) ? kClkNames[dispVal] : "---";
                         } else if (slot == 5 || slot == 15) {
-                            pName = (dispVal >= 0 && dispVal < 10) ? kDivNames[dispVal] : "---";
+                            pName = (dispVal >= 0 && dispVal < 13) ? kDivNames[dispVal] : "---";
                         } else if (slot == 2 || slot == 3 || slot == 12 || slot == 13) {
                             // SYNC and GLEN are percentage
                             snprintf(bufText, sizeof(bufText), "%d%%", dispVal);
@@ -849,15 +906,15 @@ namespace CTAG {
                         if (slot == 4 || slot == 14) {
                             pName = (dispVal >= 0 && dispVal < 2) ? kEnvModeNames[dispVal] : "---";
                         } else if (slot == 5 || slot == 15) {
-                            pName = (dispVal >= 0 && dispVal < 10) ? kDivNames[dispVal] : "---";
+                            pName = (dispVal >= 0 && dispVal < 13) ? kDivNames[dispVal] : "---";
                         }
                     } else if (s_page == 7) {
                         // MOD-ARP:
                         static const char *const kArpAlgoNames[15] = {
-                            "HYP-1 1", "HYP-1 2", "HYP-1 3",
-                            "MOTIF 1", "MOTIF 2", "MOTIF 3",
+                            "HYP-1",    "HYP-2",    "HYP-3",
+                            "MOTIF 1",  "MOTIF 2",  "MOTIF 3",
                             "MARKOV 1", "MARKOV 2", "MARKOV 3",
-                            "METRO 1", "METRO 2", "METRO 3",
+                            "METRO 1",  "METRO 2",  "METRO 3",
                             "DEJAVU 1", "DEJAVU 2", "DEJAVU 3"
                         };
                         static const char *const kArpScaleNames[20] = {
@@ -870,17 +927,30 @@ namespace CTAG {
                         static const char *const kNoteNames[12] = {
                             "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
                         };
+                        static const char *const kMotifForms[4] = { "ABAC", "AABC", "ABBC", "AABA" };
+                        static const char *const kMotifXforms[4] = { "INV", "RETRO", "TRANS", "DISP" };
+                        static const char *const kMarkovContours[16] = {
+                            "ARCH", "VALLEY", "ASCEND", "DESCND",
+                            "ZIGZAG", "SAW_UP", "SAW_DN", "PENDLM",
+                            "CENTER", "EXPAND", "SHRINK", "RANDOM",
+                            "WAVE", "STEP_U", "STEP_D", "STABLE"
+                        };
+                        static const char *const kMarkovPedals[4] = { "OFF", "ROOT", "5TH", "BOUNCE" };
+                        static const char *const kMetroRatchets[4] = { "OFF", "2X", "3X", "4X" };
+                        static const char *const kMetroAccums[4] = { "PENDLM", "WRAP", "RANDOM", "HOLD" };
+                        static const char *const kDejavuSteps[4] = { "ALL", "PENT", "TRIAD", "ROOT" };
+
                         if (slot == 0 || slot == 10) {
                             pName = (dispVal >= 0 && dispVal < 15) ? kArpAlgoNames[dispVal] : "---";
-                        } else if (slot == 1 || slot == 11) {
+                        } else if (slot == 8) {
                             if (dispVal == 0) {
                                 pName = "MIDI";
                             } else if (dispVal == 1) {
-                                pName = "PARALLEL";
+                                pName = "PARAL";
                             } else if (dispVal == 2) {
-                                pName = "W7 DRIFT";
+                                pName = "W7";
                             } else if (dispVal == 3) {
-                                pName = "NEO-RIEM";
+                                pName = "NEO";
                             } else if (dispVal >= 24 && dispVal <= 84) {
                                 int oct = (dispVal / 12) - 1;
                                 snprintf(bufText, sizeof(bufText), "%s%d", kNoteNames[dispVal % 12], oct);
@@ -888,14 +958,64 @@ namespace CTAG {
                             } else {
                                 pName = "---";
                             }
-                        } else if (slot == 2 || slot == 12) {
+                        } else if (slot == 9) {
                             pName = (dispVal >= 0 && dispVal < 20) ? kArpScaleNames[dispVal] : "---";
-                        } else if (slot == 3 || slot == 4 || slot == 13 || slot == 14) {
-                            // DENS and GROOVE are percentage
-                            snprintf(bufText, sizeof(bufText), "%d%%", dispVal);
-                            pName = bufText;
                         } else if (slot == 5 || slot == 15) {
-                            pName = (dispVal >= 0 && dispVal < 10) ? kDivNames[dispVal] : "---";
+                            pName = (dispVal >= 0 && dispVal < 13) ? kDivNames[dispVal] : "---";
+                        } else if ((slot >= 1 && slot <= 4) || (slot >= 11 && slot <= 14)) {
+                            int algo = (slot < 6) ? (s_cur.cell[0].value / 25) : (s_cur.cell[10].value / 25);
+                            if (algo > 4) algo = 4;
+                            int p_idx = (slot < 6) ? (slot - 1) : (slot - 11);
+                            if (p_idx == 0) {
+                                snprintf(bufText, sizeof(bufText), "%d%%", dispVal);
+                                pName = bufText;
+                            } else if (algo == 0) {
+                                snprintf(bufText, sizeof(bufText), "%d%%", dispVal);
+                                pName = bufText;
+                            } else if (algo == 1) {
+                                if (p_idx == 1) {
+                                    pName = (dispVal >= 0 && dispVal < 4) ? kMotifForms[dispVal] : "---";
+                                } else if (p_idx == 2) {
+                                    pName = (dispVal >= 0 && dispVal < 4) ? kMotifXforms[dispVal] : "---";
+                                } else {
+                                    snprintf(bufText, sizeof(bufText), "%d%%", dispVal);
+                                    pName = bufText;
+                                }
+                            } else if (algo == 2) {
+                                if (p_idx == 1) {
+                                    pName = (dispVal >= 0 && dispVal < 16) ? kMarkovContours[dispVal] : "---";
+                                } else if (p_idx == 2) {
+                                    pName = (dispVal >= 0 && dispVal < 4) ? kMarkovPedals[dispVal] : "---";
+                                } else {
+                                    snprintf(bufText, sizeof(bufText), "%d%%", dispVal);
+                                    pName = bufText;
+                                }
+                            } else if (algo == 3) {
+                                if (p_idx == 1) {
+                                    snprintf(bufText, sizeof(bufText), "%dp", dispVal);
+                                    pName = bufText;
+                                } else if (p_idx == 2) {
+                                    pName = (dispVal >= 0 && dispVal < 4) ? kMetroRatchets[dispVal] : "---";
+                                } else {
+                                    pName = (dispVal >= 0 && dispVal < 4) ? kMetroAccums[dispVal] : "---";
+                                }
+                            } else {
+                                if (p_idx == 1) {
+                                    if (dispVal < 46) {
+                                        snprintf(bufText, sizeof(bufText), "MUT%d", 46 - dispVal);
+                                    } else if (dispVal <= 55) {
+                                        pName = "LOCK";
+                                    } else {
+                                        snprintf(bufText, sizeof(bufText), "PRM%d", dispVal - 55);
+                                    }
+                                    if (!pName) pName = bufText;
+                                } else if (p_idx == 2) {
+                                    pName = (dispVal >= 0 && dispVal < 4) ? kDejavuSteps[dispVal] : "---";
+                                } else {
+                                    snprintf(bufText, sizeof(bufText), "%d%%", dispVal);
+                                    pName = bufText;
+                                }
+                            }
                         }
                     } else if (s_page == 8) {
                         // SYS:
@@ -1057,21 +1177,29 @@ namespace CTAG {
             } else if (s_page == 2 || s_page == 3) {
                 if (pot == 1 || pot == 11) n = 5;    // LFO WAVE (0..4)
                 if (pot == 4 || pot == 14) n = 2;    // LFO MODE (0..1)
-                if (pot == 5 || pot == 15) n = 10;   // LFO DIV (0..9)
+                if (pot == 5 || pot == 15) n = 13;   // LFO DIV (0..12)
             } else if (s_page == 4) {
                 if (pot == 3 || pot == 13) n = 3;    // EU CLK (0..2)
-                if (pot == 4 || pot == 14) n = 10;   // EU DIV (0..9)
+                if (pot == 4 || pot == 14) n = 13;   // EU DIV (0..12)
             } else if (s_page == 5) {
                 if (pot == 0 || pot == 10) n = 19;   // GATE MODE (0..18)
                 if (pot == 4 || pot == 14) n = 3;    // GATE CLK (0..2)
-                if (pot == 5 || pot == 15) n = 10;   // GATE DIV (0..9)
+                if (pot == 5 || pot == 15) n = 13;   // GATE DIV (0..12)
             } else if (s_page == 6) {
                 if (pot == 4 || pot == 14) n = 2;    // ADSR MODE (0..1)
-                if (pot == 5 || pot == 15) n = 10;   // ADSR DIV (0..9)
+                if (pot == 5 || pot == 15) n = 13;   // ADSR DIV (0..12)
             } else if (s_page == 7) {
                 if (pot == 0 || pot == 10) n = 15;   // ARP ALGO (0..14)
-                if (pot == 2 || pot == 12) n = 20;   // ARP SCAL (0..19)
-                if (pot == 5 || pot == 15) n = 10;   // ARP DIV (0..9)
+                if (pot == 9) n = 20;                // SHARED SCALE (0..19)
+                if (pot == 5 || pot == 15) n = 13;   // ARP DIV (0..12)
+                int algo = (pot < 6) ? (s_cur.cell[0].value / 25) : (s_cur.cell[10].value / 25);
+                if (algo > 4) algo = 4;
+                int p_idx = (pot < 6) ? (pot - 1) : (pot - 11);
+                if (algo == 1 && (p_idx == 1 || p_idx == 2)) n = 4;
+                else if (algo == 2 && p_idx == 1) n = 16;
+                else if (algo == 2 && p_idx == 2) n = 4;
+                else if (algo == 3 && (p_idx == 2 || p_idx == 3)) n = 4;
+                else if (algo == 4 && p_idx == 2) n = 4;
             } else if (s_page == 8) {
                 if (pot == 0) {
                     // ONE selector: 4 slots (modules) when no chain, 3

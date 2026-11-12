@@ -144,12 +144,13 @@ static const uint8_t MOD_DEST_VOICE = 127;    // universal voice pitch+gate pseu
 
 // Clock divisions: PPQ ticks per division cycle (24 PPQ = quarter note).
 // All divisors are integers in 24 PPQ (triplets included).
-struct ModDivision { const char* name; uint8_t ppq; };
-static const ModDivision kModDivisions[10] = {
-    {"1/1", 96}, {"1/2", 48}, {"1/4", 24}, {"1/8", 12}, {"1/16", 6},
-    {"1/32", 3}, {"1/4T", 16}, {"1/8T", 8}, {"1/16T", 4}, {"1/32T", 2},
+struct ModDivision { const char* name; uint16_t ppq; };
+static const ModDivision kModDivisions[13] = {
+    {"8/1", 768}, {"4/1", 384}, {"2/1", 192},
+    {"1/1",  96}, {"1/2",  48}, {"1/4",  24}, {"1/8", 12}, {"1/16", 6},
+    {"1/32",  3}, {"1/4T", 16}, {"1/8T",  8}, {"1/16T", 4}, {"1/32T", 2},
 };
-static const uint8_t MOD_DIVISION_COUNT = 10;
+static const uint8_t MOD_DIVISION_COUNT = 13;
 
 // Per-source parameter names/counts — the CC 34 param indexes and the console
 // `mod <src> <param> <value>` names use the SAME tables. The last three
@@ -159,7 +160,7 @@ static const char* const kModParamNames[5][8] = {
     {"steps", "pulses", "rot", "clk", "div", "dest"},                  // EUCLID
     {"mode", "dens", "sync", "glen", "clk", "div", "dest"},            // GATE
     {"mode", "atk", "dec", "sus", "rel", "clk", "div", "dest"},        // ADSR
-    {"algo", "root", "scale", "dens", "groove", "clk", "div", "dest"}, // ARP
+    {"algo", "p1", "p2", "p3", "p4", "clk", "div", "dest"},            // ARP
 };
 static const uint8_t kModParamCount[5] = {8, 6, 7, 8, 8};
 
@@ -234,14 +235,13 @@ struct ModSource {
     struct { float a_s, d_s, s_lvl, r_s; uint8_t retrig, env_state; float env;
              uint32_t ticks; } adsr;
     struct {
-      uint8_t algo;           // 0=HYP1, 1=BARLOW, 2=GRIDS
+      uint8_t algo;           // 0..4 (HYP1, MOTIF, MARKOV, METRO, DEJAVU)
       uint8_t range;          // 1..3 octaves
-      uint8_t root_param;     // 0 = MIDI follow, 24..84 = fixed root MIDI note
+      uint8_t root_param;     // 0 = MIDI follow, 1=PARAL, 2=W7, 3=NEO, 24..84 = fixed root MIDI note
       uint8_t midi_root;      // last captured external MIDI note (default 48 = C3)
       uint8_t last_out_note;  // last note written to shared_note by this arp
-      uint8_t scale_idx;      // 0..15 (low 3 bits = mode 0..7, bit 3 = chord flavor)
-      uint8_t density;        // 0..100
-      uint8_t groove;         // 0..100 (syncopation / morph / mutate+slide)
+      uint8_t scale_idx;      // 0..19 (SCALE_COUNT)
+      uint8_t p[4];           // 4 algorithm-specific parameters (0..100)
       uint8_t step;           // 0..15 current step
       uint8_t cur_note;       // active step MIDI note (28..96)
       uint8_t level;          // 1 if current step is gated
@@ -585,6 +585,11 @@ static void mod_arp_next_chord(ModSource& s) {
     apply_neo_riemannian(&s.p.arp.midi_root, &ext.is_minor_triad,
                          (neo_riemannian_id_t)(mod_irand(s, NR_TRANSFORM_COUNT)));
     ext.deg = 0;
+    for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
+      g_mod_engine.src[MOD_SRC_ARP_FIRST + k].p.arp.midi_root = s.p.arp.midi_root;
+      g_mod_engine.arp_ext[k].is_minor_triad = ext.is_minor_triad;
+      g_mod_engine.arp_ext[k].deg = 0;
+    }
     return;
   }
   // Diatonic Functional Markov or W7 drift
@@ -594,7 +599,7 @@ static void mod_arp_next_chord(ModSource& s) {
     if (i == cur_d) {
       w[i] = 0u;
     } else if (ext.nsteps == 7) {
-      w[i] = (s.p.arp.groove > 50) ? CHORD_MARKOV_7X7[cur_d][i] : DIATONIC_W7_WEIGHTS[i];
+      w[i] = (s.p.arp.root_param == 2) ? DIATONIC_W7_WEIGHTS[i] : CHORD_MARKOV_7X7[cur_d][i];
     } else {
       w[i] = (i == 0) ? 30u : 15u;
     }
@@ -610,6 +615,9 @@ static void mod_arp_next_chord(ModSource& s) {
     next_deg = (cur_d == 0 && ext.nsteps > 1) ? 1 : 0;
   }
   ext.deg = (int8_t)next_deg;
+  for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
+    g_mod_engine.arp_ext[k].deg = ext.deg;
+  }
 }
 
 // Pick chord-tone offset (even scale steps) or passing tone
@@ -626,55 +634,76 @@ static int8_t mod_arp_pick_offset(ModSource& s, const ModArpExt& ext, bool stron
 }
 
 // Roll a single step for Algo 0 (HYP-1 Acid ac_roll)
+// p[0]=DENS (0..100), p[1]=SLIDE (0..100), p[2]=ACCENT (0..100), p[3]=MUTATE (0..100)
 static void mod_arp_roll_hyp1_step(ModSource& s, ModArpExt& ext, uint8_t st) {
   ModArpStep& step = ext.steps[st];
-  const uint8_t dens = s.p.arp.density;
+  const uint8_t dens = s.p.arp.p[0];
   const uint8_t eff_dens = (st == 0) ? (dens + 30 > 100 ? 100 : dens + 30) : dens;
   const bool gate = mod_irand(s, 100) < eff_dens;
-  const bool acc  = mod_irand(s, 100) < 30;
-  const bool sld  = mod_irand(s, 100) < ((uint16_t)s.p.arp.groove * 70 / 100);
+  const bool acc  = mod_irand(s, 100) < s.p.arp.p[2];
+  const bool sld  = mod_irand(s, 100) < s.p.arp.p[1];
   step.flags = (gate ? 1u : 0u) | (acc ? 2u : 0u) | (sld ? 4u : 0u);
   step.off = mod_arp_pick_offset(s, ext, (st & 3u) == 0u);
   const uint8_t rng_oct = s.p.arp.range ? s.p.arp.range : 1;
   step.oct = (mod_irand(s, 100) < 55) ? 0 : (int8_t)mod_irand(s, rng_oct);
 }
 
-// Algo 1: Phrase-Grammar Motif Transformer (ABAC / AABC / AABA)
+// Algo 1: Phrase-Grammar Motif Transformer (ABAC / AABC / ABBC / AABA)
+// p[0]=DENS (0..100), p[1]=FORM (0..3), p[2]=XFORM (0..3), p[3]=MUTATE (0..100)
 static void mod_arp_build_motif(ModSource& s, ModArpExt& ext) {
   const uint8_t rng_oct = s.p.arp.range ? s.p.arp.range : 1;
-  const uint8_t form = (s.p.arp.groove * 4) / 101; // 0=ABAC, 1=AABC, 2=ABBC, 3=AABA
+  const uint8_t form = (s.p.arp.p[1] * 4) / 101; // 0=ABAC, 1=AABC, 2=ABBC, 3=AABA
+  const uint8_t xform = (s.p.arp.p[2] * 4) / 101; // 0=INV, 1=RETRO, 2=TRANS, 3=DISP
+  const uint8_t mutate = s.p.arp.p[3];
   ext.st.motif.form = form;
 
   // Generate / refresh Seed A (4 steps = 1 beat)
   for (uint8_t i = 0; i < 4; ++i) {
-    uint8_t gate_thresh = (i == 0) ? (s.p.arp.density + 25 > 100 ? 100 : s.p.arp.density + 25) : s.p.arp.density;
-    bool gate = mod_irand(s, 100) < gate_thresh;
-    int8_t deg;
-    if (i == 0) {
-      deg = (mod_irand(s, 2) == 0) ? 0 : 4; // Tonic or 5th
-    } else if (mod_irand(s, 100) < 80) {
-      deg = (int8_t)(2 * mod_irand(s, ext.chord_nt)); // Chord tone
-    } else {
-      deg = (int8_t)mod_irand(s, ext.nsteps);          // Passing tone
+    if (ext.st.motif.seed_flags[i] == 0 || (mutate > 0 && mod_irand(s, 100) < (mutate >> 1))) {
+      uint8_t gate_thresh = (i == 0) ? (s.p.arp.p[0] + 25 > 100 ? 100 : s.p.arp.p[0] + 25) : s.p.arp.p[0];
+      bool gate = mod_irand(s, 100) < gate_thresh;
+      int8_t deg;
+      if (i == 0) {
+        deg = (mod_irand(s, 2) == 0) ? 0 : 4; // Tonic or 5th
+      } else if (mod_irand(s, 100) < 80) {
+        deg = (int8_t)(2 * mod_irand(s, ext.chord_nt)); // Chord tone
+      } else {
+        deg = (int8_t)mod_irand(s, ext.nsteps);          // Passing tone
+      }
+      ext.st.motif.seed_deg[i] = deg;
+      ext.st.motif.seed_oct[i] = (mod_irand(s, 100) < 80) ? 0 : (int8_t)mod_irand(s, rng_oct);
+      bool acc = mod_irand(s, 100) < 30;
+      bool sld = mod_irand(s, 100) < 25;
+      ext.st.motif.seed_flags[i] = (gate ? 1u : 0u) | (acc ? 2u : 0u) | (sld ? 4u : 0u);
     }
-    ext.st.motif.seed_deg[i] = deg;
-    ext.st.motif.seed_oct[i] = (mod_irand(s, 100) < 80) ? 0 : (int8_t)mod_irand(s, rng_oct);
-    bool acc = mod_irand(s, 100) < 30;
-    bool sld = mod_irand(s, 100) < 25;
-    ext.st.motif.seed_flags[i] = (gate ? 1u : 0u) | (acc ? 2u : 0u) | (sld ? 4u : 0u);
   }
   // Guarantee step 0 active tonic anchor
   ext.st.motif.seed_flags[0] |= 1u;
   ext.st.motif.seed_deg[0] = 0;
 
-  // Transform B: Diatonic Inversion around 3rd axis
+  // Transform B according to xform
   int8_t b_deg[4], b_oct[4];
   uint8_t b_flags[4];
   int8_t pivot = ext.st.motif.seed_deg[0] + 2;
   for (uint8_t i = 0; i < 4; ++i) {
-    b_deg[i] = (int8_t)((2 * pivot) - ext.st.motif.seed_deg[i]);
-    b_oct[i] = ext.st.motif.seed_oct[i];
-    b_flags[i] = ext.st.motif.seed_flags[i];
+    if (xform == 0) { // Inversion
+      b_deg[i] = (int8_t)((2 * pivot) - ext.st.motif.seed_deg[i]);
+      b_oct[i] = ext.st.motif.seed_oct[i];
+      b_flags[i] = ext.st.motif.seed_flags[i];
+    } else if (xform == 1) { // Retrograde
+      b_deg[i] = ext.st.motif.seed_deg[3 - i];
+      b_oct[i] = ext.st.motif.seed_oct[3 - i];
+      b_flags[i] = ext.st.motif.seed_flags[3 - i];
+    } else if (xform == 2) { // Transpose +5th
+      b_deg[i] = (int8_t)(ext.st.motif.seed_deg[i] + 4);
+      b_oct[i] = ext.st.motif.seed_oct[i];
+      b_flags[i] = ext.st.motif.seed_flags[i];
+    } else { // Rhythmic displacement (rotate right by 1)
+      uint8_t prev_i = (i + 3) & 3u;
+      b_deg[i] = ext.st.motif.seed_deg[prev_i];
+      b_oct[i] = ext.st.motif.seed_oct[prev_i];
+      b_flags[i] = ext.st.motif.seed_flags[prev_i];
+    }
   }
 
   // Transform C: Retrograde with Rhythmic Displacement and Cadential Pickup on step 3 (bar step 15)
@@ -735,26 +764,36 @@ static void mod_arp_build_motif(ModSource& s, ModArpExt& ext) {
 }
 
 // Algo 2: Tonal-Gravity Markov Walker & 16 Melodic Contours
+// p[0]=DENS (0..100), p[1]=CONTOUR (0..15), p[2]=PEDAL (0..3), p[3]=GRAVTY (0..100)
 static void mod_arp_build_markov(ModSource& s, ModArpExt& ext) {
   const uint8_t rng_oct = s.p.arp.range ? s.p.arp.range : 1;
-  const uint8_t cid = (s.p.arp.groove * 16) / 101;
+  const uint8_t cid = (s.p.arp.p[1] * 16) / 101;
+  const uint8_t pedal_mode = (s.p.arp.p[2] * 4) / 101; // 0=OFF, 1=ROOT, 2=5TH, 3=BOUNCE
+  const uint8_t grav_weight = s.p.arp.p[3]; // 0..100
   ext.st.markov.contour_id = cid;
   uint8_t cur_d = ext.st.markov.prev_deg % 7u;
 
   for (uint8_t st = 0; st < 16; ++st) {
     uint8_t beat_tier = ((st & 3u) == 0) ? 0 : (((st & 1u) == 0) ? 1 : 2);
-    uint16_t eff_dens = s.p.arp.density;
+    uint16_t eff_dens = s.p.arp.p[0];
     if (beat_tier == 0) eff_dens += 20;
     else if (beat_tier == 1) eff_dens += 10;
     if (eff_dens > 100) eff_dens = 100;
 
     bool gate = mod_irand(s, 100) < eff_dens;
-    bool is_pedal = (beat_tier == 0 && mod_irand(s, 100) < 65) || (beat_tier == 1 && mod_irand(s, 100) < 35);
-    int8_t deg, oct = 0;
+    bool is_pedal = false;
+    int8_t deg = 0, oct = 0;
     bool acc = false, sld = false;
 
+    if (pedal_mode == 1 && beat_tier == 0) { // ROOT on quarters
+      is_pedal = true; deg = 0;
+    } else if (pedal_mode == 2 && beat_tier == 0) { // 5TH on quarters
+      is_pedal = true; deg = 4;
+    } else if (pedal_mode == 3 && (st == 0 || st == 8)) { // BOUNCE on half notes
+      is_pedal = true; deg = (st == 0) ? 0 : 4;
+    }
+
     if (is_pedal) {
-      deg = 0; // Anchor on active chord root
       acc = (st == 0);
     } else {
       // Evaluate Markov + Metrical Gravity + Contour Proximity
@@ -766,11 +805,11 @@ static void mod_arp_build_markov(ModSource& s, ModArpExt& ext) {
       for (uint8_t d = 0; d < 7; ++d) {
         uint32_t w_markov = DEGREE_MARKOV_7X7[cur_d][d];
         uint32_t w_metric = DEGREE_METRICAL_GRAVITY[beat_tier][d];
-        uint32_t w = (w_markov * w_metric) >> 7;
+        uint32_t w = (w_markov * (100u - grav_weight) + w_metric * grav_weight) >> 4;
         int8_t dist = (int8_t)d - target_mod;
         if (dist < 0) dist = (int8_t)(-dist);
         if (dist > 3) dist = (int8_t)(7 - dist);
-        w += (uint32_t)(4 - dist) * 15u;
+        w += (uint32_t)(4 - dist) * ((grav_weight * 15u) / 100u);
         if (w == 0) w = 1;
         total_w += w;
         cdf[d] = total_w;
@@ -793,43 +832,62 @@ static void mod_arp_build_markov(ModSource& s, ModArpExt& ext) {
 }
 
 // Algo 3: Metropolix Multi-Stage Accumulator
+// p[0]=PROB (0..100), p[1]=PULSES (1..8), p[2]=RATCHET (0..3), p[3]=ACCUM (0..3)
 static void mod_arp_build_metro(ModSource& s, ModArpExt& ext) {
   const uint8_t rng_oct = s.p.arp.range ? s.p.arp.range : 1;
   static const int8_t kInitDegs[8]   = { 0, 2, 4, 6, 4, 2, 1, 4 };
-  static const uint8_t kInitPulses[8] = { 2, 2, 3, 1, 2, 2, 2, 2 }; // Sum = 16 steps
+  const uint8_t max_pulses = 1 + (s.p.arp.p[1] * 7) / 100; // 1..8
+  const uint8_t ratchet_mode = (s.p.arp.p[2] * 4) / 101; // 0=OFF, 1=2X, 2=3X, 3=4X
+  const uint8_t accum_mode = (s.p.arp.p[3] * 4) / 101;   // 0=PENDLM, 1=WRAP, 2=RANDOM, 3=HOLD
   static const int8_t kInitAccum[8]  = { 0, 1, 0, 2, 0, -1, 1, 2 };
 
   uint8_t st = 0;
   for (uint8_t stage = 0; stage < 8; ++stage) {
-    uint8_t pulses = kInitPulses[stage];
+    uint8_t pulses = (max_pulses <= 2) ? max_pulses : (uint8_t)(1 + (stage % max_pulses));
     int8_t base_d = kInitDegs[stage];
     int8_t acc = ext.st.metro.accum_val[stage];
-    bool gate_stage = mod_irand(s, 100) < s.p.arp.density;
+    bool gate_stage = mod_irand(s, 100) < s.p.arp.p[0];
 
     for (uint8_t p = 0; p < pulses && st < 16; ++p, ++st) {
       bool gate = gate_stage && (stage == 0 || p == 0 || mod_irand(s, 100) < 70);
       bool is_hold = (stage == 0 && p < pulses - 1);
       bool is_acc = (stage == 0 || stage == 3 || stage == 6);
       bool is_sld = is_hold || (stage == 2 || stage == 5);
+      if (ratchet_mode > 0 && is_acc) is_sld = true; // Ratchet triggers slide/hold legato
       ext.steps[st].off   = (int8_t)(base_d + acc);
       ext.steps[st].oct   = (stage == 3 || stage == 7) && (rng_oct > 1) ? 1 : 0;
       ext.steps[st].flags = (gate ? 1u : 0u) | (is_acc ? 2u : 0u) | (is_sld ? 4u : 0u);
     }
 
-    // Pendulum accumulation advance
-    int8_t step_amt = kInitAccum[stage];
-    if (ext.st.metro.accum_dir[stage] == 0) ext.st.metro.accum_dir[stage] = 1;
-    int16_t next = (int16_t)ext.st.metro.accum_val[stage] + (int16_t)(step_amt * ext.st.metro.accum_dir[stage]);
-    if (next > 7) { next = 7 - (next - 7); ext.st.metro.accum_dir[stage] = -1; }
-    if (next < -7) { next = -7 + (-7 - next); ext.st.metro.accum_dir[stage] = 1; }
-    ext.st.metro.accum_val[stage] = (int8_t)next;
+    // Accumulation advance according to accum_mode
+    if (accum_mode == 0) { // PENDULUM
+      int8_t step_amt = kInitAccum[stage];
+      if (ext.st.metro.accum_dir[stage] == 0) ext.st.metro.accum_dir[stage] = 1;
+      int16_t next = (int16_t)ext.st.metro.accum_val[stage] + (int16_t)(step_amt * ext.st.metro.accum_dir[stage]);
+      if (next > 7) { next = 7 - (next - 7); ext.st.metro.accum_dir[stage] = -1; }
+      if (next < -7) { next = -7 + (-7 - next); ext.st.metro.accum_dir[stage] = 1; }
+      ext.st.metro.accum_val[stage] = (int8_t)next;
+    } else if (accum_mode == 1) { // WRAP (0..7)
+      int8_t step_amt = kInitAccum[stage];
+      int16_t next = (int16_t)ext.st.metro.accum_val[stage] + step_amt;
+      if (next > 7) next = 0;
+      if (next < 0) next = 7;
+      ext.st.metro.accum_val[stage] = (int8_t)next;
+    } else if (accum_mode == 2) { // RANDOM step drift
+      if (mod_irand(s, 100) < 30) {
+        ext.st.metro.accum_val[stage] = (int8_t)(mod_irand(s, 7) - 3);
+      }
+    } // accum_mode == 3: HOLD (no advance)
   }
 }
 
 // Algo 4: Marbles 3-Zone Deja-Vu Shift Register
+// p[0]=DENS (0..100), p[1]=DEJAVU (0..100), p[2]=STEPS (0..3), p[3]=SPREAD (0..100)
 static void mod_arp_build_dejavu(ModSource& s, ModArpExt& ext) {
   const uint8_t rng_oct = s.p.arp.range ? s.p.arp.range : 1;
-  const uint8_t dj = s.p.arp.groove; // 0..100 -> Zone 1 (0..45), Zone 2 (46..55), Zone 3 (56..100)
+  const uint8_t dj = s.p.arp.p[1]; // 0..100 -> Zone 1 (0..45), Zone 2 (46..55), Zone 3 (56..100)
+  const uint8_t steps_mode = (s.p.arp.p[2] * 4) / 101; // 0=ALL, 1=PENT, 2=TRIAD, 3=ROOT
+  const uint8_t spread = s.p.arp.p[3]; // 0..100
 
   // 1. Zone 1: Metrically biased mutation (weak beats mutate first)
   if (dj < 46) {
@@ -857,26 +915,32 @@ static void mod_arp_build_dejavu(ModSource& s, ModArpExt& ext) {
 
     uint8_t raw_p = ext.st.dejavu.u_pitch[r_ix];
     uint8_t raw_g = ext.st.dejavu.u_gate[r_ix];
-    uint16_t g_thresh = 255u - (uint16_t)s.p.arp.density * 255u / 100u;
+    uint16_t g_thresh = 255u - (uint16_t)s.p.arp.p[0] * 255u / 100u;
     if (st == 0 && g_thresh > 40) g_thresh -= 40;
 
     bool gate = (raw_g >= g_thresh);
     int16_t deg = (int16_t)(((int32_t)raw_p - 128) * 10 / 256);
     int16_t base_d = floor_mod_i16(deg, 7);
     int8_t oct = (int8_t)floor_div_i16(deg, 7);
+    if (spread > 0 && mod_irand(s, 100) < spread) {
+      oct = (int8_t)mod_irand(s, rng_oct);
+    }
     if (oct < 0) oct = 0;
     if (oct >= rng_oct) oct = (int8_t)(rng_oct - 1);
 
-    // Salience tiers based on density: strip non-triad tones when high
-    if (s.p.arp.density < 40) {
+    // STEPS salience filtering
+    if (steps_mode == 3) {
+      // ROOT lock
+      base_d = 0;
+    } else if (steps_mode == 2) {
       // Triad only
       static const int8_t kTriadSnap[7] = { 0, 0, 2, 2, 4, 4, 0 };
       base_d = kTriadSnap[base_d];
-    } else if (s.p.arp.density < 70) {
+    } else if (steps_mode == 1) {
       // Pentatonic subset (strip 4th and 7th)
       if (base_d == 3) base_d = 2;
       if (base_d == 6) base_d = 4;
-    }
+    } // steps_mode == 0: ALL
 
     bool acc = (raw_g > 200);
     bool sld = ((raw_g & 0x07u) == 0x07u);
@@ -908,6 +972,25 @@ static void mod_arp_rebuild_pattern(ModSource& s) {
     default:
       mod_arp_build_dejavu(s, ext);
       break;
+  }
+}
+
+// Shared ROOT and SCALE across both ARP instances for 100% harmonic lock
+static void mod_arp_set_shared_root(uint8_t root_param) {
+  for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
+    ModSource& s = g_mod_engine.src[MOD_SRC_ARP_FIRST + k];
+    s.p.arp.root_param = root_param;
+    mod_arp_rebuild_scale(s);
+    mod_arp_rebuild_pattern(s);
+  }
+}
+
+static void mod_arp_set_shared_scale(uint8_t scale_idx) {
+  for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
+    ModSource& s = g_mod_engine.src[MOD_SRC_ARP_FIRST + k];
+    s.p.arp.scale_idx = scale_idx;
+    mod_arp_rebuild_scale(s);
+    mod_arp_rebuild_pattern(s);
   }
 }
 
@@ -1054,8 +1137,10 @@ void mod_engine_init() {
       s.p.arp.root_param = 0;      // 0 = MIDI root follow by default
       s.p.arp.midi_root = 48;      // C3 fallback before first MIDI note
       s.p.arp.scale_idx = 6;       // Aeolian (natural minor in 20-scale table)
-      s.p.arp.density = 62;
-      s.p.arp.groove = 40;
+      s.p.arp.p[0] = 62; // p1: DENS / PROB
+      s.p.arp.p[1] = 40; // p2: SLID / FORM / CNTR / PULS / DJVU
+      s.p.arp.p[2] = 50; // p3: ACC / XFRM / PEDL / RTCH / STPS
+      s.p.arp.p[3] = 0;  // p4: MUTE / MUTE / GRAV / ACUM / SPRD
       s.p.arp.cur_note = 48;
       ModArpExt& ext = e.arp_ext[s.p.arp.ext_idx];
       for (uint8_t k = 0; k < 16; ++k) {
@@ -1310,17 +1395,24 @@ void mod_engine_process_block(uint8_t active_module) {
             uint8_t rel_semi = (uint8_t)((pc + 12u - base_pc) % 12u);
             uint8_t best_deg = 0;
             uint8_t min_err = 12;
-            for (uint8_t i = 0; i < ext.nsteps; ++i) {
-              uint8_t err = (rel_semi >= ext.scale_st[i]) ? (rel_semi - ext.scale_st[i]) : (ext.scale_st[i] - rel_semi);
-              if (err < min_err) { min_err = err; best_deg = i; }
+            for (uint8_t k = 0; k < ext.nsteps; ++k) {
+              uint8_t err = (rel_semi >= ext.scale_st[k]) ? (rel_semi - ext.scale_st[k]) : (ext.scale_st[k] - rel_semi);
+              if (err < min_err) { min_err = err; best_deg = k; }
             }
             ext.deg = (int8_t)best_deg;
+            for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
+              e.arp_ext[k].deg = (int8_t)best_deg;
+            }
           } else if (s.p.arp.root_param == 1) {
             // Berlin School parallel chromatic transpose
-            s.p.arp.midi_root = sn;
-            ext.deg = 0;
+            for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
+              e.src[MOD_SRC_ARP_FIRST + k].p.arp.midi_root = sn;
+              e.arp_ext[k].deg = 0;
+            }
           } else {
-            s.p.arp.midi_root = sn;
+            for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
+              e.src[MOD_SRC_ARP_FIRST + k].p.arp.midi_root = sn;
+            }
           }
         }
         if (wraps && clock_running) {
@@ -1332,20 +1424,20 @@ void mod_engine_process_block(uint8_t active_module) {
           // Bar-line wrap (step 0): chord drift, mutation, and fill-bar state
           if (st < prev_st || (s.p.arp.ticks & 0x0Fu) == 0u) {
             ext.bar_count++;
-            const uint8_t drift_bars = (s.p.arp.groove >= 60) ? 4 : 8;
+            const uint8_t drift_bars = (s.p.arp.p[3] >= 60) ? 4 : 8;
             if (ext.bar_count >= drift_bars) {
               ext.bar_count = 0;
-              if (s.p.arp.groove > 15) mod_arp_next_chord(s);
+              if (s.p.arp.p[3] > 15 || s.p.arp.root_param >= 2) mod_arp_next_chord(s);
               ext.dd_fill = 0;
               ext.turn_type = (uint8_t)((s.p.arp.ticks >> 4) & 3u);
-            } else if (ext.bar_count == drift_bars - 1 && s.p.arp.groove >= 50) {
+            } else if (ext.bar_count == drift_bars - 1 && s.p.arp.p[3] >= 40) {
               ext.dd_fill = 1; // Fill bar right before chord/pattern change
               ext.turn_type = (uint8_t)((s.p.arp.ticks >> 4) & 3u);
             }
 
             if (s.p.arp.algo == MOD_ARP_HYP1) {
-              // HYP-1 ac_mutate: in-place step mutation on loop wrap
-              const uint8_t mut_prob = (uint8_t)((uint16_t)s.p.arp.groove * 25 / 100);
+              // HYP-1 ac_mutate: in-place step mutation on loop wrap (driven by p[3])
+              const uint8_t mut_prob = (uint8_t)((uint16_t)s.p.arp.p[3] * 50 / 100);
               for (uint8_t k = 0; k < 16; ++k) {
                 if (mod_irand(s, 100) < mut_prob) mod_arp_roll_hyp1_step(s, ext, k);
               }
@@ -1639,6 +1731,17 @@ static void mod_apply_cc_value(uint8_t src_idx, uint8_t param, uint8_t val) {
   preset_mark_dirty();            // T4a: persistent state changed
   ModEngine& e = g_mod_engine;
   ModSource& s = e.src[src_idx];
+  if (s.type == MOD_ARP && (param == 10 || param == 11)) {
+    if (param == 10) {
+      uint8_t r = (val <= 3) ? val : (uint8_t)(24 + ((uint16_t)(val - 4) * 60) / 123);
+      mod_arp_set_shared_root(r);
+    } else {
+      uint8_t sc = (val < 64) ? (uint8_t)(((uint16_t)val * SCALE_COUNT) / 64)
+                              : (uint8_t)(0x40u | (((uint16_t)(val - 64) * SCALE_COUNT) / 64));
+      mod_arp_set_shared_scale(sc);
+    }
+    return;
+  }
   const uint8_t n = mod_param_count_of(s.type);
   if (param >= n) return;                       // CC 34 beyond the table
   const uint8_t tail = n - 3;                   // uniform clk/div/dest tail
@@ -1729,24 +1832,20 @@ static void mod_apply_cc_value(uint8_t src_idx, uint8_t param, uint8_t val) {
           mod_arp_rebuild_pattern(s);
           break;
         }
-        case 1: // root (0=Harmonizer, 1=Parallel, 2=W7 drift, 3=Neo-Riemannian drift, 4..127=Note 24..84)
-          if (val <= 3) {
-            s.p.arp.root_param = val;
-          } else {
-            s.p.arp.root_param = (uint8_t)(24 + ((uint16_t)(val - 4) * 60) / 123);
-          }
-          break;
-        case 2: // scale (0..127 -> 20 scales + chord extensions)
-          s.p.arp.scale_idx = (val < 64) ? (uint8_t)(((uint16_t)val * SCALE_COUNT) / 64)
-                                         : (uint8_t)(0x40u | (((uint16_t)(val - 64) * SCALE_COUNT) / 64));
+        case 1: // p1 (0..100)
+          s.p.arp.p[0] = (uint8_t)(((uint16_t)val * 100 + 63) / 127);
           mod_arp_rebuild_pattern(s);
           break;
-        case 3: // dens (0..127 -> 0..100%)
-          s.p.arp.density = (uint8_t)(((uint16_t)val * 100) / 127);
+        case 2: // p2 (0..100)
+          s.p.arp.p[1] = (uint8_t)(((uint16_t)val * 100 + 63) / 127);
           mod_arp_rebuild_pattern(s);
           break;
-        case 4: // groove (0..127 -> 0..100%)
-          s.p.arp.groove = (uint8_t)(((uint16_t)val * 100) / 127);
+        case 3: // p3 (0..100)
+          s.p.arp.p[2] = (uint8_t)(((uint16_t)val * 100 + 63) / 127);
+          mod_arp_rebuild_pattern(s);
+          break;
+        case 4: // p4 (0..100)
+          s.p.arp.p[3] = (uint8_t)(((uint16_t)val * 100 + 63) / 127);
           mod_arp_rebuild_pattern(s);
           break;
         default: break;
@@ -1781,6 +1880,12 @@ void mod_engine_apply_ui_set(uint8_t src, uint8_t param, uint8_t val) {
   if (src >= MOD_SOURCE_COUNT) {
     Serial.printf("mod: ui set REJECTED (source %u >= %u)\r\n", src,
                   MOD_SOURCE_COUNT);
+    return;
+  }
+  if (g_mod_engine.src[src].type == MOD_ARP && (param == 10 || param == 11)) {
+    Serial.printf("mod: ui set %s %s <- %u\r\n", mod_src_name(src),
+                  param == 10 ? "shared root" : "shared scale", val);
+    mod_apply_cc_value(src, param, val);
     return;
   }
   if (param >= mod_param_count_of(g_mod_engine.src[src].type)) {
@@ -1867,29 +1972,31 @@ static bool mod_set_param_console(uint8_t src_idx, uint8_t param,
   ModEngine& e = g_mod_engine;
   ModSource& s = e.src[src_idx];
   const uint8_t n = mod_param_count_of(s.type);
-  if (param >= n) return false;
+  if (param >= n && param != 10 && param != 11 && param != 99) return false;
   preset_mark_dirty();            // T4a: persistent state changed
-  const uint8_t tail = n - 3;
-  if (param == tail) {                                   // clk
-    const int8_t c = mod_parse_clk(tok);
-    if (c < 0) return false;
-    s.clock_sel = (uint8_t)c;
-    return true;
-  }
-  if (param == tail + 1) {                               // div
-    const int8_t d = mod_parse_div(tok);
-    if (d < 0) return false;
-    s.division = (uint8_t)d;
-    return true;
-  }
-  if (param == tail + 2) {                               // dest
-    if (!strcasecmp(tok, "off")) { mod_set_dest(src_idx, 0); return true; }
-    if (!strcasecmp(tok, "voice")) { mod_set_dest(src_idx, MOD_DEST_VOICE); return true; }
-    if (tok[0] >= '0' && tok[0] <= '9') {
-      const long v = atol(tok);
-      if (v >= 0 && v <= 127) { mod_set_dest(src_idx, (uint8_t)v); return true; }
+  if (param < n) {
+    const uint8_t tail = n - 3;
+    if (param == tail) {                                   // clk
+      const int8_t c = mod_parse_clk(tok);
+      if (c < 0) return false;
+      s.clock_sel = (uint8_t)c;
+      return true;
     }
-    return false;
+    if (param == tail + 1) {                               // div
+      const int8_t d = mod_parse_div(tok);
+      if (d < 0) return false;
+      s.division = (uint8_t)d;
+      return true;
+    }
+    if (param == tail + 2) {                               // dest
+      if (!strcasecmp(tok, "off")) { mod_set_dest(src_idx, 0); return true; }
+      if (!strcasecmp(tok, "voice")) { mod_set_dest(src_idx, MOD_DEST_VOICE); return true; }
+      if (tok[0] >= '0' && tok[0] <= '9') {
+        const long v = atol(tok);
+        if (v >= 0 && v <= 127) { mod_set_dest(src_idx, (uint8_t)v); return true; }
+      }
+      return false;
+    }
   }
   const float v = (float)atof(tok);                      // numeric fallback
   switch (s.type) {
@@ -2001,6 +2108,38 @@ static bool mod_set_param_console(uint8_t src_idx, uint8_t param,
         default: return false;
       }
     default:  // MOD_ARP
+      if (param == 10) { // shared root
+        if (!strcasecmp(tok, "midi") || !strcasecmp(tok, "follow") || !strcasecmp(tok, "harm")) {
+          mod_arp_set_shared_root(0); return true;
+        }
+        if (!strcasecmp(tok, "parallel") || !strcasecmp(tok, "paral")) {
+          mod_arp_set_shared_root(1); return true;
+        }
+        if (!strcasecmp(tok, "w7") || !strcasecmp(tok, "drift")) {
+          mod_arp_set_shared_root(2); return true;
+        }
+        if (!strcasecmp(tok, "neo") || !strcasecmp(tok, "plr")) {
+          mod_arp_set_shared_root(3); return true;
+        }
+        uint8_t r = (uint8_t)(v <= 3 ? v : (v < 24 ? 24 : (v > 84 ? 84 : v)));
+        mod_arp_set_shared_root(r);
+        return true;
+      }
+      if (param == 11) { // shared scale
+        static const char* const kScNames[SCALE_COUNT] = {
+            "chrom", "ionian", "dorian", "phrygian", "lydian", "mixo", "aeolian", "locrian",
+            "pentmaj", "pentmin", "blues", "harmmin", "melmin", "phrygdom", "wholetone",
+            "octatonic", "hirajoshi", "insen", "doubleharm", "acidpool"
+        };
+        for (uint8_t i = 0; i < SCALE_COUNT; ++i) {
+          if (!strcasecmp(tok, kScNames[i])) {
+            mod_arp_set_shared_scale(i); return true;
+          }
+        }
+        uint8_t sc = (uint8_t)(v < 0 ? 0 : (v >= SCALE_COUNT ? (SCALE_COUNT - 1) : v));
+        mod_arp_set_shared_scale(sc);
+        return true;
+      }
       switch (param) {
         case 0: // algo
           if (!strcasecmp(tok, "hyp1") || !strcasecmp(tok, "acid")) s.p.arp.algo = MOD_ARP_HYP1;
@@ -2011,42 +2150,20 @@ static bool mod_set_param_console(uint8_t src_idx, uint8_t param,
           else s.p.arp.algo = (uint8_t)(v < 0 ? 0 : (v > 4 ? 4 : v));
           mod_arp_rebuild_pattern(s);
           return true;
-        case 1: // root
-          if (!strcasecmp(tok, "midi") || !strcasecmp(tok, "follow") || !strcasecmp(tok, "harm")) {
-            s.p.arp.root_param = 0; return true;
-          }
-          if (!strcasecmp(tok, "parallel") || !strcasecmp(tok, "paral")) {
-            s.p.arp.root_param = 1; return true;
-          }
-          if (!strcasecmp(tok, "w7") || !strcasecmp(tok, "drift")) {
-            s.p.arp.root_param = 2; return true;
-          }
-          if (!strcasecmp(tok, "neo") || !strcasecmp(tok, "plr")) {
-            s.p.arp.root_param = 3; return true;
-          }
-          s.p.arp.root_param = (uint8_t)(v <= 3 ? v : (v < 24 ? 24 : (v > 84 ? 84 : v)));
-          return true;
-        case 2: { // scale
-          static const char* const kScNames[SCALE_COUNT] = {
-              "chrom", "ionian", "dorian", "phrygian", "lydian", "mixo", "aeolian", "locrian",
-              "pentmaj", "pentmin", "blues", "harmmin", "melmin", "phrygdom", "wholetone",
-              "octatonic", "hirajoshi", "insen", "doubleharm", "acidpool"
-          };
-          for (uint8_t i = 0; i < SCALE_COUNT; ++i) {
-            if (!strcasecmp(tok, kScNames[i])) {
-              s.p.arp.scale_idx = i; mod_arp_rebuild_pattern(s); return true;
-            }
-          }
-          s.p.arp.scale_idx = (uint8_t)(v < 0 ? 0 : (v >= SCALE_COUNT ? (SCALE_COUNT - 1) : v));
+        case 1: // p1 (0..100)
+          s.p.arp.p[0] = (uint8_t)(v < 0 ? 0 : (v > 100 ? 100 : v));
           mod_arp_rebuild_pattern(s);
           return true;
-        }
-        case 3: // dens
-          s.p.arp.density = (uint8_t)(v < 0 ? 0 : (v > 100 ? 100 : v));
+        case 2: // p2 (0..100)
+          s.p.arp.p[1] = (uint8_t)(v < 0 ? 0 : (v > 100 ? 100 : v));
           mod_arp_rebuild_pattern(s);
           return true;
-        case 4: // groove
-          s.p.arp.groove = (uint8_t)(v < 0 ? 0 : (v > 100 ? 100 : v));
+        case 3: // p3 (0..100)
+          s.p.arp.p[2] = (uint8_t)(v < 0 ? 0 : (v > 100 ? 100 : v));
+          mod_arp_rebuild_pattern(s);
+          return true;
+        case 4: // p4 (0..100)
+          s.p.arp.p[3] = (uint8_t)(v < 0 ? 0 : (v > 100 ? 100 : v));
           mod_arp_rebuild_pattern(s);
           return true;
         default: return false;
@@ -2059,6 +2176,17 @@ static int8_t mod_parse_param(uint8_t src_idx, const char* tok) {
   const ModSource& s = e.src[src_idx];
   const uint8_t n = mod_param_count_of(s.type);
   if (s.type == MOD_GATE && !strcasecmp(tok, "mask")) return 99; // raw mask alias
+  if (s.type == MOD_ARP) {
+    if (!strcasecmp(tok, "root")) return 10;
+    if (!strcasecmp(tok, "scale") || !strcasecmp(tok, "sc")) return 11;
+    if (!strcasecmp(tok, "dens") || !strcasecmp(tok, "prob")) return 1; // p1
+    if (!strcasecmp(tok, "slide") || !strcasecmp(tok, "form") || !strcasecmp(tok, "contour") ||
+        !strcasecmp(tok, "pulses") || !strcasecmp(tok, "dejavu")) return 2; // p2
+    if (!strcasecmp(tok, "accent") || !strcasecmp(tok, "acc") || !strcasecmp(tok, "xform") ||
+        !strcasecmp(tok, "pedal") || !strcasecmp(tok, "ratchet") || !strcasecmp(tok, "steps")) return 3; // p3
+    if (!strcasecmp(tok, "mutate") || !strcasecmp(tok, "mut") || !strcasecmp(tok, "grav") ||
+        !strcasecmp(tok, "accum") || !strcasecmp(tok, "spread")) return 4; // p4
+  }
   for (uint8_t i = 0; i < n; ++i) {
     if (strcasecmp(tok, kModParamNames[s.type][i]) == 0) return (int8_t)i;
   }
@@ -2096,8 +2224,10 @@ void mod_engine_cmd_mod(const char* args) {
     return;
   }
   if (!mod_set_param_console((uint8_t)src, (uint8_t)param, tok)) {
-    Serial.printf("mod: bad value '%s' for %s\r\n", tok,
-                  kModParamNames[g_mod_engine.src[src].type][param]);
+    const char* pname = (param < mod_param_count_of(g_mod_engine.src[src].type))
+        ? kModParamNames[g_mod_engine.src[src].type][param]
+        : (param == 10 ? "root" : (param == 11 ? "scale" : "mask"));
+    Serial.printf("mod: bad value '%s' for %s\r\n", tok, pname);
   }
 }
 
@@ -2215,12 +2345,12 @@ void mod_engine_cmd_modq(const char* args) {
                              : (s.p.arp.root_param == 1) ? "paral"
                              : (s.p.arp.root_param == 2) ? "w7"
                              : (s.p.arp.root_param == 3) ? "neo" : "fix";
-        Serial.printf("algo=%s(%uoct) root=%s(%u) scale=%s dens=%u%% groove=%u%% deg=%d note=%u step=%u out=%s",
+        Serial.printf("algo=%s(%uoct) root=%s(%u) scale=%s p1=%u p2=%u p3=%u p4=%u deg=%d note=%u step=%u out=%s",
                       kAlgo[s.p.arp.algo % 5], s.p.arp.range,
                       root_str,
                       (s.p.arp.root_param <= 3) ? s.p.arp.midi_root : s.p.arp.root_param,
                       kSc[(s.p.arp.scale_idx & 0x3Fu) % SCALE_COUNT],
-                      s.p.arp.density, s.p.arp.groove, (int)ext.deg,
+                      s.p.arp.p[0], s.p.arp.p[1], s.p.arp.p[2], s.p.arp.p[3], (int)ext.deg,
                       s.p.arp.cur_note, s.p.arp.step,
                       mod_print_fixed(b1, sizeof(b1), s.out));
         break;
@@ -2382,8 +2512,10 @@ static uint16_t mod_engine_preset_write(uint8_t* p) {
         pl[1] = s.p.arp.range;
         pl[2] = s.p.arp.root_param;
         pl[3] = s.p.arp.scale_idx;
-        pl[4] = s.p.arp.density;
-        pl[5] = s.p.arp.groove;
+        pl[4] = s.p.arp.p[0];
+        pl[5] = s.p.arp.p[1];
+        pl[6] = s.p.arp.p[2];
+        pl[7] = s.p.arp.p[3];
         break;
     }
     memcpy(w, pl, 24); w += 24;
@@ -2432,9 +2564,12 @@ static uint16_t mod_engine_preset_read(const uint8_t* p) {
         default: // MOD_ARP
           s.p.arp.algo = (i == MOD_SRC_ARP_FIRST) ? MOD_ARP_HYP1 : MOD_ARP_MOTIF;
           s.p.arp.range = (i == MOD_SRC_ARP_FIRST) ? 2 : 1;
-          s.p.arp.scale_idx = 6; // Aeolian
-          s.p.arp.density = (i == MOD_SRC_ARP_FIRST) ? 65 : 12;
-          s.p.arp.groove = (i == MOD_SRC_ARP_FIRST) ? 45 : 30;
+          s.p.arp.root_param = 0; // MIDI follow
+          s.p.arp.scale_idx = 6;  // Aeolian
+          s.p.arp.p[0] = (i == MOD_SRC_ARP_FIRST) ? 65 : 40;
+          s.p.arp.p[1] = 40;
+          s.p.arp.p[2] = 30;
+          s.p.arp.p[3] = 20;
           s.p.arp.ext_idx = (uint8_t)((i >= MOD_SRC_ARP_FIRST) ? (i - MOD_SRC_ARP_FIRST) : 0);
           break;
       }
@@ -2491,8 +2626,10 @@ static uint16_t mod_engine_preset_read(const uint8_t* p) {
         s.p.arp.range = (pl[1] >= 1 && pl[1] <= 3) ? pl[1] : 1;
         s.p.arp.root_param = pl[2] <= 84 ? pl[2] : 0;
         s.p.arp.scale_idx = pl[3] <= 127 ? pl[3] : 6;
-        s.p.arp.density = pl[4] <= 100 ? pl[4] : 50;
-        s.p.arp.groove = pl[5] <= 100 ? pl[5] : 50;
+        s.p.arp.p[0] = pl[4] <= 100 ? pl[4] : 50;
+        s.p.arp.p[1] = pl[5] <= 100 ? pl[5] : 40;
+        s.p.arp.p[2] = pl[6] <= 100 ? pl[6] : 30;
+        s.p.arp.p[3] = pl[7] <= 100 ? pl[7] : 20;
         s.p.arp.ext_idx = (uint8_t)((i >= MOD_SRC_ARP_FIRST) ? (i - MOD_SRC_ARP_FIRST) : 0);
         mod_arp_rebuild_pattern(s);
         break;

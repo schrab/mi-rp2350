@@ -287,9 +287,9 @@ namespace CTAG {
                             rawBpm += 256;
                         }
                     }
-                    if (page == 7 && count > 6) {
+                    if (page == 8 && count > 6) {
                         s_telem.bpm = (uint16_t)(20 + ((uint32_t)s_telem.cell[6].value * 280 + 63) / 127);
-                    } else if (!(page == 7 && samePageAndMod &&
+                    } else if (!(page == 8 && samePageAndMod &&
                                  RackPots::RecentlyMoved(6))) {
                         s_telem.bpm = rawBpm;
                     }
@@ -685,7 +685,7 @@ namespace CTAG {
             taskENTER_CRITICAL(&telemMux);
             if (s_telem.valid && slot < s_telem.count) {
                 s_telem.cell[slot].value = value;
-                if (s_telem.page == 7 && slot == 6) {
+                if (s_telem.page == 8 && slot == 6) {
                     s_telem.bpm = (uint16_t)(20 + ((int)value * 280 + 63) / 127);
                 }
                 s_telem_dirty = true;
@@ -713,7 +713,7 @@ namespace CTAG {
             if (newMod >= 4) return;
             taskENTER_CRITICAL(&telemMux);
             s_telem.module = newMod;
-            if (s_telem.valid && s_telem.page == 7) {
+            if (s_telem.valid && s_telem.page == 8) {
                 if (s_telem.count > 0) {
                     s_telem.cell[0].value = (uint8_t)(newMod * 32);
                 }

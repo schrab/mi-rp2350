@@ -408,28 +408,45 @@ static const UiAuxCell kUiModEnvCells[16] = {
     {"A2 DIV",  kUiColorTeal, 9, 6},
 };
 
-// MOD-ARP: 2x Switchable 3-Algo Melody/Arp Generators (Row 0 = ARP 1, Row 2 = ARP 2)
-// Params: 0=algo(HYP1/BARLOW/GRIDS), 1=root(0=MIDI,1..127=Note), 2=scale, 3=dens, 4=groove, 5=clk, 6=div
+// MOD-ARP: 2x Switchable 5-Algo Melody/Arp Generators (Row 0 = ARP 1, Row 2 = ARP 2)
+// Row 1 Pots 9/10 (slots 8/9) host shared ROOT and SCALE for 100% tonal sync.
+// Params per ARP: 0=algo, 1=p1, 2=p2, 3=p3, 4=p4, 6=div
 static const UiAuxCell kUiModArpCells[16] = {
-    // Row 0: ARP 1 (pots 0..5)
-    {"P1 ALGO", kUiColorPink, 10, 0},
-    {"P1 ROOT", kUiColorPink, 10, 1},
-    {"P1 SCALE", kUiColorPink, 10, 2},
-    {"P1 DENS", kUiColorPink, 10, 3},
-    {"P1 GROOVE", kUiColorPink, 10, 4},
-    {"P1 DIV",  kUiColorPink, 10, 6},
-    // Row 1: empty (pots 6..9 — matches LFO/TRIG/GATE/ENV layout)
-    {"", kUiColorWhite, 0xFF, 0xFF},
-    {"", kUiColorWhite, 0xFF, 0xFF},
-    {"", kUiColorWhite, 0xFF, 0xFF},
-    {"", kUiColorWhite, 0xFF, 0xFF},
-    // Row 2: ARP 2 (pots 10..15)
-    {"P2 ALGO", kUiColorPink, 11, 0},
-    {"P2 ROOT", kUiColorPink, 11, 1},
-    {"P2 SCALE", kUiColorPink, 11, 2},
-    {"P2 DENS", kUiColorPink, 11, 3},
-    {"P2 GROOVE", kUiColorPink, 11, 4},
-    {"P2 DIV",  kUiColorPink, 11, 6},
+    // Row 0: ARP 1 (pots 0..5 / physical 1..6)
+    {"P1 ALGO",  kUiColorPink, 10, 0},
+    {"P1 DENS",  kUiColorPink, 10, 1},
+    {"P1 SLID",  kUiColorPink, 10, 2},
+    {"P1 ACC",   kUiColorPink, 10, 3},
+    {"P1 MUTE",  kUiColorPink, 10, 4},
+    {"P1 DIV",   kUiColorPink, 10, 6},
+    // Row 1: empty slots 6..7, shared ROOT (pot 9 / slot 8), shared SCALE (pot 10 / slot 9)
+    {"",         kUiColorWhite, 0xFF, 0xFF},
+    {"",         kUiColorWhite, 0xFF, 0xFF},
+    {"ROOT",     kUiColorPink, 10, 10},
+    {"SCALE",    kUiColorPink, 10, 11},
+    // Row 2: ARP 2 (pots 10..15 / physical 11..16)
+    {"P2 ALGO",  kUiColorPink, 11, 0},
+    {"P2 DENS",  kUiColorPink, 11, 1},
+    {"P2 FORM",  kUiColorPink, 11, 2},
+    {"P2 XFRM",  kUiColorPink, 11, 3},
+    {"P2 MUTE",  kUiColorPink, 11, 4},
+    {"P2 DIV",   kUiColorPink, 11, 6},
+};
+
+static const char* const kArp1Labels[5][4] = {
+    { "P1 DENS", "P1 SLID", "P1 ACC",  "P1 MUTE" }, // HYP-1
+    { "P1 DENS", "P1 FORM", "P1 XFRM", "P1 MUTE" }, // MOTIF
+    { "P1 DENS", "P1 CNTR", "P1 PEDL", "P1 GRAV" }, // MARKOV
+    { "P1 PROB", "P1 PULS", "P1 RTCH", "P1 ACCM" }, // METRO
+    { "P1 DENS", "P1 DJVU", "P1 STEP", "P1 SPRD" }, // DEJAVU
+};
+
+static const char* const kArp2Labels[5][4] = {
+    { "P2 DENS", "P2 SLID", "P2 ACC",  "P2 MUTE" }, // HYP-1
+    { "P2 DENS", "P2 FORM", "P2 XFRM", "P2 MUTE" }, // MOTIF
+    { "P2 DENS", "P2 CNTR", "P2 PEDL", "P2 GRAV" }, // MARKOV
+    { "P2 PROB", "P2 PULS", "P2 RTCH", "P2 ACCM" }, // METRO
+    { "P2 DENS", "P2 DJVU", "P2 STEP", "P2 SPRD" }, // DEJAVU
 };
 
 // SYS: ONE module selector pot (dual-purpose: module select when no chain,
@@ -455,6 +472,32 @@ static const UiAuxCell kUiSysCells[16] = {
     {"TELEM D",  kUiColorWhite, 0xFF, kUiAuxSelTelemD},
     {"TELEM F",  kUiColorWhite, 0xFF, kUiAuxSelTelemF},
 };
+
+static const char* ui_aux_cell_label(uint8_t page, uint8_t idx) {
+  if (page == kUiPageModArp) {
+    if (idx == 0) return "P1 ALGO";
+    if (idx >= 1 && idx <= 4) {
+      uint8_t a = g_mod_engine.src[10].p.arp.algo % 5;
+      return kArp1Labels[a][idx - 1];
+    }
+    if (idx == 5) return "P1 DIV";
+    if (idx == 8) return "ROOT";
+    if (idx == 9) return "SCALE";
+    if (idx == 10) return "P2 ALGO";
+    if (idx >= 11 && idx <= 14) {
+      uint8_t a = g_mod_engine.src[11].p.arp.algo % 5;
+      return kArp2Labels[a][idx - 11];
+    }
+    if (idx == 15) return "P2 DIV";
+    return "";
+  }
+  if (page == kUiPageModLfo12) return kUiModLfo12Cells[idx].label;
+  if (page == kUiPageModLfo34) return kUiModLfo34Cells[idx].label;
+  if (page == kUiPageModTrig)  return kUiModTrigCells[idx].label;
+  if (page == kUiPageModGate)  return kUiModGateCells[idx].label;
+  if (page == kUiPageModEnv)   return kUiModEnvCells[idx].label;
+  return kUiSysCells[idx].label;
+}
 
 // ===================== telemetry gates (sys toggles 0/1) =====================
 // Defaults ON (stage-1 behavior preserved). Toggled by UI_CMD action 3.
@@ -688,18 +731,23 @@ static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
           default: return 0;
         }
       default:  // MOD_ARP
+        if (c.param == 10) { // shared ROOT
+          if (s.p.arp.root_param <= 3) return (uint8_t)s.p.arp.root_param;
+          return (uint8_t)(4 + (((uint16_t)(s.p.arp.root_param - 24) * 123 + 30) / 60));
+        }
+        if (c.param == 11) { // shared SCALE
+          return (uint8_t)(((uint16_t)(s.p.arp.scale_idx & 0x3Fu) * 127) / (SCALE_COUNT ? (SCALE_COUNT - 1) : 1));
+        }
         switch (c.param) {
           case 0: {
             const uint8_t base = (uint8_t)((s.p.arp.algo % 5) * 25);
             const uint8_t rng = (s.p.arp.range > 1) ? (uint8_t)((s.p.arp.range - 1) * 8) : 0;
             return (uint8_t)(base + rng);
           }
-          case 1:
-            if (s.p.arp.root_param <= 3) return (uint8_t)s.p.arp.root_param;
-            return (uint8_t)(4 + (((uint16_t)(s.p.arp.root_param - 24) * 123 + 30) / 60));
-          case 2: return (uint8_t)(((uint16_t)(s.p.arp.scale_idx & 0x3Fu) * 127) / (SCALE_COUNT ? (SCALE_COUNT - 1) : 1));
-          case 3: return (uint8_t)(((uint16_t)s.p.arp.density * 127 + 50) / 100);
-          case 4: return (uint8_t)(((uint16_t)s.p.arp.groove * 127 + 50) / 100);
+          case 1: return (uint8_t)(((uint16_t)s.p.arp.p[0] * 127 + 50) / 100);
+          case 2: return (uint8_t)(((uint16_t)s.p.arp.p[1] * 127 + 50) / 100);
+          case 3: return (uint8_t)(((uint16_t)s.p.arp.p[2] * 127 + 50) / 100);
+          case 4: return (uint8_t)(((uint16_t)s.p.arp.p[3] * 127 + 50) / 100);
           case 5: return s.clock_sel == MOD_CLK_GLOBAL ? 0 : (s.clock_sel == MOD_CLK_INTERNAL ? 64 : 127);
           case 6: return (uint8_t)(((uint16_t)s.division * 127) / (MOD_DIVISION_COUNT - 1));
           default: return 0;
@@ -861,7 +909,7 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
          : page == kUiPageModTrig ? kUiModTrigCells[i].label
          : page == kUiPageModGate ? kUiModGateCells[i].label
          : page == kUiPageModEnv ? kUiModEnvCells[i].label
-         : page == kUiPageModArp ? kUiModArpCells[i].label
+         : page == kUiPageModArp ? ui_aux_cell_label(page, i)
                                  : kUiSysCells[i].label);
       size_t l = strlen(lab) + 1;                 // include the NUL
       memcpy(&pl[n], lab, l);
@@ -921,7 +969,7 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
       v = ui_aux_cell_value(a[idx]);
       f = 0;
       k = a[idx].color;
-      lab = a[idx].label;
+      lab = (page == kUiPageModArp) ? ui_aux_cell_label(page, idx) : a[idx].label;
     }
     pl[n++] = page;
     pl[n++] = mod;
@@ -1111,6 +1159,16 @@ static void ui_link_dispatch() {
           const uint8_t n = mod_param_count_of(g_mod_engine.src[s].type);
           if (pl[1] == n - 1) { // destination routing changed: send full snapshot
             ui_link_send_telem(g_ui_active_page, kUiTelemFull, 0);
+          }
+          if (g_mod_engine.src[s].type == MOD_ARP) {
+            if (pl[1] == 0) {
+              // Algo changed: push full snapshot so all dynamic labels update
+              ui_link_send_telem(kUiPageModArp, kUiTelemFull, 0);
+            } else if (pl[1] == 10 || pl[1] == 11) {
+              // Shared root/scale: push deltas for both slots 8 & 9
+              ui_link_send_telem(kUiPageModArp, kUiTelemDelta, (uint8_t)(kUiModCellBase + 8));
+              ui_link_send_telem(kUiPageModArp, kUiTelemDelta, (uint8_t)(kUiModCellBase + 9));
+            }
           }
         }
       } else {
