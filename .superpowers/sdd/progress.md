@@ -2581,3 +2581,32 @@ ack-uimcu)**:
   - `rack-elements` built and flashed to RP2350 on `COM15`.
   - `rack-uimcu` built and flashed to ESP32-C3 on `COM22`.
   - Live console testing on `COM15`: `mod 10 root neo`, `mod 10 scale 8`, `mod 10 div 8/1`, and `mod 10 algo dejavu` confirmed simultaneous dual-unit synchronization and 0 audio/I2S stalls.
+
+### Modulation Yellow Theme & Algo Pot Pickup Stabilization (`49d113f`, 2026-11-12)
+- **User Requests**:
+  1. Change ARP color from pink to yellow. All modulation pages should be yellow.
+  2. Fix ALGO pot instability (values jumping back to initial values when switching algorithm).
+- **Root Cause Analysis (Algo Value Jump & Unstable Switching)**:
+  1. **Three-Way Math Mismatch**:
+     - `RackUI::potToDisplayValue`: used `potVal / 25` (5 segments of 25.0).
+     - `RackUI::GetPotBucketBounds`: used `n = 15` (`(t.value * 15) / 128`, 15 buckets of ~8.53).
+     - `mod_apply_cc_value`: used `val * 5 / 128` and `(val % 26) * 3 / 26`.
+     - `ui_aux_cell_value`: returned `(algo % 5) * 25 + (range - 1) * 8` (un-normalized to 0..127).
+     - Result: when pot was turned into an algorithm bucket, the returned echo fell into a different bucket calculation, tripping `cur > bHi + PICK_BAND` and immediately engaging soft-takeover (`pickPending = true`). When pickup was cleared, `lastValue` was forcefully snapped back to the echo target, locking the user out of switching algorithms.
+  2. **Soft Takeover Echo Overwrite**:
+     - `PickupCellNote` checked `lastSendPotUs < ECHO_WINDOW_US` *after* the `pickPending` block. If `pickPending` was armed, it updated `pickTarget` and never checked `ECHO_WINDOW_US`. Moving the check to the very top of `PickupCellNote` prevents any incoming telemetry echo from disturbing an actively moved pot.
+  3. **Full Snapshot Flooding on Pot Motion**:
+     - On every `MOD_SET` with param 0, RP2350 was broadcasting a full 152-byte `kUiTelemFull` frame. At 50–100 pot ticks/s, this caused 15 kB/s UART spam and full screen re-renders. Now, full snapshots are sent only when `s.p.arp.algo` family actually changes (`new_algo != prev_algo`); intra-algo turns send lightweight single-cell deltas.
+- **Implementation**:
+  - **Color Palette Alignment (`rack-rp2350/src/ui_link.h`)**:
+    - Changed all cell colors in `kUiModTrigCells`, `kUiModGateCells`, `kUiModEnvCells`, and `kUiModArpCells` to `kUiColorYellow`. All modulation pages (LFO1/2, LFO3/4, TRIG, GATE, ENV, ARP) are now unified yellow.
+  - **Unified 15-Choice Math Across Both MCUs**:
+    - `choice = ((int)potVal * 15) / 128` (0..14).
+    - `algo = choice / 3` (0..4), `range = 1 + (choice % 3)` (1..3).
+    - Wire echo: `(choice * 128 + 64) / 15` (lands at the exact dead center of bucket `choice`).
+    - Matched across `mod_apply_cc_value`, `ui_aux_cell_value`, `potToDisplayValue`, `renderCell`, and `GetPotBucketBounds`.
+  - **Soft Takeover Guard (`rack-uimcu/main/RackPots.cpp`)**:
+    - Added `ECHO_WINDOW_US` guard to top of `PickupCellNote()`.
+- **Hardware Flashed & Verified**:
+  - RP2350 flashed (`firmware.uf2` on `COM15`); ESP32-C3 flashed (`rack-uimcu.bin` on `COM22`).
+  - Core 1 running at 472 µs (budget 496 µs), 0 I2S stalls. ALGO switching operates smoothly across all 15 choices without snap-backs.
