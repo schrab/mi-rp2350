@@ -60,9 +60,9 @@ namespace CTAG {
                 kNoSet, kNoSet, kNoSet, kNoSet,
                 {9, 1}, {9, 2}, {9, 3}, {9, 4}, {9, 0}, {9, 6},
             },
-            {   // MOD-ARP (page 7): ARP 1 (pots 0..5), middle row shared ROOT/SCALE (pots 8, 9), ARP 2 (pots 10..15)
+            {   // MOD-ARP (page 7): ARP 1 (pots 0..5), middle row TRANS, ROOT, SCALE (pots 7, 8, 9), ARP 2 (pots 10..15)
                 {10, 0}, {10, 1}, {10, 2}, {10, 3}, {10, 4}, {10, 6},
-                kNoSet, kNoSet, {10, 10}, {10, 11},
+                kNoSet, {10, 12}, {10, 10}, {10, 11},
                 {11, 0}, {11, 1}, {11, 2}, {11, 3}, {11, 4}, {11, 6},
             },
         };
@@ -520,17 +520,21 @@ namespace CTAG {
                     barMax = 14;
                     return choice;
                 }
-                // SHARED ROOT (slot 8): 0=MIDI, 1=PARAL, 2=W7, 3=NEO, 24..84=Note (C1..C6)
+                // SHARED NEO_OP (slot 7): 0=RAND, 1=P, 2=L, 3=R, 4=N, 5=S, 6=H, 7=PLR
+                if (slot == 7) {
+                    int v = ((int)potVal * 8) / 128;
+                    if (v > 7) v = 7;
+                    barVal = v;
+                    barMax = 7;
+                    return v;
+                }
+                // SHARED ROOT (slot 8): 0=MIDI, 1=PARAL, 2=W7, 3=NEO, 4..15=C..B
                 if (slot == 8) {
-                    if (potVal <= 3) {
-                        barVal = potVal; barMax = 64;
-                        return potVal;
-                    }
-                    int note = 24 + ((int)(potVal - 4) * 60) / 123;
-                    if (note > 84) note = 84;
-                    barVal = note - 24 + 4;
-                    barMax = 64;
-                    return note;
+                    int v = ((int)potVal * 16) / 128;
+                    if (v > 15) v = 15;
+                    barVal = v;
+                    barMax = 15;
+                    return v;
                 }
                 // SHARED SCALE (slot 9): 0..19 scale/chord
                 if (slot == 9) {
@@ -938,8 +942,20 @@ namespace CTAG {
                         static const char *const kMetroAccums[4] = { "PENDLM", "WRAP", "RANDOM", "HOLD" };
                         static const char *const kDejavuSteps[4] = { "ALL", "PENT", "TRIAD", "ROOT" };
 
+                        static const char *const kNeoOpNames[8] = {
+                            "RAND", "P", "L", "R", "N", "S", "H", "PLR"
+                        };
+                        int rootChoice = ((int)s_cur.cell[8].value * 16) / 128;
+                        if (rootChoice > 15) rootChoice = 15;
+
                         if (slot == 0 || slot == 10) {
                             pName = (dispVal >= 0 && dispVal < 15) ? kArpAlgoNames[dispVal] : "---";
+                        } else if (slot == 7) {
+                            if (rootChoice == 3) {
+                                pName = (dispVal >= 0 && dispVal < 8) ? kNeoOpNames[dispVal] : "---";
+                            } else {
+                                pName = "---";
+                            }
                         } else if (slot == 8) {
                             if (dispVal == 0) {
                                 pName = "MIDI";
@@ -949,10 +965,8 @@ namespace CTAG {
                                 pName = "W7";
                             } else if (dispVal == 3) {
                                 pName = "NEO";
-                            } else if (dispVal >= 24 && dispVal <= 84) {
-                                int oct = (dispVal / 12) - 1;
-                                snprintf(bufText, sizeof(bufText), "%s%d", kNoteNames[dispVal % 12], oct);
-                                pName = bufText;
+                            } else if (dispVal >= 4 && dispVal <= 15) {
+                                pName = kNoteNames[dispVal - 4];
                             } else {
                                 pName = "---";
                             }
@@ -1189,6 +1203,8 @@ namespace CTAG {
                 if (pot == 5 || pot == 15) n = 13;   // ADSR DIV (0..12)
             } else if (s_page == 7) {
                 if (pot == 0 || pot == 10) n = 15;   // ARP ALGO (0..14)
+                if (pot == 7) n = 8;                 // SHARED NEO_OP (0..7)
+                if (pot == 8) n = 16;                // SHARED ROOT (0..15)
                 if (pot == 9) n = 20;                // SHARED SCALE (0..19)
                 if (pot == 5 || pot == 15) n = 13;   // ARP DIV (0..12)
                 int choice = ((int)s_cur.cell[pot < 6 ? 0 : 10].value * 15) / 128;

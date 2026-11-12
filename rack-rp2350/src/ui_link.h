@@ -419,9 +419,9 @@ static const UiAuxCell kUiModArpCells[16] = {
     {"P1 ACC",   kUiColorYellow, 10, 3},
     {"P1 MUTE",  kUiColorYellow, 10, 4},
     {"P1 DIV",   kUiColorYellow, 10, 6},
-    // Row 1: empty slots 6..7, shared ROOT (pot 9 / slot 8), shared SCALE (pot 10 / slot 9)
+    // Row 1: empty slot 6, shared TRANS (pot 7), shared ROOT (pot 8), shared SCALE (pot 9)
     {"",         kUiColorWhite,  0xFF, 0xFF},
-    {"",         kUiColorWhite,  0xFF, 0xFF},
+    {"TRANS",    kUiColorYellow, 10, 12},
     {"ROOT",     kUiColorYellow, 10, 10},
     {"SCALE",    kUiColorYellow, 10, 11},
     // Row 2: ARP 2 (pots 10..15 / physical 11..16)
@@ -481,6 +481,9 @@ static const char* ui_aux_cell_label(uint8_t page, uint8_t idx) {
       return kArp1Labels[a][idx - 1];
     }
     if (idx == 5) return "P1 DIV";
+    if (idx == 7) {
+      return (g_mod_engine.src[10].p.arp.root_param == 3) ? "TRANS" : "";
+    }
     if (idx == 8) return "ROOT";
     if (idx == 9) return "SCALE";
     if (idx == 10) return "P2 ALGO";
@@ -817,12 +820,16 @@ static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
           default: return 0;
         }
       default:  // MOD_ARP
-        if (c.param == 10) { // shared ROOT
-          if (s.p.arp.root_param <= 3) return (uint8_t)s.p.arp.root_param;
-          return (uint8_t)(4 + (((uint16_t)(s.p.arp.root_param - 24) * 123 + 30) / 60));
+        if (c.param == 12) { // shared TRANS / NEO-OP (0..7)
+          return (uint8_t)(((uint16_t)g_mod_engine.neo_op * 128 + 64) / 8);
         }
-        if (c.param == 11) { // shared SCALE
-          return (uint8_t)(((uint16_t)(s.p.arp.scale_idx & 0x3Fu) * 127) / (SCALE_COUNT ? (SCALE_COUNT - 1) : 1));
+        if (c.param == 10) { // shared ROOT (0..15)
+          const uint8_t r = s.p.arp.root_param <= 15 ? s.p.arp.root_param : 0;
+          return (uint8_t)(((uint16_t)r * 128 + 64) / 16);
+        }
+        if (c.param == 11) { // shared SCALE (0..19)
+          const uint8_t sc = (s.p.arp.scale_idx & 0x3Fu) % SCALE_COUNT;
+          return (uint8_t)(((uint16_t)sc * 128 + 64) / SCALE_COUNT);
         }
         switch (c.param) {
           case 0: {
@@ -1253,8 +1260,12 @@ static void ui_link_dispatch() {
               } else {
                 ui_link_send_mod_delta(pl[0], pl[1]);
               }
-            } else if (pl[1] == 10 || pl[1] == 11) {
-              // Shared root/scale: push deltas for both slots 8 & 9
+            } else if (pl[1] == 10) {
+              // Shared root changed: send full snapshot so TRANS label/value update immediately
+              ui_link_send_telem(kUiPageModArp, kUiTelemFull, 0);
+            } else if (pl[1] == 11 || pl[1] == 12) {
+              // Shared scale / neo-op: push deltas for slots 7, 8, 9
+              ui_link_send_telem(kUiPageModArp, kUiTelemDelta, (uint8_t)(kUiModCellBase + 7));
               ui_link_send_telem(kUiPageModArp, kUiTelemDelta, (uint8_t)(kUiModCellBase + 8));
               ui_link_send_telem(kUiPageModArp, kUiTelemDelta, (uint8_t)(kUiModCellBase + 9));
             } else {

@@ -294,6 +294,7 @@ struct ModEngine {
   // ---- sources ----
   ModSource src[MOD_SOURCE_COUNT];
   ModArpExt arp_ext[MOD_ARP_COUNT];
+  uint8_t   neo_op;                   // 0..7: RAND, P, L, R, N, S, H, PLR
   // ---- telemetry (core 1 writes, core 0 prints + resets each 2 s report) ---
   volatile uint32_t mod_us_max;       // engine block cost, max since report
   volatile uint32_t telem_midi_ticks; // F8 consumed since last report
@@ -570,7 +571,14 @@ static void mod_gate_recompute(ModSource& s) {
 
 static void mod_arp_rebuild_scale(ModSource& s) {
   ModArpExt& ext = g_mod_engine.arp_ext[s.p.arp.ext_idx];
-  const uint8_t sc_id = (s.p.arp.scale_idx & 0x3Fu) % SCALE_COUNT;
+  uint8_t sc_id = (s.p.arp.scale_idx & 0x3Fu) % SCALE_COUNT;
+  if (s.p.arp.root_param == 3) {
+    if (sc_id == SCALE_IONIAN_MAJOR || sc_id == SCALE_AEOLIAN_MINOR) {
+      sc_id = ext.is_minor_triad ? SCALE_AEOLIAN_MINOR : SCALE_IONIAN_MAJOR;
+    } else if (sc_id == SCALE_PENTATONIC_MAJ || sc_id == SCALE_PENTATONIC_MIN) {
+      sc_id = ext.is_minor_triad ? SCALE_PENTATONIC_MIN : SCALE_PENTATONIC_MAJ;
+    }
+  }
   const uint16_t pool = SCALE_BITMASKS[sc_id];
   ext.nsteps = expand_scale_mask(pool, ext.scale_st);
   if (ext.deg >= (int8_t)ext.nsteps) ext.deg = 0;
@@ -582,13 +590,27 @@ static void mod_arp_next_chord(ModSource& s) {
   ModArpExt& ext = g_mod_engine.arp_ext[s.p.arp.ext_idx];
   if (s.p.arp.root_param == 3) {
     // Neo-Riemannian Triad drift (semitone shift + major/minor quality flip)
-    apply_neo_riemannian(&s.p.arp.midi_root, &ext.is_minor_triad,
-                         (neo_riemannian_id_t)(mod_irand(s, NR_TRANSFORM_COUNT)));
+    // 0: RAND (all 6), 1: P, 2: L, 3: R, 4: N, 5: S, 6: H, 7: PLR (random P/L/R)
+    neo_riemannian_id_t op;
+    const uint8_t neo_sel = g_mod_engine.neo_op & 7u;
+    if (neo_sel == 0) {
+      op = (neo_riemannian_id_t)mod_irand(s, NR_TRANSFORM_COUNT);
+    } else if (neo_sel >= 1 && neo_sel <= 6) {
+      op = (neo_riemannian_id_t)(neo_sel - 1);
+    } else {
+      op = (neo_riemannian_id_t)mod_irand(s, 3);
+    }
+
+    uint8_t pc = s.p.arp.midi_root % 12u;
+    uint8_t oct = s.p.arp.midi_root / 12u;
+    apply_neo_riemannian(&pc, &ext.is_minor_triad, op);
+    s.p.arp.midi_root = (uint8_t)(oct * 12u + pc);
     ext.deg = 0;
     for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
       g_mod_engine.src[MOD_SRC_ARP_FIRST + k].p.arp.midi_root = s.p.arp.midi_root;
       g_mod_engine.arp_ext[k].is_minor_triad = ext.is_minor_triad;
       g_mod_engine.arp_ext[k].deg = 0;
+      mod_arp_rebuild_scale(g_mod_engine.src[MOD_SRC_ARP_FIRST + k]);
     }
     return;
   }
@@ -994,6 +1016,10 @@ static void mod_arp_set_shared_scale(uint8_t scale_idx) {
   }
 }
 
+static void mod_arp_set_shared_neo_op(uint8_t op) {
+  g_mod_engine.neo_op = (op <= 7) ? op : 0;
+}
+
 // Intercepts step output on final bar of phrase cycle to inject cadential turnaround fills
 static void mod_arp_apply_turnaround(ModSource& s, ModArpExt& ext, uint8_t st, ModArpStep& io_step) {
   if (ext.dd_fill == 0) return;
@@ -1026,11 +1052,9 @@ static void mod_arp_apply_turnaround(ModSource& s, ModArpExt& ext, uint8_t st, M
 // Compute MIDI note (28..96) for a step
 static uint8_t mod_arp_calc_note(const ModSource& s, const ModArpExt& ext,
                                  const ModArpStep& step) {
-  const uint8_t base_root = (s.p.arp.root_param == 0)
+  const uint8_t base_root = (s.p.arp.root_param <= 3)
       ? (s.p.arp.midi_root ? s.p.arp.midi_root : 48u)
-      : (s.p.arp.root_param == 1 || s.p.arp.root_param == 2 || s.p.arp.root_param == 3)
-      ? (s.p.arp.midi_root ? s.p.arp.midi_root : 48u)
-      : s.p.arp.root_param;
+      : (uint8_t)(48u + ((s.p.arp.root_param - 4) % 12u));
   return degree_to_midi_folded(base_root, ext.deg, step.off, step.oct, ext.scale_st, ext.nsteps);
 }
 
@@ -1052,9 +1076,8 @@ static inline bool mod_is_pitch_dest(uint8_t cc) {
 bool mod_arp_wants_midi_notes() {
   for (uint8_t i = 0; i < MOD_ARP_COUNT; ++i) {
     const ModSource& s = g_mod_engine.src[MOD_SRC_ARP_FIRST + i];
-    if (s.dest_cc != 0) {
-      if (s.p.arp.root_param == 0 || s.p.arp.root_param == 1) return true;
-      if (mod_is_pitch_dest(s.dest_cc)) return true;
+    if (s.dest_cc != 0 && (s.p.arp.root_param == 0 || s.p.arp.root_param == 1)) {
+      return true;
     }
   }
   return false;
@@ -1078,13 +1101,10 @@ void mod_arp_note_transpose(uint8_t note) {
       }
       ext.deg = (int8_t)best_deg;
       s.p.arp.midi_root = (uint8_t)((note / 12u) * 12u + base_pc);
-    } else {
+    } else if (s.p.arp.root_param == 1) {
       // Parallel chromatic transpose to incoming MIDI note
       s.p.arp.midi_root = note;
       ext.deg = 0;
-      if (s.p.arp.root_param >= 4) {
-        s.p.arp.root_param = note;
-      }
     }
     s.p.arp.cur_note = mod_arp_calc_note(s, ext, ext.steps[s.p.arp.step]);
     ext.target_pitch_q16 = ((int32_t)s.p.arp.cur_note) << 16;
@@ -1213,6 +1233,7 @@ void mod_engine_init() {
       mod_arp_rebuild_pattern(s);
     }
   }
+  e.neo_op = 0;
 }
 
 // FA re-phase: MIDI-clocked sources only (internal clock keeps running).
@@ -1469,10 +1490,6 @@ void mod_engine_process_block(uint8_t active_module) {
               for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
                 e.src[MOD_SRC_ARP_FIRST + k].p.arp.midi_root = sn;
                 e.arp_ext[k].deg = 0;
-              }
-            } else {
-              for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
-                e.src[MOD_SRC_ARP_FIRST + k].p.arp.midi_root = sn;
               }
             }
           }
@@ -1793,14 +1810,19 @@ static void mod_apply_cc_value(uint8_t src_idx, uint8_t param, uint8_t val) {
   preset_mark_dirty();            // T4a: persistent state changed
   ModEngine& e = g_mod_engine;
   ModSource& s = e.src[src_idx];
-  if (s.type == MOD_ARP && (param == 10 || param == 11)) {
+  if (s.type == MOD_ARP && (param == 10 || param == 11 || param == 12)) {
     if (param == 10) {
-      uint8_t r = (val <= 3) ? val : (uint8_t)(24 + ((uint16_t)(val - 4) * 60) / 123);
+      uint8_t r = (uint8_t)(((uint16_t)val * 16) / 128);
+      if (r > 15) r = 15;
       mod_arp_set_shared_root(r);
-    } else {
-      uint8_t sc = (val < 64) ? (uint8_t)(((uint16_t)val * SCALE_COUNT) / 64)
-                              : (uint8_t)(0x40u | (((uint16_t)(val - 64) * SCALE_COUNT) / 64));
+    } else if (param == 11) {
+      uint8_t sc = (uint8_t)(((uint16_t)val * SCALE_COUNT) / 128);
+      if (sc >= SCALE_COUNT) sc = SCALE_COUNT - 1;
       mod_arp_set_shared_scale(sc);
+    } else {
+      uint8_t op = (uint8_t)(((uint16_t)val * 8) / 128);
+      if (op > 7) op = 7;
+      mod_arp_set_shared_neo_op(op);
     }
     return;
   }
@@ -1944,9 +1966,9 @@ void mod_engine_apply_ui_set(uint8_t src, uint8_t param, uint8_t val) {
                   MOD_SOURCE_COUNT);
     return;
   }
-  if (g_mod_engine.src[src].type == MOD_ARP && (param == 10 || param == 11)) {
+  if (g_mod_engine.src[src].type == MOD_ARP && (param == 10 || param == 11 || param == 12)) {
     Serial.printf("mod: ui set %s %s <- %u\r\n", mod_src_name(src),
-                  param == 10 ? "shared root" : "shared scale", val);
+                  param == 10 ? "shared root" : (param == 11 ? "shared scale" : "neo op"), val);
     mod_apply_cc_value(src, param, val);
     return;
   }
@@ -2170,7 +2192,7 @@ static bool mod_set_param_console(uint8_t src_idx, uint8_t param,
         default: return false;
       }
     default:  // MOD_ARP
-      if (param == 10) { // shared root
+      if (param == 10) { // shared root (0..15: midi, paral, w7, neo, c..b)
         if (!strcasecmp(tok, "midi") || !strcasecmp(tok, "follow") || !strcasecmp(tok, "harm")) {
           mod_arp_set_shared_root(0); return true;
         }
@@ -2183,7 +2205,15 @@ static bool mod_set_param_console(uint8_t src_idx, uint8_t param,
         if (!strcasecmp(tok, "neo") || !strcasecmp(tok, "plr")) {
           mod_arp_set_shared_root(3); return true;
         }
-        uint8_t r = (uint8_t)(v <= 3 ? v : (v < 24 ? 24 : (v > 84 ? 84 : v)));
+        static const char* const kNoteNames[12] = {
+            "c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"
+        };
+        for (uint8_t i = 0; i < 12; ++i) {
+          if (!strcasecmp(tok, kNoteNames[i])) {
+            mod_arp_set_shared_root(4 + i); return true;
+          }
+        }
+        uint8_t r = (uint8_t)(v < 0 ? 0 : (v > 15 ? 15 : v));
         mod_arp_set_shared_root(r);
         return true;
       }
@@ -2200,6 +2230,19 @@ static bool mod_set_param_console(uint8_t src_idx, uint8_t param,
         }
         uint8_t sc = (uint8_t)(v < 0 ? 0 : (v >= SCALE_COUNT ? (SCALE_COUNT - 1) : v));
         mod_arp_set_shared_scale(sc);
+        return true;
+      }
+      if (param == 12) { // shared neo-op / trans (0..7: rand, p, l, r, n, s, h, plr)
+        static const char* const kOpNames[8] = {
+            "rand", "p", "l", "r", "n", "s", "h", "plr"
+        };
+        for (uint8_t i = 0; i < 8; ++i) {
+          if (!strcasecmp(tok, kOpNames[i])) {
+            mod_arp_set_shared_neo_op(i); return true;
+          }
+        }
+        uint8_t op = (uint8_t)(v < 0 ? 0 : (v > 7 ? 7 : v));
+        mod_arp_set_shared_neo_op(op);
         return true;
       }
       switch (param) {
@@ -2241,6 +2284,7 @@ static int8_t mod_parse_param(uint8_t src_idx, const char* tok) {
   if (s.type == MOD_ARP) {
     if (!strcasecmp(tok, "root")) return 10;
     if (!strcasecmp(tok, "scale") || !strcasecmp(tok, "sc")) return 11;
+    if (!strcasecmp(tok, "trans") || !strcasecmp(tok, "op") || !strcasecmp(tok, "neo")) return 12;
     if (!strcasecmp(tok, "dens") || !strcasecmp(tok, "prob")) return 1; // p1
     if (!strcasecmp(tok, "slide") || !strcasecmp(tok, "form") || !strcasecmp(tok, "contour") ||
         !strcasecmp(tok, "pulses") || !strcasecmp(tok, "dejavu")) return 2; // p2
@@ -2402,16 +2446,21 @@ void mod_engine_cmd_modq(const char* args) {
             "pmaj", "pmin", "blues", "hmin", "mmin", "pdom", "wtone",
             "oct", "hira", "insen", "dharm", "acid"
         };
+        static const char* const kRootNames[16] = {
+            "midi", "paral", "w7", "neo",
+            "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
+        };
+        static const char* const kNeoOps[8] = {
+            "rand", "p", "l", "r", "n", "s", "h", "plr"
+        };
         const ModArpExt& ext = e.arp_ext[s.p.arp.ext_idx];
-        const char* root_str = (s.p.arp.root_param == 0) ? "harm"
-                             : (s.p.arp.root_param == 1) ? "paral"
-                             : (s.p.arp.root_param == 2) ? "w7"
-                             : (s.p.arp.root_param == 3) ? "neo" : "fix";
-        Serial.printf("algo=%s(%uoct) root=%s(%u) scale=%s p1=%u p2=%u p3=%u p4=%u deg=%d note=%u step=%u out=%s",
+        const char* root_str = (s.p.arp.root_param < 16)
+                             ? kRootNames[s.p.arp.root_param] : "fix";
+        Serial.printf("algo=%s(%uoct) root=%s scale=%s neo_op=%s p1=%u p2=%u p3=%u p4=%u deg=%d note=%u step=%u out=%s",
                       kAlgo[s.p.arp.algo % 5], s.p.arp.range,
                       root_str,
-                      (s.p.arp.root_param <= 3) ? s.p.arp.midi_root : s.p.arp.root_param,
                       kSc[(s.p.arp.scale_idx & 0x3Fu) % SCALE_COUNT],
+                      kNeoOps[e.neo_op & 7u],
                       s.p.arp.p[0], s.p.arp.p[1], s.p.arp.p[2], s.p.arp.p[3], (int)ext.deg,
                       s.p.arp.cur_note, s.p.arp.step,
                       mod_print_fixed(b1, sizeof(b1), s.out));
@@ -2578,6 +2627,7 @@ static uint16_t mod_engine_preset_write(uint8_t* p) {
         pl[5] = s.p.arp.p[1];
         pl[6] = s.p.arp.p[2];
         pl[7] = s.p.arp.p[3];
+        pl[8] = e.neo_op;
         break;
     }
     memcpy(w, pl, 24); w += 24;
@@ -2686,12 +2736,13 @@ static uint16_t mod_engine_preset_read(const uint8_t* p) {
       default: {  // MOD_ARP
         s.p.arp.algo = pl[0] <= 4 ? pl[0] : 0;
         s.p.arp.range = (pl[1] >= 1 && pl[1] <= 3) ? pl[1] : 1;
-        s.p.arp.root_param = pl[2] <= 84 ? pl[2] : 0;
+        s.p.arp.root_param = pl[2] <= 15 ? pl[2] : 0;
         s.p.arp.scale_idx = pl[3] <= 127 ? pl[3] : 6;
         s.p.arp.p[0] = pl[4] <= 100 ? pl[4] : 50;
         s.p.arp.p[1] = pl[5] <= 100 ? pl[5] : 40;
         s.p.arp.p[2] = pl[6] <= 100 ? pl[6] : 30;
         s.p.arp.p[3] = pl[7] <= 100 ? pl[7] : 20;
+        if (i == MOD_SRC_ARP_FIRST) e.neo_op = pl[8] <= 7 ? pl[8] : 0;
         s.p.arp.ext_idx = (uint8_t)((i >= MOD_SRC_ARP_FIRST) ? (i - MOD_SRC_ARP_FIRST) : 0);
         mod_arp_rebuild_pattern(s);
         break;
