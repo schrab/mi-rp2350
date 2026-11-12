@@ -1824,11 +1824,11 @@ static void mod_apply_cc_value(uint8_t src_idx, uint8_t param, uint8_t val) {
       break;
     default:  // MOD_ARP
       switch (param) {
-        case 0: { // algo (0=HYP1, 1=MOTIF, 2=MARKOV, 3=METRO, 4=DEJAVU; sub-range sets 1..3 oct)
-          uint8_t a = (uint8_t)(((uint16_t)val * 5) / 128);
-          s.p.arp.algo = (a <= 4) ? a : 4;
-          uint8_t r = (uint8_t)(1 + ((val % 26) * 3) / 26);
-          s.p.arp.range = (r >= 1 && r <= 3) ? r : 1;
+        case 0: { // algo (0..14 choices = 5 algos x 3 octave ranges)
+          uint8_t choice = (uint8_t)(((uint16_t)val * 15) / 128);
+          if (choice > 14) choice = 14;
+          s.p.arp.algo = choice / 3;
+          s.p.arp.range = (uint8_t)(1 + (choice % 3));
           mod_arp_rebuild_pattern(s);
           break;
         }

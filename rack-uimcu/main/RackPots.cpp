@@ -599,6 +599,10 @@ namespace CTAG {
 
         void RackPots::PickupCellNote(uint8_t pot, uint8_t value) {
             if (pot >= NPOTS) return;
+            if (lastSendPotUs[pot] != 0 &&
+                esp_timer_get_time() - lastSendPotUs[pot] < ECHO_WINDOW_US) {
+                return;
+            }
             RackUI::PotTarget t;
             if (!RackUI::GetPotTarget(pot, t)) return;
             t.value = value;
@@ -622,10 +626,6 @@ namespace CTAG {
                 } else {
                     pickTarget[pot] = (cur < (int)bLo) ? bLo : bHi;
                 }
-                return;
-            }
-            if (lastSendPotUs[pot] != 0 &&
-                esp_timer_get_time() - lastSendPotUs[pot] < ECHO_WINDOW_US) {
                 return;
             }
             if (cur < (int)bLo - PICK_BAND) {

@@ -342,11 +342,11 @@ static const UiAuxCell kUiModLfo34Cells[16] = {
 // MOD-TRIG: 2x Euclidean (Row 0 = EUC 1, Row 2 = EUC 2)
 static const UiAuxCell kUiModTrigCells[16] = {
     // Row 0: EUCLID 1 (pots 0..4)
-    {"E1 STPS", kUiColorTeal, 4, 0},
-    {"E1 PULS", kUiColorTeal, 4, 1},
-    {"E1 ROT",  kUiColorTeal, 4, 2},
-    {"E1 CLK",  kUiColorTeal, 4, 3},
-    {"E1 DIV",  kUiColorTeal, 4, 4},
+    {"E1 STPS", kUiColorYellow, 4, 0},
+    {"E1 PULS", kUiColorYellow, 4, 1},
+    {"E1 ROT",  kUiColorYellow, 4, 2},
+    {"E1 CLK",  kUiColorYellow, 4, 3},
+    {"E1 DIV",  kUiColorYellow, 4, 4},
     {"",        kUiColorWhite, 0xFF, 0xFF},
     // Row 1: empty (pots 6..9)
     {"", kUiColorWhite, 0xFF, 0xFF},
@@ -354,58 +354,58 @@ static const UiAuxCell kUiModTrigCells[16] = {
     {"", kUiColorWhite, 0xFF, 0xFF},
     {"", kUiColorWhite, 0xFF, 0xFF},
     // Row 2: EUCLID 2 (pots 10..14)
-    {"E2 STPS", kUiColorTeal, 5, 0},
-    {"E2 PULS", kUiColorTeal, 5, 1},
-    {"E2 ROT",  kUiColorTeal, 5, 2},
-    {"E2 CLK",  kUiColorTeal, 5, 3},
-    {"E2 DIV",  kUiColorTeal, 5, 4},
+    {"E2 STPS", kUiColorYellow, 5, 0},
+    {"E2 PULS", kUiColorYellow, 5, 1},
+    {"E2 ROT",  kUiColorYellow, 5, 2},
+    {"E2 CLK",  kUiColorYellow, 5, 3},
+    {"E2 DIV",  kUiColorYellow, 5, 4},
     {"",        kUiColorWhite, 0xFF, 0xFF},
 };
 
 // MOD-GATE: 2x Gate pattern generators (Row 0 = GATE 1, Row 2 = GATE 2)
 static const UiAuxCell kUiModGateCells[16] = {
     // Row 0: GATE 1 (pots 0..5)
-    {"G1 MODE", kUiColorTeal, 6, 0},
-    {"G1 DENS", kUiColorTeal, 6, 1},
-    {"G1 SYNC", kUiColorTeal, 6, 2},
-    {"G1 GLEN", kUiColorTeal, 6, 3},
-    {"G1 CLK",  kUiColorTeal, 6, 4},
-    {"G1 DIV",  kUiColorTeal, 6, 5},
+    {"G1 MODE", kUiColorYellow, 6, 0},
+    {"G1 DENS", kUiColorYellow, 6, 1},
+    {"G1 SYNC", kUiColorYellow, 6, 2},
+    {"G1 GLEN", kUiColorYellow, 6, 3},
+    {"G1 CLK",  kUiColorYellow, 6, 4},
+    {"G1 DIV",  kUiColorYellow, 6, 5},
     // Row 1: empty / spacer (pots 6..9)
     {"", kUiColorWhite, 0xFF, 0xFF},
     {"", kUiColorWhite, 0xFF, 0xFF},
     {"", kUiColorWhite, 0xFF, 0xFF},
     {"", kUiColorWhite, 0xFF, 0xFF},
     // Row 2: GATE 2 (pots 10..15)
-    {"G2 MODE", kUiColorTeal, 7, 0},
-    {"G2 DENS", kUiColorTeal, 7, 1},
-    {"G2 SYNC", kUiColorTeal, 7, 2},
-    {"G2 GLEN", kUiColorTeal, 7, 3},
-    {"G2 CLK",  kUiColorTeal, 7, 4},
-    {"G2 DIV",  kUiColorTeal, 7, 5},
+    {"G2 MODE", kUiColorYellow, 7, 0},
+    {"G2 DENS", kUiColorYellow, 7, 1},
+    {"G2 SYNC", kUiColorYellow, 7, 2},
+    {"G2 GLEN", kUiColorYellow, 7, 3},
+    {"G2 CLK",  kUiColorYellow, 7, 4},
+    {"G2 DIV",  kUiColorYellow, 7, 5},
 };
 
 // MOD-ENV: 2x ADSR envelopes (Row 0 = ADSR 1, Row 2 = ADSR 2)
 static const UiAuxCell kUiModEnvCells[16] = {
     // Row 0: ADSR 1 (pots 0..5)
-    {"A1 ATK",  kUiColorTeal, 8, 1},
-    {"A1 DEC",  kUiColorTeal, 8, 2},
-    {"A1 SUS",  kUiColorTeal, 8, 3},
-    {"A1 REL",  kUiColorTeal, 8, 4},
-    {"A1 MODE", kUiColorTeal, 8, 0},
-    {"A1 DIV",  kUiColorTeal, 8, 6},
+    {"A1 ATK",  kUiColorYellow, 8, 1},
+    {"A1 DEC",  kUiColorYellow, 8, 2},
+    {"A1 SUS",  kUiColorYellow, 8, 3},
+    {"A1 REL",  kUiColorYellow, 8, 4},
+    {"A1 MODE", kUiColorYellow, 8, 0},
+    {"A1 DIV",  kUiColorYellow, 8, 6},
     // Row 1: empty (pots 6..9)
     {"", kUiColorWhite, 0xFF, 0xFF},
     {"", kUiColorWhite, 0xFF, 0xFF},
     {"", kUiColorWhite, 0xFF, 0xFF},
     {"", kUiColorWhite, 0xFF, 0xFF},
     // Row 2: ADSR 2 (pots 10..15)
-    {"A2 ATK",  kUiColorTeal, 9, 1},
-    {"A2 DEC",  kUiColorTeal, 9, 2},
-    {"A2 SUS",  kUiColorTeal, 9, 3},
-    {"A2 REL",  kUiColorTeal, 9, 4},
-    {"A2 MODE", kUiColorTeal, 9, 0},
-    {"A2 DIV",  kUiColorTeal, 9, 6},
+    {"A2 ATK",  kUiColorYellow, 9, 1},
+    {"A2 DEC",  kUiColorYellow, 9, 2},
+    {"A2 SUS",  kUiColorYellow, 9, 3},
+    {"A2 REL",  kUiColorYellow, 9, 4},
+    {"A2 MODE", kUiColorYellow, 9, 0},
+    {"A2 DIV",  kUiColorYellow, 9, 6},
 };
 
 // MOD-ARP: 2x Switchable 5-Algo Melody/Arp Generators (Row 0 = ARP 1, Row 2 = ARP 2)
@@ -413,24 +413,24 @@ static const UiAuxCell kUiModEnvCells[16] = {
 // Params per ARP: 0=algo, 1=p1, 2=p2, 3=p3, 4=p4, 6=div
 static const UiAuxCell kUiModArpCells[16] = {
     // Row 0: ARP 1 (pots 0..5 / physical 1..6)
-    {"P1 ALGO",  kUiColorPink, 10, 0},
-    {"P1 DENS",  kUiColorPink, 10, 1},
-    {"P1 SLID",  kUiColorPink, 10, 2},
-    {"P1 ACC",   kUiColorPink, 10, 3},
-    {"P1 MUTE",  kUiColorPink, 10, 4},
-    {"P1 DIV",   kUiColorPink, 10, 6},
+    {"P1 ALGO",  kUiColorYellow, 10, 0},
+    {"P1 DENS",  kUiColorYellow, 10, 1},
+    {"P1 SLID",  kUiColorYellow, 10, 2},
+    {"P1 ACC",   kUiColorYellow, 10, 3},
+    {"P1 MUTE",  kUiColorYellow, 10, 4},
+    {"P1 DIV",   kUiColorYellow, 10, 6},
     // Row 1: empty slots 6..7, shared ROOT (pot 9 / slot 8), shared SCALE (pot 10 / slot 9)
-    {"",         kUiColorWhite, 0xFF, 0xFF},
-    {"",         kUiColorWhite, 0xFF, 0xFF},
-    {"ROOT",     kUiColorPink, 10, 10},
-    {"SCALE",    kUiColorPink, 10, 11},
+    {"",         kUiColorWhite,  0xFF, 0xFF},
+    {"",         kUiColorWhite,  0xFF, 0xFF},
+    {"ROOT",     kUiColorYellow, 10, 10},
+    {"SCALE",    kUiColorYellow, 10, 11},
     // Row 2: ARP 2 (pots 10..15 / physical 11..16)
-    {"P2 ALGO",  kUiColorPink, 11, 0},
-    {"P2 DENS",  kUiColorPink, 11, 1},
-    {"P2 FORM",  kUiColorPink, 11, 2},
-    {"P2 XFRM",  kUiColorPink, 11, 3},
-    {"P2 MUTE",  kUiColorPink, 11, 4},
-    {"P2 DIV",   kUiColorPink, 11, 6},
+    {"P2 ALGO",  kUiColorYellow, 11, 0},
+    {"P2 DENS",  kUiColorYellow, 11, 1},
+    {"P2 FORM",  kUiColorYellow, 11, 2},
+    {"P2 XFRM",  kUiColorYellow, 11, 3},
+    {"P2 MUTE",  kUiColorYellow, 11, 4},
+    {"P2 DIV",   kUiColorYellow, 11, 6},
 };
 
 static const char* const kArp1Labels[5][4] = {
@@ -740,9 +740,8 @@ static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
         }
         switch (c.param) {
           case 0: {
-            const uint8_t base = (uint8_t)((s.p.arp.algo % 5) * 25);
-            const uint8_t rng = (s.p.arp.range > 1) ? (uint8_t)((s.p.arp.range - 1) * 8) : 0;
-            return (uint8_t)(base + rng);
+            const uint8_t choice = (uint8_t)((s.p.arp.algo % 5) * 3 + ((s.p.arp.range >= 1 && s.p.arp.range <= 3) ? (s.p.arp.range - 1) : 0));
+            return (uint8_t)(((uint16_t)choice * 128 + 64) / 15);
           }
           case 1: return (uint8_t)(((uint16_t)s.p.arp.p[0] * 127 + 50) / 100);
           case 2: return (uint8_t)(((uint16_t)s.p.arp.p[1] * 127 + 50) / 100);
@@ -1152,23 +1151,31 @@ static void ui_link_dispatch() {
       // single-cell TELEM delta for the matching ACTIVE-page cell (if any)
       // shows the C3 the result ("the firmware acks drive the UI").
       if (g_ui_rx_len == 3) {
-        mod_engine_apply_ui_set(pl[0], pl[1], pl[2]);
-        ui_link_send_mod_delta(pl[0], pl[1]);
         const uint8_t s = pl[0];
+        const uint8_t prev_algo = (s < MOD_SOURCE_COUNT && g_mod_engine.src[s].type == MOD_ARP)
+            ? g_mod_engine.src[s].p.arp.algo : 0;
+        mod_engine_apply_ui_set(pl[0], pl[1], pl[2]);
         if (s < MOD_SOURCE_COUNT) {
           const uint8_t n = mod_param_count_of(g_mod_engine.src[s].type);
           if (pl[1] == n - 1) { // destination routing changed: send full snapshot
             ui_link_send_telem(g_ui_active_page, kUiTelemFull, 0);
-          }
-          if (g_mod_engine.src[s].type == MOD_ARP) {
+          } else if (g_mod_engine.src[s].type == MOD_ARP) {
             if (pl[1] == 0) {
-              // Algo changed: push full snapshot so all dynamic labels update
-              ui_link_send_telem(kUiPageModArp, kUiTelemFull, 0);
+              if (g_mod_engine.src[s].p.arp.algo != prev_algo) {
+                // Algo family changed: push full snapshot so dynamic labels update
+                ui_link_send_telem(kUiPageModArp, kUiTelemFull, 0);
+              } else {
+                ui_link_send_mod_delta(pl[0], pl[1]);
+              }
             } else if (pl[1] == 10 || pl[1] == 11) {
               // Shared root/scale: push deltas for both slots 8 & 9
               ui_link_send_telem(kUiPageModArp, kUiTelemDelta, (uint8_t)(kUiModCellBase + 8));
               ui_link_send_telem(kUiPageModArp, kUiTelemDelta, (uint8_t)(kUiModCellBase + 9));
+            } else {
+              ui_link_send_mod_delta(pl[0], pl[1]);
             }
+          } else {
+            ui_link_send_mod_delta(pl[0], pl[1]);
           }
         }
       } else {

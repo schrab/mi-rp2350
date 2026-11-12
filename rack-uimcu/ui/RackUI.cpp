@@ -514,14 +514,11 @@ namespace CTAG {
                 // MOD-ARP:
                 // P1/P2 ALGO (0, 10): 0..14 (5 algos * 3 octave ranges)
                 if (slot == 0 || slot == 10) {
-                    int algo = potVal / 25;
-                    if (algo > 4) algo = 4;
-                    int sub = potVal % 25;
-                    int oct = 1 + (sub * 3) / 25;
-                    if (oct > 3) oct = 3;
-                    barVal = algo * 3 + (oct - 1);
+                    int choice = ((int)potVal * 15) / 128;
+                    if (choice > 14) choice = 14;
+                    barVal = choice;
                     barMax = 14;
-                    return barVal;
+                    return choice;
                 }
                 // SHARED ROOT (slot 8): 0=MIDI, 1=PARAL, 2=W7, 3=NEO, 24..84=Note (C1..C6)
                 if (slot == 8) {
@@ -553,8 +550,9 @@ namespace CTAG {
                 }
                 // Dynamic parameters: slots 1..4 (ARP1) and slots 11..14 (ARP2)
                 if ((slot >= 1 && slot <= 4) || (slot >= 11 && slot <= 14)) {
-                    int algo = (slot < 6) ? (s_cur.cell[0].value / 25) : (s_cur.cell[10].value / 25);
-                    if (algo > 4) algo = 4;
+                    int choice = ((int)s_cur.cell[slot < 6 ? 0 : 10].value * 15) / 128;
+                    if (choice > 14) choice = 14;
+                    int algo = choice / 3;
                     int p_idx = (slot < 6) ? (slot - 1) : (slot - 11); // 0..3
                     if (p_idx == 0) {
                         // DENS / PROB: 0..100 (%)
@@ -963,8 +961,9 @@ namespace CTAG {
                         } else if (slot == 5 || slot == 15) {
                             pName = (dispVal >= 0 && dispVal < 13) ? kDivNames[dispVal] : "---";
                         } else if ((slot >= 1 && slot <= 4) || (slot >= 11 && slot <= 14)) {
-                            int algo = (slot < 6) ? (s_cur.cell[0].value / 25) : (s_cur.cell[10].value / 25);
-                            if (algo > 4) algo = 4;
+                            int choice = ((int)s_cur.cell[slot < 6 ? 0 : 10].value * 15) / 128;
+                            if (choice > 14) choice = 14;
+                            int algo = choice / 3;
                             int p_idx = (slot < 6) ? (slot - 1) : (slot - 11);
                             if (p_idx == 0) {
                                 snprintf(bufText, sizeof(bufText), "%d%%", dispVal);
@@ -1192,8 +1191,9 @@ namespace CTAG {
                 if (pot == 0 || pot == 10) n = 15;   // ARP ALGO (0..14)
                 if (pot == 9) n = 20;                // SHARED SCALE (0..19)
                 if (pot == 5 || pot == 15) n = 13;   // ARP DIV (0..12)
-                int algo = (pot < 6) ? (s_cur.cell[0].value / 25) : (s_cur.cell[10].value / 25);
-                if (algo > 4) algo = 4;
+                int choice = ((int)s_cur.cell[pot < 6 ? 0 : 10].value * 15) / 128;
+                if (choice > 14) choice = 14;
+                int algo = choice / 3;
                 int p_idx = (pot < 6) ? (pot - 1) : (pot - 11);
                 if (algo == 1 && (p_idx == 1 || p_idx == 2)) n = 4;
                 else if (algo == 2 && p_idx == 1) n = 16;
