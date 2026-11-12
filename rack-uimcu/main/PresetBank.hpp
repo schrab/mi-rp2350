@@ -42,7 +42,7 @@ namespace CTAG {
             static constexpr uint8_t  kAutosaveSectors = 4;
             // First sector of the autosave region (after the 16 slots).
             static constexpr uint32_t kAutosaveBaseSector = kSlots;
-            static constexpr size_t   kMaxRp = 896;   // RP2350 part cap
+            static constexpr size_t   kMaxRp = 1024;  // RP2350 part cap (covers 12 mod sources, 927 B)
             static constexpr size_t   kMaxC3 = 64;    // C3 part cap
             static constexpr uint16_t kC3PartVersion = 1;
 

@@ -565,6 +565,98 @@ static volatile uint32_t g_ui_last_rtt_us = 0;
 static const uint8_t kPinUiTx = 0;    // UART0 TX — valid {0,2,12,14,16,18,28}
 static const uint8_t kPinUiRx = 1;    // UART0 RX — valid {1,3,13,15,17,19,29}
 
+static inline void ui_link_set_cached_cc(uint8_t mod, uint8_t cc, uint8_t val) {
+  if (mod < RACK_MODULE_COUNT && cc < 128) {
+    g_ui_cc_cache[mod][cc] = val;
+    g_ui_cc_seen[mod][cc >> 4] |= (uint16_t)(1u << (cc & 15));
+  }
+}
+
+static void ui_link_init_defaults() {
+  memset(g_ui_cc_cache, 0, sizeof(g_ui_cc_cache));
+  memset(g_ui_cc_seen, 0, sizeof(g_ui_cc_seen));
+
+  // Global baseline for all modules: pitch 0 st, VCA full open
+  for (uint8_t m = 0; m < RACK_MODULE_COUNT; ++m) {
+    ui_link_set_cached_cc(m, 1, 64);   // PITCH center (0 st)
+    ui_link_set_cached_cc(m, 7, 127);  // VCA full open (1.0f)
+  }
+
+  // 1. Elements (from ctag-tbd mp-Elements.jsn)
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 11, 102); // STRENGTH (0.80f)
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 14, 64);  // CONTOUR (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 15, 0);   // BOW (0.0f)
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 16, 64);  // BOW TIMBRE (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 17, 0);   // BLOW (0.0f)
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 18, 64);  // FLOW (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 19, 64);  // BLOW TIMBRE (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 20, 102); // STRIKE (3276/4095 = 0.80f)
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 21, 64);  // MALLET (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 22, 64);  // STRIKE TIMBRE (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 23, 25);  // GEOMETRY (819/4095 = 0.20f)
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 24, 64);  // BRIGHTNESS (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 25, 32);  // DAMPING (1024/4095 = 0.25f)
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 26, 38);  // POSITION (1229/4095 = 0.30f)
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 27, 0);   // SPACE / Reverb = 0
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 28, 0);   // MODEL (Modal)
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 29, 0);   // EASTER EGG = 0
+  ui_link_set_cached_cc(RACK_MODULE_ELEMENTS, 64, 0);   // PLAY trigger = off
+
+  // 2. Clouds (from ctag-tbd mp-Claude.jsn)
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 1, 64);    // EX TONE (0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 11, 102);  // EX LEVEL (0.80f)
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 13, 0);    // EX SRC (0)
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 14, 64);   // POSITION (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 40, 64);
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 15, 64);   // SIZE (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 41, 64);
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 16, 64);   // PITCH (0 st center)
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 42, 64);
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 17, 88);   // DENSITY (2835/4095 = 0.692f)
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 43, 88);
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 18, 85);   // TEXTURE (2729/4095 = 0.666f)
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 44, 85);
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 19, 98);   // DRY/WET (3167/4095 = 0.773f)
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 45, 98);
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 20, 88);   // SPREAD (2827/4095 = 0.690f)
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 46, 88);
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 21, 12);   // FEEDBACK (399/4095 = 0.097f)
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 47, 12);
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 22, 0);    // REVERB = 0
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 48, 0);
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 23, 0);    // MODE (Granular)
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 49, 0);
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 24, 0);    // QUALITY (16-bit stereo)
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 50, 0);
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 65, 0);    // FREEZE = 0
+  ui_link_set_cached_cc(RACK_MODULE_CLOUDS, 66, 0);    // TRIG = 0
+
+  // 3. Plaits (from ctag-tbd mp-TBDaits.jsn)
+  ui_link_set_cached_cc(RACK_MODULE_PLAITS, 14, 64);   // TIMBRE (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_PLAITS, 15, 64);   // MORPH (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_PLAITS, 16, 64);   // HARMONICS (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_PLAITS, 17, 64);   // MACRO (0.0f center)
+  ui_link_set_cached_cc(RACK_MODULE_PLAITS, 18, 64);   // LPG (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_PLAITS, 19, 64);   // DECAY (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_PLAITS, 23, 0);    // ENGINE (0 = Virtual Analog)
+  ui_link_set_cached_cc(RACK_MODULE_PLAITS, 24, 1);    // AUX (1 = stereo OUT/AUX)
+  ui_link_set_cached_cc(RACK_MODULE_PLAITS, 25, 127);  // LEVEL = 127 (1.0f)
+  ui_link_set_cached_cc(RACK_MODULE_PLAITS, 64, 0);    // TRIG = 0
+
+  // 4. Rings (from ctag-tbd mp-TBDings.jsn)
+  ui_link_set_cached_cc(RACK_MODULE_RINGS, 14, 64);   // STRUCTURE (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_RINGS, 15, 64);   // BRIGHTNESS (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_RINGS, 16, 64);   // DAMPING (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_RINGS, 17, 64);   // POSITION (2047/4095 = 0.50f)
+  ui_link_set_cached_cc(RACK_MODULE_RINGS, 18, 0);    // MODEL/FX (0 = Modal)
+  ui_link_set_cached_cc(RACK_MODULE_RINGS, 19, 0);    // POLY (0 = 1 voice)
+  ui_link_set_cached_cc(RACK_MODULE_RINGS, 20, 0);    // MODE (0 = Rings Stereo)
+  ui_link_set_cached_cc(RACK_MODULE_RINGS, 21, 0);    // WAVE (0 = Square)
+  ui_link_set_cached_cc(RACK_MODULE_RINGS, 22, 0);    // CHORD TB (0 = Bryan)
+  ui_link_set_cached_cc(RACK_MODULE_RINGS, 23, 0);    // CHORD (0)
+  ui_link_set_cached_cc(RACK_MODULE_RINGS, 64, 0);    // STRUM = 0
+}
+
 static void ui_link_uart_init() {
   // ORDER (all three before begin, same as the DIN init): FIFO size + pinout
   // apply only while _running == false. 512 B SW ring: at 921600 baud max
@@ -573,13 +665,7 @@ static void ui_link_uart_init() {
   Serial1.setFIFOSize(512);
   Serial1.setPinout(kPinUiTx, kPinUiRx);
   Serial1.begin(921600, SERIAL_8N1);
-  for (uint8_t m = 0; m < RACK_MODULE_COUNT; ++m) {
-    g_ui_cc_cache[m][7] = 127;   // VCA default full open (1.0)
-    g_ui_cc_cache[m][1] = 64;    // PITCH default center (0 st)
-    g_ui_cc_seen[m][0] = 0x0083; // seen bits: CC 1 (0x0002) + CC 7 (0x0080)
-  }
-  g_ui_cc_cache[RACK_MODULE_PLAITS][25] = 102; // Plaits default shared_level = 0.8 (~102/127)
-  g_ui_cc_seen[RACK_MODULE_PLAITS][1] = 0x0200;  // seen bit: CC 25 (25-16=9)
+  ui_link_init_defaults();
 }
 
 // ===================== TX =====================

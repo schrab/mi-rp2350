@@ -132,23 +132,23 @@ void init_at(uint8_t* base) {
   s->part.set_resonator_model(elements::RESONATOR_MODEL_MODAL);
 
   s->patch = s->part.mutable_patch();
-  // sensible default: active exciters with strike/bow/blow present
+  // ctag-tbd defaults: tuned resonant strike, reverb=0
   elements::Patch* p = s->patch;
-  p->exciter_envelope_shape = 0.2f;
-  p->exciter_bow_level = 0.4f;
-  p->exciter_blow_level = 0.4f;
-  p->exciter_strike_level = 0.6f;
-  p->exciter_blow_meta = 0.5f;
-  p->exciter_strike_meta = 0.5f;
-  p->exciter_bow_timbre = 0.5f;
-  p->exciter_blow_timbre = 0.5f;
-  p->exciter_strike_timbre = 0.5f;
+  p->exciter_envelope_shape = 0.5f;   // 2047/4095 CONTOUR
+  p->exciter_bow_level = 0.0f;        // 0 BOW
+  p->exciter_blow_level = 0.0f;       // 0 BLOW
+  p->exciter_strike_level = 0.8f;     // 3276/4095 STRIKE
+  p->exciter_blow_meta = 0.5f;        // 2047/4095 FLOW
+  p->exciter_strike_meta = 0.5f;      // 2047/4095 MALLET
+  p->exciter_bow_timbre = 0.5f;       // 2047/4095 BOW TIMBRE
+  p->exciter_blow_timbre = 0.5f;      // 2047/4095 BLOW TIMBRE
+  p->exciter_strike_timbre = 0.5f;    // 2047/4095 STRIKE TIMBRE
   p->exciter_signature = 0.0f;
-  p->resonator_geometry = 0.25f;
-  p->resonator_brightness = 0.4f;
-  p->resonator_damping = 0.25f;
-  p->resonator_position = 0.3f;
-  p->space = 0.5f;
+  p->resonator_geometry = 0.2f;       // 819/4095 GEOMETRY
+  p->resonator_brightness = 0.5f;     // 2047/4095 BRIGHTNESS
+  p->resonator_damping = 0.25f;       // 1024/4095 DAMPING
+  p->resonator_position = 0.3f;       // 1229/4095 POSITION
+  p->space = 0.0f;                    // reverb set to 0
 }
 
 void init() { init_at(g_rack_object_arena); }

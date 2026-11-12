@@ -1918,6 +1918,7 @@ void setup() {
   // well — same no-PIO argument, same unconstrained position, same no-print
   // rule. Absent/unwired link costs nothing (pump = one ring-empty check).
   ui_link_uart_init();
+  preset_replay_module(RACK_BOOT_MODULE);
   statusLed.Init();  // 3 white self-test flashes, then dark
 
 #if RACK_ENABLE_USB_HOST

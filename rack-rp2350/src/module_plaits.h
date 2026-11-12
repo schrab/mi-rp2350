@@ -135,7 +135,7 @@ void init_at(uint8_t* base) {
   s->shared_fm_amount = 0.0f;
   s->shared_timbre_mod = 0.0f;
   s->shared_morph_mod = 0.0f;
-  s->shared_level = 0.8f;
+  s->shared_level = 1.0f;
 
   // Patch option fields the CC map does not reach (voice.h), set to the
   // MIDI-sensible defaults the per-block fill relies on:

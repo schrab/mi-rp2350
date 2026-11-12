@@ -2629,3 +2629,23 @@ ack-uimcu)**:
   - RP2350 built and flashed to `COM15` via `tools/flash_rp2350.py`.
   - Serial diagnostics on `COM15`: `max Process: 424 us (budget 496 us) | i2s stalls: 0 (+0)` confirmed live and responsive.
 
+### Rack Module Default Parameters from ctag-tbd (`c507423`, 2026-11-12)
+- **User Requests**:
+  1. "ok, now i figured out that default settings for most modules are 0. take default parameters from C:\Users\schra\Developer\ctag-tbd - it has ports of all MI modules and each one has good starting parameters. But they need recalculation because of different numbers range. leave pitch at 0 and VCA at 127. If module has reverb set it to 0. trig always off. i mean take default values"
+- **Recalculations & Implementations**:
+  1. **ctag-tbd Data Sources**:
+     - `mp-Elements.jsn`: Geometry 819/4095 (0.2f / CC 25), Damping 1024/4095 (0.25f / CC 32), Position 1229/4095 (0.3f / CC 38), Strike 3276/4095 (0.8f / CC 102), Contour/Mallet/Timbres/Flow/Brightness 2047/4095 (0.5f / CC 64), Bow/Blow 0, Reverb 0, Play 0, Pitch 0 st (CC 64), VCA 127.
+     - `mp-Claude.jsn`: Density 2835/4095 (0.692f / CC 88), Texture 2729/4095 (0.666f / CC 85), Dry/Wet 3167/4095 (0.773f / CC 98), Spread 2827/4095 (0.690f / CC 88), Feedback 399/4095 (0.097f / CC 12), Position/Size 2047/4095 (0.5f / CC 64), Reverb 0, Pitch 0 st (CC 64), Mode 0 (Granular), Quality 0 (16-bit stereo), Trig/Freeze 0.
+     - `mp-TBDaits.jsn`: Timbre, Morph, Harmonics, LPG Colour, Decay 2047/4095 (0.5f / CC 64), Macro 0.0f (CC 64), Engine 0 (VA), Aux 1 (Stereo OUT/AUX), Level 127 (1.0f / CC 25 & CC 7), Pitch 0 st (CC 64), Trig 0.
+     - `mp-TBDings.jsn`: Structure, Brightness, Damping, Position 2047/4095 (0.5f / CC 64), Model 0 (Modal), Poly 0 (1 voice), Mode 0 (Stereo), Wave 0 (Square), Chord Table 0 (Bryan), Chord 0, Pitch 0 st (CC 64), VCA 127, Strum 0.
+  2. **Cache & UI Telemetry Alignment (`rack-rp2350/src/ui_link.h`, `rack-rp2350/src/main.cpp`)**:
+     - Implemented `ui_link_init_defaults()` and `ui_link_set_cached_cc()` populating `g_ui_cc_cache` and `g_ui_cc_seen` for all 4 modules.
+     - Called `preset_replay_module(RACK_BOOT_MODULE)` after `ui_link_uart_init()` in `main.cpp` `setup()`.
+     - C3 TELEM snapshots send the non-zero defaults on page requests.
+  3. **C3 PresetBank Capacity Fix (`rack-uimcu/main/PresetBank.hpp`)**:
+     - Increased `PresetBank::kMaxRp` from 896 to 1024 bytes to accommodate the 12-source mod record (927 bytes), eliminating the `PresetStore: PART overflow - dropped` error.
+- **Hardware Flashed & Verified**:
+  - `rack-rp2350` (`rack-elements`) flashed to `COM15` via `tools/flash_rp2350.py`.
+  - `rack-uimcu` flashed to `COM22` via `tools/build_uimcu.bat flash -p COM22`.
+  - Serial verified: `COM15` reports 0 I2S stalls (`max Process: 458 us`), `COM22` connects via BLE-MIDI and receives full TELEM snapshots without dropouts or overflows.
+
