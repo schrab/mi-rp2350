@@ -2550,3 +2550,34 @@ ack-uimcu)**:
   - Expanded MOD-ARP cell labels in `rack-rp2350/src/ui_link.h` (`P1/P2 SCALE`, `P1/P2 GROOVE`, `P1/P2 DENS`).
   - Expanded display value strings in `rack-uimcu/ui/RackUI.cpp` up to 8–9 characters (`HYP-1 1..3`, `MOTIF 1..3`, `MARKOV 1..3`, `METRO 1..3`, `DEJAVU 1..3`; scales `CHROM`, `IONIAN`, `DORIAN`, `PHRYGIAN`, `MAJ PENT`, `MIN PENT`, `HARM MIN`, `MEL MIN`, `PHRYGDOM`, `WHOLETON`, `OCTATON`, `HIRAJOSH`, `INSEN`, `DBL HARM`, `ACIDPOOL`; roots `MIDI`, `PARALLEL`, `W7 DRIFT`, `NEO-RIEM`).
   - Both RP2350 (`COM15`) and ESP32-C3 (`COM22`) rebuilt and flashed.
+
+### Rack T15: Shared Root/Scale, Algorithm-Specific Parameters & Slower Divisions (`a65c0e0`, 2026-11-12)
+- **User Requests**:
+  1. Make `ROOT` and `SCALE` shared between `ARP1` and `ARP2` for complete harmonic/tonal lock across both melody generators. Move them to middle row pots 9 / 10 (slots 8 and 9).
+  2. Free up 2 slots per ARP row (pots 1..4 on Row 0 for ARP1, pots 11..14 on Row 2 for ARP2) to expose 4 algorithm-specific parameters with dynamic onscreen label & value text switching.
+  3. Expand clock divisions to support slower notes: add `2/1` (2x), `4/1` (4x), and `8/1` (8x) before `1/1` (13 divisions total).
+  4. Rename Algo 0 variants to `"HYP-1"`, `"HYP-2"`, `"HYP-3"`.
+  5. Flash both RP2350 and ESP32-C3 immediately after building.
+- **Implementation**:
+  - **Clock Divisions (`rack-rp2350/src/mod_engine.h`, `rack-uimcu/ui/RackUI.cpp`)**:
+    - `ModDivision::ppq` changed to `uint16_t` to hold up to 768 ticks. Added `8/1` (768), `4/1` (384), `2/1` (192) before `1/1` (96). `MOD_DIVISION_COUNT = 13`.
+    - `kDivNames[13]` updated across all UI pages, discrete bucket pickup bounds, and mod-ride formatting.
+  - **Shared Tonal Controls**:
+    - Middle row pots 9 and 10 (slots 8 and 9) mapped to param 10 (shared root) and param 11 (shared scale).
+    - `mod_arp_set_shared_root()` and `mod_arp_set_shared_scale()` synchronize chord degree and Neo-Riemannian triad root/minor flag across both ARP1 and ARP2.
+    - Incoming external MIDI notes synchronize degree across both units simultaneously.
+  - **Dynamic Algorithm Parameters & Onscreen Switching**:
+    - Slots 1..4 (Row 0, ARP1) and slots 11..14 (Row 2, ARP2) dynamically update labels and value strings based on active algorithm:
+      - **HYP-1..3**: `DENS` (%), `SLID` (%), `ACC` (%), `MUTE` (%)
+      - **MOTIF 1..3**: `DENS` (%), `FORM` (`ABAC`, `AABC`, `ABBC`, `AABA`), `XFORM` (`INV`, `RETRO`, `TRANS`, `DISP`), `MUTE` (%)
+      - **MARKOV 1..3**: `PROB` (%), `CNTR` (16 contours e.g. `ARCH`, `VALLEY`, `ASCEND`), `PEDL` (`OFF`, `ROOT`, `5TH`, `BOUNCE`), `GRAV` (%)
+      - **METRO 1..3**: `PROB` (%), `PULS` (`1p`..`8p`), `RTCH` (`OFF`, `2X`, `3X`, `4X`), `ACUM` (`PENDLM`, `WRAP`, `RANDOM`, `HOLD`)
+      - **DEJAVU 1..3**: `PROB` (%), `DJVU` (`MUT%d`, `LOCK`, `PRM%d`), `STEP` (`ALL`, `PENT`, `TRIAD`, `ROOT`), `SPRD` (%)
+    - Dynamic labels generated on RP2350 (`ui_aux_cell_label()`), pushed via TELEM deltas/full snapshots on algorithm switches.
+    - `kArpAlgoNames[15]` updated with clean Algo 0 names: `"HYP-1"`, `"HYP-2"`, `"HYP-3"`.
+  - **Bug Fix**:
+    - Corrected legacy `page == 7` references in `rack-uimcu/main/RackLink.cpp` to `page == 8` so SYS page BPM pot and module selector operate without clashing with MOD-ARP.
+- **Hardware Flashed & Verified**:
+  - `rack-elements` built and flashed to RP2350 on `COM15`.
+  - `rack-uimcu` built and flashed to ESP32-C3 on `COM22`.
+  - Live console testing on `COM15`: `mod 10 root neo`, `mod 10 scale 8`, `mod 10 div 8/1`, and `mod 10 algo dejavu` confirmed simultaneous dual-unit synchronization and 0 audio/I2S stalls.
