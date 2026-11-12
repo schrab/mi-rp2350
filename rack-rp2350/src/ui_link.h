@@ -414,9 +414,9 @@ static const UiAuxCell kUiModArpCells[16] = {
     // Row 0: ARP 1 (pots 0..5)
     {"P1 ALGO", kUiColorPink, 10, 0},
     {"P1 ROOT", kUiColorPink, 10, 1},
-    {"P1 SCAL", kUiColorPink, 10, 2},
+    {"P1 SCALE", kUiColorPink, 10, 2},
     {"P1 DENS", kUiColorPink, 10, 3},
-    {"P1 GRV",  kUiColorPink, 10, 4},
+    {"P1 GROOVE", kUiColorPink, 10, 4},
     {"P1 DIV",  kUiColorPink, 10, 6},
     // Row 1: empty (pots 6..9 — matches LFO/TRIG/GATE/ENV layout)
     {"", kUiColorWhite, 0xFF, 0xFF},
@@ -426,9 +426,9 @@ static const UiAuxCell kUiModArpCells[16] = {
     // Row 2: ARP 2 (pots 10..15)
     {"P2 ALGO", kUiColorPink, 11, 0},
     {"P2 ROOT", kUiColorPink, 11, 1},
-    {"P2 SCAL", kUiColorPink, 11, 2},
+    {"P2 SCALE", kUiColorPink, 11, 2},
     {"P2 DENS", kUiColorPink, 11, 3},
-    {"P2 GRV",  kUiColorPink, 11, 4},
+    {"P2 GROOVE", kUiColorPink, 11, 4},
     {"P2 DIV",  kUiColorPink, 11, 6},
 };
 

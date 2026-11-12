@@ -854,16 +854,18 @@ namespace CTAG {
                     } else if (s_page == 7) {
                         // MOD-ARP:
                         static const char *const kArpAlgoNames[15] = {
-                            "HYP.1", "HYP.2", "HYP.3",
-                            "MOT.1", "MOT.2", "MOT.3",
-                            "MRK.1", "MRK.2", "MRK.3",
-                            "MET.1", "MET.2", "MET.3",
-                            "DJV.1", "DJV.2", "DJV.3"
+                            "HYP-1 1", "HYP-1 2", "HYP-1 3",
+                            "MOTIF 1", "MOTIF 2", "MOTIF 3",
+                            "MARKOV 1", "MARKOV 2", "MARKOV 3",
+                            "METRO 1", "METRO 2", "METRO 3",
+                            "DEJAVU 1", "DEJAVU 2", "DEJAVU 3"
                         };
                         static const char *const kArpScaleNames[20] = {
-                            "CHRM", "ION ", "DOR ", "PHRG", "LYD ", "MIXO", "AEOL", "LOCR",
-                            "PMAJ", "PMIN", "BLUS", "HMIN", "MMIN", "PDOM", "WTON",
-                            "OCT ", "HIRA", "INSN", "DHARM", "ACID"
+                            "CHROM",    "IONIAN",   "DORIAN",   "PHRYGIAN",
+                            "LYDIAN",   "MIXOLYD",  "AEOLIAN",  "LOCRIAN",
+                            "MAJ PENT", "MIN PENT", "BLUES",    "HARM MIN",
+                            "MEL MIN",  "PHRYGDOM", "WHOLETON", "OCTATON",
+                            "HIRAJOSH", "INSEN",    "DBL HARM", "ACIDPOOL"
                         };
                         static const char *const kNoteNames[12] = {
                             "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
@@ -874,11 +876,11 @@ namespace CTAG {
                             if (dispVal == 0) {
                                 pName = "MIDI";
                             } else if (dispVal == 1) {
-                                pName = "PARAL";
+                                pName = "PARALLEL";
                             } else if (dispVal == 2) {
-                                pName = "W7";
+                                pName = "W7 DRIFT";
                             } else if (dispVal == 3) {
-                                pName = "NEO";
+                                pName = "NEO-RIEM";
                             } else if (dispVal >= 24 && dispVal <= 84) {
                                 int oct = (dispVal / 12) - 1;
                                 snprintf(bufText, sizeof(bufText), "%s%d", kNoteNames[dispVal % 12], oct);
