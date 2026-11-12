@@ -1034,6 +1034,66 @@ static uint8_t mod_arp_calc_note(const ModSource& s, const ModArpExt& ext,
   return degree_to_midi_folded(base_root, ext.deg, step.off, step.oct, ext.scale_st, ext.nsteps);
 }
 
+// Check if destination CC targets voice pitch on the active module or chain
+static inline bool mod_is_pitch_dest(uint8_t cc) {
+  if (cc == MOD_DEST_VOICE) return true;
+  if (g_mod_chain_grid != 0) {
+    return (cc == 1 || cc == 42 || cc == 16);
+  } else {
+    if (g_active_module == RACK_MODULE_CLOUDS) {
+      return (cc == 42 || cc == 16);
+    } else {
+      return (cc == 1);
+    }
+  }
+}
+
+// True when an active ARP wants incoming MIDI notes for root transposition
+bool mod_arp_wants_midi_notes() {
+  for (uint8_t i = 0; i < MOD_ARP_COUNT; ++i) {
+    const ModSource& s = g_mod_engine.src[MOD_SRC_ARP_FIRST + i];
+    if (s.dest_cc != 0) {
+      if (s.p.arp.root_param == 0 || s.p.arp.root_param == 1) return true;
+      if (mod_is_pitch_dest(s.dest_cc)) return true;
+    }
+  }
+  return false;
+}
+
+// Transpose generative ARP instances to incoming MIDI keyboard note
+void mod_arp_note_transpose(uint8_t note) {
+  for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
+    ModSource& s = g_mod_engine.src[MOD_SRC_ARP_FIRST + k];
+    ModArpExt& ext = g_mod_engine.arp_ext[k];
+    if (s.p.arp.root_param == 0) {
+      // Diatonic Harmonizer: find nearest scale degree in active key, track octave
+      uint8_t pc = note % 12u;
+      uint8_t base_pc = s.p.arp.midi_root % 12u;
+      uint8_t rel_semi = (uint8_t)((pc + 12u - base_pc) % 12u);
+      uint8_t best_deg = 0;
+      uint8_t min_err = 12;
+      for (uint8_t st = 0; st < ext.nsteps; ++st) {
+        uint8_t err = (rel_semi >= ext.scale_st[st]) ? (rel_semi - ext.scale_st[st]) : (ext.scale_st[st] - rel_semi);
+        if (err < min_err) { min_err = err; best_deg = st; }
+      }
+      ext.deg = (int8_t)best_deg;
+      s.p.arp.midi_root = (uint8_t)((note / 12u) * 12u + base_pc);
+    } else {
+      // Parallel chromatic transpose to incoming MIDI note
+      s.p.arp.midi_root = note;
+      ext.deg = 0;
+      if (s.p.arp.root_param >= 4) {
+        s.p.arp.root_param = note;
+      }
+    }
+    s.p.arp.cur_note = mod_arp_calc_note(s, ext, ext.steps[s.p.arp.step]);
+    ext.target_pitch_q16 = ((int32_t)s.p.arp.cur_note) << 16;
+    if (!s.p.arp.held) {
+      ext.current_pitch_q16 = ext.target_pitch_q16;
+    }
+  }
+}
+
 // ===================== engine -> adapter dispatch =====================
 // Continuous destination write (active module only — its adapter state is the
 // live one). Returns false when the CC is not a continuous destination there.
@@ -1385,33 +1445,35 @@ void mod_engine_process_block(uint8_t active_module) {
         s.out = s.p.adsr.env;
       } else {  // MOD_ARP (Switchable 5-Algo Generative Melody & Gate Generator)
         ModArpExt& ext = e.arp_ext[s.p.arp.ext_idx];
-        // Capture external MIDI note-ons when in MIDI Follow mode (root_param == 0 or 1)
-        const uint8_t sn = (uint8_t)(shared_note + 0.5f);
-        if (sn >= 12 && sn <= 108 && sn != s.p.arp.last_out_note) {
-          if (s.p.arp.root_param == 0) {
-            // Diatonic Harmonizer: find nearest scale degree in active key
-            uint8_t pc = sn % 12u;
-            uint8_t base_pc = s.p.arp.midi_root % 12u;
-            uint8_t rel_semi = (uint8_t)((pc + 12u - base_pc) % 12u);
-            uint8_t best_deg = 0;
-            uint8_t min_err = 12;
-            for (uint8_t k = 0; k < ext.nsteps; ++k) {
-              uint8_t err = (rel_semi >= ext.scale_st[k]) ? (rel_semi - ext.scale_st[k]) : (ext.scale_st[k] - rel_semi);
-              if (err < min_err) { min_err = err; best_deg = k; }
-            }
-            ext.deg = (int8_t)best_deg;
-            for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
-              e.arp_ext[k].deg = (int8_t)best_deg;
-            }
-          } else if (s.p.arp.root_param == 1) {
-            // Berlin School parallel chromatic transpose
-            for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
-              e.src[MOD_SRC_ARP_FIRST + k].p.arp.midi_root = sn;
-              e.arp_ext[k].deg = 0;
-            }
-          } else {
-            for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
-              e.src[MOD_SRC_ARP_FIRST + k].p.arp.midi_root = sn;
+        // Fallback polling: capture external MIDI note-ons when not handled directly by midiNoteOn
+        if (!mod_arp_wants_midi_notes()) {
+          const uint8_t sn = (uint8_t)(shared_note + 0.5f);
+          if (sn >= 12 && sn <= 108 && sn != s.p.arp.last_out_note) {
+            if (s.p.arp.root_param == 0) {
+              // Diatonic Harmonizer: find nearest scale degree in active key
+              uint8_t pc = sn % 12u;
+              uint8_t base_pc = s.p.arp.midi_root % 12u;
+              uint8_t rel_semi = (uint8_t)((pc + 12u - base_pc) % 12u);
+              uint8_t best_deg = 0;
+              uint8_t min_err = 12;
+              for (uint8_t k = 0; k < ext.nsteps; ++k) {
+                uint8_t err = (rel_semi >= ext.scale_st[k]) ? (rel_semi - ext.scale_st[k]) : (ext.scale_st[k] - rel_semi);
+                if (err < min_err) { min_err = err; best_deg = k; }
+              }
+              ext.deg = (int8_t)best_deg;
+              for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
+                e.arp_ext[k].deg = (int8_t)best_deg;
+              }
+            } else if (s.p.arp.root_param == 1) {
+              // Berlin School parallel chromatic transpose
+              for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
+                e.src[MOD_SRC_ARP_FIRST + k].p.arp.midi_root = sn;
+                e.arp_ext[k].deg = 0;
+              }
+            } else {
+              for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
+                e.src[MOD_SRC_ARP_FIRST + k].p.arp.midi_root = sn;
+              }
             }
           }
         }

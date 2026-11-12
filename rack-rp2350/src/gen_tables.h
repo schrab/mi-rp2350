@@ -247,7 +247,8 @@ static inline uint8_t degree_to_midi_folded(uint8_t root_pc,
     int16_t oct_shift = floor_div_i16(total_deg, m) + (int16_t)oct_offset;
     int16_t scale_idx = floor_mod_i16(total_deg, m);
 
-    int16_t midi_note = 36 + (int16_t)(root_pc % 12u)
+    int16_t base = (root_pc >= 24) ? (int16_t)root_pc : (int16_t)(36 + (root_pc % 12u));
+    int16_t midi_note = base
                       + (int16_t)scale_steps[scale_idx]
                       + (12 * oct_shift);
 

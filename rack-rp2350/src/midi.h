@@ -120,6 +120,11 @@ void rack_chain_control_change(uint8_t cc, uint8_t val);
 // midiHandleEventPacket to join. Defined in mod_engine.h.
 void rack_mod_clock_realtime(uint8_t status);
 
+// Generative ARP MIDI follower: checks if ARP wants incoming MIDI notes for
+// root transposition instead of direct synth playback. Defined in mod_engine.h.
+bool mod_arp_wants_midi_notes();
+void mod_arp_note_transpose(uint8_t note);
+
 // T5 UI-link CC-value observer (defined in ui_link.h, main.cpp TU): records
 // the wire CC under the active module for the TELEM value cache and, when
 // the CC is a cell of the C3's active page, emits a throttled TELEM delta.
@@ -181,22 +186,32 @@ static void applyNote() {
 
 inline void midiNoteOn(uint8_t note, uint8_t vel) {
   note_stack.push(note);          // retrigger: moves to top, no duplicate
-  applyNote();
-  shared_gate = true;
   ++note_on_count;
   last_note_event_ms = millis();
-  rack_module_note_on(note, vel);  // registry -> active adapter
+  if (mod_arp_wants_midi_notes()) {
+    mod_arp_note_transpose(note);
+  } else {
+    applyNote();
+    shared_gate = true;
+    rack_module_note_on(note, vel);  // registry -> active adapter
+  }
 }
 
 inline void midiNoteOff(uint8_t note) {
   note_stack.remove(note);
-  if (note_stack.size == 0) {
-    shared_gate = false;          // gate only drops when the stack empties
-  } else {
-    applyNote();                  // released note was on top: fall back to the
-  }                               // previous held note
   last_note_event_ms = millis();
-  rack_module_note_off(note);
+  if (mod_arp_wants_midi_notes()) {
+    if (note_stack.size > 0) {
+      mod_arp_note_transpose(note_stack.top());
+    }
+  } else {
+    if (note_stack.size == 0) {
+      shared_gate = false;          // gate only drops when the stack empties
+    } else {
+      applyNote();                  // released note was on top: fall back to the
+    }                               // previous held note
+    rack_module_note_off(note);
+  }
 }
 
 inline void midiPitchBend(int16_t bend14) {  // -8192..8191, 0 = centered
