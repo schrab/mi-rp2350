@@ -2610,3 +2610,22 @@ ack-uimcu)**:
 - **Hardware Flashed & Verified**:
   - RP2350 flashed (`firmware.uf2` on `COM15`); ESP32-C3 flashed (`rack-uimcu.bin` on `COM22`).
   - Core 1 running at 472 µs (budget 496 µs), 0 I2S stalls. ALGO switching operates smoothly across all 15 choices without snap-backs.
+
+### Generative ARP MIDI Keyboard Root Transposition (`34fdcb9`, 2026-11-12)
+- **User Requests**:
+  1. "transpose ARP from incoming midi notes when its assigned to PITCH parameter of any module, now incoming notes always played by synth. If ARP asigned to other parameter - current behaviour"
+  2. "like setting the root note from midi keyboard"
+  3. "so in this case dont need check where ARP is routed. I can just switch root to midi in its settings, thats fine for me."
+- **Root Cause & Fixes**:
+  1. **Synth Voice Double-Triggering / Raw Note Striking**:
+     - In `midi.h`, `midiNoteOn()` unconditionally called `rack_module_note_on(note, vel)`, `applyNote()`, and `shared_gate = true`. When the user played their MIDI keyboard while an ARP was running, the raw keyboard note struck the synthesizer voice directly, fighting the arpeggio stream.
+     - Solution: added `mod_arp_wants_midi_notes()`. When an active ARP has ROOT set to MIDI follow (`root_param == 0 || root_param == 1`) or is routed to voice pitch (`MOD_DEST_VOICE`, CC 1, CC 42/16 on Clouds), incoming MIDI notes call `mod_arp_note_transpose(note)` and bypass `rack_module_note_on()`, leaving `shared_gate` strictly under ARP control. When ARP is not routed or ROOT is set to a fixed note / autonomous mode, normal synth playback is preserved.
+  2. **Octave Truncation Bug in `degree_to_midi_folded()` (`rack-rp2350/src/gen_tables.h`)**:
+     - `int16_t midi_note = 36 + (int16_t)(root_pc % 12u) ...` hardcoded octave 36 (C2) and discarded `root_pc`'s octave entirely. C2, C3, C4, C5 all mapped to octave 36.
+     - Solution: updated base note calculation to `int16_t base = (root_pc >= 24) ? (int16_t)root_pc : (int16_t)(36 + (root_pc % 12u));`. Incoming keyboard notes preserve their full octave across [28..96].
+  3. **Legato Transposition & Latching**:
+     - `note_stack` tracks active held keys. On key release, if another key is held, ARP transposes back to the top held key; when all keys are released, the ARP latches on the last root note.
+- **Hardware Flashed & Verified**:
+  - RP2350 built and flashed to `COM15` via `tools/flash_rp2350.py`.
+  - Serial diagnostics on `COM15`: `max Process: 424 us (budget 496 us) | i2s stalls: 0 (+0)` confirmed live and responsive.
+
