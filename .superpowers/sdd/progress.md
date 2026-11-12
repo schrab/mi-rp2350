@@ -2515,3 +2515,33 @@ ack-uimcu)**:
   - ESP32-C3 console confirmed:
     - Page 7 (MOD-ARP) displays all 16 cell values and labels for P1 (rp1) and P2 (rp2).
     - Bidirectional link and pots are online and scanning.
+
+
+### Rack T14: Generative Melodic Sequencer Upgrade (2026-11-12)
+- **User Request**:
+  - Incorporate research findings from `docs/Architectural Frameworks and Implementation Patterns for Embedded Generative Melodic Sequencers.md` to improve the `MOD_ARP` module.
+- **Architectural & DSP Implementation**:
+  1. **Canonical Scales & Bitmask Math (`rack-rp2350/src/gen_tables.h`)**:
+     - Bit-verified 20 canonical scale bitmasks (`SCALE_BITMASKS`) replacing legacy buggy masks (Phrygian was 0x06B5 Mixolydian, Major Pentatonic was 0x0125).
+     - Euclidean negative-safe floor division and modulo (`floor_div_i16`, `floor_mod_i16`) fixing octave fold calculations.
+     - Krumhansl-Schmuckler tonal hierarchy tables (`KS_GRAVITY_MAJOR`, `KS_GRAVITY_MINOR`), metrical beat weight hierarchies, and 7x7 diatonic voice-leading Markov matrix.
+     - Neo-Riemannian triad transformation state machine (P, L, R, N, S, H).
+     - 16 canonical melodic pitch contours (`MELODIC_CONTOURS_DEG[16][16]`) and metrical mutation sensitivities.
+  2. **5 Algorithmic Generators (`rack-rp2350/src/mod_engine.h`)**:
+     - `MOD_ARP_HYP1` (0): HYP-1 Acid generator with dynamic 303 articulations, slide legato, and accent capacitor modeling.
+     - `MOD_ARP_MOTIF` (1): Phrase-Grammar Motif Transformer (ABAC, AABC, ABBC, AABA) with diatonic inversion, retrograde, rhythmic displacement, and step 15 pickups.
+     - `MOD_ARP_MARKOV` (2): Tonal-Gravity Markov Walker combining K-S tonal gravity, chord-root bias, voice-leading transition matrices, and 16 contour templates.
+     - `MOD_ARP_METRO` (3): Metropolix 8-Stage Accumulator with per-stage pulse counts (1..8), ratchets (1..4 bursts), and pendulum scale accumulator.
+     - `MOD_ARP_DEJAVU` (4): Marbles Deja-Vu Shift Register with weak-beat mutation bias, 12 o'clock lock notch, permute jumps, and STEPS progressive salience quantizer.
+     - Cadential turnaround engine (`mod_arp_apply_turnaround()`): 4-bar and 8-bar fills.
+     - Q16.16 exponential pitch glide (~55 ms) and slide retrigger logic.
+  3. **UI Link & Physical Controller Sync (`rack-rp2350/src/ui_link.h`, `rack-uimcu/ui/RackUI.cpp`)**:
+     - Normalized 15-algo pot range (5 algos x 3 octave ranges: `HYP.1..3`, `MOT.1..3`, `MRK.1..3`, `MET.1..3`, `DJV.1..3`).
+     - Display for 20 scales and root modes (`MIDI`, `PARAL`, `W7`, `NEO`, `C1..C6`).
+- **Built, Flashed & Hardware Verified**:
+  - RP2350 flashed via 1200-baud touch to `COM15` (`firmware.uf2`).
+  - ESP32-C3 UI controller flashed via `build_uimcu.bat flash -p COM22`.
+  - Serial console verification:
+    - Booted into Elements (`mod=elements`), modulation engine running smoothly with 0 stalls (`i2s stalls: 0 (+0)`), process load ~89-111 us.
+    - Live switching between all 5 algorithms (`mod arp1 algo hyp1/motif/markov/metro/dejavu`) and 20 scales (`mod arp1 scale acidpool/blues/...`) verified over serial telemetry.
+    - UART link between RP2350 and C3 confirmed operational at 921600 baud with 0 CRC errors.

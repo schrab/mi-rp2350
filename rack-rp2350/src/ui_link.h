@@ -690,14 +690,14 @@ static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
       default:  // MOD_ARP
         switch (c.param) {
           case 0: {
-            const uint8_t base = (s.p.arp.algo >= 2) ? 86 : (s.p.arp.algo == 1 ? 43 : 0);
-            const uint8_t rng = (s.p.arp.range > 1) ? (uint8_t)((s.p.arp.range - 1) * 15) : 0;
+            const uint8_t base = (uint8_t)((s.p.arp.algo % 5) * 25);
+            const uint8_t rng = (s.p.arp.range > 1) ? (uint8_t)((s.p.arp.range - 1) * 8) : 0;
             return (uint8_t)(base + rng);
           }
           case 1:
-            if (s.p.arp.root_param == 0) return 0;
-            return (uint8_t)(1 + (((uint16_t)(s.p.arp.root_param - 24) * 126 + 30) / 60));
-          case 2: return ui_ceil_div((uint16_t)s.p.arp.scale_idx * 128u, 16u);
+            if (s.p.arp.root_param <= 3) return (uint8_t)s.p.arp.root_param;
+            return (uint8_t)(4 + (((uint16_t)(s.p.arp.root_param - 24) * 123 + 30) / 60));
+          case 2: return (uint8_t)(((uint16_t)(s.p.arp.scale_idx & 0x3Fu) * 127) / (SCALE_COUNT ? (SCALE_COUNT - 1) : 1));
           case 3: return (uint8_t)(((uint16_t)s.p.arp.density * 127 + 50) / 100);
           case 4: return (uint8_t)(((uint16_t)s.p.arp.groove * 127 + 50) / 100);
           case 5: return s.clock_sel == MOD_CLK_GLOBAL ? 0 : (s.clock_sel == MOD_CLK_INTERNAL ? 64 : 127);

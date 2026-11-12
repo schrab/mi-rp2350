@@ -512,33 +512,35 @@ namespace CTAG {
             }
             if (page == 7) {
                 // MOD-ARP:
-                // P1/P2 ALGO (0, 10): 0..8 (3 algos * 3 octave ranges)
+                // P1/P2 ALGO (0, 10): 0..14 (5 algos * 3 octave ranges)
                 if (slot == 0 || slot == 10) {
-                    int algo = (potVal < 43) ? 0 : (potVal < 86 ? 1 : 2);
-                    int oct = 1 + ((potVal % 43) * 3) / 43;
+                    int algo = potVal / 25;
+                    if (algo > 4) algo = 4;
+                    int sub = potVal % 25;
+                    int oct = 1 + (sub * 3) / 25;
                     if (oct > 3) oct = 3;
                     barVal = algo * 3 + (oct - 1);
-                    barMax = 8;
+                    barMax = 14;
                     return barVal;
                 }
-                // P1/P2 ROOT (1, 11): 0 = MIDI, 1..61 = Note 24..84 (C1..C6)
+                // P1/P2 ROOT (1, 11): 0=MIDI, 1=PARAL, 2=W7, 3=NEO, 4..64=Note 24..84 (C1..C6)
                 if (slot == 1 || slot == 11) {
-                    if (potVal == 0) {
-                        barVal = 0; barMax = 61;
-                        return 0; // 0 = MIDI
+                    if (potVal <= 3) {
+                        barVal = potVal; barMax = 64;
+                        return potVal;
                     }
-                    int note = 24 + ((int)(potVal - 1) * 60) / 126;
+                    int note = 24 + ((int)(potVal - 4) * 60) / 123;
                     if (note > 84) note = 84;
-                    barVal = note - 24 + 1;
-                    barMax = 61;
+                    barVal = note - 24 + 4;
+                    barMax = 64;
                     return note;
                 }
-                // P1/P2 SCAL (2, 12): 0..15 scale/chord
+                // P1/P2 SCAL (2, 12): 0..19 scale/chord
                 if (slot == 2 || slot == 12) {
-                    int v = ((int)potVal * 16) / 128;
-                    if (v > 15) v = 15;
+                    int v = ((int)potVal * 20) / 128;
+                    if (v > 19) v = 19;
                     barVal = v;
-                    barMax = 15;
+                    barMax = 19;
                     return v;
                 }
                 // P1/P2 DENS (3, 13): 0..100 (%)
@@ -851,23 +853,32 @@ namespace CTAG {
                         }
                     } else if (s_page == 7) {
                         // MOD-ARP:
-                        static const char *const kArpAlgoNames[9] = {
+                        static const char *const kArpAlgoNames[15] = {
                             "HYP.1", "HYP.2", "HYP.3",
-                            "BAR.1", "BAR.2", "BAR.3",
-                            "GRD.1", "GRD.2", "GRD.3"
+                            "MOT.1", "MOT.2", "MOT.3",
+                            "MRK.1", "MRK.2", "MRK.3",
+                            "MET.1", "MET.2", "MET.3",
+                            "DJV.1", "DJV.2", "DJV.3"
                         };
-                        static const char *const kArpScaleNames[16] = {
-                            "ION", "DOR", "PHR", "LYD", "MIX", "AEO", "PMAJ", "PMIN",
-                            "ION+", "DOR+", "PHR+", "LYD+", "MIX+", "AEO+", "PMA+", "PMI+"
+                        static const char *const kArpScaleNames[20] = {
+                            "CHRM", "ION ", "DOR ", "PHRG", "LYD ", "MIXO", "AEOL", "LOCR",
+                            "PMAJ", "PMIN", "BLUS", "HMIN", "MMIN", "PDOM", "WTON",
+                            "OCT ", "HIRA", "INSN", "DHARM", "ACID"
                         };
                         static const char *const kNoteNames[12] = {
                             "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
                         };
                         if (slot == 0 || slot == 10) {
-                            pName = (dispVal >= 0 && dispVal < 9) ? kArpAlgoNames[dispVal] : "---";
+                            pName = (dispVal >= 0 && dispVal < 15) ? kArpAlgoNames[dispVal] : "---";
                         } else if (slot == 1 || slot == 11) {
                             if (dispVal == 0) {
                                 pName = "MIDI";
+                            } else if (dispVal == 1) {
+                                pName = "PARAL";
+                            } else if (dispVal == 2) {
+                                pName = "W7";
+                            } else if (dispVal == 3) {
+                                pName = "NEO";
                             } else if (dispVal >= 24 && dispVal <= 84) {
                                 int oct = (dispVal / 12) - 1;
                                 snprintf(bufText, sizeof(bufText), "%s%d", kNoteNames[dispVal % 12], oct);
@@ -876,7 +887,7 @@ namespace CTAG {
                                 pName = "---";
                             }
                         } else if (slot == 2 || slot == 12) {
-                            pName = (dispVal >= 0 && dispVal < 16) ? kArpScaleNames[dispVal] : "---";
+                            pName = (dispVal >= 0 && dispVal < 20) ? kArpScaleNames[dispVal] : "---";
                         } else if (slot == 3 || slot == 4 || slot == 13 || slot == 14) {
                             // DENS and GROOVE are percentage
                             snprintf(bufText, sizeof(bufText), "%d%%", dispVal);
@@ -1056,8 +1067,8 @@ namespace CTAG {
                 if (pot == 4 || pot == 14) n = 2;    // ADSR MODE (0..1)
                 if (pot == 5 || pot == 15) n = 10;   // ADSR DIV (0..9)
             } else if (s_page == 7) {
-                if (pot == 0 || pot == 10) n = 9;    // ARP ALGO (0..8)
-                if (pot == 2 || pot == 12) n = 16;   // ARP SCAL (0..15)
+                if (pot == 0 || pot == 10) n = 15;   // ARP ALGO (0..14)
+                if (pot == 2 || pot == 12) n = 20;   // ARP SCAL (0..19)
                 if (pot == 5 || pot == 15) n = 10;   // ARP DIV (0..9)
             } else if (s_page == 8) {
                 if (pot == 0) {
@@ -1069,7 +1080,7 @@ namespace CTAG {
                 else if (pot == 9 || pot == 10) n = 2; // BLE ON (0/1), BLE MODE (PER/CEN)
                 else if (pot == 5 || pot == 7 || pot == 14 || pot == 15) n = 2; // CHAIN ON 5, CLKSRC 7, TELEM D 14, TELEM F 15
             }
-            if (n >= 2 && n <= 19) {
+            if (n >= 2 && n <= 20) {
                 int k = ((int)t.value * n) / 128;
                 if (k >= n) k = n - 1;
                 int bLo = (k * 128 + n - 1) / n;
