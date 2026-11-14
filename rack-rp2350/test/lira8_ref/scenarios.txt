@@ -550,3 +550,18 @@ SCEN drone-nodelay
 
 8000 param vibrato 1
 9000 render stop
+
+SCEN onevoice
+0 param tune-1 64
+0 param sharp-12 127
+0 param vibrato 0
+0 param dst-mix 0
+0 param del-mix 0
+0 param hold-1234 0
+0 param hold-5678 0
+0 param drv 40
+0 param vol 90
+0 render open goldens/onevoice.wav
+0 render start
+100 sensor 1 1
+5000 render stop

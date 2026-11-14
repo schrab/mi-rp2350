@@ -2928,3 +2928,21 @@ scenario re-scoped fb=60 (int16 clip boundary); hold law fixed
 (min(e²+hold, 1)); master tanh input clip (fuzz explosion). All tests green.
 Aligned corr: drone-all 0.69, single-pair 0.81, fuzz-push 0.64, transients
 0.37, delay-extremes 0.06 (chaotic loop — use envelope/texture metrics).
+
+### Rack-lira8 L3 — single-voice spectral EXACT match (2026-11-15)
+
+The onevoice scenario (hold=0 + sensor 1 only = TRUE single voice; all prior
+"single voice" measurements were 4-voice latch mixes — hold=127 latches all):
+pd f0 81.0 Hz / period 395.6 / duty 0.532 vs eng IDENTICAL; harmonic table
+[100, 9, 31, 10, 18, 9, 10, 9, 7, 8] matches to the last digit. The PWM
+model (duty = 0.53125 + 0.025·V, V ∈ ±1, per-pair vibrato RATE) is CONFIRMED
+correct; the earlier H4/H7/H9 "anomaly" = 4-voice latch mixes, not an osc
+defect. Waveform corr 0.30 on a stationary tone = pure phase alignment
+(meaningless). THE OSC CHAIN IS SPECTRALLY FAITHFUL.
+
+Also fixed: render_golden end-time parsing (the "render stop" line's t is
+the true end; was last-event+1000 — mismatched render lengths).
+Remaining fidelity tail: multi-voice phase/coherence (corr is the wrong
+metric there too), delay-extremes chaotic texture, the −12 dB HF floor
+delta (source still unknown — delay/int16/rate/float-phase ALL exonerated
+by bisect; next suspect = the voice-sum/compander micro-differences).

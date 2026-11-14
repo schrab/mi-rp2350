@@ -65,8 +65,11 @@ int main(int argc, char** argv) {
     int t;
     char rest[480];
     if (sscanf(s.c_str(), "%d %[^\n]", &t, rest) != 2) continue;
+    if (std::string(rest) == "render stop" || std::string(rest) == "stop") {
+      end_ms = t;
+      continue;
+    }
     if (std::string(rest).rfind("render ", 0) == 0) continue;
-    if (std::string(rest) == "stop") continue;
     Event e;
     e.t_ms = t;
     char kind[128] = "", a[128] = "", b[128] = "";
