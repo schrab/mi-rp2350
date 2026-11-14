@@ -43,37 +43,42 @@ class Lira8Engine {
   static constexpr int kNumBuses = 8;     // del-12/34/56/78, tri, sqr, sqr-lfo, total-fb
 
   // cap_ms: delay storage cap (1450 ms RP2350 int16; 5944 ms ESP32 PSRAM).
-  explicit Lira8Engine(float sr = 32000.0f, float cap_ms = 1450.0f)
+  // delay_mem: EXTERNAL int16 storage for both delay lines, carved from the
+  // rack buffer arena by the adapter (2 x (nsamps+4) samples, contiguous) —
+  // NO heap anywhere (the rack discipline). Value members throughout.
+  explicit Lira8Engine(float sr = 32000.0f, float cap_ms = 1450.0f,
+                       int16_t* delay_mem = nullptr)
       : sr_(sr),
+        pairs_{VoicePair(sr, 0, 0u), VoicePair(sr, 1, 0u),
+               VoicePair(sr, 2, 0u), VoicePair(sr, 3, 0u)},
+        delays_{ModDelay(sr, cap_ms, kBlockSize, delay_mem),
+                ModDelay(sr, cap_ms, kBlockSize,
+                         delay_mem ? delay_mem + (nsamps_for(cap_ms, sr) + 4)
+                                   : nullptr)},
+        comp_{Compander(sr), Compander(sr)},
+        exp_{Expander(sr), Expander(sr)},
+        self_lpf_{Lop(689.0f, sr), Lop(689.0f, sr)},
         time_line_{Ramp(sr), Ramp(sr)},
         mod_line_{Ramp(sr), Ramp(sr)},
         fb_line_(sr),
         del_mix_line_(sr) {
     for (int b = 0; b < 2; ++b) {
-      delays_[b] = new ModDelay(sr, cap_ms, kBlockSize);
-      comp_[b] = new Compander(sr);
-      exp_[b] = new Expander(sr);
-      comp_[b]->set(2.5f, 2.5f, -12.0f, 5.0f);
-      exp_[b]->set(-60.0f, 5.0f);
-      self_lpf_[b] = new Lop(689.0f, sr);
+      comp_[b].set(2.5f, 2.5f, -12.0f, 5.0f);
+      exp_[b].set(-60.0f, 5.0f);
     }
-    for (int p = 0; p < 4; ++p) pairs_[p] = new VoicePair(sr, p, 0u);
     memset(buses_prev_, 0, sizeof(buses_prev_));
     memset(bus_next_, 0, sizeof(bus_next_));
     memset(self_prev_, 0, sizeof(self_prev_));
     apply_defaults();
   }
-  ~Lira8Engine() {
-    for (int b = 0; b < 2; ++b) {
-      delete delays_[b];
-      delete comp_[b];
-      delete exp_[b];
-      delete self_lpf_[b];
-    }
-    for (int p = 0; p < 4; ++p) delete pairs_[p];
+
+  static int nsamps_for(float cap_ms, float sr) {
+    return static_cast<int>(cap_ms * sr / 1000.0f);
   }
-  Lira8Engine(const Lira8Engine&) = delete;
-  Lira8Engine& operator=(const Lira8Engine&) = delete;
+  // Bytes of external storage the engine needs for both delay lines.
+  static size_t delay_bytes_for(float cap_ms, float sr) {
+    return (static_cast<size_t>(nsamps_for(cap_ms, sr)) + 4) * 2 * 2;
+  }
 
   // ---- control surface (raw 0..127; applied between internal blocks) ----
   // Param indices follow the CC candidate map (spec §12): 0-7 tune, 8-11 fast,
@@ -134,16 +139,16 @@ class Lira8Engine {
 
   void apply_params() {
     for (int p = 0; p < 4; ++p) {
-      VoicePair* vp = pairs_[p];
-      vp->set_tune(0, (int)params_[p * 2]);
-      vp->set_tune(1, (int)params_[p * 2 + 1]);
-      vp->set_fast(params_[8 + p] >= 0.5f);
-      vp->set_sharp((int)params_[12 + p]);
-      vp->set_mod((int)params_[16 + p]);
-      vp->set_pitch((int)params_[24 + p / 2]);
-      vp->set_hold((int)params_[26 + p / 2]);
-      vp->set_vibrato(params_[30] >= 0.5f ? 127 : 0);
-      vp->refresh_tune();
+      VoicePair& vp = pairs_[p];
+      vp.set_tune(0, (int)params_[p * 2]);
+      vp.set_tune(1, (int)params_[p * 2 + 1]);
+      vp.set_fast(params_[8 + p] >= 0.5f);
+      vp.set_sharp((int)params_[12 + p]);
+      vp.set_mod((int)params_[16 + p]);
+      vp.set_pitch((int)params_[24 + p / 2]);
+      vp.set_hold((int)params_[26 + p / 2]);
+      vp.set_vibrato(params_[30] >= 0.5f ? 127 : 0);
+      vp.refresh_tune();
       src_[p] = (int)params_[20 + p];
     }
     switch_ = params_[28] >= 0.5f ? 1.0f : 0.0f;
@@ -181,7 +186,7 @@ class Lira8Engine {
     for (int v = 0; v < 8; ++v) {
       if (pending_sensors_[v] != sensor_state_[v]) {
         sensor_state_[v] = pending_sensors_[v];
-        pairs_[v / 2]->set_sensor(v % 2, sensor_state_[v]);
+        pairs_[v / 2].set_sensor(v % 2, sensor_state_[v]);
       }
     }
     if (dirty) apply_params();
@@ -192,7 +197,7 @@ class Lira8Engine {
     // 2) voice pairs (M from PREVIOUS block's buses; soft-gated mux)
     for (int p = 0; p < 4; ++p) {
       mux_source(p, mux_buf_);
-      pairs_[p]->process(mux_buf_, kBlockSize, blk_[p], bus_next_[p]);
+      pairs_[p].process(mux_buf_, kBlockSize, blk_[p], bus_next_[p]);
     }
 
     // 3) delay section
@@ -253,22 +258,22 @@ class Lira8Engine {
                                           : buses_prev_[5][i];
         rp[i] = t + (self * gate_self + lfo * gate_lfo) * ma;
       }
-      delays_[b]->read_block(rp, kBlockSize, vd_out_[b]);
+      delays_[b].read_block(rp, kBlockSize, vd_out_[b]);
       for (int i = 0; i < kBlockSize; ++i)
-        self_next_[b][i] = self_lpf_[b]->process(vd_out_[b][i]) * 0.5f;
+        self_next_[b][i] = self_lpf_[b].process(vd_out_[b][i]) * 0.5f;
 
       // chain: hip~1 -> lop~4000 -> comp -> exp
       for (int i = 0; i < kBlockSize; ++i) {
-        chain_buf_[i] = comp_[b]->process(
+        chain_buf_[i] = comp_[b].process(
             lop4k_.process(hip1_.process(vd_out_[b][i])));
       }
-      exp_[b]->process_block(chain_buf_, kBlockSize, exp_out_[b]);
+      exp_[b].process_block(chain_buf_, kBlockSize, exp_out_[b]);
       // write = [19] + own feedback * shared smoothed gain
       const float fg = fb_line_.next();
       for (int i = 0; i < kBlockSize; ++i) {
         write_buf_[b][i] = write_sum[i] + exp_out_[b][i] * fg;
       }
-      delays_[b]->write_block(write_buf_[b], kBlockSize);
+      delays_[b].write_block(write_buf_[b], kBlockSize);
     }
     // wet monitor: (exp1+exp2)/2 / max(g,1.5) -> tanh -> mix with dry
     const float dm = del_mix_line_.next();
@@ -284,11 +289,11 @@ class Lira8Engine {
   }
 
   float sr_;
-  VoicePair* pairs_[4];
-  ModDelay* delays_[2];
-  Compander* comp_[2];
-  Expander* exp_[2];
-  Lop* self_lpf_[2];
+  VoicePair pairs_[4];
+  ModDelay delays_[2];
+  Compander comp_[2];
+  Expander exp_[2];
+  Lop self_lpf_[2];
   MasterOut master_{sr_};
   HyperLfo lfo_{sr_};
   Noise noise_{Noise::first_instance_seed()};

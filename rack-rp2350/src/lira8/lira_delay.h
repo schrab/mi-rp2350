@@ -22,17 +22,16 @@ namespace l8pd {
 class ModDelay {
  public:
   // cap_ms = storage cap (1.45 s on RP2350; 5.944 s on ESP32/PSRAM).
-  ModDelay(float sr, float cap_ms, int block)
+  // mem = EXTERNAL storage (the rack buffer arena / PSRAM on ESP32) —
+  // nsamps_+4 int16 samples, caller-owned, zeroed by the caller. No heap.
+  ModDelay(float sr, float cap_ms, int block, int16_t* mem)
       : sr_(sr),
         nsamps_(static_cast<int>(cap_ms * sr / 1000.0f)),
-        block_(block) {
-    buf_ = new int16_t[nsamps_ + 4];
+        block_(block),
+        buf_(mem) {
     memset(buf_, 0, (nsamps_ + 4) * sizeof(int16_t));
     phase_ = 4;
   }
-  ~ModDelay() { delete[] buf_; }
-  ModDelay(const ModDelay&) = delete;
-  ModDelay& operator=(const ModDelay&) = delete;
 
   static int bytes_for(float sr, float cap_ms) {
     return static_cast<int>(cap_ms * sr / 1000.0f + 4) *

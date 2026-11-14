@@ -25,7 +25,8 @@ static bool near(float a, float b, float tol) {
 static void test_moddelay_roundtrip() {
   const float sr = 32000.f;
   // impulse in, constant delay 500 ms -> returns at 500 ms (cubic interp)
-  ModDelay d(sr, 1450.f, 64);
+  static int16_t dm1[46400 + 4];
+  ModDelay d(sr, 1450.f, 64, dm1);
   float rp[64], out[64], in[64];
   for (int i = 0; i < 64; ++i) rp[i] = 500.0f;
   memset(in, 0, sizeof(in));
@@ -54,7 +55,8 @@ static void test_moddelay_roundtrip() {
 
 static void test_moddelay_cap_clamp() {
   const float sr = 32000.f;
-  ModDelay d(sr, 1450.f, 64);   // storage cap 1.45 s
+  static int16_t dm2[46400 + 4];
+  ModDelay d(sr, 1450.f, 64, dm2);   // storage cap 1.45 s
   float rp[64], out[64], in[64];
   // request 5000 ms (beyond the cap): clamped to nsamps - block ~ 1446 ms
   for (int i = 0; i < 64; ++i) rp[i] = 5000.0f;
@@ -155,7 +157,8 @@ static void test_master_laws() {
 
 static void test_engine_basic() {
   const float sr = 32000.f;
-  Lira8Engine eng(sr, 1450.f);
+  static int16_t delay_mem[2 * (46400 + 4)];
+  Lira8Engine eng(sr, 1450.f, delay_mem);
   float l[64], r[64];
   // defaults: sensors off -> near-silence (noise floor at delay wet path)
   double acc = 0.0;
@@ -179,7 +182,7 @@ static void test_engine_basic() {
   CHECK(std::fabs(acc - 0.0) < 1e9 && acc == acc, "no NaN");
 
   // n=16 calls accumulate correctly (4 calls = one internal block)
-  Lira8Engine eng2(sr, 1450.f);
+    Lira8Engine eng2(sr, 1450.f, delay_mem);
   for (int v = 0; v < 8; ++v) eng2.set_sensor(v, true);
   eng2.set_param(26, 127);
   eng2.set_param(27, 127);
