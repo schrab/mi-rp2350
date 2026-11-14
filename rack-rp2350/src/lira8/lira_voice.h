@@ -78,6 +78,7 @@ class VoicePair {
   // from `random 1001` at patch load, probed 2026-11-15) — deterministic.
   VoicePair(float sr, int pair, uint32_t seed_base)
       : sr_(sr),
+        pair_(pair),
         osc_a_(sr),
         osc_b_(sr),
         sensor_a_(sr),

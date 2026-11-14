@@ -1,0 +1,9 @@
+io pair already connected
+_LIRA-8-golden.pd 13 0 14 0 (receive->print) connection failed
+dbgTune: 0
+LIRA-8 by Mike Moreno DSP 2020
+priority 6 scheduling failed; running at normal priority
+priority 8 scheduling failed.
+dbgSensor: 1
+dbg1003: 1
+dbgTune: 64

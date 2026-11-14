@@ -1,0 +1,5 @@
+LIRA-8 by Mike Moreno DSP 2020
+priority 6 scheduling failed; running at normal priority
+priority 8 scheduling failed.
+error: writesf~: no method for 'goldens/test.wav'
+error: writesf~: no method for 'bang'

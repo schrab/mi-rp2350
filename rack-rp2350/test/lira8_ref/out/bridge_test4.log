@@ -1,0 +1,6 @@
+l8bridge 59 0 60 0 (send->send) connection failed
+l8bridge 59 1 60 0 (send->send) connection failed
+LIRA-8 by Mike Moreno DSP 2020
+priority 6 scheduling failed; running at normal priority
+priority 8 scheduling failed.
+error: [writesf~]: start requested with no prior 'open'
