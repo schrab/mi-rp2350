@@ -3207,3 +3207,26 @@ unchanged (0.504 / 0.837 / 0.985 / 0.999 / 0.859).
   125-177 -> **39-42 us** (fixed-point phasors + per-sample rate line~s);
   master 41-47; i2s stalls 0. The remaining >100 us item on CC bursts is
   apply_params (158-211 us transient, not steady state).
+
+### Rack-lira8 perf batch E + a real cos_lookup bug (2026-11-15)
+
+- **cos_lookup exact-top bug**: the fixed-point->float conversion can land on
+  exactly 2048.0 table units (rounds the top 256 phase units). The old code
+  wrapped only `idx`, leaving frac = 2048 -> a + 2048*(b-a) = a huge spike
+  once per cycle on the vibrato path (unclipped). Wrapped idx now sets
+  frac = 0 (t[0] = t[N] = 1 are pinned), so the top sample is exact. Latent
+  in v1 (double/float phases never reached 2048.0); exposed by fixed-point.
+- **Ramp::set no-op**: re-sending the CURRENT value now holds (pd's line~
+  zero-delta ramp) instead of starting a 743/256000-sample idle ramp. This
+  keeps idle() true, so the settled fast paths survive the every-CC
+  apply_params pass.
+- **Incremental apply_params**: a per-param change mask from the dirty scan;
+  only the affected setters run (was: all 47 params -> 15+ exp/pow on every
+  CC = the 158-211 us transient). apply_defaults still passes nullptr.
+- **Mid-state voice path**: control ramps idle while sensor envelopes move
+  (attacks / the 8 s release) -> hoist the six control values, keep the
+  per-sample sensor law.
+Verification: host tests green; D2->E renders bit-identical (-213..-227 dB);
+onevoice unchanged. On device: max Process 1123-1159 -> **807-808 us** (40%
+of the 2 ms block), voices 676-687 -> **508-509**, delay 211-212, LFO 40-43,
+master 41-47, params spikes 158-211 -> **0-46**, i2s stalls 0.

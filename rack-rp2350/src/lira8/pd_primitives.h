@@ -73,6 +73,14 @@ class Ramp {
       remaining_ = 0;
       return;
     }
+    // Re-sending the CURRENT value is a no-op (pd's line~ would ramp a zero
+    // delta). Holding also keeps idle() true, so the settled-block fast
+    // paths survive the every-CC apply_params pass.
+    if (target == value_) {
+      inc_ = 0.0f;
+      remaining_ = 0;
+      return;
+    }
     int n = static_cast<int>(ms * sr_ * 0.001f);
     if (n < 1) n = 1;
     inc_ = (target_ - value_) / static_cast<float>(n);
@@ -180,8 +188,15 @@ inline const CosTable kCosTab;
 LIRA8_TC(pd_cos_lookup)
 inline float cos_lookup(float phase /* table units, wrapped [0, N) */) {
   int idx = static_cast<int>(phase);
-  if (idx >= kCosTabSize) idx -= kCosTabSize;
   float frac = phase - static_cast<float>(idx);
+  // EXACT-TOP GUARD: the fixed-point->float conversion can land on 2048.0
+  // (rounds the top 256 phase units). Wrapping only idx left frac = 2048 ->
+  // a huge spike once per cycle. t[0] = t[N] = 1 (pinned), so frac = 0 is
+  // the correct value there.
+  if (idx >= kCosTabSize) {
+    idx -= kCosTabSize;
+    frac = 0.0f;
+  }
   float a = kCosTab.t[idx], b = kCosTab.t[idx + 1];
   return a + frac * (b - a);
 }

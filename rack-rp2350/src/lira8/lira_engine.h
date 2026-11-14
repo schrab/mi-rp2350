@@ -150,39 +150,50 @@ class Lira8Engine {
     apply_params();
   }
 
-  void apply_params() {
+  void apply_params(const bool* ch = nullptr) {
+    // ch = per-param change mask (nullptr = apply all, used by the ctor).
+    // Only the affected setters run: recomputing all 47 params — 15+ exp/pow
+    // calls — on every CC was the remaining ~160-210 us transient.
+    auto c = [ch](int i) { return ch == nullptr || ch[i]; };
     for (int p = 0; p < 4; ++p) {
       VoicePair& vp = pairs_[p];
-      vp.set_tune(0, (int)params_[p * 2]);
-      vp.set_tune(1, (int)params_[p * 2 + 1]);
-      vp.set_fast(params_[8 + p] >= 0.5f);
-      vp.set_sharp(params_[12 + p]);
-      vp.set_mod(params_[16 + p]);
-      vp.set_pitch((int)params_[24 + p / 2]);
-      vp.set_hold((int)params_[26 + p / 2]);
-      vp.set_quantize(params_[46] != 0.0f ? 1 : 0);   // CC 53 (was never applied)
-      vp.set_vibrato(params_[30] >= 0.5f ? 127 : 0);
-      vp.refresh_tune();
+      if (c(p * 2)) vp.set_tune(0, (int)params_[p * 2]);
+      if (c(p * 2 + 1)) vp.set_tune(1, (int)params_[p * 2 + 1]);
+      if (c(8 + p)) vp.set_fast(params_[8 + p] >= 0.5f);
+      if (c(12 + p)) vp.set_sharp(params_[12 + p]);
+      if (c(16 + p)) vp.set_mod(params_[16 + p]);
+      if (c(24 + p / 2)) vp.set_pitch((int)params_[24 + p / 2]);
+      if (c(26 + p / 2)) vp.set_hold((int)params_[26 + p / 2]);
+      if (c(46)) vp.set_quantize(params_[46] != 0.0f ? 1 : 0);
+      if (c(30)) vp.set_vibrato(params_[30] >= 0.5f ? 127 : 0);
+      if (c(p * 2) || c(p * 2 + 1) || c(24 + p / 2) || c(46))
+        vp.refresh_tune();
       src_[p] = (int)params_[20 + p];
     }
     switch_ = params_[28] >= 0.5f ? 1.0f : 0.0f;
     total_fb_ = params_[29] >= 0.5f ? 1.0f : 0.0f;
-    master_.set_drv((int)params_[31]);
-    master_.set_dst_mix((int)params_[32]);
-    master_.set_vol((int)params_[33]);
-    lfo_.set_rate_a((int)params_[34]);
-    lfo_.set_rate_b((int)params_[35]);
-    lfo_.set_andor(params_[36]);
-    lfo_.set_link(params_[37]);
+    if (c(31)) master_.set_drv((int)params_[31]);
+    if (c(32)) master_.set_dst_mix((int)params_[32]);
+    if (c(33)) master_.set_vol((int)params_[33]);
+    if (c(34)) lfo_.set_rate_a((int)params_[34]);
+    if (c(35)) lfo_.set_rate_b((int)params_[35]);
+    if (c(36)) lfo_.set_andor(params_[36]);
+    if (c(37)) lfo_.set_link(params_[37]);
     for (int b = 0; b < 2; ++b) {
-      const float x = params_[38 + b] / 127.0f;
-      time_line_[b].set(std::pow(2.0f, x * 12.0f) * 1.45125f, 23.22f);
-      const float mk = params_[42 + b] / 127.0f;
-      mod_line_[b].set(mk * mk * 10.0f, 23.22f);
+      if (c(38 + b)) {
+        const float x = params_[38 + b] / 127.0f;
+        time_line_[b].set(std::pow(2.0f, x * 12.0f) * 1.45125f, 23.22f);
+      }
+      if (c(42 + b)) {
+        const float mk = params_[42 + b] / 127.0f;
+        mod_line_[b].set(mk * mk * 10.0f, 23.22f);
+      }
     }
-    const float fx = params_[40] / 127.0f;
-    fb_line_.set(fx * std::pow(2.0f, 2.0f * fx), 23.22f);
-    del_mix_line_.set(params_[41] / 127.0f, 23.22f);
+    if (c(40)) {
+      const float fx = params_[40] / 127.0f;
+      fb_line_.set(fx * std::pow(2.0f, 2.0f * fx), 23.22f);
+    }
+    if (c(41)) del_mix_line_.set(params_[41] / 127.0f, 23.22f);
     del_mod_ = (int)params_[44];
     lfo_wav_ = (int)params_[45];
   }
@@ -190,9 +201,11 @@ class Lira8Engine {
   LIRA8_TC(lira_engine_block)
   void render_internal_block() {
     // apply pending control changes between blocks (rack discipline)
+    bool changed[kNumParams];
     bool dirty = false;
     for (int i = 0; i < kNumParams; ++i) {
-      if (pending_params_[i] >= 0.0f) {
+      changed[i] = pending_params_[i] >= 0.0f;
+      if (changed[i]) {
         params_[i] = pending_params_[i];
         pending_params_[i] = -1.0f;
         dirty = true;
@@ -206,7 +219,7 @@ class Lira8Engine {
     }
     if (dirty) {
       uint32_t tp = L8_TIME_US();
-      apply_params();
+      apply_params(changed);
       tp = L8_TIME_US() - tp;
       if (tp > dbg_params) dbg_params = tp;
     }

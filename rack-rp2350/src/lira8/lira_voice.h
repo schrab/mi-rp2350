@@ -174,8 +174,10 @@ class VoicePair {
     // change inside the block — hoist them and skip 6 Ramp::next calls plus
     // the two per-sample cos lookups. Same expressions and rounding order as
     // the slow loop below.
-    if (tune_a_.idle() && tune_b_.idle() && sharp_.idle() && mod_.idle() &&
-        hold_.idle() && vib_.idle() && sensor_a_.idle() && sensor_b_.idle()) {
+    const bool ctrl_idle = tune_a_.idle() && tune_b_.idle() &&
+                           sharp_.idle() && mod_.idle() &&
+                           hold_.idle() && vib_.idle();
+    if (ctrl_idle && sensor_a_.idle() && sensor_b_.idle()) {
       const float sharp = sharp_.value();
       const float mod = mod_.value();
       const float hold = hold_.value();
@@ -201,6 +203,40 @@ class VoicePair {
         osc_b_.process(fB, pwm, sqB, triB);
         const float mixA = sqA * sharp + triA * (1.0f - sharp) + cosa;
         const float mixB = sqB * sharp + triB * (1.0f - sharp) + cosb;
+        const float pair = mixA * gateA + mixB * gateB;
+        pair_out[i] = pair;
+        bus_send[i] = hip_.process(pair);
+      }
+      return;
+    }
+    if (ctrl_idle) {
+      // Controls settled, envelopes moving (attack / 8 s release): hoist the
+      // six control values but keep the per-sample sensor law.
+      const float sharp = sharp_.value();
+      const float mod = mod_.value();
+      const float hold = hold_.value();
+      const float vib = vib_.value();
+      const float tuneA = tune_a_.value();
+      const float tuneB = tune_b_.value();
+      for (int i = 0; i < n; ++i) {
+        const float V = osc3_.next() * vib;
+        const float pwm = 0.53125f + 0.025f * V;
+        float e2a, cosa, e2b, cosb;
+        sensor_a_.process(e2a, cosa);
+        sensor_b_.process(e2b, cosb);
+        const float fA = (tuneA * (1.0f + 0.005f * V)) *
+                         (1.0f + mod_sig[i] * mod);
+        const float fB = (tuneB * (1.0f + 0.005f * V)) *
+                         (1.0f + mod_sig[i] * mod);
+        float sqA, triA, sqB, triB;
+        osc_a_.process(fA, pwm, sqA, triA);
+        osc_b_.process(fB, pwm, sqB, triB);
+        const float mixA = sqA * sharp + triA * (1.0f - sharp) + cosa;
+        const float mixB = sqB * sharp + triB * (1.0f - sharp) + cosb;
+        float gateA = e2a + hold;
+        if (gateA > 1.0f) gateA = 1.0f;
+        float gateB = e2b + hold;
+        if (gateB > 1.0f) gateB = 1.0f;
         const float pair = mixA * gateA + mixB * gateB;
         pair_out[i] = pair;
         bus_send[i] = hip_.process(pair);
