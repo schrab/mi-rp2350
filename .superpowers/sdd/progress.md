@@ -3103,3 +3103,10 @@ masks) and lira8's 47 params cannot fit two 16-cell pages. Implemented:
 - C3 `RackLink::kPageCount` 10 -> 11 (console `page 10` was rejected), console
   help text, `kModuleSlots` constant for the 5-slot selector, and stale
   4-module comments (midi.h CC 32, ui_link aux cells, main.cpp).
+
+- **The SYS selector's NAME display still used 4 slots** (`potToDisplayValue`
+  SYS slot 0: `n = chained ? 3 : 4`) — the send path selected module 4 at the
+  top of the pot but the value text computed RINGS, so lira8 looked
+  unselectable (bench report "only elements clouds plaits rings"). n is now
+  `kModuleCount` (5) and the bar max 4. Sweep check: a continuous turn sends
+  0->1->2->3->4 while the pickup is skipped inside the echo window.

@@ -655,14 +655,14 @@ namespace CTAG {
                 return potVal;
             }
             if (page == 8) {
-                // SYS: 0 MODULE (dual-purpose: 4 module slots / 3 chain-pair
+                // SYS: 0 MODULE (dual-purpose: 5 module slots / 3 chain-pair
                 // slots while engaged), 5 CHAIN ON (0..1), 6 BPM (20..300),
                 // 7 CLKSRC (0..1), 8 PRESET (0..15), 9 BLE (0..1),
                 // 10 BLE MOD (0..1), 14 TELEM D (0..1), 15 TELEM F (0..1)
                 if (slot == 0) {
                     const bool chained =
                         s_cur.tail_valid && s_cur.chain != 0;
-                    const int n = chained ? 3 : 4;
+                    const int n = chained ? 3 : kModuleCount;
                     int v = ((int)potVal * n) / 128;
                     if (v >= n) v = n - 1;
                     barVal = v;

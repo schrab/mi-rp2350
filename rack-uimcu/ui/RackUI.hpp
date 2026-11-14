@@ -17,9 +17,9 @@ Pages (fixed, encoder-rotated — docs/ui-protocol.md §4/§6):
   P1/P2     the module's 16 CC cells (registry, TELEM-driven)
   MOD-A/B/C the mod engine's cells (pot -> MOD_SET [src][param], the
             kModPotMap below MUST MATCH the RP2350's kUiMod*Cells)
-  SYS       4 module cells (hold+rotate overlay = select, SWITCH on
-            release), chain pair/engage, telemetry gates, C3-local preset
-            slot (PRESET_REQ, T4a stub); short push = the SYS action ring
+  SYS       module selector (5 modules: hold+rotate overlay = select,
+            SWITCH on release), chain pair/engage, telemetry gates, C3-local
+            preset slot (PRESET_REQ, T4a stub); short push = the SYS action ring
 
 Screen layout (284x76, mirrors the 3 physical pot rows 6/4/6): a ~12 px
 status strip (module + page, clock/BPM, chain, assign/overlay indicator,

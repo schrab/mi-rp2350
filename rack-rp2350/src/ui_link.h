@@ -608,7 +608,7 @@ static uint32_t g_ui_last_rx_ms = 0;
 
 // ===================== CC-value cache (TELEM source) =====================
 // Observed at the single dispatch point (midiControlChange -> the hook below).
-// 4 modules x 128 CCs = 512 B .bss. The full-CC-range span was chosen over a
+// 5 modules x 128 CCs = 640 B .bss. The full-CC-range span was chosen over a
 // remapped 32-CC window to cover CC 64/65/66 (trig/strum/freeze) and the
 // clouds alias bank 40-48 without index arithmetic.
 static uint8_t g_ui_cc_cache[RACK_MODULE_COUNT][128];
