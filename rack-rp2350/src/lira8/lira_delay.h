@@ -82,11 +82,20 @@ class ModDelay {
   }
 
  private:
-  static inline float s2f(int16_t s) { return static_cast<float>(s) / 32768.0f; }
+  // int16 storage with 2x headroom: pd's float delay exceeds +-1 transiently
+  // in the feedback loop (hard-clipping there = bitcrush distortion), but the
+  // in-loop compander self-limits the content, so +-2 rarely clips while the
+  // quantization floor (-79 dB) stays within ~5 dB of pd's own noise floor
+  // (noise~ * 0.001 in the patch). Measured floors: pd -83 dB, +-1 clip,
+  // +-4 scale -73 dB (too hissy), +-2 = the sweet spot.
+  static constexpr float kDelayScale = 0.5f;
+  static inline float s2f(int16_t s) {
+    return static_cast<float>(s) / (32767.0f * kDelayScale);
+  }
   static inline int16_t f2s(float f) {
-    if (f > 1.0f) f = 1.0f;
-    else if (f < -1.0f) f = -1.0f;
-    return static_cast<int16_t>(f * 32767.0f);
+    if (f > 2.0f) f = 2.0f;
+    else if (f < -2.0f) f = -2.0f;
+    return static_cast<int16_t>(f * 32767.0f * kDelayScale);
   }
   float sr_;
   int nsamps_;

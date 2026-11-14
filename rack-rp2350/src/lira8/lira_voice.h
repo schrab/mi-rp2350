@@ -162,8 +162,15 @@ class VoicePair {
 
       const float mixA = sqA * sharp + triA * (1.0f - sharp) + cosa;
       const float mixB = sqB * sharp + triB * (1.0f - sharp) + cosb;
-      const float outA = mixA * (e2a < hold ? e2a : hold);
-      const float outB = mixB * (e2b < hold ? e2b : hold);
+      // Gate law (connect-list verified): e^2 AND hold SUM into the min~
+      // inlet (pd signal inlets sum) -> gate = min(e^2 + hold, 1). hold=0:
+      // normal envelope; hold=1: latch-on (the Lyra's hold button).
+      float gateA = e2a + hold;
+      if (gateA > 1.0f) gateA = 1.0f;
+      float gateB = e2b + hold;
+      if (gateB > 1.0f) gateB = 1.0f;
+      const float outA = mixA * gateA;
+      const float outB = mixB * gateB;
 
       const float pair = outA + outB;
       pair_out[i] = pair;

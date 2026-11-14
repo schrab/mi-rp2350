@@ -232,13 +232,16 @@ class Lira8Engine {
 
   void render_delay() {
     static const float kInv6 = 0.1666667f;
-    float in_sum[kBlockSize];
+    float in_sum[kBlockSize];    // dry source: voice sum ONLY (no noise!)
+    float write_sum[kBlockSize]; // delay write input: voice sum + noise*0.001
     const float gate_self = (del_mod_ == 0) ? 0.999f : 0.001f;
     const float gate_lfo = (del_mod_ == 2) ? 0.999f : 0.001f;
     for (int i = 0; i < kBlockSize; ++i) {
       in_sum[i] = (buses_prev_[0][i] + buses_prev_[1][i] +
-                   buses_prev_[2][i] + buses_prev_[3][i]) * kInv6 +
-                  noise_.next() * 0.001f;
+                   buses_prev_[2][i] + buses_prev_[3][i]) * kInv6;
+      // pd: the noise~ joins ONLY at [19] (the write summers) — the dry
+      // path takes the clean inlet~ signal (floor measurement 2026-11-15).
+      write_sum[i] = in_sum[i] + noise_.next() * 0.001f;
     }
     for (int b = 0; b < 2; ++b) {
       const float t = time_line_[b].next();
@@ -263,7 +266,7 @@ class Lira8Engine {
       // write = [19] + own feedback * shared smoothed gain
       const float fg = fb_line_.next();
       for (int i = 0; i < kBlockSize; ++i) {
-        write_buf_[b][i] = in_sum[i] + exp_out_[b][i] * fg;
+        write_buf_[b][i] = write_sum[i] + exp_out_[b][i] * fg;
       }
       delays_[b]->write_block(write_buf_[b], kBlockSize);
     }

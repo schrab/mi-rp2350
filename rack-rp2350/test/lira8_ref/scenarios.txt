@@ -461,3 +461,16 @@ SCEN pitch127
 0 render start
 100 sensor 1 1
 4000 render stop
+
+SCEN cleantest
+0 param tune-1 64
+0 param sharp-12 0
+0 param dst-mix 0
+0 param del-mix 0
+0 param hold-1234 127
+0 param drv 40
+0 param vol 90
+0 render open goldens/cleantest.wav
+0 render start
+100 sensor 1 1
+5000 render stop

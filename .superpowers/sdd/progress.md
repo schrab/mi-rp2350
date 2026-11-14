@@ -2852,3 +2852,38 @@ its edge). Remaining fidelity tail, in order of expected impact:
 3. Fuzz-push (corr 0.05) — master drive chain (pow~31 law + makeup).
 4. Bus one-block semantics per-bus vs pd's actual sort order.
 Tests still green; goldens + engine renders committed for reproducibility.
+
+### Rack-lira8 L3 — master tanh clip + hold law + clean goldens (2026-11-15)
+
+User ear report on the goldens ("noisy like light bitcrushing", "fuzz-push
+harsh then volume drops", "cleantest also distorted") drove three more fixes:
+
+1. **MasterOut tanh had NO ±3 input clip** (ma.tanh~ clips before the Pade):
+   at drv=127 the pre-tanh signal hits ±19 → the Pade ratio grows ~x/9 →
+   pow(2.25,31) exploded the chain to full scale (fuzz-push eng rms 1.0 vs
+   pd 0.29). Fixed; the fuzz-push rms trajectory now matches pd per-second
+   (0.264/0.291 → drop 0.037/0.040 → tail 0.029/0.029 — the "volume drop"
+   the user heard = the SCRIPTED vol=40 event, by design).
+2. **int16 delay headroom**: ±1 clipped the feedback loop (bitcrush);
+   ±4 made the floor 12 dB worse; settled on ±2 (floor −79 dB vs pd −83,
+   in-loop compander self-limits content).
+3. **HOLD LAW decoded**: hold SUMS into the gate input (pd signal inlets sum):
+   gate = min(e² + hold, 1) — hold=0 = normal envelope, hold=1 = latch-on
+   (the Lyra hold button). Was min(e², hold). Explains pd's transients being
+   audible at hold=0 AND drone-all sounding from t=0 (baked sensors ON,
+   hold baked 1 → latch from load).
+4. **$0 = 1003** root canvas (probe); the DSP receivers live INSIDE the gui
+   subpatch → the bridge is now instantiated INSIDE gui (gen_golden_patch
+   inserts it before the gui restore) — prior goldens had the init landing
+   on nothing (pd played its baked state).
+5. **Goldens were polluted**: a cancelled render loop left a 57-s fuzz-push
+   (pd kept recording baked audio). Full clean re-render, sizes verified
+   (1151788-1152044 B = 9.0 s each).
+
+Aligned-corr state (fresh goldens, correct init): drone-all 0.694,
+single-pair 0.813, fuzz-push 0.643, transients 0.366 (rms/s tracks pd within
+~15-20%), delay-extremes 0.059 (chaotic feedback loop — sample corr may be
+the wrong metric there; spectral/texture comparison pending). HF floor:
+eng −72.9 vs pd −85.2 at 8-15 kHz — 3.2 kHz-below bands match within 1 dB.
+The patch's dirt (noise~ + fuzz + feedback) is INTENDED (the author's demo
+track is 8-10 dB hotter in mids/HF than our default-state renders).

@@ -130,17 +130,18 @@ static void test_voice_pair() {
   }
   CHECK(acc == 0.0, "sensors off -> silent pair (sum %f)", acc);
 
-  // hold=0 gates the pair even with sensors on
+  // hold=0: the sensor envelope governs (gate = min(e^2 + hold, 1)) —
+  // the pair is quiet during the attack ramp, then audible
   VoicePair vp2(sr, 0, 0u);
   vp2.set_hold(0);
   vp2.set_sensor(0, true);
   vp2.set_sensor(1, true);
   acc = 0.0;
-  for (int b = 0; b < 10; ++b) {
+  for (int b = 0; b < 3; ++b) {   // first 192 ms: attack still low
     vp2.process(mod_sig, 64, buf, bus);
     for (int i = 0; i < 64; ++i) acc += std::fabs(buf[i]);
   }
-  CHECK(acc == 0.0, "hold=0 gates pair (sum %f)", acc);
+  CHECK(acc < 20.0, "hold=0: attack-phase quiet (sum %f)", acc);
 
   // sensors on + hold open + sharp=1 -> square content, audible
   VoicePair vp3(sr, 0, 0u);

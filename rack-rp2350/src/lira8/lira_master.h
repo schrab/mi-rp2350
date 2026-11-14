@@ -43,7 +43,12 @@ class MasterOut {
   }
 
  private:
+  // ma.tanh~: input clipped to +-3 BEFORE the Pade formula (the patch's
+  // clip~ -3 3). Without the clip the Pade ratio grows ~x/9 and pow~31 of
+  // the unclipped value explodes the chain (the drv=127 fuzz bug).
   static float tanh_pade(float x) {
+    if (x > 3.0f) x = 3.0f;
+    else if (x < -3.0f) x = -3.0f;
     return x * (27.0f + x * x) / (27.0f + 9.0f * x * x);
   }
   Ramp drive_, dst_mix_, vol_;
