@@ -432,6 +432,15 @@ void control_change(uint8_t cc, uint8_t val) {
       break;
     // CHORD index: raw value kept (0..127), clamped at fill time.
     case 23: s->pending_chord = static_cast<int8_t>(val); break;
+    // STRUM pseudo-CC (64): val >= 64 = one-block strum pulse, val < 64 =
+    // no-op. T1 button parity: the hardware PLAY button and the web panel
+    // send this pseudo-CC (elements/plaits use the same CC number; rings'
+    // strum is a bool pulse — no latch concept, so release does nothing).
+    // Without this case a raw CC 64 was a silent no-op (only the mod engine
+    // could strum).
+    case 64:
+      if (val >= 64) s->pending_strum = true;
+      break;
     default: break;
   }
 }

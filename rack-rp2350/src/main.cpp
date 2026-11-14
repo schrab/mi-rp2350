@@ -221,6 +221,10 @@ static const uint32_t kPinDOUT = 8;
 #if RACK_ENABLE_USB_HOST
 static const uint8_t kPinHostDP = 14; // PIO-USB host: D+ GP14, D- GP15
 #endif
+// T1 hardware PLAY button: GP2 (internal pull-up, button -> GND). GP3 is the
+// spare alternate; GP4/GP5 are DIN UART1 (TX reserved / RX) — never wire the
+// button or piezo there. The piezo (T2+) goes on the ADC pins GP26-29.
+static const uint8_t kPinButton = 2;
 
 I2S i2s(OUTPUT, kPinBCLK, kPinDOUT);
 volatile float shared_note = 48.0f;      // idle note (C3); overwritten by MIDI
@@ -513,6 +517,48 @@ void rack_module_control_change(uint8_t cc, uint8_t val) {
     return;
   }
   kRackModules[g_active_module].control_change(cc, val);
+}
+
+// --- T1 hardware PLAY button (plan: 2026-11-14-rack-button-piezo.md) ---
+// Momentary gate+strike, INDEPENDENT of MIDI notes / ARP / mapped CCs: press
+// fires the ACTIVE adapter's trigger pseudo-CC (elements/plaits/rings 64,
+// clouds 66) and holds its gate while held; release sends val 0.
+//
+// Dispatch deliberately goes through rack_module_control_change (the REGISTRY
+// path, below every funnel intercept), NOT midiControlChange: while chained,
+// midiControlChange would hand CC 66 to the clouds-B intercept
+// (rack_chain_wants_cc) — a physical play button must always hit the ACTIVE
+// (A-slot) adapter, whose audio feeds the chain anyway. g_swapping drops
+// events exactly like MIDI CC dispatch (30-120 ms swap window).
+// vel is the T3 piezo slot (adapters' CC 64/66 paths take no velocity yet).
+static volatile uint32_t button_down_count = 0;   // cumulative, 2 s report
+
+void rack_button_trig(bool down, uint8_t vel = 127) {  // vel: T3 piezo slot
+  (void)vel;
+  const uint8_t id = g_active_module;             // core-0 only; single read
+  const uint8_t cc = (id == RACK_MODULE_CLOUDS) ? 66 : 64;
+  rack_module_control_change(cc, down ? 127 : 0);
+}
+
+// 30 ms debounce poll (core-0 loop). Standard commit-when-stable form: a raw
+// edge is only trusted after it has held for 30 ms; the committed edge sends
+// one trig + one report line. gpio_get on an INPUT_PULLUP pad: released = 1.
+static bool button_stable = true;       // debounced level, true = released
+static bool button_last_raw = true;
+static uint32_t button_edge_ms = 0;
+
+static void button_poll() {
+  const bool raw = gpio_get(kPinButton);
+  const uint32_t now = millis();
+  if (raw != button_last_raw) {
+    button_last_raw = raw;
+    button_edge_ms = now;
+  } else if (raw != button_stable && now - button_edge_ms >= 30) {
+    button_stable = raw;
+    if (!raw) ++button_down_count;
+    rack_button_trig(!raw);             // raw low = pressed = down
+    Serial.printf("button: %s\r\n", raw ? "up" : "down");
+  }
 }
 
 // CC 32 / console entry: queue a module switch. Values > 3 and == the active
@@ -1204,6 +1250,7 @@ static void cmd_panic(const char* args);
 static void cmd_ui(const char* args);
 static void cmd_uitest(const char* args);
 static void cmd_uisend(const char* args);
+static void cmd_trig(const char* args);
 static void cmd_help(const char* args);
 // T3 mod-engine commands (defined in mod_engine.h, core 0 only).
 //   mod <src> <param> <value> | mod? | bpm <20-300> | clock <internal|midi> [src]
@@ -1243,6 +1290,7 @@ static const ConsoleCommand kConsoleCommands[] = {
     {"uitest",    cmd_uitest},
     {"uisend",    cmd_uisend},
     {"panic",     cmd_panic},
+    {"trig",      cmd_trig},
     {"help",      cmd_help},
 };
 static const uint8_t kConsoleCommandCount =
@@ -1622,6 +1670,34 @@ static void cmd_panic(const char* args) {
                 (unsigned)n, kRackModules[g_active_module].name);
 }
 
+// trig [down|up] — T1 bench twin of the hardware PLAY button (GP2): fires the
+// ACTIVE adapter's trigger pseudo-CC via the same rack_button_trig path, so a
+// headless bench (no wiring) exercises exactly the injection the button uses.
+// Bare 'trig' = one press+release pulse (elements: 60 ms strike gate; the
+// pulse-only modules just fire).
+static void cmd_trig(const char* args) {
+  while (*args == ' ') ++args;
+  if (strcasecmp(args, "down") == 0) {
+    rack_button_trig(true);
+    Serial.printf("trig: down -> %s cc %u\r\n",
+                  kRackModules[g_active_module].name,
+                  (unsigned)(g_active_module == RACK_MODULE_CLOUDS ? 66 : 64));
+    return;
+  }
+  if (strcasecmp(args, "up") == 0) {
+    rack_button_trig(false);
+    Serial.println("trig: up");
+    return;
+  }
+  if (*args == '\0') {
+    rack_button_trig(true);
+    rack_button_trig(false);
+    Serial.println("trig: pulse (down+up)");
+    return;
+  }
+  Serial.println("usage: trig [down|up]  (bare = press+release pulse)");
+}
+
 // ui — T5 stage 1 link status: frame counters, CRC errors, last RTT. The
 // rtt field is the RP2350's ECHO TURNAROUND (UI_CMD echo received -> echo
 // written); the C3 measures the full wire RTT of its own echo probes.
@@ -1797,6 +1873,9 @@ static void cmd_help(const char* args) {
   Serial.println("                     the C3's active page) + print sizes");
   Serial.println("  telemetry on|off   mute/unmute the 2 s report (default on)");
   Serial.println("  panic              all notes off (release held notes + clear stack)");
+  Serial.println("  trig [down|up]     fire the hardware PLAY button path (GP2 twin;");
+  Serial.println("                     bare = press+release pulse, CC 64/66 to the"); 
+  Serial.println("                     active module)");
   Serial.println("MIDI bench: CC 32 = switch | CC 33/34/35 = mod source/param/value mux");
   Serial.println("web panels drive everything else (per-module CC maps)");
 }
@@ -1918,6 +1997,12 @@ void setup() {
   // well — same no-PIO argument, same unconstrained position, same no-print
   // rule. Absent/unwired link costs nothing (pump = one ring-empty check).
   ui_link_uart_init();
+  // T1 hardware PLAY button (GP2, internal pull-up, button -> GND): plain
+  // GPIO — no PIO/DMA/alarm claims, so its position is unconstrained (same
+  // class as the DIN/UI hardware UARTs). No print (boot-wedge law).
+  gpio_init(kPinButton);
+  gpio_set_dir(kPinButton, GPIO_IN);
+  gpio_pull_up(kPinButton);
   preset_replay_module(RACK_BOOT_MODULE);
   statusLed.Init();  // 3 white self-test flashes, then dark
 
@@ -2015,6 +2100,9 @@ void loop() {
   // --- T4a preset autosave: push the serialized blob to the C3 flash bank
   // once the state has settled (3 s after the last persistent change) ---
   preset_autosave_poll();
+
+  // --- T1 hardware PLAY button: debounced poll (GP2) ---
+  button_poll();
 
   // --- serial console (non-blocking; T2/T3/T4 table) ---
   pumpConsole();
@@ -2142,13 +2230,14 @@ void loop() {
     }
     if (g_telemetry_enabled) {
 #if RACK_ENABLE_USB_HOST
-      Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s\r\n",
+      Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s\r\n",
                     proc_us_max,
                     (unsigned)budget,
                     stalls, stalls - last_stall_total,
                     (unsigned)(rack_meter_a * 1000.0f),
                     (unsigned)(rack_meter_b * 1000.0f),
                     note_on_count,
+                    button_down_count,
                     (unsigned)pio_host_connected(),
                     (unsigned)pio_host_line_state(),
                     (unsigned)host_device_mounted,
@@ -2157,13 +2246,14 @@ void loop() {
                     mod_field,
                     modeng_tail);
 #else
-      Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u | mod=%s | %s\r\n",
+      Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | mod=%s | %s\r\n",
                     proc_us_max,
                     (unsigned)budget,
                     stalls, stalls - last_stall_total,
                     (unsigned)(rack_meter_a * 1000.0f),
                     (unsigned)(rack_meter_b * 1000.0f),
                     note_on_count,
+                    button_down_count,
                     mod_field,
                     modeng_tail);
 #endif
