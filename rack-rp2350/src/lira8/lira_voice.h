@@ -42,7 +42,12 @@ static const float kTuneTable[8][2] = {
 
 // pd default-PRNG draws of the four [random 1001] objects at patch load
 // (probe: 744, 930, 728, 920 — seed machinery dormant, deterministic).
+// These are the per-pair VIBRATO RATES in Hz: rate = 0.5 + 3*draw/1000
+// (the random chain feeds the osc~'s frequency inlet, connect-list verified
+// 2026-11-15; take-1's "depth" reading and this file's earlier "depth"
+// misuse both corrected). V = cos(rate*t) * vib_param, V in [-1, +1].
 static const int kVibDraws[4] = {744, 930, 728, 920};
+static const float kVibRate[4] = {2.732f, 3.290f, 2.684f, 3.260f};
 
 // Sensor envelope (prm.sensor): line~ A/R with e^2 gate + cos morph.
 class SensorEnv {
@@ -92,8 +97,7 @@ class VoicePair {
         osc3_(sr),
         hip_(3.0f, sr) {
     (void)seed_base;
-    vib_depth_ = 0.5f + 3.0f * kVibDraws[pair] / 1000.0f;
-    osc3_.set_freq(3.0f);
+    osc3_.set_freq(kVibRate[pair]);
   }
 
   // ---- control-rate setters (values are raw 0..127 param bytes) ----
@@ -137,7 +141,7 @@ class VoicePair {
   inline void process(const float* mod_sig, int n, float* pair_out,
                       float* bus_send) {
     for (int i = 0; i < n; ++i) {
-      const float V = osc3_.next() * vib_.next() * vib_depth_;
+      const float V = osc3_.next() * vib_.next();
       const float sharp = sharp_.next();
       const float mod = mod_.next();
       const float hold = hold_.next();
@@ -178,7 +182,6 @@ class VoicePair {
   bool quantize_ = false;
   Ramp sharp_, mod_, hold_, vib_;
   float sharp_raw_ = 0.f, mod_raw_ = 0.f;
-  float vib_depth_ = 1.f;
   CosOsc osc3_;
   Hip hip_;
 };

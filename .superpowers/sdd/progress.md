@@ -2833,3 +2833,22 @@ delays + master) per the corrected topology.
   (voice pitches correct across all 8 voices).
 - Test suite state: 4 binaries green (primitives/voice/engine/wav_io);
   golden compare = the new red/green loop for the fidelity tail.
+
+### Rack-lira8 L3 — vibrato semantics corrected (2026-11-15, second law fix)
+
+Connect-list re-derivation of lira.voice: the random-1001 chain feeds the
+osc~'s FREQUENCY inlet → the per-pair draws (744/930/728/920) are the
+**VIBRATO RATES** (0.5–3.5 Hz), not depths. V = cos(rate·t)·vib_param ∈ ±1;
+freq = T·(1+0.005·V); PWM = 0.53125 + 0.025·V (duty 0.506–0.556, weak even
+harmonics ✓ matches pd's spectrum). Fixed in lira_voice.h (kVibRate table).
+
+Aligned-golden status after the fix: drone-all corr 0.775 (best), pair
+scenarios regressed to 0.18-0.26 (vibrato phase drift across multi-second
+windows + remaining PWM/env deltas; the align search window ±250 ms is at
+its edge). Remaining fidelity tail, in order of expected impact:
+1. PWM duty path — verify the samphold sample instant matches pd (the even-
+   harmonic structure differs).
+2. Transients scenario (corr 0.005) — envelope event timing/attack shape.
+3. Fuzz-push (corr 0.05) — master drive chain (pow~31 law + makeup).
+4. Bus one-block semantics per-bus vs pd's actual sort order.
+Tests still green; goldens + engine renders committed for reproducibility.
