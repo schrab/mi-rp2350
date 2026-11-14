@@ -524,20 +524,29 @@ void rack_module_control_change(uint8_t cc, uint8_t val) {
 // fires the ACTIVE adapter's trigger pseudo-CC (elements/plaits/rings 64,
 // clouds 66) and holds its gate while held; release sends val 0.
 //
-// Dispatch deliberately goes through rack_module_control_change (the REGISTRY
-// path, below every funnel intercept), NOT midiControlChange: while chained,
-// midiControlChange would hand CC 66 to the clouds-B intercept
-// (rack_chain_wants_cc) — a physical play button must always hit the ACTIVE
-// (A-slot) adapter, whose audio feeds the chain anyway. g_swapping drops
-// events exactly like MIDI CC dispatch (30-120 ms swap window).
-// vel is the T3 piezo slot (adapters' CC 64/66 paths take no velocity yet).
+// Dispatch deliberately goes through the REGISTRY path (below every funnel
+// intercept), NOT midiControlChange: while chained, midiControlChange would
+// hand CC 66 to the clouds-B intercept (rack_chain_wants_cc) — a physical
+// play button must always hit the ACTIVE (A-slot) adapter, whose audio feeds
+// the chain anyway. g_swapping drops events exactly like MIDI CC dispatch
+// (30-120 ms swap window).
+// Clouds takes a dedicated twin (mod_clouds::button_trig): CC 66 stays a
+// pure trig for mod routing, but an idle clouds buffer is silent — the
+// button additionally fires the internal exciter burst (what a MIDI note-on
+// does) so a press is audible from idle. Elements/plaits/rings generate
+// sound from their pseudo-CC alone and use the plain registry dispatch.
+// vel is the T3 piezo slot (adapter paths take no velocity yet).
 static volatile uint32_t button_down_count = 0;   // cumulative, 2 s report
 
 void rack_button_trig(bool down, uint8_t vel = 127) {  // vel: T3 piezo slot
   (void)vel;
+  if (g_swapping) return;
   const uint8_t id = g_active_module;             // core-0 only; single read
-  const uint8_t cc = (id == RACK_MODULE_CLOUDS) ? 66 : 64;
-  rack_module_control_change(cc, down ? 127 : 0);
+  if (id == RACK_MODULE_CLOUDS) {
+    rack_modules::mod_clouds::button_trig(down);
+    return;
+  }
+  rack_module_control_change(64, down ? 127 : 0);
 }
 
 // 30 ms debounce poll (core-0 loop). Standard commit-when-stable form: a raw
@@ -1679,9 +1688,8 @@ static void cmd_trig(const char* args) {
   while (*args == ' ') ++args;
   if (strcasecmp(args, "down") == 0) {
     rack_button_trig(true);
-    Serial.printf("trig: down -> %s cc %u\r\n",
-                  kRackModules[g_active_module].name,
-                  (unsigned)(g_active_module == RACK_MODULE_CLOUDS ? 66 : 64));
+    Serial.printf("trig: down -> %s\r\n",
+                  kRackModules[g_active_module].name);
     return;
   }
   if (strcasecmp(args, "up") == 0) {

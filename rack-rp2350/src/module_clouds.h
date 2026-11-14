@@ -497,5 +497,23 @@ bool mod_trigger_cc(uint8_t cc, bool high) {
   }
 }
 
+// T1 hardware PLAY button (main.cpp rack_button_trig): clouds' own twin.
+// CC 66 stays a PURE trig (mod-engine routing semantics must not change),
+// but a bare trig granulates whatever is in the buffer — and the single-
+// module buffer only receives material from the internal exciter, which
+// bursts on a MIDI note-on rising edge. An idle press would seed a grain of
+// silence. So the button ALSO retriggers the exciter burst — exactly what a
+// note-on does — making "press" audible from idle: pluck into the buffer +
+// immediate trig grain. Elements/plaits/rings generate sound from their
+// pseudo-CC alone; clouds is an effect and needs this material step.
+// down: burst retrigger + trig pulse; up: no-op (pulse semantics).
+void button_trig(bool down) {
+  if (down) {
+    s->burst_env = 1.0f;
+    s->burst_phase = 0.0f;
+    s->pending_trigger = true;
+  }
+}
+
 }  // namespace mod_clouds
 }  // namespace rack_modules
