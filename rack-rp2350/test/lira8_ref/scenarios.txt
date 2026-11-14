@@ -425,3 +425,39 @@ SCEN pairfm
 100 sensor 3 1
 100 sensor 4 1
 5000 render stop
+
+SCEN onecyc
+0 param tune-1 64
+0 param sharp-12 127
+0 param vibrato 0
+0 param dst-mix 0
+0 param del-mix 0
+0 param hold-1234 127
+0 render open goldens/onecyc.wav
+0 render start
+100 sensor 1 1
+5000 render stop
+
+SCEN pitch0
+0 param tune-1 0
+0 param sharp-12 127
+0 param vibrato 0
+0 param dst-mix 0
+0 param del-mix 0
+0 param hold-1234 127
+0 render open goldens/pitch0.wav
+0 render start
+100 sensor 1 1
+4000 render stop
+
+SCEN pitch127
+0 param tune-1 127
+0 param sharp-12 127
+0 param vibrato 0
+0 param dst-mix 0
+0 param del-mix 0
+0 param hold-1234 127
+0 render open goldens/pitch127.wav
+0 render start
+100 sensor 1 1
+4000 render stop

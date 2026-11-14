@@ -99,7 +99,10 @@ class VoicePair {
   // ---- control-rate setters (values are raw 0..127 param bytes) ----
   void set_tune(int osc /*0|1*/, int v) {
     const float* row = kTuneTable[pair_ * 2 + osc];
-    const float note = row[1] + (v / 127.0f) * (row[0] - row[1]);
+    // LAW CORRECTED (empirical 2026-11-15): pd renders k=127 -> hi note
+    // (1838 Hz = mtof(93)*pitch measured), k=0 -> lo (sub-audio). The spec
+    // §7.2 / take-1 law (hi + k*(lo-hi)) was misread from the unpack order.
+    const float note = row[0] + (v / 127.0f) * (row[1] - row[0]);
     if (osc == 0) tune_a_hz_ = mtof(note);
     else tune_b_hz_ = mtof(note);
   }

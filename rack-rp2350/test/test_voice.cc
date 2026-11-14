@@ -172,10 +172,11 @@ static void test_voice_pair() {
   CHECK(std::fabs(bus_mean / cnt) < 0.05, "bus DC-blocked (mean %f)",
         bus_mean / cnt);
 
-  // tune table: voice 1 (pair 0 osc 0) tune=0 -> note 93 -> mtof(93) ~ 627 Hz
+  // tune table (CORRECTED law): tune=127 -> hi note; voice 1 hi = 93
+  // -> mtof(93)*pitch(64) ~ 1838 Hz
   VoicePair vp4(sr, 0, 0u);
-  vp4.set_tune(0, 0);
-  vp4.set_tune(1, 0);         // both oscs at note 93 -> same freq
+  vp4.set_tune(0, 127);
+  vp4.set_tune(1, 127);       // both oscs at note 93 -> same freq
   vp4.set_pitch(64);          // pitch ~ 1.0134
   vp4.refresh_tune();
   // measure via freq of the rendered square
@@ -196,10 +197,9 @@ static void test_voice_pair() {
       prev = buf[i];
     }
   }
-  // identical oscs (note 93 -> ~1761 Hz * pitch 1.0134 ~ 1785): the sum of
-  // two in-phase squares crosses once per cycle each -> ~1785 crossings/s
+  // identical oscs (note 93 -> mtof(93)*pitch(64) ~ 1838 Hz)
   const double fmeas = crossings / secs;
-  CHECK(fmeas > 1750.0 && fmeas < 1820.0, "tune table freq ~1785 (got %.1f)",
+  CHECK(fmeas > 1780.0 && fmeas < 1900.0, "tune table freq ~1838 (got %.1f)",
         fmeas);
 }
 
