@@ -3053,3 +3053,37 @@ period. The 4x burst (one internal block per 4 host calls) is the documented
 pd block architecture; the 8x16 I2S bank (4 ms) absorbs it — i2s stalls 0,
 including with sensor 1 plucked (sens=1, non-zero output meter). Next: the
 user's ear test is the acceptance gate.
+
+### Rack-lira8 L4c — C3 UI: three pages, five modules, preset cap fix (2026-11-15)
+
+The C3 (rack-uimcu) was blind to the fifth module (4-name table + `& 3`
+masks) and lira8's 47 params cannot fit two 16-cell pages. Implemented:
+
+- **RP2350 `ui_link.h`**: `kUiPageP3 = 10`, `kUiPageCount = 11`, plus
+  `ui_page_is_module()` / `ui_module_page_idx()` helpers used by TELEM full/
+  delta and ASSIGN_CYCLE (page 10 is a module page everywhere). lira8 page
+  tables: P1 unchanged except clearer labels (HOLD 1-4, SHARP 12, MOD 12);
+  **P2** = SHARP/MOD 34/56/78 (completing the 8x tune/sharp/mod matrix),
+  PITCH 1-4/5-8, HOLD 5-8, DRIVE, DST MIX, DEL MIX, MOD D1/D2, SWITCH,
+  TOTAL FB; **P3** = FAST 1-4, SOURCE 1-4, LFO A/B, AND/OR, LINK, DEL-MOD,
+  LFO WAV, QUANTIZE + 1 empty. Console lists module 4.
+- **C3 `RackUI.cpp`**: 5 module names + `ModuleClamp`, `ModuleHasP2` =
+  elements+lira8, new `ModuleHasP3`, `PageIsModule` in every page-kind check
+  (pot target/bucket/render/mod-ride), dynamic page-list builder
+  (P1,[P2],[P3],chain-B,2-7,SYS), SYS selector over 5 slots, page-10 gating
+  on module change, lira8 discrete cells (FAST/SWITCH/TOTAL FB/VIBRATO
+  bool127; SOURCE/DEL-MOD 3 raw; LFO WAV/QUANTIZE 2 raw), pitch display
+  guard (lira8 CC 1 = TUNE 1, not pitch). RackLink: SendSwitch accepts 0-4,
+  local sys-switch maps 5 slots, TELEM module-change detection on page 10.
+- **BENCH-FOUND BUG: preset v3 blob is 1071 B but kPresetBlobMax and the
+  C3's kMaxRp were 1024** — `preset_serialize` overran its 1024-byte array
+  and the C3 dropped every legitimate PART burst ("PART overflow - dropped",
+  5th chunk off 1008+63 > 1024). Both caps raised to 1088 + a static_assert
+  pinning kPresetSize. **CC 53 (QUANTIZE) was never applied** — the engine's
+  apply_params was missing the set_quantize call (inert UI cell); wired.
+- **Verified on the hardware link**: TELEM page=0/1/10 all mod=4 (lira8),
+  page cycling 0->1->10->2..8, SYS selector acks modules 0-4, autosave
+  "1071 B rp part ... OK". Firmware: only rack-lira8 + rack-uimcu rebuilt/
+  flashed (user instruction: do not rebuild unchanged modules).
+- Known: the browser rack_panel.html has no lira8 tab yet; the physical C3
+  UI is the control surface for now.
