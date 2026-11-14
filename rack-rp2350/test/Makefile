@@ -8,7 +8,7 @@ BUILD    = build/
 
 ENGINE_SRCS =   # e.g. lira8_engine.cpp
 
-TEST_BINS = test_wav_io test_pd_primitives test_voice
+TEST_BINS = test_wav_io test_pd_primitives test_voice test_engine
 
 all: $(TEST_BINS)
 
@@ -22,6 +22,9 @@ test_pd_primitives: test_pd_primitives.cc ../src/lira8/pd_primitives.h | $(BUILD
 	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
 
 test_voice: test_voice.cc ../src/lira8/lira_osc.h ../src/lira8/lira_voice.h ../src/lira8/pd_primitives.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
+
+test_engine: test_engine.cc ../src/lira8/lira_engine.h ../src/lira8/lira_delay.h ../src/lira8/lira_lfo.h ../src/lira8/lira_master.h ../src/lira8/lira_voice.h ../src/lira8/lira_osc.h ../src/lira8/pd_primitives.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
 
 engine: $(patsubst %.cpp,%.o,$(ENGINE_SRCS))
