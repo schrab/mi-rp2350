@@ -1725,6 +1725,19 @@ namespace CTAG {
 
                 // ---- render (30-60 Hz; test patterns own the screen) ----
                 if (!Display::TestPatternActive()) {
+                    // Link edge: after a dropout or an RP2350 reflash the cached page is
+                    // STALE (wrong module/cells) until something changes it
+                    // (bench-caught: SYS showed the old firmware's module).
+                    // offline -> online: drop the snapshot and re-request the
+                    // ACTIVE page; going offline: show dashes, not old cells.
+                    static bool s_linkWasOnline = false;
+                    const bool linkOnline = RackLink::IsOnline();
+                    if (linkOnline != s_linkWasOnline) {
+                        s_linkWasOnline = linkOnline;
+                        s_fullArrived = false;
+                        s_pageDirty = true;
+                        if (linkOnline) RackLink::SendPageRequest(s_page);
+                    }
                     // Poll the TELEM cache.
                     RackTelemPage tmp;
                     if (RackLink::TelemGet(tmp) && tmp.page == s_page) {

@@ -47,8 +47,9 @@ namespace CTAG {
             void printHelp() {
                 printf("rack console commands:\r\n");
                 printf("  ui            link + page state\r\n");
-                printf("  page <0-9>    switch page (0 P1, 1 P2, 2 LFO1/2, "
-                       "3 LFO3/4, 4 TRIG, 5 GATE, 6 ENV, 7 ARP, 8 SYS, 9 CLD-B)\r\n");
+                printf("  page <0-10>   switch page (0 P1, 1 P2, 2 LFO1/2, "
+                       "3 LFO3/4, 4 TRIG, 5 GATE, 6 ENV, 7 ARP, 8 SYS, 9 CLD-B, "
+                       "10 P3)\r\n");
                 printf("  pots          raw + mapped HC4067 pot values\r\n");
                 printf("  calib         8 s pot min/max sweep -> NVS\r\n");
                 printf("  calib clear   reset pot calibration\r\n");

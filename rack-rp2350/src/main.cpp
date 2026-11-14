@@ -18,7 +18,7 @@
 // every env is identical and any module can be swapped in at runtime.
 //
 // Live swap (core 1, at a block boundary, max one per loop1 call):
-//   CC 32 (bank select) value 0-3 or serial `switch <id|name>` -> core 0
+//   CC 32 (bank select) value 0-4 or serial `switch <id|name>` -> core 0
 //   writes the pending slot -> core 1: mute (ramp-down + silence bank) ->
 //   rack_window_copy (flash->window memcpy; no I/D caches to invalidate, T1
 //   finding) -> placement-new + Init (factory defaults) -> I2S reconfigure

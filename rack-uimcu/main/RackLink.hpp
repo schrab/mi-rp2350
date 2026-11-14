@@ -118,7 +118,9 @@ namespace CTAG {
             // serves the CLOUDS P1 registry table with the B slot's live
             // values — the C3 navigates to it only while chained.
             static constexpr uint8_t kPageChainB    = 9;
-            static constexpr uint8_t kPageCount     = 10;
+            // + 10 = the per-module P3 bank (rack-lira8) — mirrors the
+            // RP2350's kUiPageP3/kUiPageCount.
+            static constexpr uint8_t kPageCount     = 11;
 
             // UART_NUM_0 GPIO4(TX)/GPIO5(RX) @ 921600 8N1 + boot self-tests
             // (codec round-trip + uart_set_loop_back hardware loopback) +

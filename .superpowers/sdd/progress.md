@@ -3087,3 +3087,19 @@ masks) and lira8's 47 params cannot fit two 16-cell pages. Implemented:
   flashed (user instruction: do not rebuild unchanged modules).
 - Known: the browser rack_panel.html has no lira8 tab yet; the physical C3
   UI is the control surface for now.
+
+### Rack-ui follow-ups from the bench (2026-11-15)
+
+- **SYS module selector reported a uint8_t wrap**: `ui_aux_cell_value` returned
+  `g_active_module * 32` (4-slot spacing) — lira8 (module 4) became 128 -> 0,
+  and rings (96) landed in the plaits bucket, so the C3 showed no LIRA8 and
+  the selection jumped. Now `g_active_module * 127 / (RACK_MODULE_COUNT - 1)`
+  -> 0/31/63/95/127, each module its own 5-slot bucket (verified on the C3
+  console: `page SYS mod=4`, cell[0] val=127 after CC 32=4).
+- **Stale page snapshots across a link dropout/reflash**: the C3 kept the old
+  firmware's SYS cells until a navigation happened (bench: showed ELEMENTS
+  while the rack was lira8). RackUI now drops the snapshot on any link edge
+  and re-requests the ACTIVE page on offline->online.
+- C3 `RackLink::kPageCount` 10 -> 11 (console `page 10` was rejected), console
+  help text, `kModuleSlots` constant for the 5-slot selector, and stale
+  4-module comments (midi.h CC 32, ui_link aux cells, main.cpp).

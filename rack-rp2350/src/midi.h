@@ -62,10 +62,11 @@ void rack_module_note_on(uint8_t note, uint8_t vel);
 void rack_module_note_off(uint8_t note);
 void rack_module_control_change(uint8_t cc, uint8_t val);
 
-// Dedicated switch CC: BANK SELECT (CC 32), value 0-3 = module id. Verified
-// UNUSED by all four adapters' CC maps (elements 1,11,14-29; clouds
-// 1,11,13-24,65,66; plaits 14-25; rings 14-23) and by this parser. Values
-// > 3 and == active module are ignored. Core 0 writes the pending slot;
+// Dedicated switch CC: BANK SELECT (CC 32), value 0-4 = module id. Verified
+// UNUSED by all five adapters' CC maps (elements 1,11,14-29; clouds
+// 1,11,13-24,65,66; plaits 14-25; rings 14-23; lira8 1-31,36-39,41-49,51-53)
+// and by this parser. Values >= RACK_MODULE_COUNT and == active module are
+// ignored. Core 0 writes the pending slot;
 // core 1 consumes it at the top of loop1 (max one swap per call).
 static const uint8_t kRackSwitchCc = 32;
 void rack_request_switch(uint8_t module_id);

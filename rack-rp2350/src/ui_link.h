@@ -371,8 +371,9 @@ static const UiPageTable kUiPageEmpty = { nullptr, 0 };   // unused fallback
 // with exactly these (src, param) pairs — MUST MATCH the C3's kModPotMap).
 // `cc` in TELEM = kUiModCellBase + index. Special src 0xFF = a SYS-style
 // selector in `param` (values read from chain/telem/clock state, not the
-// mod engine): 0-3 module-id cells (value 0; the active module is the TELEM
-// header), 4 chain pair index, 5 chain engaged, 6 telem-delta gate,
+// mod engine): 0 = the MODULE selector (value = the ACTIVE module scaled
+// 0..127 over RACK_MODULE_COUNT slots, or the chain pair while chained),
+// 4 chain pair index, 5 chain engaged, 6 telem-delta gate,
 // 7 telem-full gate, 8 BPM pot, 9 global clock source.
 struct UiAuxCell {
   const char* label;
@@ -945,15 +946,20 @@ static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
   switch (c.param) {
     case kUiAuxSelModule:
       // ONE selector pot, dual-purpose: not chained = the ACTIVE module
-      // over 4 slots (0/32/64/96); chained = the engaged PAIR over 3
-      // slots (0/64/127 — the C3 renders E>C / P>C / R>C from the chain
-      // tail and picks the pair with the same pot).
+      // over RACK_MODULE_COUNT slots, scaled 0..127 so every module lands
+      // in its own pot-space bucket (5 modules: 0/31/63/95/127). The old
+      // `* 32` spacing wrapped module 4 to 0 in a uint8_t and put rings in
+      // the plaits bucket — the C3 selector showed no LIRA8 and jumped.
+      // chained = the engaged PAIR over 3 slots (0/64/127 — the C3 renders
+      // E>C / P>C / R>C from the chain tail and picks the pair with the
+      // same pot).
       if (g_chain.active) {
         if (g_chain.a == RACK_MODULE_PLAITS) return 64;
         if (g_chain.a == RACK_MODULE_RINGS) return 127;
         return 0;
       }
-      return (uint8_t)(g_active_module * 32);
+      return (uint8_t)((uint16_t)g_active_module * 127 /
+                       (RACK_MODULE_COUNT - 1));
     case kUiAuxSelChainPair:
       // Configured pair index (1 elements->clouds / 2 plaits->clouds /
       // 3 rings->clouds) — shown even while disengaged so the C3 knows what

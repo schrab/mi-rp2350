@@ -710,13 +710,17 @@ namespace CTAG {
         }
 
         void RackLink::TelemLocalSysSwitch(uint8_t newMod) {
-            if (newMod >= 5) return;
+            // 5 module slots (elements/clouds/plaits/rings/lira8) — must
+            // match kModNames/kModuleCount in RackUI.cpp.
+            static constexpr uint8_t kModuleSlots = 5;
+            if (newMod >= kModuleSlots) return;
             taskENTER_CRITICAL(&telemMux);
             s_telem.module = newMod;
             if (s_telem.valid && s_telem.page == 8) {
                 if (s_telem.count > 0) {
-                    // SYS selector value is pot-space 0..127 over 5 slots.
-                    s_telem.cell[0].value = (uint8_t)((uint16_t)newMod * 127 / 4);
+                    // SYS selector value is pot-space 0..127 over N slots.
+                    s_telem.cell[0].value =
+                        (uint8_t)((uint16_t)newMod * 127 / (kModuleSlots - 1));
                 }
                 for (uint8_t i = 1; i < 5 && i < s_telem.count; ++i) {
                     s_telem.cell[i].value = 0;
