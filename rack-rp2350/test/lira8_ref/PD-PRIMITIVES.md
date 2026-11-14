@@ -109,6 +109,13 @@ dbtorms(d) = pow(10, (d - 100) / 20)   // 100 dB = 1.0
 
 ## pd quirk checklist (from take-1, to preserve in the port)
 
+- **os.triangle~ rlpf is samplerate-AWARE** (connect-list verified
+  2026-11-15): the `/~ 44100` divisor and `clip~ 0 22050` max are creation-arg
+  fallbacks overridden by `samplerate~` (`6 1 22 1` wires sr into the divisor,
+  `4 0 15 2` wires sr/2 into the clip max). No 32 kHz hazard. Coefficient:
+  `a = exp(-2*pi*fc/sr)`, `fc = clip(max(f/4, 100), 0, sr/2)`; one-pole is
+  input-normalized: `y += (1-a)*(x-y)`. (take-1 flagged these as hazards —
+  correction recorded here.)
 - compressor~ below-threshold gain = tanh(1) ≈ 0.7616 (ma.tanh~ applied to
   the clamped gain, not bypassed at unity).
 - delay feedback law = `x·2^(2x)` up to 4.0 at F=127 (compander in the loop
@@ -118,3 +125,6 @@ dbtorms(d) = pow(10, (d - 100) / 20)   // 100 dB = 1.0
 - lop~ 4000 before the delay compander: delayed content is band-limited
   (relevant for the future 16 kHz delay variant).
 - master drive amp = `10^((3^(2d+1)+3)/20)` → up to 31.6× before tanh.
+- vibrato depth (not rate) is randomized per voice-pair: V = sin(2π·3t) ×
+  (0.5 + 3·random(1001)/1000), seed = patch_seed + pair index (connect-list
+  verified; take-1's "rate" wording corrected).
