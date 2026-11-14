@@ -14,19 +14,21 @@ namespace l8pd {
 
 class HyperLfo {
  public:
-  explicit HyperLfo(float sr) : sr_(sr) {}
+  explicit HyperLfo(float sr)
+      : sr_(sr), rate_a_(sr), rate_b_(sr) {}
   void set_rate_a(int k) {
+    if (k == last_a_) return;          // apply_params re-applies on every CC
+    last_a_ = k;
     ra_ = 127.0f * (k / 127.0f) * (k / 127.0f) - 75.0f;
-    // The v1 port stored ra_ but never set the phasor's frequency, so LFO A
-    // sat frozen at phase 0 (square_a_ pinned +1, del-tri offset, half
-    // depth). pd smooths the rate through line~ 23.22 ms; control-rate
-    // stepping is accepted here (as for B) — the phasor MUST move.
-    pa_.set_freq(mtof(ra_));
+    // pd: r s-f-a -> /127^2*127-75 -> mtof -> line~ 23.22 ms -> phasor~
+    // freq. The smoothing is IN HZ; v1 never set the phasor at all.
+    rate_a_.set(mtof(ra_), 23.22f);
   }
   void set_rate_b(int k) {
+    if (k == last_b_) return;
+    last_b_ = k;
     rb_ = 127.0f * (k / 127.0f) * (k / 127.0f) - 75.0f;
-    rate_b_hz_ = mtof(rb_);   // rb_ is control-rate: hoist the exp out of the
-                              // per-sample loop (LINK then only scales it)
+    rate_b_.set(mtof(rb_), 23.22f);
   }
   void set_link(float l) { link_ = l; }
   void set_andor(float a) { andor_ = a; }
@@ -35,12 +37,13 @@ class HyperLfo {
   LIRA8_TC(lira_lfo_block)
   void process_block(int n, float* del_tri, float* del_sqr, float* sqr_lfo) {
     for (int i = 0; i < n; ++i) {
-      // A phasor + its square
+      // A phasor + its square (rate = the 23.22 ms line~ output)
+      pa_.set_freq(rate_a_.next());
       const float pa = pa_.next();
       square_a_ = std::fmax(-1.0f, std::fmin(1.0f,
           cos_lookup(pa * static_cast<float>(kCosTabSize)) * 1000.0f));
       // B rate FM by A square (link): fb*(1 + squareA/2*link); raw 0/1 gate
-      const float fb = rate_b_hz_ * (1.0f + square_a_ * 0.5f * link_);
+      const float fb = rate_b_.next() * (1.0f + square_a_ * 0.5f * link_);
       pb_.set_freq(fb);
       const float pb = pb_.next();
       const float sb = std::fmax(-1.0f, std::fmin(1.0f,
@@ -61,7 +64,8 @@ class HyperLfo {
  private:
   float sr_;
   float ra_ = 0.f, rb_ = 0.f, link_ = 0.f, andor_ = 0.f;
-  float rate_b_hz_ = 0.f;
+  int last_a_ = -1, last_b_ = -1;
+  Ramp rate_a_, rate_b_;
   float square_a_ = 0.f;
   Phasor pa_{sr_}, pb_{sr_};
 };

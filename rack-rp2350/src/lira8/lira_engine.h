@@ -252,12 +252,15 @@ class Lira8Engine {
     // source 0=audio 1=off 2=LFO-CV; soft gates 0.999/0.001
     static const int kSrcA[4] = {1, 0, 3, 2};
     static const int kSrcB[4] = {3, 0, 1, 2};
-    const float ga_audio = (switch_ < 0.5f) ? 0.999f : 0.001f;
-    const float gb_audio = (switch_ < 0.5f) ? 0.001f : 0.999f;
-    const float gl_lfo = (total_fb_ < 0.5f) ? 0.999f : 0.001f;
-    const float gl_fb = (total_fb_ < 0.5f) ? 0.001f : 0.999f;
-    const float ga_out = (src_[p] == 0) ? 0.999f : 0.001f;
-    const float gl_out = (src_[p] == 2) ? 0.999f : 0.001f;
+    // prm.source gates: pd computes (==)*0.999 + 0.001, i.e. EXACTLY 1.0 when
+    // ON and 0.001 when OFF (verified from abs/prm.source.pd). v1 used
+    // 0.999 for ON (-0.009 dB on the selected source).
+    const float ga_audio = (switch_ < 0.5f) ? 1.0f : 0.001f;
+    const float gb_audio = (switch_ < 0.5f) ? 0.001f : 1.0f;
+    const float gl_lfo = (total_fb_ < 0.5f) ? 1.0f : 0.001f;
+    const float gl_fb = (total_fb_ < 0.5f) ? 0.001f : 1.0f;
+    const float ga_out = (src_[p] == 0) ? 1.0f : 0.001f;
+    const float gl_out = (src_[p] == 2) ? 1.0f : 0.001f;
     const int a = kSrcA[p], bidx = kSrcB[p];
     for (int i = 0; i < kBlockSize; ++i) {
       const float audio = buses_prev_[a][i] * ga_audio +
@@ -273,8 +276,10 @@ class Lira8Engine {
     static const float kInv6 = 0.1666667f;
     float in_sum[kBlockSize];    // dry source: voice sum ONLY (no noise!)
     float write_sum[kBlockSize]; // delay write input: voice sum + noise*0.001
-    const float gate_self = (del_mod_ == 0) ? 0.999f : 0.001f;
-    const float gate_lfo = (del_mod_ == 2) ? 0.999f : 0.001f;
+    // pd gates the read-time modulators with hard ==0 / ==2 comparisons
+    // (verified in the delay dump); v1 used 0.999/0.001.
+    const float gate_self = (del_mod_ == 0) ? 1.0f : 0.0f;
+    const float gate_lfo = (del_mod_ == 2) ? 1.0f : 0.0f;
     for (int i = 0; i < kBlockSize; ++i) {
       // pd: the delay INPUT sums the four voice subpatch OUTLETS = the raw
       // current-block pair sums (the hip~3'd copy goes only to the s~ del

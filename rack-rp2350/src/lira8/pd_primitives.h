@@ -180,50 +180,57 @@ inline float cos_lookup(float phase /* table units, wrapped [0, N) */) {
   return a + frac * (b - a);
 }
 
-// osc~: DOUBLE phase (pd d_osc.c) — this runs ONCE PER VOICE PAIR (the
-// vibrato LFO), not at audio rate: one soft-double add per pair is cheap,
-// and the float alternative drifts ~0.01 cycle over a 9 s drone (measured:
-// single-pair A/B -16.5 dB rmsdiff, corr 0.989 vs double). Audio-rate
-// oscillators (LiraOsc) stay float — that is where the 10x slowdown lived.
+// ---------- osc~/phasor~: 32-bit FIXED-POINT phase (2^32 per cycle) ----------
+// pd uses double accumulators; the M33 has no double FPU, so every double op
+// is a software libcall (~50 cycles). Integer phase addition is EXACT modulo
+// 2^32 — zero drift, unlike a float accumulator — and the conversion to
+// table/unit space is one VCVT + one multiply. Negative increments wrap
+// correctly (two's complement), so backward phasors still work.
+static constexpr float kPhaseToUnit = 1.0f / 4294967296.0f;   // 2^-32
+static constexpr float kPhaseToTable = 2048.0f / 4294967296.0f;  // 2^-21
+
+inline uint32_t phase_inc_from_hz(float f, float conv) {
+  // conv = 2^32/sr. Patch rates are < 15 kHz; clamp keeps the float->int32
+  // conversion defined.
+  if (f > 15000.0f) f = 15000.0f;
+  else if (f < -15000.0f) f = -15000.0f;
+  return static_cast<uint32_t>(static_cast<int32_t>(f * conv));
+}
+
+// osc~: output-then-increment, linear table interpolation
 class CosOsc {
  public:
-  explicit CosOsc(float sr) : conv_(static_cast<double>(kCosTabSize) / sr) {}
-  void set_freq(float f) { inc_ = static_cast<double>(f) * conv_; }
+  explicit CosOsc(float sr) : conv_(4294967296.0f / sr) {}
+  void set_freq(float f) { inc_ = phase_inc_from_hz(f, conv_); }
   LIRA8_TC(pd_cososc_next)
   float next() {
-    float out = cos_lookup(static_cast<float>(phase_));
+    const float out = cos_lookup(static_cast<float>(phase_) * kPhaseToTable);
     phase_ += inc_;
-    while (phase_ >= kCosTabSize) phase_ -= kCosTabSize;
-    while (phase_ < 0.0) phase_ += kCosTabSize;
     return out;
   }
 
  private:
-  double conv_;
-  double inc_ = 0.0;
-  double phase_ = 0.0;
+  float conv_;
+  uint32_t inc_ = 0;
+  uint32_t phase_ = 0;
 };
 
-// ---------- phasor~: output-then-increment, DOUBLE phase, wrap [0,1) ----------
-// Same call: the hyper-LFO phasors run once per sample TOTAL (not per voice),
-// so double costs ~20 us/block while float drifts the delay-LFO phase.
+// ---------- phasor~: output-then-increment, wrap [0,1) ----------
 class Phasor {
  public:
-  explicit Phasor(float sr) : conv_(1.0 / sr) {}
-  void set_freq(float f) { inc_ = static_cast<double>(f) * conv_; }
+  explicit Phasor(float sr) : conv_(4294967296.0f / sr) {}
+  void set_freq(float f) { inc_ = phase_inc_from_hz(f, conv_); }
   LIRA8_TC(pd_phasor_next)
   float next() {
-    float out = static_cast<float>(phase_);
+    const float out = static_cast<float>(phase_) * kPhaseToUnit;
     phase_ += inc_;
-    if (phase_ >= 1.0) phase_ -= 1.0;
-    if (phase_ < 0.0) phase_ += 1.0;
     return out;
   }
 
  private:
-  double conv_;
-  double inc_ = 0.0;
-  double phase_ = 0.0;
+  float conv_;
+  uint32_t inc_ = 0;
+  uint32_t phase_ = 0;
 };
 
 // ---------- noise~: verbatim LCG; seed = 307*1319^k per instance ----------

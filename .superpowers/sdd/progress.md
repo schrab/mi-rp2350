@@ -3168,3 +3168,24 @@ again: single-pair 0.739->0.838, delay-extremes 0.972->0.985, fuzz-push
 0.998->0.999, transients 0.859 (flat), drone-all 0.536->0.502 (chaotic/
 phase-sensitive; RMS ratio 0.0 dB). On device: max Process 1252-1475 us,
 delay stage +~20 us (SELF tap + dB ramp), i2s stalls 0.
+
+### Rack-lira8 batch C: remaining LOW fidelity items + fixed-point phasors (2026-11-15)
+
+- **Source mux gates**: pd computes (==)*0.999 + 0.001 -> exactly 1.0 when
+  ON; the port used 0.999 (verified from abs/prm.source.pd). ON = 1.0 now.
+- **Delay-mod gates**: pd uses hard ==0 / ==2 comparators for the self/LFO
+  CV into the read time; the port's 0.999/0.001 soft gates leaked 0.1%.
+  Now hard 1.0/0.0.
+- **Hyper-LFO rate smoothing**: pd = r s-f-a -> /127, pow 2, *127, -75 ->
+  mtof -> line~ 23.22 ms -> phasor~ freq (the smoothing is IN HZ). Both rates
+  are now per-sample Ramps; set_rate_a/b ignore repeated identical values
+  (apply_params re-applies on every CC).
+- **CosOsc/Phasor -> 32-bit fixed-point phase** (2^32/cycle): the M33 has no
+  double FPU; every double op was a ~50-cycle soft-float libcall. Integer
+  phase addition is exact modulo 2^32 (zero drift), the increment is one
+  float mul + convert, negative increments wrap correctly. Removes the
+  soft-double cost from the vibrato LFO and the hyper-LFO without the float
+  drift measured earlier.
+Verification: host tests green; onevoice bit-identical; B->C differences
+-20..-40 dB (LFO rate ramps at boot/CC changes); Pd trajectory gates
+unchanged (0.504 / 0.837 / 0.985 / 0.999 / 0.859).
