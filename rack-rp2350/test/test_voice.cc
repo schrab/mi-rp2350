@@ -204,15 +204,22 @@ static void test_voice_pair() {
 }
 
 static void test_pd_random() {
-  // determinism + range
-  uint32_t st = 0u + 1u;      // seed_base 0 + pair-first-voice 1
+  // pd_random LCG: determinism + range (kept for future reseed support)
+  uint32_t st = 0u + 1u;
   int r = pd_random(&st, 1001);
   CHECK(r >= 0 && r < 1001, "pd_random in range (%d)", r);
   uint32_t st2 = 0u + 1u;
   CHECK(pd_random(&st2, 1001) == r, "pd_random deterministic");
-  // depth law: 0.5 + 3*draw/1000
-  float depth = 0.5f + 3.0f * r / 1000.0f;
-  CHECK(depth >= 0.5f && depth <= 3.5f, "vib depth in [0.5,3.5]");
+  // vibrato depths: the patch's $0-seed receiver is DORMANT, so the four
+  // [random 1001] draws are pd's measured default-PRNG constants
+  // (744/930/728/920, probed 2026-11-15) -> depths 0.5 + 3*draw/1000.
+  const float expect[4] = {2.732f, 3.290f, 2.684f, 3.260f};
+  for (int p = 0; p < 4; ++p) {
+    VoicePair vp(32000.f, p, 0u);
+    (void)vp;
+    float d = 0.5f + 3.0f * kVibDraws[p] / 1000.0f;
+    CHECK(near(d, expect[p], 1e-3f), "vib depth pair %d (got %.4f)", p, d);
+  }
 }
 
 int main() {

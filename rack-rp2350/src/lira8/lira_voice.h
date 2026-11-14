@@ -40,6 +40,10 @@ static const float kTuneTable[8][2] = {
     {20.f, 116.54f}, {20.f, 116.54f}, {33.f, 126.24f}, {33.f, 131.22f},
 };
 
+// pd default-PRNG draws of the four [random 1001] objects at patch load
+// (probe: 744, 930, 728, 920 — seed machinery dormant, deterministic).
+static const int kVibDraws[4] = {744, 930, 728, 920};
+
 // Sensor envelope (prm.sensor): line~ A/R with e^2 gate + cos morph.
 class SensorEnv {
  public:
@@ -68,7 +72,10 @@ class SensorEnv {
 
 class VoicePair {
  public:
-  // pair 0..3 (voices 2i+1 / 2i+2); seed_base = user seed (pd "seed $1-seed+$2")
+  // pair 0..3 (voices 2i+1 / 2i+2). seed_base kept for API compat: the
+  // patch's $0-seed receiver is DORMANT (nothing sends to it), so the
+  // vibrato depths are the MEASURED pd default-PRNG draws (744/930/728/920
+  // from `random 1001` at patch load, probed 2026-11-15) — deterministic.
   VoicePair(float sr, int pair, uint32_t seed_base)
       : sr_(sr),
         osc_a_(sr),
@@ -83,9 +90,8 @@ class VoicePair {
         vib_(sr),
         osc3_(sr),
         hip_(3.0f, sr) {
-    // depth draw: [random 1001] seeded with seed_base + pair's first voice
-    uint32_t st = seed_base + static_cast<uint32_t>(pair * 2 + 1);
-    vib_depth_ = 0.5f + 3.0f * static_cast<float>(pd_random(&st, 1001)) / 1000.0f;
+    (void)seed_base;
+    vib_depth_ = 0.5f + 3.0f * kVibDraws[pair] / 1000.0f;
     osc3_.set_freq(3.0f);
   }
 

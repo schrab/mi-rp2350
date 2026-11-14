@@ -1,5 +1,36 @@
 # LIRA-8 → C++ @ 32 kHz — Complete Porting Spec
 
+> ## ⚠️ CORRECTIONS (2026-11-15, verified empirically AFTER this spec was written)
+>
+> Three claims in this spec were re-verified by headless probes / raw connect
+> lists and CORRECTED. Where the body contradicts this box, this box wins:
+>
+> 1. **`delwrite~ 5944` IS MILLISECONDS (5.944 s buffer), not samples.**
+>    Probe (probe_delms lineage): impulse into `delwrite~ bigbuf 5944`,
+>    `sig~ 2000 → vd~` → step returned at exactly entry+2000 ms. pd's
+>    documented msec semantics hold; the §2/"conflated samples with ms" claim
+>    and the §8 `4312 samples` conversion are WRONG. The delay time law
+>    `2^(12k/127)·1.45125 ms` (max 5944.32 ms ≈ buffer size) is real and
+>    unclamped. RP2350 storage decision (user-approved): int16 @32 kHz,
+>    **cap 1.45 s per line** (knob law compresses the top ~12% of the range
+>    into the cap); ESP32/ctag keeps the full 5.944 s via PSRAM.
+> 2. **The two delay buffers are PARALLEL with a SHARED write input, not
+>    series.** Resolved dump (delay_master.txt): `[19] = inlet~ + noise*0.001`
+>    feeds BOTH write summers (`[19]→[8]` and `[19]→[60]`); each bus's
+>    feedback tap is its OWN expander output × the shared feedback gain
+>    line~ (`[29]→[30]→[8]:1`, `[29]→[68]→[60]:1`). The two buffers diverge
+>    only through their own feedback tails and their independent TIME/MOD
+>    read values.
+> 3. **The compressor~ multiplex quirk is behaviorally MOOT in this patch:**
+>    the delay-path compressors run attack=release=2.5 ms (loadbang
+>    `2.5 2.5 -12 5`), so whichever comparison the mux uses (signal-vs-env or
+>    coeff-vs-coeff) both branches carry the SAME coefficient. Implement
+>    take-1's law (`coeff = temp > env ? attack : release`).
+>
+> Also verified: vibrato depth draws are pd's default-PRNG constants
+> (744/930/728/920 — the `$0-seed` receiver is dormant, nothing sends to it);
+> the §14 "seed machinery" text about user seeds is aspirational only.
+
 Source of truth: `patch/_LIRA-8.pd` + `patch/abs/*.pd` (verified byte-identical to
 upstream `/home/schrab/Projects/LIRA-8/LIRA-8_Pd_Standalone/`). `graph.json`
 (hvcc pd2hv dump) was used only as a cross-check; every wire below was confirmed
