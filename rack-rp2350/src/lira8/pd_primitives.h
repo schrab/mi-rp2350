@@ -87,6 +87,8 @@ class Ramp {
     return value_;
   }
   float value() const { return value_; }
+  // Settled (ramp finished): callers may hoist the value out of a block.
+  bool idle() const { return remaining_ <= 0; }
 
  private:
   float sr_;

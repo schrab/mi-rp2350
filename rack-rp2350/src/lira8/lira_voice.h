@@ -83,6 +83,17 @@ class SensorEnv {
     cos_term = cos_lookup(ph) * 0.5f;
   }
 
+  bool idle() const { return line_.idle(); }
+  // Settled value without advancing (identical law to process()).
+  LIRA8_TC(lira_sensor_values)
+  inline void values(float& e2, float& cos_term) const {
+    const float e = line_.value();
+    e2 = e * e;
+    float ph = (e - 0.25f) * static_cast<float>(kCosTabSize);
+    if (ph < 0.0f) ph += static_cast<float>(kCosTabSize);
+    cos_term = cos_lookup(ph) * 0.5f;
+  }
+
  private:
   Ramp line_;
   float attack_ms_ = 100.0f, release_ms_ = 8000.0f;
@@ -158,6 +169,44 @@ class VoicePair {
   LIRA8_TC(lira_voice_pair)
   inline void process(const float* mod_sig, int n, float* pair_out,
                       float* bus_send) {
+    // SETTLED-BLOCK FAST PATH: with the six control line~s and both sensor
+    // envelopes idle (the normal drone / held-pad state) nothing in them can
+    // change inside the block — hoist them and skip 6 Ramp::next calls plus
+    // the two per-sample cos lookups. Same expressions and rounding order as
+    // the slow loop below.
+    if (tune_a_.idle() && tune_b_.idle() && sharp_.idle() && mod_.idle() &&
+        hold_.idle() && vib_.idle() && sensor_a_.idle() && sensor_b_.idle()) {
+      const float sharp = sharp_.value();
+      const float mod = mod_.value();
+      const float hold = hold_.value();
+      const float vib = vib_.value();
+      const float tuneA = tune_a_.value();
+      const float tuneB = tune_b_.value();
+      float e2a, cosa, e2b, cosb;
+      sensor_a_.values(e2a, cosa);
+      sensor_b_.values(e2b, cosb);
+      float gateA = e2a + hold;
+      if (gateA > 1.0f) gateA = 1.0f;
+      float gateB = e2b + hold;
+      if (gateB > 1.0f) gateB = 1.0f;
+      for (int i = 0; i < n; ++i) {
+        const float V = osc3_.next() * vib;
+        const float pwm = 0.53125f + 0.025f * V;
+        const float fA = (tuneA * (1.0f + 0.005f * V)) *
+                         (1.0f + mod_sig[i] * mod);
+        const float fB = (tuneB * (1.0f + 0.005f * V)) *
+                         (1.0f + mod_sig[i] * mod);
+        float sqA, triA, sqB, triB;
+        osc_a_.process(fA, pwm, sqA, triA);
+        osc_b_.process(fB, pwm, sqB, triB);
+        const float mixA = sqA * sharp + triA * (1.0f - sharp) + cosa;
+        const float mixB = sqB * sharp + triB * (1.0f - sharp) + cosb;
+        const float pair = mixA * gateA + mixB * gateB;
+        pair_out[i] = pair;
+        bus_send[i] = hip_.process(pair);
+      }
+      return;
+    }
     for (int i = 0; i < n; ++i) {
       const float V = osc3_.next() * vib_.next();
       const float sharp = sharp_.next();

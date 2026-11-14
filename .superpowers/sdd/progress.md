@@ -3189,3 +3189,21 @@ delay stage +~20 us (SELF tap + dB ramp), i2s stalls 0.
 Verification: host tests green; onevoice bit-identical; B->C differences
 -20..-40 dB (LFO rate ramps at boot/CC changes); Pd trajectory gates
 unchanged (0.504 / 0.837 / 0.985 / 0.999 / 0.859).
+
+### Rack-lira8 perf batch D (2026-11-15, behavior-preserving)
+
+- **D1 (dc438d3)**: LiraOsc hoists 1/sr and -2*pi/sr (3 divisions/pair-sample
+  -> 1 branch-only); cos_lookup's table became a C++17 inline variable (one
+  instance, no per-call thread-safe-init guard on ~900 lookups/block);
+  EnvRms window state sized to the 512-point env~ actually used (~4 KB per
+  expander); ModDelay::s2f + compander ratio are reciprocal multiplies.
+  Host A/B -58..-78 dB, corr 1.000000.
+- **D2**: VoicePair settled-block fast path — when the six control line~s
+  and both sensor envelopes are idle (normal drone/held state), hoist them
+  and skip 6 Ramp::next plus 2 cos lookups per pair-sample; same
+  expressions/rounding order. Host A/B bit-identical (-213..-227 dB).
+- On device: max Process **1252-1475 -> 1123-1159 us** (57% of the 2 ms
+  block); voices 865-968 -> **676-687 us**; delay 247-268 -> 220-238; LFO
+  125-177 -> **39-42 us** (fixed-point phasors + per-sample rate line~s);
+  master 41-47; i2s stalls 0. The remaining >100 us item on CC bursts is
+  apply_params (158-211 us transient, not steady state).
