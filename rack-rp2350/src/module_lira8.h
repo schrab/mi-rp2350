@@ -44,8 +44,13 @@ namespace mod_lira8 {
 static const char* const kName = "lira8";
 static const uint32_t kSampleRate = 32000;
 static const size_t kBlockSize = 16;     // host grid; the engine bursts 64
+// Report budget = the INTERNAL 64-sample block (2 ms at 32 kHz), NOT the
+// 16-sample host grid: Process() renders a whole internal block on one call
+// (every 4th), so proc_us_max is a single-block number — compare it against
+// the block period. The 4x burst is absorbed by the 4 ms I2S bank; the
+// per-call stall threshold is kStallUs below.
 static const uint32_t kBudgetUs =
-    (uint32_t)(1000000UL / kSampleRate * kBlockSize);  // 500 (elements math)
+    (uint32_t)(1000000UL / kSampleRate * l8pd::Lira8Engine::kBlockSize);  // 2000
 static const uint32_t kI2sBuffers = 8;   // 8 x 16 words = 128 frames (~4 ms)
 static const uint32_t kI2sWords = 16;
 static const uint32_t kStallUs = 900;    // >2x the 500 us block period
