@@ -2694,3 +2694,53 @@ Plan: `docs/superpowers/plans/2026-11-14-rack-button-piezo.md`. Commits: `e9dfac
 - **Diagnostics gotchas (cost hours, do not repeat)**: (1) multiple `cat` readers on ttyACM0 SPLIT the USB-CDC byte stream — phantom "state corruption"/truncated dumps; ONE reader at a time, and `(cat … &); kill $!` kills the SUBSHELL not the cat — use run_in_background + TaskStop. (2) Bytes written during the BOOTSEL window flush into the console after flash re-enumeration — the first post-flash command can arrive garbled ("unknown command"); discard the first exchange. (3) The 1200-baud touch wedges while any reader holds DTR — release the port first (killing the reader triggered the pending reboot immediately).
 - **ROOT display drift (W7/NEO, reported once)**: engine `root_param` verified stable (3 console polls, 30 s) + link counters byte-identical over 10 s — transient on the C3 side, self-resolved after replug; watch for recurrence. RP2350 `g_ui_active_page` was stale (page=8 while the user was on 7) — separate cosmetic issue, unfixed.
 - Pending: T2/T3 piezo (GP26 ADC, software Ears) per the plan; probe removal at next flash if unneeded.
+
+## Rack-lira8 — LIRA-8 (Pure Data) hand-port to RP2350 (2026-11-15)
+
+Plan: `docs/superpowers/plans/2026-11-15-rack-lira8.md` (read first).
+User constraints: hand port (hvcc GPL-3.0 → generated C never ships; used as
+analysis tool only), **32 kHz first** (engine stays sample-rate-agnostic —
+44.1 kHz later is a constant change), module name rack-lira8, TDD with
+headless-Pd golden references, subagents for exploration/data-gathering,
+ctag-tbd (ESP32) portability data collected but not focused on.
+
+| Task | Status | Committed | Notes |
+|---|---|---|---|
+| L0 Tooling + graph spec | in progress | — | venv (hvcc 0.17.3 + numpy) at `rack-rp2350/test/lira8_ref/.venv`; `graph.json` (4.3 MB, subpatch names re-joined) via `gen_graph.py`; PORTING-SPEC.md from spec subagent pending |
+| L1 Reference harness (pd -nogui goldens) | pending | — | Pd 0.57.0 installed by user |
+| L2 Voice core TDD (LiraOsc/SensorEnv/vibrato/FM) | pending | — | |
+| L3 Effects chain TDD (delays/LFOs/compander/tanh/master) | pending | — | |
+| L4 Rack integration (5th module: registry/ld/ui/preset/mod-engine/boot-env) | pending | — | |
+| L5 Docs + ctag-portability data | pending | — | |
+
+### Rack-lira8 L0 — patch→JSON tooling findings (2026-11-15)
+
+- **hvcc as analysis tool**: `uv venv` + `pip install hvcc numpy` in
+  `rack-rp2350/test/lira8_ref/` (no sudo). Full `hvcc` pipeline aborts on
+  this patch: 238 errors = GUI plumbing (`gui.link`/`labels`/`gui`/camomile
+  param routing) + **24× `v` (value) objects unsupported** (mostly
+  `prm.sensor` attack/release storage) + `[route]` right-inlet warnings.
+  Hand port unaffected (`v` = named float).
+- **`graph.json`**: hvcc's pd2hv parser produces the whole graph as JSON
+  even when the pipeline fails — dump via
+  `hvcc.interpreters.pd2hv.PdParser.PdParser().graph_from_file()` +
+  `to_hv().model_dump()`. hvcc DROPS subpatch names (properties only carry
+  the canvas-header x/y); `gen_graph.py` re-joins names from all `#N canvas`
+  headers via geometry key + object-census fingerprint (dot product of type
+  counters) — different abstraction files saved at the same window position
+  disambiguate cleanly. Unnamed residue: `@hv_obj` helper subpatches
+  (`__and~f`, `>=~`, `coeff`, …) and the 4 lira.voice instances (identifiable
+  by root coords 405,511 / 435,563 / 595,511 / 625,563).
+- **Patch map (from JSON + .pd reads)**: 4× `lira.voice` = 8 osc paths (8×
+  `os.triangle~`: phasor+2×polyBLEP+one-pole rlpf+samphold PWM); main
+  subpatches `delay` (120 objs, dual delwrite~ 5944 @44.1k = 134.7 ms),
+  `master_output` (45), `hyper-lfo` (28), `triangle-lfo`, `square-lfo`,
+  `keyboard` (8 sensor sends), GUI-only `gui`/`labels`/`gui.link`.
+  `ma.tanh~` = Pade x(27+x²)/(27+9x²) clip ±3; `compressor~` = ar-switched
+  one-pole env follower + dB gain law; `expander~` = env~512 dB-domain.
+  Census: ~490 `*~`, rpole~ 10, phasor~ 10, line~ 47, vd~ 4, samphold~ 8,
+  exp~ 8, wrap~ 8, mtof 18, noise~ 1 — no FFT/tables/files.
+- **Machine tooling state**: Pd 0.57.0 installed (user); uv/pip fine;
+  sox absent (ffmpeg present); numpy in venv. No test infra existed in the
+  repo — host test harness modeled on `EURORACK-STEREO/elements/test/`
+  makefile (upstream trees have real host-side test precedent).
