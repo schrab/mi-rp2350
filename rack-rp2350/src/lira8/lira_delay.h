@@ -102,8 +102,9 @@ class ModDelay {
   // (noise~ * 0.001 in the patch). Measured floors: pd -83 dB, +-1 clip,
   // +-4 scale -73 dB (too hissy), +-2 = the sweet spot.
   static constexpr float kDelayScale = 0.5f;
+  static constexpr float kS2f = 1.0f / (32767.0f * kDelayScale);
   static inline float s2f(int16_t s) {
-    return static_cast<float>(s) / (32767.0f * kDelayScale);
+    return static_cast<float>(s) * kS2f;      // reciprocal (was a divide)
   }
   static inline int16_t f2s(float f) {
     if (f > 2.0f) f = 2.0f;
@@ -129,14 +130,14 @@ class Compander {
     c_attack_ = coeff(attack_ms);
     c_release_ = coeff(release_ms);
     thresh_ = dbtorms(thresh_db + 100.0f);
-    ratio_ = ratio;
+    inv_ratio_ = 1.0f / ratio;
   }
   LIRA8_TC(lira_comp_process)
   float process(float in) {
     const float temp = std::fabs(in);
     const float c = (temp > env_) ? c_attack_ : c_release_;
     env_ = temp * (1.0f - c) + c * env_;
-    float g = (thresh_ + (env_ - thresh_) / ratio_) / (env_ + 1e-30f);
+    float g = (thresh_ + (env_ - thresh_) * inv_ratio_) / (env_ + 1e-30f);
     if (g > 1.0f) g = 1.0f;
     if (g < 0.0f) g = 0.0f;
     return in * tanh_pade(g);
@@ -153,7 +154,7 @@ class Compander {
     return x * (27.0f + x * x) / (27.0f + 9.0f * x * x);
   }
   float sr_;
-  float c_attack_ = 0.f, c_release_ = 0.f, thresh_ = 0.f, ratio_ = 1.f;
+  float c_attack_ = 0.f, c_release_ = 0.f, thresh_ = 0.f, inv_ratio_ = 1.f;
   float env_ = 0.f;
 };
 

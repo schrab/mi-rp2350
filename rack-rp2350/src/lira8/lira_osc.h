@@ -21,14 +21,17 @@ namespace l8pd {
 
 class LiraOsc {
  public:
-  explicit LiraOsc(float sr) : sr_(sr) {}
+  explicit LiraOsc(float sr)
+      : sr_(sr),
+        inv_sr_(1.0f / sr),
+        exp_k_(-2.0f * kPi / sr) {}
 
   // pwm: PWM control 0..1 (0.53125 + 0.025*V from the voice); freq: Hz.
   // Returns square via out_sq, triangle via out_tri.
   LIRA8_TC(lira_osc_process)
   inline void process(float freq, float pwm, float& out_sq, float& out_tri) {
     const float f = std::fabs(freq);
-    const float dt = f / sr_;
+    const float dt = f * inv_sr_;      // division hoisted to the ctor
     if (dt < 1e-9f) {
       // pd's phasor freezes at f=0; skip the blep divisions (0/0). The
       // patch never reaches this (tune line~ ramps > 0) but never NaN.
@@ -90,7 +93,7 @@ class LiraOsc {
     if (fc < 100.0f) fc = 100.0f;
     const float half = sr_ * 0.5f;
     if (fc > half) fc = half;
-    const float a = exp_neg_range(-2.0f * kPi * fc / sr_);
+    const float a = exp_neg_range(fc * exp_k_);   // -2*pi*fc/sr pre-scaled
     lpf_y_ += (1.0f - a) * (pulse - lpf_y_);
 
     out_sq = 0.59f * pulse;
@@ -99,6 +102,8 @@ class LiraOsc {
 
  private:
   float sr_;
+  float inv_sr_;
+  float exp_k_;
   float phase_ = 0.0f;
   float last_phase_for_sh_ = 0.0f;
   float sh_ = 0.0f;

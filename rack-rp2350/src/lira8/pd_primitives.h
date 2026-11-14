@@ -170,13 +170,17 @@ struct CosTable {
   }
 };
 
+// ONE shared table instance (C++17 inline variable). The old function-local
+// static carried a thread-safe-init guard check on EVERY lookup (~900 per
+// 64-block); a namespace-scope variable is initialized once at startup.
+inline const CosTable kCosTab;
+
 LIRA8_TC(pd_cos_lookup)
 inline float cos_lookup(float phase /* table units, wrapped [0, N) */) {
-  static const CosTable tab;
   int idx = static_cast<int>(phase);
   if (idx >= kCosTabSize) idx -= kCosTabSize;
   float frac = phase - static_cast<float>(idx);
-  float a = tab.t[idx], b = tab.t[idx + 1];
+  float a = kCosTab.t[idx], b = kCosTab.t[idx + 1];
   return a + frac * (b - a);
 }
 
@@ -259,7 +263,8 @@ class EnvRms {
   EnvRms(int npoints, int block, float sr) {
     (void)sr;
     npoints_ = npoints;
-    realperiod_ = npoints / 2;
+    if (npoints_ > kMaxNpoints) npoints_ = kMaxNpoints;   // see win_ size
+    realperiod_ = npoints_ / 2;
     if (realperiod_ % block)
       realperiod_ = realperiod_ + block - (realperiod_ % block);
     for (int i = 0; i < npoints_; ++i)
@@ -295,8 +300,9 @@ class EnvRms {
 
  private:
   static constexpr int kMaxOverlap = 4;
+  static constexpr int kMaxNpoints = 512;   // env~ default; only size used
   int npoints_, realperiod_, phase_;
-  float win_[1024 + 64];
+  float win_[kMaxNpoints + 64];
   float sumbuf_[kMaxOverlap];
   float result_ = 0.0f;
 };
