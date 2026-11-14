@@ -1,0 +1,5327 @@
+
+===== lira.voice instance $0 1 2 (gui obj 183)  (lira.voice.pd:1) args=['$0', '1', '2'] =====
+  [  0] L2     os.triangle~
+  [  1] L16    *~
+  [  2] L17    *~
+  [  3] L18    *~
+  [  4] L19    outlet~
+  [  5] L20    +~
+  [  6] L21    os.triangle~
+  [  7] L22    *~
+  [  8] L23    *~
+  [  9] L24    *~
+  [ 10] L25    *~
+  [ 11] L41    *~
+  [ 12] L42    *~
+  [ 13] L43    inlet~
+  [ 14] L77    loadbang
+  [ 15] L78    1
+  [ 16] L79    -~
+  [ 17] L80    inlet~
+  [ 18] L81    min~ 1
+  [ 19] L82    min~ 1
+  [ 20] L83    prm.tune $0 1
+  [ 21] L84    prm.tune $0 2
+  [ 25] L88    line~
+  [ 26] L89    osc~ 3
+  [ 27] L90    sig~ 0.53125
+  [ 28] L91    *~
+  [ 29] L92    r $0-s-vibrato
+  [ 30] L93    +~
+  [ 31] L94    +~
+  [ 32] L95    *~
+  [ 33] L96    *~
+  [ 34] L97    r $0-seed
+  [ 35] L98    +
+  [ 36] L99    loadbang
+  [ 37] L100   f 1
+  [ 38] L101   t b b
+  [ 39] L102   seed {1}
+  [ 40] L103   *~ 0.025
+  [ 41] L104   / 1000
+  [ 42] L105   random 1001
+  [ 43] L106   + 0.5
+  [ 44] L107   * 3
+  [ 45] L108   r $0-s-fast-12
+  [ 46] L109   sel 1 0
+  [ 47] L110   unpack f f
+  [ 48] L111   v $0-attack
+  [ 49] L112   v $0-release
+  [ 50] L113   t b f
+  [ 51] L114   s $0-trigger
+  [ 52] L148   *~ 0.005
+  [ 53] L149   100 100
+  [ 54] L150   200 8000
+  [ 55] L151   s~ $0-del-12
+  [ 56] L152   {1} 23.22
+  [ 57] L153   hip~ 3
+  [ 58] L154   inlet
+  [ 59] L155   t f f
+  conn [0](0) -> [1](0)   # os.triangle~ -> *~
+  conn [0](1) -> [2](0)   # os.triangle~ -> *~
+  conn <sub0:prm.sharp>(0) -> [1](1)   # <sub0:prm.sharp> -> *~
+  conn <sub0:prm.sharp>(0) -> [16](1)   # <sub0:prm.sharp> -> -~
+  conn <sub0:prm.sharp>(0) -> [7](1)   # <sub0:prm.sharp> -> *~
+  conn [1](0) -> [3](0)   # *~ -> *~
+  conn [2](0) -> [3](0)   # *~ -> *~
+  conn [3](0) -> [5](0)   # *~ -> +~
+  conn [5](0) -> [4](0)   # +~ -> outlet~
+  conn [5](0) -> [57](0)   # +~ -> hip~ 3
+  conn [6](0) -> [7](0)   # os.triangle~ -> *~
+  conn [6](1) -> [8](0)   # os.triangle~ -> *~
+  conn [7](0) -> [9](1)   # *~ -> *~
+  conn [8](0) -> [9](1)   # *~ -> *~
+  conn [9](0) -> [5](1)   # *~ -> +~
+  conn [10](0) -> [0](0)   # *~ -> os.triangle~
+  conn <sub1:prm.mod>(0) -> [12](1)   # <sub1:prm.mod> -> *~
+  conn [11](0) -> [6](0)   # *~ -> os.triangle~
+  conn [12](0) -> [10](1)   # *~ -> *~
+  conn [12](0) -> [11](0)   # *~ -> *~
+  conn [13](0) -> [12](0)   # inlet~ -> *~
+  conn <sub2:prm.sensor>(0) -> [18](0)   # <sub2:prm.sensor> -> min~ 1
+  conn <sub2:prm.sensor>(1) -> [3](0)   # <sub2:prm.sensor> -> *~
+  conn [14](0) -> [15](0)   # loadbang -> 1
+  conn [15](0) -> [16](0)   # 1 -> -~
+  conn [16](0) -> [2](1)   # -~ -> *~
+  conn [16](0) -> [8](1)   # -~ -> *~
+  conn [17](0) -> [19](0)   # inlet~ -> min~ 1
+  conn [17](0) -> [18](0)   # inlet~ -> min~ 1
+  conn [18](0) -> [3](1)   # min~ 1 -> *~
+  conn [19](0) -> [9](0)   # min~ 1 -> *~
+  conn [20](0) -> [30](0)   # prm.tune $0 1 -> +~
+  conn [20](0) -> [32](0)   # prm.tune $0 1 -> *~
+  conn [21](0) -> [31](0)   # prm.tune $0 2 -> +~
+  conn [21](0) -> [33](0)   # prm.tune $0 2 -> *~
+  conn [25](0) -> [28](1)   # line~ -> *~
+  conn [26](0) -> [28](0)   # osc~ 3 -> *~
+  conn [27](0) -> [0](1)   # sig~ 0.53125 -> os.triangle~
+  conn [27](0) -> [6](1)   # sig~ 0.53125 -> os.triangle~
+  conn [28](0) -> [40](0)   # *~ -> *~ 0.025
+  conn [28](0) -> [52](0)   # *~ -> *~ 0.005
+  conn [29](0) -> [56](0)   # r $0-s-vibrato -> {1} 23.22
+  conn [30](0) -> [10](0)   # +~ -> *~
+  conn [30](0) -> [0](0)   # +~ -> os.triangle~
+  conn [31](0) -> [11](1)   # +~ -> *~
+  conn [31](0) -> [6](0)   # +~ -> os.triangle~
+  conn [32](0) -> [30](1)   # *~ -> +~
+  conn [33](0) -> [31](1)   # *~ -> +~
+  conn [34](0) -> [35](0)   # r $0-seed -> +
+  conn [35](0) -> [39](0)   # + -> seed {1}
+  conn [36](0) -> [38](0)   # loadbang -> t b b
+  conn [37](0) -> [35](1)   # f 1 -> +
+  conn [38](0) -> [42](0)   # t b b -> random 1001
+  conn [38](1) -> [37](0)   # t b b -> f 1
+  conn [39](0) -> [42](0)   # seed {1} -> random 1001
+  conn [40](0) -> [0](1)   # *~ 0.025 -> os.triangle~
+  conn [40](0) -> [6](1)   # *~ 0.025 -> os.triangle~
+  conn [41](0) -> [44](0)   # / 1000 -> * 3
+  conn [42](0) -> [41](0)   # random 1001 -> / 1000
+  conn [43](0) -> [26](0)   # + 0.5 -> osc~ 3
+  conn [44](0) -> [43](0)   # * 3 -> + 0.5
+  conn [45](0) -> [50](0)   # r $0-s-fast-12 -> t b f
+  conn [46](0) -> [53](0)   # sel 1 0 -> 100 100
+  conn [46](1) -> [54](0)   # sel 1 0 -> 200 8000
+  conn [47](0) -> [48](0)   # unpack f f -> v $0-attack
+  conn [47](1) -> [49](0)   # unpack f f -> v $0-release
+  conn [50](0) -> [51](0)   # t b f -> s $0-trigger
+  conn [50](1) -> [46](0)   # t b f -> sel 1 0
+  conn <sub3:prm.sensor>(0) -> [19](0)   # <sub3:prm.sensor> -> min~ 1
+  conn <sub3:prm.sensor>(1) -> [9](1)   # <sub3:prm.sensor> -> *~
+  conn [52](0) -> [33](1)   # *~ 0.005 -> *~
+  conn [52](0) -> [32](1)   # *~ 0.005 -> *~
+  conn [53](0) -> [47](0)   # 100 100 -> unpack f f
+  conn [54](0) -> [47](0)   # 200 8000 -> unpack f f
+  conn [56](0) -> [25](0)   # {1} 23.22 -> line~
+  conn [57](0) -> [55](0)   # hip~ 3 -> s~ $0-del-12
+  conn [58](0) -> [59](0)   # inlet -> t f f
+  conn [59](0) -> [20](0)   # t f f -> prm.tune $0 1
+  conn [59](1) -> [21](0)   # t f f -> prm.tune $0 2
+
+===== lira.voice instance $0 1 2 (gui obj 183)/sub0:prm.sharp  (lira.voice.pd:3) args=['$0', '1', '2'] =====
+  [  0] L4     / 127
+  [  1] L5     pow 2
+  [  2] L6     line~
+  [  3] L7     r $0-s-sharp-12
+  [  4] L8     outlet~
+  [  5] L9     {1} 23.22
+  conn [0](0) -> [1](0)   # / 127 -> pow 2
+  conn [1](0) -> [5](0)   # pow 2 -> {1} 23.22
+  conn [2](0) -> [4](0)   # line~ -> outlet~
+  conn [3](0) -> [0](0)   # r $0-s-sharp-12 -> / 127
+  conn [5](0) -> [2](0)   # {1} 23.22 -> line~
+
+===== lira.voice instance $0 1 2 (gui obj 183)/sub1:prm.mod  (lira.voice.pd:26) args=['$0', '1', '2'] =====
+  [  0] L27    / 127
+  [  1] L28    line~
+  [  2] L29    outlet~
+  [  3] L30    r $0-s-mod-12
+  [  4] L31    pow 4
+  [  5] L32    * 2
+  [  6] L33    {1} 23.22
+  conn [0](0) -> [4](0)   # / 127 -> pow 4
+  conn [1](0) -> [2](0)   # line~ -> outlet~
+  conn [3](0) -> [0](0)   # r $0-s-mod-12 -> / 127
+  conn [4](0) -> [5](0)   # pow 4 -> * 2
+  conn [5](0) -> [6](0)   # * 2 -> {1} 23.22
+  conn [6](0) -> [1](0)   # {1} 23.22 -> line~
+
+===== lira.voice instance $0 1 2 (gui obj 183)/sub2:prm.sensor  (lira.voice.pd:44) args=['$0', '1', '2'] =====
+  [  0] L45    outlet~
+  [  1] L46    r $0-s-sensor-1
+  [  2] L47    sel 1 0
+  [  3] L48    v $0-attack
+  [  4] L49    v $0-release
+  [  5] L50    1 {1}
+  [  6] L51    0 {1}
+  [  7] L52    line~
+  [  8] L53    *~
+  [  9] L54    -~ 0.25
+  [ 10] L55    cos~
+  [ 11] L56    i
+  [ 12] L57    r $0-trigger
+  [ 13] L58    /~ 2
+  [ 14] L59    outlet~
+  conn [1](0) -> [11](0)   # r $0-s-sensor-1 -> i
+  conn [2](0) -> [3](0)   # sel 1 0 -> v $0-attack
+  conn [2](1) -> [4](0)   # sel 1 0 -> v $0-release
+  conn [3](0) -> [5](0)   # v $0-attack -> 1 {1}
+  conn [4](0) -> [6](0)   # v $0-release -> 0 {1}
+  conn [5](0) -> [7](0)   # 1 {1} -> line~
+  conn [6](0) -> [7](0)   # 0 {1} -> line~
+  conn [7](0) -> [8](0)   # line~ -> *~
+  conn [7](0) -> [8](1)   # line~ -> *~
+  conn [7](0) -> [9](0)   # line~ -> -~ 0.25
+  conn [8](0) -> [0](0)   # *~ -> outlet~
+  conn [9](0) -> [10](0)   # -~ 0.25 -> cos~
+  conn [10](0) -> [13](0)   # cos~ -> /~ 2
+  conn [11](0) -> [2](0)   # i -> sel 1 0
+  conn [12](0) -> [11](0)   # r $0-trigger -> i
+  conn [13](0) -> [14](0)   # /~ 2 -> outlet~
+
+===== lira.voice instance $0 1 2 (gui obj 183)/sub3:prm.sensor  (lira.voice.pd:115) args=['$0', '1', '2'] =====
+  [  0] L116   outlet~
+  [  1] L117   sel 1 0
+  [  2] L118   v $0-attack
+  [  3] L119   v $0-release
+  [  4] L120   1 {1}
+  [  5] L121   0 {1}
+  [  6] L122   line~
+  [  7] L123   *~
+  [  8] L124   -~ 0.25
+  [  9] L125   cos~
+  [ 10] L126   i
+  [ 11] L127   r $0-trigger
+  [ 12] L128   r $0-s-sensor-2
+  [ 13] L129   /~ 2
+  [ 14] L130   outlet~
+  conn [1](0) -> [2](0)   # sel 1 0 -> v $0-attack
+  conn [1](1) -> [3](0)   # sel 1 0 -> v $0-release
+  conn [2](0) -> [4](0)   # v $0-attack -> 1 {1}
+  conn [3](0) -> [5](0)   # v $0-release -> 0 {1}
+  conn [4](0) -> [6](0)   # 1 {1} -> line~
+  conn [5](0) -> [6](0)   # 0 {1} -> line~
+  conn [6](0) -> [7](0)   # line~ -> *~
+  conn [6](0) -> [7](1)   # line~ -> *~
+  conn [6](0) -> [8](0)   # line~ -> -~ 0.25
+  conn [7](0) -> [0](0)   # *~ -> outlet~
+  conn [8](0) -> [9](0)   # -~ 0.25 -> cos~
+  conn [9](0) -> [13](0)   # cos~ -> /~ 2
+  conn [10](0) -> [1](0)   # i -> sel 1 0
+  conn [11](0) -> [10](0)   # r $0-trigger -> i
+  conn [12](0) -> [10](0)   # r $0-s-sensor-2 -> i
+  conn [13](0) -> [14](0)   # /~ 2 -> outlet~
+
+=====   $0 1 2/prm.sharp  (lira.voice.pd:3) args=['$0', '1', '2'] =====
+  [  0] L4     / 127
+  [  1] L5     pow 2
+  [  2] L6     line~
+  [  3] L7     r $0-s-sharp-12
+  [  4] L8     outlet~
+  [  5] L9     {1} 23.22
+  conn [0](0) -> [1](0)   # / 127 -> pow 2
+  conn [1](0) -> [5](0)   # pow 2 -> {1} 23.22
+  conn [2](0) -> [4](0)   # line~ -> outlet~
+  conn [3](0) -> [0](0)   # r $0-s-sharp-12 -> / 127
+  conn [5](0) -> [2](0)   # {1} 23.22 -> line~
+
+=====   $0 1 2/prm.mod  (lira.voice.pd:26) args=['$0', '1', '2'] =====
+  [  0] L27    / 127
+  [  1] L28    line~
+  [  2] L29    outlet~
+  [  3] L30    r $0-s-mod-12
+  [  4] L31    pow 4
+  [  5] L32    * 2
+  [  6] L33    {1} 23.22
+  conn [0](0) -> [4](0)   # / 127 -> pow 4
+  conn [1](0) -> [2](0)   # line~ -> outlet~
+  conn [3](0) -> [0](0)   # r $0-s-mod-12 -> / 127
+  conn [4](0) -> [5](0)   # pow 4 -> * 2
+  conn [5](0) -> [6](0)   # * 2 -> {1} 23.22
+  conn [6](0) -> [1](0)   # {1} 23.22 -> line~
+
+=====   $0 1 2/prm.sensor  (lira.voice.pd:44) args=['$0', '1', '2'] =====
+  [  0] L45    outlet~
+  [  1] L46    r $0-s-sensor-1
+  [  2] L47    sel 1 0
+  [  3] L48    v $0-attack
+  [  4] L49    v $0-release
+  [  5] L50    1 {1}
+  [  6] L51    0 {1}
+  [  7] L52    line~
+  [  8] L53    *~
+  [  9] L54    -~ 0.25
+  [ 10] L55    cos~
+  [ 11] L56    i
+  [ 12] L57    r $0-trigger
+  [ 13] L58    /~ 2
+  [ 14] L59    outlet~
+  conn [1](0) -> [11](0)   # r $0-s-sensor-1 -> i
+  conn [2](0) -> [3](0)   # sel 1 0 -> v $0-attack
+  conn [2](1) -> [4](0)   # sel 1 0 -> v $0-release
+  conn [3](0) -> [5](0)   # v $0-attack -> 1 {1}
+  conn [4](0) -> [6](0)   # v $0-release -> 0 {1}
+  conn [5](0) -> [7](0)   # 1 {1} -> line~
+  conn [6](0) -> [7](0)   # 0 {1} -> line~
+  conn [7](0) -> [8](0)   # line~ -> *~
+  conn [7](0) -> [8](1)   # line~ -> *~
+  conn [7](0) -> [9](0)   # line~ -> -~ 0.25
+  conn [8](0) -> [0](0)   # *~ -> outlet~
+  conn [9](0) -> [10](0)   # -~ 0.25 -> cos~
+  conn [10](0) -> [13](0)   # cos~ -> /~ 2
+  conn [11](0) -> [2](0)   # i -> sel 1 0
+  conn [12](0) -> [11](0)   # r $0-trigger -> i
+  conn [13](0) -> [14](0)   # /~ 2 -> outlet~
+
+=====   $0 1 2/prm.sensor  (lira.voice.pd:115) args=['$0', '1', '2'] =====
+  [  0] L116   outlet~
+  [  1] L117   sel 1 0
+  [  2] L118   v $0-attack
+  [  3] L119   v $0-release
+  [  4] L120   1 {1}
+  [  5] L121   0 {1}
+  [  6] L122   line~
+  [  7] L123   *~
+  [  8] L124   -~ 0.25
+  [  9] L125   cos~
+  [ 10] L126   i
+  [ 11] L127   r $0-trigger
+  [ 12] L128   r $0-s-sensor-2
+  [ 13] L129   /~ 2
+  [ 14] L130   outlet~
+  conn [1](0) -> [2](0)   # sel 1 0 -> v $0-attack
+  conn [1](1) -> [3](0)   # sel 1 0 -> v $0-release
+  conn [2](0) -> [4](0)   # v $0-attack -> 1 {1}
+  conn [3](0) -> [5](0)   # v $0-release -> 0 {1}
+  conn [4](0) -> [6](0)   # 1 {1} -> line~
+  conn [5](0) -> [6](0)   # 0 {1} -> line~
+  conn [6](0) -> [7](0)   # line~ -> *~
+  conn [6](0) -> [7](1)   # line~ -> *~
+  conn [6](0) -> [8](0)   # line~ -> -~ 0.25
+  conn [7](0) -> [0](0)   # *~ -> outlet~
+  conn [8](0) -> [9](0)   # -~ 0.25 -> cos~
+  conn [9](0) -> [13](0)   # cos~ -> /~ 2
+  conn [10](0) -> [1](0)   # i -> sel 1 0
+  conn [11](0) -> [10](0)   # r $0-trigger -> i
+  conn [12](0) -> [10](0)   # r $0-s-sensor-2 -> i
+  conn [13](0) -> [14](0)   # /~ 2 -> outlet~
+
+=====   $0 1 2@0 os.triangle~ args=[]  (os.triangle~.pd:1) args=[] =====
+  [  0] L60    phasor~
+  [  1] L61    *~
+  [  2] L62    +~
+  [  7] L171   +~
+  [  8] L172   outlet~
+  [  9] L262   +~
+  [ 10] L263   wrap~
+  [ 11] L264   -~
+  [ 12] L265   +~
+  [ 13] L266   samphold~
+  [ 14] L267   clip~ 0 1
+  [ 15] L268   *~ 2
+  [ 16] L269   reset
+  [ 17] L270   -~ 1
+  [ 19] L272   outlet~
+  [ 20] L273   inlet~
+  [ 21] L274   abs~
+  [ 22] L275   /~ 4
+  [ 25] L278   -~ 0.145
+  [ 26] L279   *~ 2.65
+  [ 27] L280   *~ 0.59
+  [ 28] L281   inlet~
+  [ 29] L282   max~ 100
+  conn <sub0:rlpf>(0) -> [26](0)   # <sub0:rlpf> -> *~ 2.65
+  conn [0](0) -> <sub3:normalize>(0)   # phasor~ -> <sub3:normalize>
+  conn [0](0) -> <sub2:polyblep>(0)   # phasor~ -> <sub2:polyblep>
+  conn [0](0) -> [9](0)   # phasor~ -> +~
+  conn [0](0) -> [13](1)   # phasor~ -> samphold~
+  conn [1](0) -> <sub2:polyblep>(1)   # *~ -> <sub2:polyblep>
+  conn [1](0) -> <sub4:polyblep>(1)   # *~ -> <sub4:polyblep>
+  conn [2](0) -> [11](0)   # +~ -> -~
+  conn <sub1:1/Fs>(0) -> [1](1)   # <sub1:1/Fs> -> *~
+  conn <sub2:polyblep>(0) -> [2](1)   # <sub2:polyblep> -> +~
+  conn <sub3:normalize>(0) -> [2](0)   # <sub3:normalize> -> +~
+  conn [7](0) -> [11](1)   # +~ -> -~
+  conn <sub4:polyblep>(0) -> [7](0)   # <sub4:polyblep> -> +~
+  conn <sub5:normalize>(0) -> [7](1)   # <sub5:normalize> -> +~
+  conn [9](0) -> [10](0)   # +~ -> wrap~
+  conn [10](0) -> <sub5:normalize>(0)   # wrap~ -> <sub5:normalize>
+  conn [10](0) -> <sub4:polyblep>(0)   # wrap~ -> <sub4:polyblep>
+  conn [11](0) -> [12](0)   # -~ -> +~
+  conn [12](0) -> [17](0)   # +~ -> -~ 1
+  conn [13](0) -> [9](1)   # samphold~ -> +~
+  conn [13](0) -> [15](0)   # samphold~ -> *~ 2
+  conn [14](0) -> [13](0)   # clip~ 0 1 -> samphold~
+  conn [15](0) -> [12](1)   # *~ 2 -> +~
+  conn [16](0) -> [13](0)   # reset -> samphold~
+  conn [17](0) -> <sub0:rlpf>(0)   # -~ 1 -> <sub0:rlpf>
+  conn [17](0) -> [27](0)   # -~ 1 -> *~ 0.59
+  conn [20](0) -> [21](0)   # inlet~ -> abs~
+  conn [21](0) -> [0](0)   # abs~ -> phasor~
+  conn [21](0) -> [1](0)   # abs~ -> *~
+  conn [21](0) -> [22](0)   # abs~ -> /~ 4
+  conn [22](0) -> [29](0)   # /~ 4 -> max~ 100
+  conn [25](0) -> [19](0)   # -~ 0.145 -> outlet~
+  conn [26](0) -> [25](0)   # *~ 2.65 -> -~ 0.145
+  conn [27](0) -> [8](0)   # *~ 0.59 -> outlet~
+  conn [28](0) -> [14](0)   # inlet~ -> clip~ 0 1
+  conn [29](0) -> <sub0:rlpf>(1)   # max~ 100 -> <sub0:rlpf>
+
+=====   $0 1 2@0 os.triangle~ args=[]/sub0:rlpf  (os.triangle~.pd:2) args=[] =====
+  [  0] L3     samplerate~
+  [  1] L4     loadbang
+  [  2] L5     sig~ 1
+  [  3] L6     -~
+  [  4] L7     / 2
+  [  5] L8     outlet~
+  [  6] L9     t f f
+  [  7] L10    inlet~
+  [  8] L11    inlet~
+  [  9] L12    bang
+  [ 10] L13    inlet
+  [ 11] L14    clear
+  [ 12] L15    1
+  [ 13] L16    atan
+  [ 14] L17    t b b
+  [ 15] L18    clip~ 0 22050
+  [ 16] L19    * -8
+  [ 17] L20    exp~
+  [ 18] L21    *~
+  [ 19] L22    abs~
+  [ 20] L23    rpole~
+  [ 21] L24    *~ -6.28319
+  [ 22] L25    /~ 44100
+  conn [0](0) -> [6](0)   # samplerate~ -> t f f
+  conn [1](0) -> [9](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # sig~ 1 -> -~
+  conn [3](0) -> [18](1)   # -~ -> *~
+  conn [4](0) -> [15](2)   # / 2 -> clip~ 0 22050
+  conn [6](0) -> [4](0)   # t f f -> / 2
+  conn [6](1) -> [22](1)   # t f f -> /~ 44100
+  conn [7](0) -> [15](0)   # inlet~ -> clip~ 0 22050
+  conn [8](0) -> [18](0)   # inlet~ -> *~
+  conn [9](0) -> [14](0)   # bang -> t b b
+  conn [10](0) -> [11](0)   # inlet -> clear
+  conn [11](0) -> [20](0)   # clear -> rpole~
+  conn [12](0) -> [13](0)   # 1 -> atan
+  conn [13](0) -> [16](0)   # atan -> * -8
+  conn [14](0) -> [0](0)   # t b b -> samplerate~
+  conn [14](1) -> [12](0)   # t b b -> 1
+  conn [15](0) -> [22](0)   # clip~ 0 22050 -> /~ 44100
+  conn [16](0) -> [21](1)   # * -8 -> *~ -6.28319
+  conn [17](0) -> [20](1)   # exp~ -> rpole~
+  conn [17](0) -> [19](0)   # exp~ -> abs~
+  conn [18](0) -> [20](0)   # *~ -> rpole~
+  conn [19](0) -> [3](1)   # abs~ -> -~
+  conn [20](0) -> [5](0)   # rpole~ -> outlet~
+  conn [21](0) -> [17](0)   # *~ -6.28319 -> exp~
+  conn [22](0) -> [21](0)   # /~ 44100 -> *~ -6.28319
+
+=====   $0 1 2@0 os.triangle~ args=[]/sub1:1/Fs  (os.triangle~.pd:63) args=[] =====
+  [  0] L64    samplerate~
+  [  1] L65    loadbang
+  [  2] L66    1 {1}
+  [  3] L67    /
+  [  4] L68    bang
+  [  5] L69    outlet
+  conn [0](0) -> [2](0)   # samplerate~ -> 1 {1}
+  conn [1](0) -> [4](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # 1 {1} -> /
+  conn [3](0) -> [5](0)   # / -> outlet
+  conn [4](0) -> [0](0)   # bang -> samplerate~
+
+=====   $0 1 2@0 os.triangle~ args=[]/sub2:polyblep  (os.triangle~.pd:80) args=[] =====
+  [  0] L81    -~
+  [  1] L82    -~
+  [  2] L83    sig~ 1
+  [  3] L84    /~
+  [  4] L85    outlet~
+  [  5] L86    *~
+  [  6] L87    *~
+  [  7] L88    *~
+  [  8] L89    -~
+  [  9] L90    inlet~
+  [ 11] L92    -~ 1
+  [ 12] L93    -~ 1
+  [ 14] L95    *~
+  [ 15] L96    *~
+  [ 16] L133   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   $0 1 2@0 os.triangle~ args=[]/sub2:polyblep/sub0:>=~  (os.triangle~.pd:97) args=[] =====
+  [  0] L98    -~
+  [  1] L99    clip~ -1e-37 0
+  [  2] L100   inlet~
+  [  3] L101   inlet~
+  [  4] L102   outlet~
+  [  5] L103   *~ 1e+37
+  [  6] L104   min~
+  [  7] L105   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 1 2@0 os.triangle~ args=[]/sub2:polyblep/sub1:<=~  (os.triangle~.pd:115) args=[] =====
+  [  0] L116   -~
+  [  1] L117   clip~ -1e-37 0
+  [  2] L118   inlet~
+  [  3] L119   inlet~
+  [  4] L120   outlet~
+  [  5] L121   *~ 1e+37
+  [  6] L122   min~
+  [  7] L123   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 1 2@0 os.triangle~ args=[]/sub3:normalize  (os.triangle~.pd:160) args=[] =====
+  [  0] L161   outlet~
+  [  1] L162   inlet~
+  [  2] L163   -~ 1
+  [  3] L164   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   $0 1 2@0 os.triangle~ args=[]/sub4:polyblep  (os.triangle~.pd:173) args=[] =====
+  [  0] L174   -~
+  [  1] L175   -~
+  [  2] L176   sig~ 1
+  [  3] L177   /~
+  [  4] L178   outlet~
+  [  5] L179   *~
+  [  6] L180   *~
+  [  7] L181   *~
+  [  8] L182   -~
+  [  9] L183   inlet~
+  [ 11] L185   -~ 1
+  [ 12] L186   -~ 1
+  [ 14] L188   *~
+  [ 15] L189   *~
+  [ 16] L226   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   $0 1 2@0 os.triangle~ args=[]/sub4:polyblep/sub0:>=~  (os.triangle~.pd:190) args=[] =====
+  [  0] L191   -~
+  [  1] L192   clip~ -1e-37 0
+  [  2] L193   inlet~
+  [  3] L194   inlet~
+  [  4] L195   outlet~
+  [  5] L196   *~ 1e+37
+  [  6] L197   min~
+  [  7] L198   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 1 2@0 os.triangle~ args=[]/sub4:polyblep/sub1:<=~  (os.triangle~.pd:208) args=[] =====
+  [  0] L209   -~
+  [  1] L210   clip~ -1e-37 0
+  [  2] L211   inlet~
+  [  3] L212   inlet~
+  [  4] L213   outlet~
+  [  5] L214   *~ 1e+37
+  [  6] L215   min~
+  [  7] L216   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 1 2@0 os.triangle~ args=[]/sub5:normalize  (os.triangle~.pd:253) args=[] =====
+  [  0] L254   outlet~
+  [  1] L255   inlet~
+  [  2] L256   -~ 1
+  [  3] L257   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   $0 1 2@6 os.triangle~ args=[]  (os.triangle~.pd:1) args=[] =====
+  [  0] L60    phasor~
+  [  1] L61    *~
+  [  2] L62    +~
+  [  7] L171   +~
+  [  8] L172   outlet~
+  [  9] L262   +~
+  [ 10] L263   wrap~
+  [ 11] L264   -~
+  [ 12] L265   +~
+  [ 13] L266   samphold~
+  [ 14] L267   clip~ 0 1
+  [ 15] L268   *~ 2
+  [ 16] L269   reset
+  [ 17] L270   -~ 1
+  [ 19] L272   outlet~
+  [ 20] L273   inlet~
+  [ 21] L274   abs~
+  [ 22] L275   /~ 4
+  [ 25] L278   -~ 0.145
+  [ 26] L279   *~ 2.65
+  [ 27] L280   *~ 0.59
+  [ 28] L281   inlet~
+  [ 29] L282   max~ 100
+  conn <sub0:rlpf>(0) -> [26](0)   # <sub0:rlpf> -> *~ 2.65
+  conn [0](0) -> <sub3:normalize>(0)   # phasor~ -> <sub3:normalize>
+  conn [0](0) -> <sub2:polyblep>(0)   # phasor~ -> <sub2:polyblep>
+  conn [0](0) -> [9](0)   # phasor~ -> +~
+  conn [0](0) -> [13](1)   # phasor~ -> samphold~
+  conn [1](0) -> <sub2:polyblep>(1)   # *~ -> <sub2:polyblep>
+  conn [1](0) -> <sub4:polyblep>(1)   # *~ -> <sub4:polyblep>
+  conn [2](0) -> [11](0)   # +~ -> -~
+  conn <sub1:1/Fs>(0) -> [1](1)   # <sub1:1/Fs> -> *~
+  conn <sub2:polyblep>(0) -> [2](1)   # <sub2:polyblep> -> +~
+  conn <sub3:normalize>(0) -> [2](0)   # <sub3:normalize> -> +~
+  conn [7](0) -> [11](1)   # +~ -> -~
+  conn <sub4:polyblep>(0) -> [7](0)   # <sub4:polyblep> -> +~
+  conn <sub5:normalize>(0) -> [7](1)   # <sub5:normalize> -> +~
+  conn [9](0) -> [10](0)   # +~ -> wrap~
+  conn [10](0) -> <sub5:normalize>(0)   # wrap~ -> <sub5:normalize>
+  conn [10](0) -> <sub4:polyblep>(0)   # wrap~ -> <sub4:polyblep>
+  conn [11](0) -> [12](0)   # -~ -> +~
+  conn [12](0) -> [17](0)   # +~ -> -~ 1
+  conn [13](0) -> [9](1)   # samphold~ -> +~
+  conn [13](0) -> [15](0)   # samphold~ -> *~ 2
+  conn [14](0) -> [13](0)   # clip~ 0 1 -> samphold~
+  conn [15](0) -> [12](1)   # *~ 2 -> +~
+  conn [16](0) -> [13](0)   # reset -> samphold~
+  conn [17](0) -> <sub0:rlpf>(0)   # -~ 1 -> <sub0:rlpf>
+  conn [17](0) -> [27](0)   # -~ 1 -> *~ 0.59
+  conn [20](0) -> [21](0)   # inlet~ -> abs~
+  conn [21](0) -> [0](0)   # abs~ -> phasor~
+  conn [21](0) -> [1](0)   # abs~ -> *~
+  conn [21](0) -> [22](0)   # abs~ -> /~ 4
+  conn [22](0) -> [29](0)   # /~ 4 -> max~ 100
+  conn [25](0) -> [19](0)   # -~ 0.145 -> outlet~
+  conn [26](0) -> [25](0)   # *~ 2.65 -> -~ 0.145
+  conn [27](0) -> [8](0)   # *~ 0.59 -> outlet~
+  conn [28](0) -> [14](0)   # inlet~ -> clip~ 0 1
+  conn [29](0) -> <sub0:rlpf>(1)   # max~ 100 -> <sub0:rlpf>
+
+=====   $0 1 2@6 os.triangle~ args=[]/sub0:rlpf  (os.triangle~.pd:2) args=[] =====
+  [  0] L3     samplerate~
+  [  1] L4     loadbang
+  [  2] L5     sig~ 1
+  [  3] L6     -~
+  [  4] L7     / 2
+  [  5] L8     outlet~
+  [  6] L9     t f f
+  [  7] L10    inlet~
+  [  8] L11    inlet~
+  [  9] L12    bang
+  [ 10] L13    inlet
+  [ 11] L14    clear
+  [ 12] L15    1
+  [ 13] L16    atan
+  [ 14] L17    t b b
+  [ 15] L18    clip~ 0 22050
+  [ 16] L19    * -8
+  [ 17] L20    exp~
+  [ 18] L21    *~
+  [ 19] L22    abs~
+  [ 20] L23    rpole~
+  [ 21] L24    *~ -6.28319
+  [ 22] L25    /~ 44100
+  conn [0](0) -> [6](0)   # samplerate~ -> t f f
+  conn [1](0) -> [9](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # sig~ 1 -> -~
+  conn [3](0) -> [18](1)   # -~ -> *~
+  conn [4](0) -> [15](2)   # / 2 -> clip~ 0 22050
+  conn [6](0) -> [4](0)   # t f f -> / 2
+  conn [6](1) -> [22](1)   # t f f -> /~ 44100
+  conn [7](0) -> [15](0)   # inlet~ -> clip~ 0 22050
+  conn [8](0) -> [18](0)   # inlet~ -> *~
+  conn [9](0) -> [14](0)   # bang -> t b b
+  conn [10](0) -> [11](0)   # inlet -> clear
+  conn [11](0) -> [20](0)   # clear -> rpole~
+  conn [12](0) -> [13](0)   # 1 -> atan
+  conn [13](0) -> [16](0)   # atan -> * -8
+  conn [14](0) -> [0](0)   # t b b -> samplerate~
+  conn [14](1) -> [12](0)   # t b b -> 1
+  conn [15](0) -> [22](0)   # clip~ 0 22050 -> /~ 44100
+  conn [16](0) -> [21](1)   # * -8 -> *~ -6.28319
+  conn [17](0) -> [20](1)   # exp~ -> rpole~
+  conn [17](0) -> [19](0)   # exp~ -> abs~
+  conn [18](0) -> [20](0)   # *~ -> rpole~
+  conn [19](0) -> [3](1)   # abs~ -> -~
+  conn [20](0) -> [5](0)   # rpole~ -> outlet~
+  conn [21](0) -> [17](0)   # *~ -6.28319 -> exp~
+  conn [22](0) -> [21](0)   # /~ 44100 -> *~ -6.28319
+
+=====   $0 1 2@6 os.triangle~ args=[]/sub1:1/Fs  (os.triangle~.pd:63) args=[] =====
+  [  0] L64    samplerate~
+  [  1] L65    loadbang
+  [  2] L66    1 {1}
+  [  3] L67    /
+  [  4] L68    bang
+  [  5] L69    outlet
+  conn [0](0) -> [2](0)   # samplerate~ -> 1 {1}
+  conn [1](0) -> [4](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # 1 {1} -> /
+  conn [3](0) -> [5](0)   # / -> outlet
+  conn [4](0) -> [0](0)   # bang -> samplerate~
+
+=====   $0 1 2@6 os.triangle~ args=[]/sub2:polyblep  (os.triangle~.pd:80) args=[] =====
+  [  0] L81    -~
+  [  1] L82    -~
+  [  2] L83    sig~ 1
+  [  3] L84    /~
+  [  4] L85    outlet~
+  [  5] L86    *~
+  [  6] L87    *~
+  [  7] L88    *~
+  [  8] L89    -~
+  [  9] L90    inlet~
+  [ 11] L92    -~ 1
+  [ 12] L93    -~ 1
+  [ 14] L95    *~
+  [ 15] L96    *~
+  [ 16] L133   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   $0 1 2@6 os.triangle~ args=[]/sub2:polyblep/sub0:>=~  (os.triangle~.pd:97) args=[] =====
+  [  0] L98    -~
+  [  1] L99    clip~ -1e-37 0
+  [  2] L100   inlet~
+  [  3] L101   inlet~
+  [  4] L102   outlet~
+  [  5] L103   *~ 1e+37
+  [  6] L104   min~
+  [  7] L105   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 1 2@6 os.triangle~ args=[]/sub2:polyblep/sub1:<=~  (os.triangle~.pd:115) args=[] =====
+  [  0] L116   -~
+  [  1] L117   clip~ -1e-37 0
+  [  2] L118   inlet~
+  [  3] L119   inlet~
+  [  4] L120   outlet~
+  [  5] L121   *~ 1e+37
+  [  6] L122   min~
+  [  7] L123   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 1 2@6 os.triangle~ args=[]/sub3:normalize  (os.triangle~.pd:160) args=[] =====
+  [  0] L161   outlet~
+  [  1] L162   inlet~
+  [  2] L163   -~ 1
+  [  3] L164   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   $0 1 2@6 os.triangle~ args=[]/sub4:polyblep  (os.triangle~.pd:173) args=[] =====
+  [  0] L174   -~
+  [  1] L175   -~
+  [  2] L176   sig~ 1
+  [  3] L177   /~
+  [  4] L178   outlet~
+  [  5] L179   *~
+  [  6] L180   *~
+  [  7] L181   *~
+  [  8] L182   -~
+  [  9] L183   inlet~
+  [ 11] L185   -~ 1
+  [ 12] L186   -~ 1
+  [ 14] L188   *~
+  [ 15] L189   *~
+  [ 16] L226   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   $0 1 2@6 os.triangle~ args=[]/sub4:polyblep/sub0:>=~  (os.triangle~.pd:190) args=[] =====
+  [  0] L191   -~
+  [  1] L192   clip~ -1e-37 0
+  [  2] L193   inlet~
+  [  3] L194   inlet~
+  [  4] L195   outlet~
+  [  5] L196   *~ 1e+37
+  [  6] L197   min~
+  [  7] L198   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 1 2@6 os.triangle~ args=[]/sub4:polyblep/sub1:<=~  (os.triangle~.pd:208) args=[] =====
+  [  0] L209   -~
+  [  1] L210   clip~ -1e-37 0
+  [  2] L211   inlet~
+  [  3] L212   inlet~
+  [  4] L213   outlet~
+  [  5] L214   *~ 1e+37
+  [  6] L215   min~
+  [  7] L216   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 1 2@6 os.triangle~ args=[]/sub5:normalize  (os.triangle~.pd:253) args=[] =====
+  [  0] L254   outlet~
+  [  1] L255   inlet~
+  [  2] L256   -~ 1
+  [  3] L257   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   $0 1 2@20 prm.tune args=['$0', '1']  (prm.tune.pd:1) args=['$0', '1'] =====
+  [  0] L2     line~
+  [  1] L3     outlet~
+  [  2] L4     loadbang
+  [  3] L5     f 1
+  [  4] L6     text get $0-tune
+  [  5] L7     unpack f f
+  [  6] L8     -
+  [  7] L9     / 127
+  [  8] L10    *
+  [  9] L11    +
+  [ 10] L12    mtof
+  [ 11] L13    - 1
+  [ 12] L14    {2} {1}
+  [ 13] L15    t f f
+  [ 14] L16    {1} 23.22
+  [ 15] L17    ftom
+  [ 16] L18    + 0.5
+  [ 17] L19    i
+  [ 18] L20    t f f
+  [ 19] L21    f
+  [ 20] L22    f
+  [ 21] L23    t f f
+  [ 22] L24    1 {1}
+  [ 23] L25    0 {1}
+  [ 24] L26    route
+  [ 25] L27    sel 0 1
+  [ 26] L28    mtof
+  [ 27] L29    inlet
+  [ 28] L30    *
+  [ 29] L31    t b f
+  [ 31] L33    r $0-s-tune-1
+  [ 32] L34    r $0-s-quantize
+  conn [0](0) -> [1](0)   # line~ -> outlet~
+  conn [2](0) -> [3](0)   # loadbang -> f 1
+  conn [3](0) -> [11](0)   # f 1 -> - 1
+  conn [4](0) -> [12](0)   # text get $0-tune -> {2} {1}
+  conn [5](0) -> [6](0)   # unpack f f -> -
+  conn [5](1) -> [13](0)   # unpack f f -> t f f
+  conn [6](0) -> [8](1)   # - -> *
+  conn [7](0) -> [8](0)   # / 127 -> *
+  conn [8](0) -> [9](0)   # * -> +
+  conn [9](0) -> [10](0)   # + -> mtof
+  conn [10](0) -> [28](0)   # mtof -> *
+  conn [11](0) -> [4](0)   # - 1 -> text get $0-tune
+  conn [12](0) -> [5](0)   # {2} {1} -> unpack f f
+  conn [13](0) -> [6](1)   # t f f -> -
+  conn [13](1) -> [9](1)   # t f f -> +
+  conn [14](0) -> [0](0)   # {1} 23.22 -> line~
+  conn [15](0) -> [16](0)   # ftom -> + 0.5
+  conn [16](0) -> [17](0)   # + 0.5 -> i
+  conn [17](0) -> [26](0)   # i -> mtof
+  conn [18](0) -> [19](0)   # t f f -> f
+  conn [18](1) -> [15](0)   # t f f -> ftom
+  conn [19](0) -> [23](0)   # f -> 0 {1}
+  conn [20](0) -> [22](0)   # f -> 1 {1}
+  conn [21](0) -> [25](0)   # t f f -> sel 0 1
+  conn [21](1) -> [24](1)   # t f f -> route
+  conn [22](0) -> [24](0)   # 1 {1} -> route
+  conn [23](0) -> [24](0)   # 0 {1} -> route
+  conn [24](0) -> [14](0)   # route -> {1} 23.22
+  conn [25](0) -> [19](0)   # sel 0 1 -> f
+  conn [25](1) -> [20](0)   # sel 0 1 -> f
+  conn [26](0) -> [20](0)   # mtof -> f
+  conn [27](0) -> [29](0)   # inlet -> t b f
+  conn [28](0) -> [18](0)   # * -> t f f
+  conn [29](0) -> [28](0)   # t b f -> *
+  conn [29](1) -> [28](1)   # t b f -> *
+  conn [31](0) -> [7](0)   # r $0-s-tune-1 -> / 127
+  conn [32](0) -> [21](0)   # r $0-s-quantize -> t f f
+
+=====   $0 1 2@21 prm.tune args=['$0', '2']  (prm.tune.pd:1) args=['$0', '2'] =====
+  [  0] L2     line~
+  [  1] L3     outlet~
+  [  2] L4     loadbang
+  [  3] L5     f 2
+  [  4] L6     text get $0-tune
+  [  5] L7     unpack f f
+  [  6] L8     -
+  [  7] L9     / 127
+  [  8] L10    *
+  [  9] L11    +
+  [ 10] L12    mtof
+  [ 11] L13    - 1
+  [ 12] L14    {2} {1}
+  [ 13] L15    t f f
+  [ 14] L16    {1} 23.22
+  [ 15] L17    ftom
+  [ 16] L18    + 0.5
+  [ 17] L19    i
+  [ 18] L20    t f f
+  [ 19] L21    f
+  [ 20] L22    f
+  [ 21] L23    t f f
+  [ 22] L24    1 {1}
+  [ 23] L25    0 {1}
+  [ 24] L26    route
+  [ 25] L27    sel 0 1
+  [ 26] L28    mtof
+  [ 27] L29    inlet
+  [ 28] L30    *
+  [ 29] L31    t b f
+  [ 31] L33    r $0-s-tune-2
+  [ 32] L34    r $0-s-quantize
+  conn [0](0) -> [1](0)   # line~ -> outlet~
+  conn [2](0) -> [3](0)   # loadbang -> f 2
+  conn [3](0) -> [11](0)   # f 2 -> - 1
+  conn [4](0) -> [12](0)   # text get $0-tune -> {2} {1}
+  conn [5](0) -> [6](0)   # unpack f f -> -
+  conn [5](1) -> [13](0)   # unpack f f -> t f f
+  conn [6](0) -> [8](1)   # - -> *
+  conn [7](0) -> [8](0)   # / 127 -> *
+  conn [8](0) -> [9](0)   # * -> +
+  conn [9](0) -> [10](0)   # + -> mtof
+  conn [10](0) -> [28](0)   # mtof -> *
+  conn [11](0) -> [4](0)   # - 1 -> text get $0-tune
+  conn [12](0) -> [5](0)   # {2} {1} -> unpack f f
+  conn [13](0) -> [6](1)   # t f f -> -
+  conn [13](1) -> [9](1)   # t f f -> +
+  conn [14](0) -> [0](0)   # {1} 23.22 -> line~
+  conn [15](0) -> [16](0)   # ftom -> + 0.5
+  conn [16](0) -> [17](0)   # + 0.5 -> i
+  conn [17](0) -> [26](0)   # i -> mtof
+  conn [18](0) -> [19](0)   # t f f -> f
+  conn [18](1) -> [15](0)   # t f f -> ftom
+  conn [19](0) -> [23](0)   # f -> 0 {1}
+  conn [20](0) -> [22](0)   # f -> 1 {1}
+  conn [21](0) -> [25](0)   # t f f -> sel 0 1
+  conn [21](1) -> [24](1)   # t f f -> route
+  conn [22](0) -> [24](0)   # 1 {1} -> route
+  conn [23](0) -> [24](0)   # 0 {1} -> route
+  conn [24](0) -> [14](0)   # route -> {1} 23.22
+  conn [25](0) -> [19](0)   # sel 0 1 -> f
+  conn [25](1) -> [20](0)   # sel 0 1 -> f
+  conn [26](0) -> [20](0)   # mtof -> f
+  conn [27](0) -> [29](0)   # inlet -> t b f
+  conn [28](0) -> [18](0)   # * -> t f f
+  conn [29](0) -> [28](0)   # t b f -> *
+  conn [29](1) -> [28](1)   # t b f -> *
+  conn [31](0) -> [7](0)   # r $0-s-tune-2 -> / 127
+  conn [32](0) -> [21](0)   # r $0-s-quantize -> t f f
+
+===== lira.voice instance $0 3 4 (gui obj 184)  (lira.voice.pd:1) args=['$0', '3', '4'] =====
+  [  0] L2     os.triangle~
+  [  1] L16    *~
+  [  2] L17    *~
+  [  3] L18    *~
+  [  4] L19    outlet~
+  [  5] L20    +~
+  [  6] L21    os.triangle~
+  [  7] L22    *~
+  [  8] L23    *~
+  [  9] L24    *~
+  [ 10] L25    *~
+  [ 11] L41    *~
+  [ 12] L42    *~
+  [ 13] L43    inlet~
+  [ 14] L77    loadbang
+  [ 15] L78    1
+  [ 16] L79    -~
+  [ 17] L80    inlet~
+  [ 18] L81    min~ 1
+  [ 19] L82    min~ 1
+  [ 20] L83    prm.tune $0 3
+  [ 21] L84    prm.tune $0 4
+  [ 25] L88    line~
+  [ 26] L89    osc~ 3
+  [ 27] L90    sig~ 0.53125
+  [ 28] L91    *~
+  [ 29] L92    r $0-s-vibrato
+  [ 30] L93    +~
+  [ 31] L94    +~
+  [ 32] L95    *~
+  [ 33] L96    *~
+  [ 34] L97    r $0-seed
+  [ 35] L98    +
+  [ 36] L99    loadbang
+  [ 37] L100   f 3
+  [ 38] L101   t b b
+  [ 39] L102   seed {1}
+  [ 40] L103   *~ 0.025
+  [ 41] L104   / 1000
+  [ 42] L105   random 1001
+  [ 43] L106   + 0.5
+  [ 44] L107   * 3
+  [ 45] L108   r $0-s-fast-34
+  [ 46] L109   sel 1 0
+  [ 47] L110   unpack f f
+  [ 48] L111   v $0-attack
+  [ 49] L112   v $0-release
+  [ 50] L113   t b f
+  [ 51] L114   s $0-trigger
+  [ 52] L148   *~ 0.005
+  [ 53] L149   100 100
+  [ 54] L150   200 8000
+  [ 55] L151   s~ $0-del-34
+  [ 56] L152   {1} 23.22
+  [ 57] L153   hip~ 3
+  [ 58] L154   inlet
+  [ 59] L155   t f f
+  conn [0](0) -> [1](0)   # os.triangle~ -> *~
+  conn [0](1) -> [2](0)   # os.triangle~ -> *~
+  conn <sub0:prm.sharp>(0) -> [1](1)   # <sub0:prm.sharp> -> *~
+  conn <sub0:prm.sharp>(0) -> [16](1)   # <sub0:prm.sharp> -> -~
+  conn <sub0:prm.sharp>(0) -> [7](1)   # <sub0:prm.sharp> -> *~
+  conn [1](0) -> [3](0)   # *~ -> *~
+  conn [2](0) -> [3](0)   # *~ -> *~
+  conn [3](0) -> [5](0)   # *~ -> +~
+  conn [5](0) -> [4](0)   # +~ -> outlet~
+  conn [5](0) -> [57](0)   # +~ -> hip~ 3
+  conn [6](0) -> [7](0)   # os.triangle~ -> *~
+  conn [6](1) -> [8](0)   # os.triangle~ -> *~
+  conn [7](0) -> [9](1)   # *~ -> *~
+  conn [8](0) -> [9](1)   # *~ -> *~
+  conn [9](0) -> [5](1)   # *~ -> +~
+  conn [10](0) -> [0](0)   # *~ -> os.triangle~
+  conn <sub1:prm.mod>(0) -> [12](1)   # <sub1:prm.mod> -> *~
+  conn [11](0) -> [6](0)   # *~ -> os.triangle~
+  conn [12](0) -> [10](1)   # *~ -> *~
+  conn [12](0) -> [11](0)   # *~ -> *~
+  conn [13](0) -> [12](0)   # inlet~ -> *~
+  conn <sub2:prm.sensor>(0) -> [18](0)   # <sub2:prm.sensor> -> min~ 1
+  conn <sub2:prm.sensor>(1) -> [3](0)   # <sub2:prm.sensor> -> *~
+  conn [14](0) -> [15](0)   # loadbang -> 1
+  conn [15](0) -> [16](0)   # 1 -> -~
+  conn [16](0) -> [2](1)   # -~ -> *~
+  conn [16](0) -> [8](1)   # -~ -> *~
+  conn [17](0) -> [19](0)   # inlet~ -> min~ 1
+  conn [17](0) -> [18](0)   # inlet~ -> min~ 1
+  conn [18](0) -> [3](1)   # min~ 1 -> *~
+  conn [19](0) -> [9](0)   # min~ 1 -> *~
+  conn [20](0) -> [30](0)   # prm.tune $0 3 -> +~
+  conn [20](0) -> [32](0)   # prm.tune $0 3 -> *~
+  conn [21](0) -> [31](0)   # prm.tune $0 4 -> +~
+  conn [21](0) -> [33](0)   # prm.tune $0 4 -> *~
+  conn [25](0) -> [28](1)   # line~ -> *~
+  conn [26](0) -> [28](0)   # osc~ 3 -> *~
+  conn [27](0) -> [0](1)   # sig~ 0.53125 -> os.triangle~
+  conn [27](0) -> [6](1)   # sig~ 0.53125 -> os.triangle~
+  conn [28](0) -> [40](0)   # *~ -> *~ 0.025
+  conn [28](0) -> [52](0)   # *~ -> *~ 0.005
+  conn [29](0) -> [56](0)   # r $0-s-vibrato -> {1} 23.22
+  conn [30](0) -> [10](0)   # +~ -> *~
+  conn [30](0) -> [0](0)   # +~ -> os.triangle~
+  conn [31](0) -> [11](1)   # +~ -> *~
+  conn [31](0) -> [6](0)   # +~ -> os.triangle~
+  conn [32](0) -> [30](1)   # *~ -> +~
+  conn [33](0) -> [31](1)   # *~ -> +~
+  conn [34](0) -> [35](0)   # r $0-seed -> +
+  conn [35](0) -> [39](0)   # + -> seed {1}
+  conn [36](0) -> [38](0)   # loadbang -> t b b
+  conn [37](0) -> [35](1)   # f 3 -> +
+  conn [38](0) -> [42](0)   # t b b -> random 1001
+  conn [38](1) -> [37](0)   # t b b -> f 3
+  conn [39](0) -> [42](0)   # seed {1} -> random 1001
+  conn [40](0) -> [0](1)   # *~ 0.025 -> os.triangle~
+  conn [40](0) -> [6](1)   # *~ 0.025 -> os.triangle~
+  conn [41](0) -> [44](0)   # / 1000 -> * 3
+  conn [42](0) -> [41](0)   # random 1001 -> / 1000
+  conn [43](0) -> [26](0)   # + 0.5 -> osc~ 3
+  conn [44](0) -> [43](0)   # * 3 -> + 0.5
+  conn [45](0) -> [50](0)   # r $0-s-fast-34 -> t b f
+  conn [46](0) -> [53](0)   # sel 1 0 -> 100 100
+  conn [46](1) -> [54](0)   # sel 1 0 -> 200 8000
+  conn [47](0) -> [48](0)   # unpack f f -> v $0-attack
+  conn [47](1) -> [49](0)   # unpack f f -> v $0-release
+  conn [50](0) -> [51](0)   # t b f -> s $0-trigger
+  conn [50](1) -> [46](0)   # t b f -> sel 1 0
+  conn <sub3:prm.sensor>(0) -> [19](0)   # <sub3:prm.sensor> -> min~ 1
+  conn <sub3:prm.sensor>(1) -> [9](1)   # <sub3:prm.sensor> -> *~
+  conn [52](0) -> [33](1)   # *~ 0.005 -> *~
+  conn [52](0) -> [32](1)   # *~ 0.005 -> *~
+  conn [53](0) -> [47](0)   # 100 100 -> unpack f f
+  conn [54](0) -> [47](0)   # 200 8000 -> unpack f f
+  conn [56](0) -> [25](0)   # {1} 23.22 -> line~
+  conn [57](0) -> [55](0)   # hip~ 3 -> s~ $0-del-34
+  conn [58](0) -> [59](0)   # inlet -> t f f
+  conn [59](0) -> [20](0)   # t f f -> prm.tune $0 3
+  conn [59](1) -> [21](0)   # t f f -> prm.tune $0 4
+
+===== lira.voice instance $0 3 4 (gui obj 184)/sub0:prm.sharp  (lira.voice.pd:3) args=['$0', '3', '4'] =====
+  [  0] L4     / 127
+  [  1] L5     pow 2
+  [  2] L6     line~
+  [  3] L7     r $0-s-sharp-34
+  [  4] L8     outlet~
+  [  5] L9     {1} 23.22
+  conn [0](0) -> [1](0)   # / 127 -> pow 2
+  conn [1](0) -> [5](0)   # pow 2 -> {1} 23.22
+  conn [2](0) -> [4](0)   # line~ -> outlet~
+  conn [3](0) -> [0](0)   # r $0-s-sharp-34 -> / 127
+  conn [5](0) -> [2](0)   # {1} 23.22 -> line~
+
+===== lira.voice instance $0 3 4 (gui obj 184)/sub1:prm.mod  (lira.voice.pd:26) args=['$0', '3', '4'] =====
+  [  0] L27    / 127
+  [  1] L28    line~
+  [  2] L29    outlet~
+  [  3] L30    r $0-s-mod-34
+  [  4] L31    pow 4
+  [  5] L32    * 2
+  [  6] L33    {1} 23.22
+  conn [0](0) -> [4](0)   # / 127 -> pow 4
+  conn [1](0) -> [2](0)   # line~ -> outlet~
+  conn [3](0) -> [0](0)   # r $0-s-mod-34 -> / 127
+  conn [4](0) -> [5](0)   # pow 4 -> * 2
+  conn [5](0) -> [6](0)   # * 2 -> {1} 23.22
+  conn [6](0) -> [1](0)   # {1} 23.22 -> line~
+
+===== lira.voice instance $0 3 4 (gui obj 184)/sub2:prm.sensor  (lira.voice.pd:44) args=['$0', '3', '4'] =====
+  [  0] L45    outlet~
+  [  1] L46    r $0-s-sensor-3
+  [  2] L47    sel 1 0
+  [  3] L48    v $0-attack
+  [  4] L49    v $0-release
+  [  5] L50    1 {1}
+  [  6] L51    0 {1}
+  [  7] L52    line~
+  [  8] L53    *~
+  [  9] L54    -~ 0.25
+  [ 10] L55    cos~
+  [ 11] L56    i
+  [ 12] L57    r $0-trigger
+  [ 13] L58    /~ 2
+  [ 14] L59    outlet~
+  conn [1](0) -> [11](0)   # r $0-s-sensor-3 -> i
+  conn [2](0) -> [3](0)   # sel 1 0 -> v $0-attack
+  conn [2](1) -> [4](0)   # sel 1 0 -> v $0-release
+  conn [3](0) -> [5](0)   # v $0-attack -> 1 {1}
+  conn [4](0) -> [6](0)   # v $0-release -> 0 {1}
+  conn [5](0) -> [7](0)   # 1 {1} -> line~
+  conn [6](0) -> [7](0)   # 0 {1} -> line~
+  conn [7](0) -> [8](0)   # line~ -> *~
+  conn [7](0) -> [8](1)   # line~ -> *~
+  conn [7](0) -> [9](0)   # line~ -> -~ 0.25
+  conn [8](0) -> [0](0)   # *~ -> outlet~
+  conn [9](0) -> [10](0)   # -~ 0.25 -> cos~
+  conn [10](0) -> [13](0)   # cos~ -> /~ 2
+  conn [11](0) -> [2](0)   # i -> sel 1 0
+  conn [12](0) -> [11](0)   # r $0-trigger -> i
+  conn [13](0) -> [14](0)   # /~ 2 -> outlet~
+
+===== lira.voice instance $0 3 4 (gui obj 184)/sub3:prm.sensor  (lira.voice.pd:115) args=['$0', '3', '4'] =====
+  [  0] L116   outlet~
+  [  1] L117   sel 1 0
+  [  2] L118   v $0-attack
+  [  3] L119   v $0-release
+  [  4] L120   1 {1}
+  [  5] L121   0 {1}
+  [  6] L122   line~
+  [  7] L123   *~
+  [  8] L124   -~ 0.25
+  [  9] L125   cos~
+  [ 10] L126   i
+  [ 11] L127   r $0-trigger
+  [ 12] L128   r $0-s-sensor-4
+  [ 13] L129   /~ 2
+  [ 14] L130   outlet~
+  conn [1](0) -> [2](0)   # sel 1 0 -> v $0-attack
+  conn [1](1) -> [3](0)   # sel 1 0 -> v $0-release
+  conn [2](0) -> [4](0)   # v $0-attack -> 1 {1}
+  conn [3](0) -> [5](0)   # v $0-release -> 0 {1}
+  conn [4](0) -> [6](0)   # 1 {1} -> line~
+  conn [5](0) -> [6](0)   # 0 {1} -> line~
+  conn [6](0) -> [7](0)   # line~ -> *~
+  conn [6](0) -> [7](1)   # line~ -> *~
+  conn [6](0) -> [8](0)   # line~ -> -~ 0.25
+  conn [7](0) -> [0](0)   # *~ -> outlet~
+  conn [8](0) -> [9](0)   # -~ 0.25 -> cos~
+  conn [9](0) -> [13](0)   # cos~ -> /~ 2
+  conn [10](0) -> [1](0)   # i -> sel 1 0
+  conn [11](0) -> [10](0)   # r $0-trigger -> i
+  conn [12](0) -> [10](0)   # r $0-s-sensor-4 -> i
+  conn [13](0) -> [14](0)   # /~ 2 -> outlet~
+
+=====   $0 3 4/prm.sharp  (lira.voice.pd:3) args=['$0', '3', '4'] =====
+  [  0] L4     / 127
+  [  1] L5     pow 2
+  [  2] L6     line~
+  [  3] L7     r $0-s-sharp-34
+  [  4] L8     outlet~
+  [  5] L9     {1} 23.22
+  conn [0](0) -> [1](0)   # / 127 -> pow 2
+  conn [1](0) -> [5](0)   # pow 2 -> {1} 23.22
+  conn [2](0) -> [4](0)   # line~ -> outlet~
+  conn [3](0) -> [0](0)   # r $0-s-sharp-34 -> / 127
+  conn [5](0) -> [2](0)   # {1} 23.22 -> line~
+
+=====   $0 3 4/prm.mod  (lira.voice.pd:26) args=['$0', '3', '4'] =====
+  [  0] L27    / 127
+  [  1] L28    line~
+  [  2] L29    outlet~
+  [  3] L30    r $0-s-mod-34
+  [  4] L31    pow 4
+  [  5] L32    * 2
+  [  6] L33    {1} 23.22
+  conn [0](0) -> [4](0)   # / 127 -> pow 4
+  conn [1](0) -> [2](0)   # line~ -> outlet~
+  conn [3](0) -> [0](0)   # r $0-s-mod-34 -> / 127
+  conn [4](0) -> [5](0)   # pow 4 -> * 2
+  conn [5](0) -> [6](0)   # * 2 -> {1} 23.22
+  conn [6](0) -> [1](0)   # {1} 23.22 -> line~
+
+=====   $0 3 4/prm.sensor  (lira.voice.pd:44) args=['$0', '3', '4'] =====
+  [  0] L45    outlet~
+  [  1] L46    r $0-s-sensor-3
+  [  2] L47    sel 1 0
+  [  3] L48    v $0-attack
+  [  4] L49    v $0-release
+  [  5] L50    1 {1}
+  [  6] L51    0 {1}
+  [  7] L52    line~
+  [  8] L53    *~
+  [  9] L54    -~ 0.25
+  [ 10] L55    cos~
+  [ 11] L56    i
+  [ 12] L57    r $0-trigger
+  [ 13] L58    /~ 2
+  [ 14] L59    outlet~
+  conn [1](0) -> [11](0)   # r $0-s-sensor-3 -> i
+  conn [2](0) -> [3](0)   # sel 1 0 -> v $0-attack
+  conn [2](1) -> [4](0)   # sel 1 0 -> v $0-release
+  conn [3](0) -> [5](0)   # v $0-attack -> 1 {1}
+  conn [4](0) -> [6](0)   # v $0-release -> 0 {1}
+  conn [5](0) -> [7](0)   # 1 {1} -> line~
+  conn [6](0) -> [7](0)   # 0 {1} -> line~
+  conn [7](0) -> [8](0)   # line~ -> *~
+  conn [7](0) -> [8](1)   # line~ -> *~
+  conn [7](0) -> [9](0)   # line~ -> -~ 0.25
+  conn [8](0) -> [0](0)   # *~ -> outlet~
+  conn [9](0) -> [10](0)   # -~ 0.25 -> cos~
+  conn [10](0) -> [13](0)   # cos~ -> /~ 2
+  conn [11](0) -> [2](0)   # i -> sel 1 0
+  conn [12](0) -> [11](0)   # r $0-trigger -> i
+  conn [13](0) -> [14](0)   # /~ 2 -> outlet~
+
+=====   $0 3 4/prm.sensor  (lira.voice.pd:115) args=['$0', '3', '4'] =====
+  [  0] L116   outlet~
+  [  1] L117   sel 1 0
+  [  2] L118   v $0-attack
+  [  3] L119   v $0-release
+  [  4] L120   1 {1}
+  [  5] L121   0 {1}
+  [  6] L122   line~
+  [  7] L123   *~
+  [  8] L124   -~ 0.25
+  [  9] L125   cos~
+  [ 10] L126   i
+  [ 11] L127   r $0-trigger
+  [ 12] L128   r $0-s-sensor-4
+  [ 13] L129   /~ 2
+  [ 14] L130   outlet~
+  conn [1](0) -> [2](0)   # sel 1 0 -> v $0-attack
+  conn [1](1) -> [3](0)   # sel 1 0 -> v $0-release
+  conn [2](0) -> [4](0)   # v $0-attack -> 1 {1}
+  conn [3](0) -> [5](0)   # v $0-release -> 0 {1}
+  conn [4](0) -> [6](0)   # 1 {1} -> line~
+  conn [5](0) -> [6](0)   # 0 {1} -> line~
+  conn [6](0) -> [7](0)   # line~ -> *~
+  conn [6](0) -> [7](1)   # line~ -> *~
+  conn [6](0) -> [8](0)   # line~ -> -~ 0.25
+  conn [7](0) -> [0](0)   # *~ -> outlet~
+  conn [8](0) -> [9](0)   # -~ 0.25 -> cos~
+  conn [9](0) -> [13](0)   # cos~ -> /~ 2
+  conn [10](0) -> [1](0)   # i -> sel 1 0
+  conn [11](0) -> [10](0)   # r $0-trigger -> i
+  conn [12](0) -> [10](0)   # r $0-s-sensor-4 -> i
+  conn [13](0) -> [14](0)   # /~ 2 -> outlet~
+
+=====   $0 3 4@0 os.triangle~ args=[]  (os.triangle~.pd:1) args=[] =====
+  [  0] L60    phasor~
+  [  1] L61    *~
+  [  2] L62    +~
+  [  7] L171   +~
+  [  8] L172   outlet~
+  [  9] L262   +~
+  [ 10] L263   wrap~
+  [ 11] L264   -~
+  [ 12] L265   +~
+  [ 13] L266   samphold~
+  [ 14] L267   clip~ 0 1
+  [ 15] L268   *~ 2
+  [ 16] L269   reset
+  [ 17] L270   -~ 1
+  [ 19] L272   outlet~
+  [ 20] L273   inlet~
+  [ 21] L274   abs~
+  [ 22] L275   /~ 4
+  [ 25] L278   -~ 0.145
+  [ 26] L279   *~ 2.65
+  [ 27] L280   *~ 0.59
+  [ 28] L281   inlet~
+  [ 29] L282   max~ 100
+  conn <sub0:rlpf>(0) -> [26](0)   # <sub0:rlpf> -> *~ 2.65
+  conn [0](0) -> <sub3:normalize>(0)   # phasor~ -> <sub3:normalize>
+  conn [0](0) -> <sub2:polyblep>(0)   # phasor~ -> <sub2:polyblep>
+  conn [0](0) -> [9](0)   # phasor~ -> +~
+  conn [0](0) -> [13](1)   # phasor~ -> samphold~
+  conn [1](0) -> <sub2:polyblep>(1)   # *~ -> <sub2:polyblep>
+  conn [1](0) -> <sub4:polyblep>(1)   # *~ -> <sub4:polyblep>
+  conn [2](0) -> [11](0)   # +~ -> -~
+  conn <sub1:1/Fs>(0) -> [1](1)   # <sub1:1/Fs> -> *~
+  conn <sub2:polyblep>(0) -> [2](1)   # <sub2:polyblep> -> +~
+  conn <sub3:normalize>(0) -> [2](0)   # <sub3:normalize> -> +~
+  conn [7](0) -> [11](1)   # +~ -> -~
+  conn <sub4:polyblep>(0) -> [7](0)   # <sub4:polyblep> -> +~
+  conn <sub5:normalize>(0) -> [7](1)   # <sub5:normalize> -> +~
+  conn [9](0) -> [10](0)   # +~ -> wrap~
+  conn [10](0) -> <sub5:normalize>(0)   # wrap~ -> <sub5:normalize>
+  conn [10](0) -> <sub4:polyblep>(0)   # wrap~ -> <sub4:polyblep>
+  conn [11](0) -> [12](0)   # -~ -> +~
+  conn [12](0) -> [17](0)   # +~ -> -~ 1
+  conn [13](0) -> [9](1)   # samphold~ -> +~
+  conn [13](0) -> [15](0)   # samphold~ -> *~ 2
+  conn [14](0) -> [13](0)   # clip~ 0 1 -> samphold~
+  conn [15](0) -> [12](1)   # *~ 2 -> +~
+  conn [16](0) -> [13](0)   # reset -> samphold~
+  conn [17](0) -> <sub0:rlpf>(0)   # -~ 1 -> <sub0:rlpf>
+  conn [17](0) -> [27](0)   # -~ 1 -> *~ 0.59
+  conn [20](0) -> [21](0)   # inlet~ -> abs~
+  conn [21](0) -> [0](0)   # abs~ -> phasor~
+  conn [21](0) -> [1](0)   # abs~ -> *~
+  conn [21](0) -> [22](0)   # abs~ -> /~ 4
+  conn [22](0) -> [29](0)   # /~ 4 -> max~ 100
+  conn [25](0) -> [19](0)   # -~ 0.145 -> outlet~
+  conn [26](0) -> [25](0)   # *~ 2.65 -> -~ 0.145
+  conn [27](0) -> [8](0)   # *~ 0.59 -> outlet~
+  conn [28](0) -> [14](0)   # inlet~ -> clip~ 0 1
+  conn [29](0) -> <sub0:rlpf>(1)   # max~ 100 -> <sub0:rlpf>
+
+=====   $0 3 4@0 os.triangle~ args=[]/sub0:rlpf  (os.triangle~.pd:2) args=[] =====
+  [  0] L3     samplerate~
+  [  1] L4     loadbang
+  [  2] L5     sig~ 1
+  [  3] L6     -~
+  [  4] L7     / 2
+  [  5] L8     outlet~
+  [  6] L9     t f f
+  [  7] L10    inlet~
+  [  8] L11    inlet~
+  [  9] L12    bang
+  [ 10] L13    inlet
+  [ 11] L14    clear
+  [ 12] L15    1
+  [ 13] L16    atan
+  [ 14] L17    t b b
+  [ 15] L18    clip~ 0 22050
+  [ 16] L19    * -8
+  [ 17] L20    exp~
+  [ 18] L21    *~
+  [ 19] L22    abs~
+  [ 20] L23    rpole~
+  [ 21] L24    *~ -6.28319
+  [ 22] L25    /~ 44100
+  conn [0](0) -> [6](0)   # samplerate~ -> t f f
+  conn [1](0) -> [9](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # sig~ 1 -> -~
+  conn [3](0) -> [18](1)   # -~ -> *~
+  conn [4](0) -> [15](2)   # / 2 -> clip~ 0 22050
+  conn [6](0) -> [4](0)   # t f f -> / 2
+  conn [6](1) -> [22](1)   # t f f -> /~ 44100
+  conn [7](0) -> [15](0)   # inlet~ -> clip~ 0 22050
+  conn [8](0) -> [18](0)   # inlet~ -> *~
+  conn [9](0) -> [14](0)   # bang -> t b b
+  conn [10](0) -> [11](0)   # inlet -> clear
+  conn [11](0) -> [20](0)   # clear -> rpole~
+  conn [12](0) -> [13](0)   # 1 -> atan
+  conn [13](0) -> [16](0)   # atan -> * -8
+  conn [14](0) -> [0](0)   # t b b -> samplerate~
+  conn [14](1) -> [12](0)   # t b b -> 1
+  conn [15](0) -> [22](0)   # clip~ 0 22050 -> /~ 44100
+  conn [16](0) -> [21](1)   # * -8 -> *~ -6.28319
+  conn [17](0) -> [20](1)   # exp~ -> rpole~
+  conn [17](0) -> [19](0)   # exp~ -> abs~
+  conn [18](0) -> [20](0)   # *~ -> rpole~
+  conn [19](0) -> [3](1)   # abs~ -> -~
+  conn [20](0) -> [5](0)   # rpole~ -> outlet~
+  conn [21](0) -> [17](0)   # *~ -6.28319 -> exp~
+  conn [22](0) -> [21](0)   # /~ 44100 -> *~ -6.28319
+
+=====   $0 3 4@0 os.triangle~ args=[]/sub1:1/Fs  (os.triangle~.pd:63) args=[] =====
+  [  0] L64    samplerate~
+  [  1] L65    loadbang
+  [  2] L66    1 {1}
+  [  3] L67    /
+  [  4] L68    bang
+  [  5] L69    outlet
+  conn [0](0) -> [2](0)   # samplerate~ -> 1 {1}
+  conn [1](0) -> [4](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # 1 {1} -> /
+  conn [3](0) -> [5](0)   # / -> outlet
+  conn [4](0) -> [0](0)   # bang -> samplerate~
+
+=====   $0 3 4@0 os.triangle~ args=[]/sub2:polyblep  (os.triangle~.pd:80) args=[] =====
+  [  0] L81    -~
+  [  1] L82    -~
+  [  2] L83    sig~ 1
+  [  3] L84    /~
+  [  4] L85    outlet~
+  [  5] L86    *~
+  [  6] L87    *~
+  [  7] L88    *~
+  [  8] L89    -~
+  [  9] L90    inlet~
+  [ 11] L92    -~ 1
+  [ 12] L93    -~ 1
+  [ 14] L95    *~
+  [ 15] L96    *~
+  [ 16] L133   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   $0 3 4@0 os.triangle~ args=[]/sub2:polyblep/sub0:>=~  (os.triangle~.pd:97) args=[] =====
+  [  0] L98    -~
+  [  1] L99    clip~ -1e-37 0
+  [  2] L100   inlet~
+  [  3] L101   inlet~
+  [  4] L102   outlet~
+  [  5] L103   *~ 1e+37
+  [  6] L104   min~
+  [  7] L105   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 3 4@0 os.triangle~ args=[]/sub2:polyblep/sub1:<=~  (os.triangle~.pd:115) args=[] =====
+  [  0] L116   -~
+  [  1] L117   clip~ -1e-37 0
+  [  2] L118   inlet~
+  [  3] L119   inlet~
+  [  4] L120   outlet~
+  [  5] L121   *~ 1e+37
+  [  6] L122   min~
+  [  7] L123   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 3 4@0 os.triangle~ args=[]/sub3:normalize  (os.triangle~.pd:160) args=[] =====
+  [  0] L161   outlet~
+  [  1] L162   inlet~
+  [  2] L163   -~ 1
+  [  3] L164   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   $0 3 4@0 os.triangle~ args=[]/sub4:polyblep  (os.triangle~.pd:173) args=[] =====
+  [  0] L174   -~
+  [  1] L175   -~
+  [  2] L176   sig~ 1
+  [  3] L177   /~
+  [  4] L178   outlet~
+  [  5] L179   *~
+  [  6] L180   *~
+  [  7] L181   *~
+  [  8] L182   -~
+  [  9] L183   inlet~
+  [ 11] L185   -~ 1
+  [ 12] L186   -~ 1
+  [ 14] L188   *~
+  [ 15] L189   *~
+  [ 16] L226   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   $0 3 4@0 os.triangle~ args=[]/sub4:polyblep/sub0:>=~  (os.triangle~.pd:190) args=[] =====
+  [  0] L191   -~
+  [  1] L192   clip~ -1e-37 0
+  [  2] L193   inlet~
+  [  3] L194   inlet~
+  [  4] L195   outlet~
+  [  5] L196   *~ 1e+37
+  [  6] L197   min~
+  [  7] L198   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 3 4@0 os.triangle~ args=[]/sub4:polyblep/sub1:<=~  (os.triangle~.pd:208) args=[] =====
+  [  0] L209   -~
+  [  1] L210   clip~ -1e-37 0
+  [  2] L211   inlet~
+  [  3] L212   inlet~
+  [  4] L213   outlet~
+  [  5] L214   *~ 1e+37
+  [  6] L215   min~
+  [  7] L216   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 3 4@0 os.triangle~ args=[]/sub5:normalize  (os.triangle~.pd:253) args=[] =====
+  [  0] L254   outlet~
+  [  1] L255   inlet~
+  [  2] L256   -~ 1
+  [  3] L257   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   $0 3 4@6 os.triangle~ args=[]  (os.triangle~.pd:1) args=[] =====
+  [  0] L60    phasor~
+  [  1] L61    *~
+  [  2] L62    +~
+  [  7] L171   +~
+  [  8] L172   outlet~
+  [  9] L262   +~
+  [ 10] L263   wrap~
+  [ 11] L264   -~
+  [ 12] L265   +~
+  [ 13] L266   samphold~
+  [ 14] L267   clip~ 0 1
+  [ 15] L268   *~ 2
+  [ 16] L269   reset
+  [ 17] L270   -~ 1
+  [ 19] L272   outlet~
+  [ 20] L273   inlet~
+  [ 21] L274   abs~
+  [ 22] L275   /~ 4
+  [ 25] L278   -~ 0.145
+  [ 26] L279   *~ 2.65
+  [ 27] L280   *~ 0.59
+  [ 28] L281   inlet~
+  [ 29] L282   max~ 100
+  conn <sub0:rlpf>(0) -> [26](0)   # <sub0:rlpf> -> *~ 2.65
+  conn [0](0) -> <sub3:normalize>(0)   # phasor~ -> <sub3:normalize>
+  conn [0](0) -> <sub2:polyblep>(0)   # phasor~ -> <sub2:polyblep>
+  conn [0](0) -> [9](0)   # phasor~ -> +~
+  conn [0](0) -> [13](1)   # phasor~ -> samphold~
+  conn [1](0) -> <sub2:polyblep>(1)   # *~ -> <sub2:polyblep>
+  conn [1](0) -> <sub4:polyblep>(1)   # *~ -> <sub4:polyblep>
+  conn [2](0) -> [11](0)   # +~ -> -~
+  conn <sub1:1/Fs>(0) -> [1](1)   # <sub1:1/Fs> -> *~
+  conn <sub2:polyblep>(0) -> [2](1)   # <sub2:polyblep> -> +~
+  conn <sub3:normalize>(0) -> [2](0)   # <sub3:normalize> -> +~
+  conn [7](0) -> [11](1)   # +~ -> -~
+  conn <sub4:polyblep>(0) -> [7](0)   # <sub4:polyblep> -> +~
+  conn <sub5:normalize>(0) -> [7](1)   # <sub5:normalize> -> +~
+  conn [9](0) -> [10](0)   # +~ -> wrap~
+  conn [10](0) -> <sub5:normalize>(0)   # wrap~ -> <sub5:normalize>
+  conn [10](0) -> <sub4:polyblep>(0)   # wrap~ -> <sub4:polyblep>
+  conn [11](0) -> [12](0)   # -~ -> +~
+  conn [12](0) -> [17](0)   # +~ -> -~ 1
+  conn [13](0) -> [9](1)   # samphold~ -> +~
+  conn [13](0) -> [15](0)   # samphold~ -> *~ 2
+  conn [14](0) -> [13](0)   # clip~ 0 1 -> samphold~
+  conn [15](0) -> [12](1)   # *~ 2 -> +~
+  conn [16](0) -> [13](0)   # reset -> samphold~
+  conn [17](0) -> <sub0:rlpf>(0)   # -~ 1 -> <sub0:rlpf>
+  conn [17](0) -> [27](0)   # -~ 1 -> *~ 0.59
+  conn [20](0) -> [21](0)   # inlet~ -> abs~
+  conn [21](0) -> [0](0)   # abs~ -> phasor~
+  conn [21](0) -> [1](0)   # abs~ -> *~
+  conn [21](0) -> [22](0)   # abs~ -> /~ 4
+  conn [22](0) -> [29](0)   # /~ 4 -> max~ 100
+  conn [25](0) -> [19](0)   # -~ 0.145 -> outlet~
+  conn [26](0) -> [25](0)   # *~ 2.65 -> -~ 0.145
+  conn [27](0) -> [8](0)   # *~ 0.59 -> outlet~
+  conn [28](0) -> [14](0)   # inlet~ -> clip~ 0 1
+  conn [29](0) -> <sub0:rlpf>(1)   # max~ 100 -> <sub0:rlpf>
+
+=====   $0 3 4@6 os.triangle~ args=[]/sub0:rlpf  (os.triangle~.pd:2) args=[] =====
+  [  0] L3     samplerate~
+  [  1] L4     loadbang
+  [  2] L5     sig~ 1
+  [  3] L6     -~
+  [  4] L7     / 2
+  [  5] L8     outlet~
+  [  6] L9     t f f
+  [  7] L10    inlet~
+  [  8] L11    inlet~
+  [  9] L12    bang
+  [ 10] L13    inlet
+  [ 11] L14    clear
+  [ 12] L15    1
+  [ 13] L16    atan
+  [ 14] L17    t b b
+  [ 15] L18    clip~ 0 22050
+  [ 16] L19    * -8
+  [ 17] L20    exp~
+  [ 18] L21    *~
+  [ 19] L22    abs~
+  [ 20] L23    rpole~
+  [ 21] L24    *~ -6.28319
+  [ 22] L25    /~ 44100
+  conn [0](0) -> [6](0)   # samplerate~ -> t f f
+  conn [1](0) -> [9](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # sig~ 1 -> -~
+  conn [3](0) -> [18](1)   # -~ -> *~
+  conn [4](0) -> [15](2)   # / 2 -> clip~ 0 22050
+  conn [6](0) -> [4](0)   # t f f -> / 2
+  conn [6](1) -> [22](1)   # t f f -> /~ 44100
+  conn [7](0) -> [15](0)   # inlet~ -> clip~ 0 22050
+  conn [8](0) -> [18](0)   # inlet~ -> *~
+  conn [9](0) -> [14](0)   # bang -> t b b
+  conn [10](0) -> [11](0)   # inlet -> clear
+  conn [11](0) -> [20](0)   # clear -> rpole~
+  conn [12](0) -> [13](0)   # 1 -> atan
+  conn [13](0) -> [16](0)   # atan -> * -8
+  conn [14](0) -> [0](0)   # t b b -> samplerate~
+  conn [14](1) -> [12](0)   # t b b -> 1
+  conn [15](0) -> [22](0)   # clip~ 0 22050 -> /~ 44100
+  conn [16](0) -> [21](1)   # * -8 -> *~ -6.28319
+  conn [17](0) -> [20](1)   # exp~ -> rpole~
+  conn [17](0) -> [19](0)   # exp~ -> abs~
+  conn [18](0) -> [20](0)   # *~ -> rpole~
+  conn [19](0) -> [3](1)   # abs~ -> -~
+  conn [20](0) -> [5](0)   # rpole~ -> outlet~
+  conn [21](0) -> [17](0)   # *~ -6.28319 -> exp~
+  conn [22](0) -> [21](0)   # /~ 44100 -> *~ -6.28319
+
+=====   $0 3 4@6 os.triangle~ args=[]/sub1:1/Fs  (os.triangle~.pd:63) args=[] =====
+  [  0] L64    samplerate~
+  [  1] L65    loadbang
+  [  2] L66    1 {1}
+  [  3] L67    /
+  [  4] L68    bang
+  [  5] L69    outlet
+  conn [0](0) -> [2](0)   # samplerate~ -> 1 {1}
+  conn [1](0) -> [4](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # 1 {1} -> /
+  conn [3](0) -> [5](0)   # / -> outlet
+  conn [4](0) -> [0](0)   # bang -> samplerate~
+
+=====   $0 3 4@6 os.triangle~ args=[]/sub2:polyblep  (os.triangle~.pd:80) args=[] =====
+  [  0] L81    -~
+  [  1] L82    -~
+  [  2] L83    sig~ 1
+  [  3] L84    /~
+  [  4] L85    outlet~
+  [  5] L86    *~
+  [  6] L87    *~
+  [  7] L88    *~
+  [  8] L89    -~
+  [  9] L90    inlet~
+  [ 11] L92    -~ 1
+  [ 12] L93    -~ 1
+  [ 14] L95    *~
+  [ 15] L96    *~
+  [ 16] L133   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   $0 3 4@6 os.triangle~ args=[]/sub2:polyblep/sub0:>=~  (os.triangle~.pd:97) args=[] =====
+  [  0] L98    -~
+  [  1] L99    clip~ -1e-37 0
+  [  2] L100   inlet~
+  [  3] L101   inlet~
+  [  4] L102   outlet~
+  [  5] L103   *~ 1e+37
+  [  6] L104   min~
+  [  7] L105   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 3 4@6 os.triangle~ args=[]/sub2:polyblep/sub1:<=~  (os.triangle~.pd:115) args=[] =====
+  [  0] L116   -~
+  [  1] L117   clip~ -1e-37 0
+  [  2] L118   inlet~
+  [  3] L119   inlet~
+  [  4] L120   outlet~
+  [  5] L121   *~ 1e+37
+  [  6] L122   min~
+  [  7] L123   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 3 4@6 os.triangle~ args=[]/sub3:normalize  (os.triangle~.pd:160) args=[] =====
+  [  0] L161   outlet~
+  [  1] L162   inlet~
+  [  2] L163   -~ 1
+  [  3] L164   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   $0 3 4@6 os.triangle~ args=[]/sub4:polyblep  (os.triangle~.pd:173) args=[] =====
+  [  0] L174   -~
+  [  1] L175   -~
+  [  2] L176   sig~ 1
+  [  3] L177   /~
+  [  4] L178   outlet~
+  [  5] L179   *~
+  [  6] L180   *~
+  [  7] L181   *~
+  [  8] L182   -~
+  [  9] L183   inlet~
+  [ 11] L185   -~ 1
+  [ 12] L186   -~ 1
+  [ 14] L188   *~
+  [ 15] L189   *~
+  [ 16] L226   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   $0 3 4@6 os.triangle~ args=[]/sub4:polyblep/sub0:>=~  (os.triangle~.pd:190) args=[] =====
+  [  0] L191   -~
+  [  1] L192   clip~ -1e-37 0
+  [  2] L193   inlet~
+  [  3] L194   inlet~
+  [  4] L195   outlet~
+  [  5] L196   *~ 1e+37
+  [  6] L197   min~
+  [  7] L198   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 3 4@6 os.triangle~ args=[]/sub4:polyblep/sub1:<=~  (os.triangle~.pd:208) args=[] =====
+  [  0] L209   -~
+  [  1] L210   clip~ -1e-37 0
+  [  2] L211   inlet~
+  [  3] L212   inlet~
+  [  4] L213   outlet~
+  [  5] L214   *~ 1e+37
+  [  6] L215   min~
+  [  7] L216   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 3 4@6 os.triangle~ args=[]/sub5:normalize  (os.triangle~.pd:253) args=[] =====
+  [  0] L254   outlet~
+  [  1] L255   inlet~
+  [  2] L256   -~ 1
+  [  3] L257   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   $0 3 4@20 prm.tune args=['$0', '3']  (prm.tune.pd:1) args=['$0', '3'] =====
+  [  0] L2     line~
+  [  1] L3     outlet~
+  [  2] L4     loadbang
+  [  3] L5     f 3
+  [  4] L6     text get $0-tune
+  [  5] L7     unpack f f
+  [  6] L8     -
+  [  7] L9     / 127
+  [  8] L10    *
+  [  9] L11    +
+  [ 10] L12    mtof
+  [ 11] L13    - 1
+  [ 12] L14    {2} {1}
+  [ 13] L15    t f f
+  [ 14] L16    {1} 23.22
+  [ 15] L17    ftom
+  [ 16] L18    + 0.5
+  [ 17] L19    i
+  [ 18] L20    t f f
+  [ 19] L21    f
+  [ 20] L22    f
+  [ 21] L23    t f f
+  [ 22] L24    1 {1}
+  [ 23] L25    0 {1}
+  [ 24] L26    route
+  [ 25] L27    sel 0 1
+  [ 26] L28    mtof
+  [ 27] L29    inlet
+  [ 28] L30    *
+  [ 29] L31    t b f
+  [ 31] L33    r $0-s-tune-3
+  [ 32] L34    r $0-s-quantize
+  conn [0](0) -> [1](0)   # line~ -> outlet~
+  conn [2](0) -> [3](0)   # loadbang -> f 3
+  conn [3](0) -> [11](0)   # f 3 -> - 1
+  conn [4](0) -> [12](0)   # text get $0-tune -> {2} {1}
+  conn [5](0) -> [6](0)   # unpack f f -> -
+  conn [5](1) -> [13](0)   # unpack f f -> t f f
+  conn [6](0) -> [8](1)   # - -> *
+  conn [7](0) -> [8](0)   # / 127 -> *
+  conn [8](0) -> [9](0)   # * -> +
+  conn [9](0) -> [10](0)   # + -> mtof
+  conn [10](0) -> [28](0)   # mtof -> *
+  conn [11](0) -> [4](0)   # - 1 -> text get $0-tune
+  conn [12](0) -> [5](0)   # {2} {1} -> unpack f f
+  conn [13](0) -> [6](1)   # t f f -> -
+  conn [13](1) -> [9](1)   # t f f -> +
+  conn [14](0) -> [0](0)   # {1} 23.22 -> line~
+  conn [15](0) -> [16](0)   # ftom -> + 0.5
+  conn [16](0) -> [17](0)   # + 0.5 -> i
+  conn [17](0) -> [26](0)   # i -> mtof
+  conn [18](0) -> [19](0)   # t f f -> f
+  conn [18](1) -> [15](0)   # t f f -> ftom
+  conn [19](0) -> [23](0)   # f -> 0 {1}
+  conn [20](0) -> [22](0)   # f -> 1 {1}
+  conn [21](0) -> [25](0)   # t f f -> sel 0 1
+  conn [21](1) -> [24](1)   # t f f -> route
+  conn [22](0) -> [24](0)   # 1 {1} -> route
+  conn [23](0) -> [24](0)   # 0 {1} -> route
+  conn [24](0) -> [14](0)   # route -> {1} 23.22
+  conn [25](0) -> [19](0)   # sel 0 1 -> f
+  conn [25](1) -> [20](0)   # sel 0 1 -> f
+  conn [26](0) -> [20](0)   # mtof -> f
+  conn [27](0) -> [29](0)   # inlet -> t b f
+  conn [28](0) -> [18](0)   # * -> t f f
+  conn [29](0) -> [28](0)   # t b f -> *
+  conn [29](1) -> [28](1)   # t b f -> *
+  conn [31](0) -> [7](0)   # r $0-s-tune-3 -> / 127
+  conn [32](0) -> [21](0)   # r $0-s-quantize -> t f f
+
+=====   $0 3 4@21 prm.tune args=['$0', '4']  (prm.tune.pd:1) args=['$0', '4'] =====
+  [  0] L2     line~
+  [  1] L3     outlet~
+  [  2] L4     loadbang
+  [  3] L5     f 4
+  [  4] L6     text get $0-tune
+  [  5] L7     unpack f f
+  [  6] L8     -
+  [  7] L9     / 127
+  [  8] L10    *
+  [  9] L11    +
+  [ 10] L12    mtof
+  [ 11] L13    - 1
+  [ 12] L14    {2} {1}
+  [ 13] L15    t f f
+  [ 14] L16    {1} 23.22
+  [ 15] L17    ftom
+  [ 16] L18    + 0.5
+  [ 17] L19    i
+  [ 18] L20    t f f
+  [ 19] L21    f
+  [ 20] L22    f
+  [ 21] L23    t f f
+  [ 22] L24    1 {1}
+  [ 23] L25    0 {1}
+  [ 24] L26    route
+  [ 25] L27    sel 0 1
+  [ 26] L28    mtof
+  [ 27] L29    inlet
+  [ 28] L30    *
+  [ 29] L31    t b f
+  [ 31] L33    r $0-s-tune-4
+  [ 32] L34    r $0-s-quantize
+  conn [0](0) -> [1](0)   # line~ -> outlet~
+  conn [2](0) -> [3](0)   # loadbang -> f 4
+  conn [3](0) -> [11](0)   # f 4 -> - 1
+  conn [4](0) -> [12](0)   # text get $0-tune -> {2} {1}
+  conn [5](0) -> [6](0)   # unpack f f -> -
+  conn [5](1) -> [13](0)   # unpack f f -> t f f
+  conn [6](0) -> [8](1)   # - -> *
+  conn [7](0) -> [8](0)   # / 127 -> *
+  conn [8](0) -> [9](0)   # * -> +
+  conn [9](0) -> [10](0)   # + -> mtof
+  conn [10](0) -> [28](0)   # mtof -> *
+  conn [11](0) -> [4](0)   # - 1 -> text get $0-tune
+  conn [12](0) -> [5](0)   # {2} {1} -> unpack f f
+  conn [13](0) -> [6](1)   # t f f -> -
+  conn [13](1) -> [9](1)   # t f f -> +
+  conn [14](0) -> [0](0)   # {1} 23.22 -> line~
+  conn [15](0) -> [16](0)   # ftom -> + 0.5
+  conn [16](0) -> [17](0)   # + 0.5 -> i
+  conn [17](0) -> [26](0)   # i -> mtof
+  conn [18](0) -> [19](0)   # t f f -> f
+  conn [18](1) -> [15](0)   # t f f -> ftom
+  conn [19](0) -> [23](0)   # f -> 0 {1}
+  conn [20](0) -> [22](0)   # f -> 1 {1}
+  conn [21](0) -> [25](0)   # t f f -> sel 0 1
+  conn [21](1) -> [24](1)   # t f f -> route
+  conn [22](0) -> [24](0)   # 1 {1} -> route
+  conn [23](0) -> [24](0)   # 0 {1} -> route
+  conn [24](0) -> [14](0)   # route -> {1} 23.22
+  conn [25](0) -> [19](0)   # sel 0 1 -> f
+  conn [25](1) -> [20](0)   # sel 0 1 -> f
+  conn [26](0) -> [20](0)   # mtof -> f
+  conn [27](0) -> [29](0)   # inlet -> t b f
+  conn [28](0) -> [18](0)   # * -> t f f
+  conn [29](0) -> [28](0)   # t b f -> *
+  conn [29](1) -> [28](1)   # t b f -> *
+  conn [31](0) -> [7](0)   # r $0-s-tune-4 -> / 127
+  conn [32](0) -> [21](0)   # r $0-s-quantize -> t f f
+
+===== lira.voice instance $0 5 6 (gui obj 185)  (lira.voice.pd:1) args=['$0', '5', '6'] =====
+  [  0] L2     os.triangle~
+  [  1] L16    *~
+  [  2] L17    *~
+  [  3] L18    *~
+  [  4] L19    outlet~
+  [  5] L20    +~
+  [  6] L21    os.triangle~
+  [  7] L22    *~
+  [  8] L23    *~
+  [  9] L24    *~
+  [ 10] L25    *~
+  [ 11] L41    *~
+  [ 12] L42    *~
+  [ 13] L43    inlet~
+  [ 14] L77    loadbang
+  [ 15] L78    1
+  [ 16] L79    -~
+  [ 17] L80    inlet~
+  [ 18] L81    min~ 1
+  [ 19] L82    min~ 1
+  [ 20] L83    prm.tune $0 5
+  [ 21] L84    prm.tune $0 6
+  [ 25] L88    line~
+  [ 26] L89    osc~ 3
+  [ 27] L90    sig~ 0.53125
+  [ 28] L91    *~
+  [ 29] L92    r $0-s-vibrato
+  [ 30] L93    +~
+  [ 31] L94    +~
+  [ 32] L95    *~
+  [ 33] L96    *~
+  [ 34] L97    r $0-seed
+  [ 35] L98    +
+  [ 36] L99    loadbang
+  [ 37] L100   f 5
+  [ 38] L101   t b b
+  [ 39] L102   seed {1}
+  [ 40] L103   *~ 0.025
+  [ 41] L104   / 1000
+  [ 42] L105   random 1001
+  [ 43] L106   + 0.5
+  [ 44] L107   * 3
+  [ 45] L108   r $0-s-fast-56
+  [ 46] L109   sel 1 0
+  [ 47] L110   unpack f f
+  [ 48] L111   v $0-attack
+  [ 49] L112   v $0-release
+  [ 50] L113   t b f
+  [ 51] L114   s $0-trigger
+  [ 52] L148   *~ 0.005
+  [ 53] L149   100 100
+  [ 54] L150   200 8000
+  [ 55] L151   s~ $0-del-56
+  [ 56] L152   {1} 23.22
+  [ 57] L153   hip~ 3
+  [ 58] L154   inlet
+  [ 59] L155   t f f
+  conn [0](0) -> [1](0)   # os.triangle~ -> *~
+  conn [0](1) -> [2](0)   # os.triangle~ -> *~
+  conn <sub0:prm.sharp>(0) -> [1](1)   # <sub0:prm.sharp> -> *~
+  conn <sub0:prm.sharp>(0) -> [16](1)   # <sub0:prm.sharp> -> -~
+  conn <sub0:prm.sharp>(0) -> [7](1)   # <sub0:prm.sharp> -> *~
+  conn [1](0) -> [3](0)   # *~ -> *~
+  conn [2](0) -> [3](0)   # *~ -> *~
+  conn [3](0) -> [5](0)   # *~ -> +~
+  conn [5](0) -> [4](0)   # +~ -> outlet~
+  conn [5](0) -> [57](0)   # +~ -> hip~ 3
+  conn [6](0) -> [7](0)   # os.triangle~ -> *~
+  conn [6](1) -> [8](0)   # os.triangle~ -> *~
+  conn [7](0) -> [9](1)   # *~ -> *~
+  conn [8](0) -> [9](1)   # *~ -> *~
+  conn [9](0) -> [5](1)   # *~ -> +~
+  conn [10](0) -> [0](0)   # *~ -> os.triangle~
+  conn <sub1:prm.mod>(0) -> [12](1)   # <sub1:prm.mod> -> *~
+  conn [11](0) -> [6](0)   # *~ -> os.triangle~
+  conn [12](0) -> [10](1)   # *~ -> *~
+  conn [12](0) -> [11](0)   # *~ -> *~
+  conn [13](0) -> [12](0)   # inlet~ -> *~
+  conn <sub2:prm.sensor>(0) -> [18](0)   # <sub2:prm.sensor> -> min~ 1
+  conn <sub2:prm.sensor>(1) -> [3](0)   # <sub2:prm.sensor> -> *~
+  conn [14](0) -> [15](0)   # loadbang -> 1
+  conn [15](0) -> [16](0)   # 1 -> -~
+  conn [16](0) -> [2](1)   # -~ -> *~
+  conn [16](0) -> [8](1)   # -~ -> *~
+  conn [17](0) -> [19](0)   # inlet~ -> min~ 1
+  conn [17](0) -> [18](0)   # inlet~ -> min~ 1
+  conn [18](0) -> [3](1)   # min~ 1 -> *~
+  conn [19](0) -> [9](0)   # min~ 1 -> *~
+  conn [20](0) -> [30](0)   # prm.tune $0 5 -> +~
+  conn [20](0) -> [32](0)   # prm.tune $0 5 -> *~
+  conn [21](0) -> [31](0)   # prm.tune $0 6 -> +~
+  conn [21](0) -> [33](0)   # prm.tune $0 6 -> *~
+  conn [25](0) -> [28](1)   # line~ -> *~
+  conn [26](0) -> [28](0)   # osc~ 3 -> *~
+  conn [27](0) -> [0](1)   # sig~ 0.53125 -> os.triangle~
+  conn [27](0) -> [6](1)   # sig~ 0.53125 -> os.triangle~
+  conn [28](0) -> [40](0)   # *~ -> *~ 0.025
+  conn [28](0) -> [52](0)   # *~ -> *~ 0.005
+  conn [29](0) -> [56](0)   # r $0-s-vibrato -> {1} 23.22
+  conn [30](0) -> [10](0)   # +~ -> *~
+  conn [30](0) -> [0](0)   # +~ -> os.triangle~
+  conn [31](0) -> [11](1)   # +~ -> *~
+  conn [31](0) -> [6](0)   # +~ -> os.triangle~
+  conn [32](0) -> [30](1)   # *~ -> +~
+  conn [33](0) -> [31](1)   # *~ -> +~
+  conn [34](0) -> [35](0)   # r $0-seed -> +
+  conn [35](0) -> [39](0)   # + -> seed {1}
+  conn [36](0) -> [38](0)   # loadbang -> t b b
+  conn [37](0) -> [35](1)   # f 5 -> +
+  conn [38](0) -> [42](0)   # t b b -> random 1001
+  conn [38](1) -> [37](0)   # t b b -> f 5
+  conn [39](0) -> [42](0)   # seed {1} -> random 1001
+  conn [40](0) -> [0](1)   # *~ 0.025 -> os.triangle~
+  conn [40](0) -> [6](1)   # *~ 0.025 -> os.triangle~
+  conn [41](0) -> [44](0)   # / 1000 -> * 3
+  conn [42](0) -> [41](0)   # random 1001 -> / 1000
+  conn [43](0) -> [26](0)   # + 0.5 -> osc~ 3
+  conn [44](0) -> [43](0)   # * 3 -> + 0.5
+  conn [45](0) -> [50](0)   # r $0-s-fast-56 -> t b f
+  conn [46](0) -> [53](0)   # sel 1 0 -> 100 100
+  conn [46](1) -> [54](0)   # sel 1 0 -> 200 8000
+  conn [47](0) -> [48](0)   # unpack f f -> v $0-attack
+  conn [47](1) -> [49](0)   # unpack f f -> v $0-release
+  conn [50](0) -> [51](0)   # t b f -> s $0-trigger
+  conn [50](1) -> [46](0)   # t b f -> sel 1 0
+  conn <sub3:prm.sensor>(0) -> [19](0)   # <sub3:prm.sensor> -> min~ 1
+  conn <sub3:prm.sensor>(1) -> [9](1)   # <sub3:prm.sensor> -> *~
+  conn [52](0) -> [33](1)   # *~ 0.005 -> *~
+  conn [52](0) -> [32](1)   # *~ 0.005 -> *~
+  conn [53](0) -> [47](0)   # 100 100 -> unpack f f
+  conn [54](0) -> [47](0)   # 200 8000 -> unpack f f
+  conn [56](0) -> [25](0)   # {1} 23.22 -> line~
+  conn [57](0) -> [55](0)   # hip~ 3 -> s~ $0-del-56
+  conn [58](0) -> [59](0)   # inlet -> t f f
+  conn [59](0) -> [20](0)   # t f f -> prm.tune $0 5
+  conn [59](1) -> [21](0)   # t f f -> prm.tune $0 6
+
+===== lira.voice instance $0 5 6 (gui obj 185)/sub0:prm.sharp  (lira.voice.pd:3) args=['$0', '5', '6'] =====
+  [  0] L4     / 127
+  [  1] L5     pow 2
+  [  2] L6     line~
+  [  3] L7     r $0-s-sharp-56
+  [  4] L8     outlet~
+  [  5] L9     {1} 23.22
+  conn [0](0) -> [1](0)   # / 127 -> pow 2
+  conn [1](0) -> [5](0)   # pow 2 -> {1} 23.22
+  conn [2](0) -> [4](0)   # line~ -> outlet~
+  conn [3](0) -> [0](0)   # r $0-s-sharp-56 -> / 127
+  conn [5](0) -> [2](0)   # {1} 23.22 -> line~
+
+===== lira.voice instance $0 5 6 (gui obj 185)/sub1:prm.mod  (lira.voice.pd:26) args=['$0', '5', '6'] =====
+  [  0] L27    / 127
+  [  1] L28    line~
+  [  2] L29    outlet~
+  [  3] L30    r $0-s-mod-56
+  [  4] L31    pow 4
+  [  5] L32    * 2
+  [  6] L33    {1} 23.22
+  conn [0](0) -> [4](0)   # / 127 -> pow 4
+  conn [1](0) -> [2](0)   # line~ -> outlet~
+  conn [3](0) -> [0](0)   # r $0-s-mod-56 -> / 127
+  conn [4](0) -> [5](0)   # pow 4 -> * 2
+  conn [5](0) -> [6](0)   # * 2 -> {1} 23.22
+  conn [6](0) -> [1](0)   # {1} 23.22 -> line~
+
+===== lira.voice instance $0 5 6 (gui obj 185)/sub2:prm.sensor  (lira.voice.pd:44) args=['$0', '5', '6'] =====
+  [  0] L45    outlet~
+  [  1] L46    r $0-s-sensor-5
+  [  2] L47    sel 1 0
+  [  3] L48    v $0-attack
+  [  4] L49    v $0-release
+  [  5] L50    1 {1}
+  [  6] L51    0 {1}
+  [  7] L52    line~
+  [  8] L53    *~
+  [  9] L54    -~ 0.25
+  [ 10] L55    cos~
+  [ 11] L56    i
+  [ 12] L57    r $0-trigger
+  [ 13] L58    /~ 2
+  [ 14] L59    outlet~
+  conn [1](0) -> [11](0)   # r $0-s-sensor-5 -> i
+  conn [2](0) -> [3](0)   # sel 1 0 -> v $0-attack
+  conn [2](1) -> [4](0)   # sel 1 0 -> v $0-release
+  conn [3](0) -> [5](0)   # v $0-attack -> 1 {1}
+  conn [4](0) -> [6](0)   # v $0-release -> 0 {1}
+  conn [5](0) -> [7](0)   # 1 {1} -> line~
+  conn [6](0) -> [7](0)   # 0 {1} -> line~
+  conn [7](0) -> [8](0)   # line~ -> *~
+  conn [7](0) -> [8](1)   # line~ -> *~
+  conn [7](0) -> [9](0)   # line~ -> -~ 0.25
+  conn [8](0) -> [0](0)   # *~ -> outlet~
+  conn [9](0) -> [10](0)   # -~ 0.25 -> cos~
+  conn [10](0) -> [13](0)   # cos~ -> /~ 2
+  conn [11](0) -> [2](0)   # i -> sel 1 0
+  conn [12](0) -> [11](0)   # r $0-trigger -> i
+  conn [13](0) -> [14](0)   # /~ 2 -> outlet~
+
+===== lira.voice instance $0 5 6 (gui obj 185)/sub3:prm.sensor  (lira.voice.pd:115) args=['$0', '5', '6'] =====
+  [  0] L116   outlet~
+  [  1] L117   sel 1 0
+  [  2] L118   v $0-attack
+  [  3] L119   v $0-release
+  [  4] L120   1 {1}
+  [  5] L121   0 {1}
+  [  6] L122   line~
+  [  7] L123   *~
+  [  8] L124   -~ 0.25
+  [  9] L125   cos~
+  [ 10] L126   i
+  [ 11] L127   r $0-trigger
+  [ 12] L128   r $0-s-sensor-6
+  [ 13] L129   /~ 2
+  [ 14] L130   outlet~
+  conn [1](0) -> [2](0)   # sel 1 0 -> v $0-attack
+  conn [1](1) -> [3](0)   # sel 1 0 -> v $0-release
+  conn [2](0) -> [4](0)   # v $0-attack -> 1 {1}
+  conn [3](0) -> [5](0)   # v $0-release -> 0 {1}
+  conn [4](0) -> [6](0)   # 1 {1} -> line~
+  conn [5](0) -> [6](0)   # 0 {1} -> line~
+  conn [6](0) -> [7](0)   # line~ -> *~
+  conn [6](0) -> [7](1)   # line~ -> *~
+  conn [6](0) -> [8](0)   # line~ -> -~ 0.25
+  conn [7](0) -> [0](0)   # *~ -> outlet~
+  conn [8](0) -> [9](0)   # -~ 0.25 -> cos~
+  conn [9](0) -> [13](0)   # cos~ -> /~ 2
+  conn [10](0) -> [1](0)   # i -> sel 1 0
+  conn [11](0) -> [10](0)   # r $0-trigger -> i
+  conn [12](0) -> [10](0)   # r $0-s-sensor-6 -> i
+  conn [13](0) -> [14](0)   # /~ 2 -> outlet~
+
+=====   $0 5 6/prm.sharp  (lira.voice.pd:3) args=['$0', '5', '6'] =====
+  [  0] L4     / 127
+  [  1] L5     pow 2
+  [  2] L6     line~
+  [  3] L7     r $0-s-sharp-56
+  [  4] L8     outlet~
+  [  5] L9     {1} 23.22
+  conn [0](0) -> [1](0)   # / 127 -> pow 2
+  conn [1](0) -> [5](0)   # pow 2 -> {1} 23.22
+  conn [2](0) -> [4](0)   # line~ -> outlet~
+  conn [3](0) -> [0](0)   # r $0-s-sharp-56 -> / 127
+  conn [5](0) -> [2](0)   # {1} 23.22 -> line~
+
+=====   $0 5 6/prm.mod  (lira.voice.pd:26) args=['$0', '5', '6'] =====
+  [  0] L27    / 127
+  [  1] L28    line~
+  [  2] L29    outlet~
+  [  3] L30    r $0-s-mod-56
+  [  4] L31    pow 4
+  [  5] L32    * 2
+  [  6] L33    {1} 23.22
+  conn [0](0) -> [4](0)   # / 127 -> pow 4
+  conn [1](0) -> [2](0)   # line~ -> outlet~
+  conn [3](0) -> [0](0)   # r $0-s-mod-56 -> / 127
+  conn [4](0) -> [5](0)   # pow 4 -> * 2
+  conn [5](0) -> [6](0)   # * 2 -> {1} 23.22
+  conn [6](0) -> [1](0)   # {1} 23.22 -> line~
+
+=====   $0 5 6/prm.sensor  (lira.voice.pd:44) args=['$0', '5', '6'] =====
+  [  0] L45    outlet~
+  [  1] L46    r $0-s-sensor-5
+  [  2] L47    sel 1 0
+  [  3] L48    v $0-attack
+  [  4] L49    v $0-release
+  [  5] L50    1 {1}
+  [  6] L51    0 {1}
+  [  7] L52    line~
+  [  8] L53    *~
+  [  9] L54    -~ 0.25
+  [ 10] L55    cos~
+  [ 11] L56    i
+  [ 12] L57    r $0-trigger
+  [ 13] L58    /~ 2
+  [ 14] L59    outlet~
+  conn [1](0) -> [11](0)   # r $0-s-sensor-5 -> i
+  conn [2](0) -> [3](0)   # sel 1 0 -> v $0-attack
+  conn [2](1) -> [4](0)   # sel 1 0 -> v $0-release
+  conn [3](0) -> [5](0)   # v $0-attack -> 1 {1}
+  conn [4](0) -> [6](0)   # v $0-release -> 0 {1}
+  conn [5](0) -> [7](0)   # 1 {1} -> line~
+  conn [6](0) -> [7](0)   # 0 {1} -> line~
+  conn [7](0) -> [8](0)   # line~ -> *~
+  conn [7](0) -> [8](1)   # line~ -> *~
+  conn [7](0) -> [9](0)   # line~ -> -~ 0.25
+  conn [8](0) -> [0](0)   # *~ -> outlet~
+  conn [9](0) -> [10](0)   # -~ 0.25 -> cos~
+  conn [10](0) -> [13](0)   # cos~ -> /~ 2
+  conn [11](0) -> [2](0)   # i -> sel 1 0
+  conn [12](0) -> [11](0)   # r $0-trigger -> i
+  conn [13](0) -> [14](0)   # /~ 2 -> outlet~
+
+=====   $0 5 6/prm.sensor  (lira.voice.pd:115) args=['$0', '5', '6'] =====
+  [  0] L116   outlet~
+  [  1] L117   sel 1 0
+  [  2] L118   v $0-attack
+  [  3] L119   v $0-release
+  [  4] L120   1 {1}
+  [  5] L121   0 {1}
+  [  6] L122   line~
+  [  7] L123   *~
+  [  8] L124   -~ 0.25
+  [  9] L125   cos~
+  [ 10] L126   i
+  [ 11] L127   r $0-trigger
+  [ 12] L128   r $0-s-sensor-6
+  [ 13] L129   /~ 2
+  [ 14] L130   outlet~
+  conn [1](0) -> [2](0)   # sel 1 0 -> v $0-attack
+  conn [1](1) -> [3](0)   # sel 1 0 -> v $0-release
+  conn [2](0) -> [4](0)   # v $0-attack -> 1 {1}
+  conn [3](0) -> [5](0)   # v $0-release -> 0 {1}
+  conn [4](0) -> [6](0)   # 1 {1} -> line~
+  conn [5](0) -> [6](0)   # 0 {1} -> line~
+  conn [6](0) -> [7](0)   # line~ -> *~
+  conn [6](0) -> [7](1)   # line~ -> *~
+  conn [6](0) -> [8](0)   # line~ -> -~ 0.25
+  conn [7](0) -> [0](0)   # *~ -> outlet~
+  conn [8](0) -> [9](0)   # -~ 0.25 -> cos~
+  conn [9](0) -> [13](0)   # cos~ -> /~ 2
+  conn [10](0) -> [1](0)   # i -> sel 1 0
+  conn [11](0) -> [10](0)   # r $0-trigger -> i
+  conn [12](0) -> [10](0)   # r $0-s-sensor-6 -> i
+  conn [13](0) -> [14](0)   # /~ 2 -> outlet~
+
+=====   $0 5 6@0 os.triangle~ args=[]  (os.triangle~.pd:1) args=[] =====
+  [  0] L60    phasor~
+  [  1] L61    *~
+  [  2] L62    +~
+  [  7] L171   +~
+  [  8] L172   outlet~
+  [  9] L262   +~
+  [ 10] L263   wrap~
+  [ 11] L264   -~
+  [ 12] L265   +~
+  [ 13] L266   samphold~
+  [ 14] L267   clip~ 0 1
+  [ 15] L268   *~ 2
+  [ 16] L269   reset
+  [ 17] L270   -~ 1
+  [ 19] L272   outlet~
+  [ 20] L273   inlet~
+  [ 21] L274   abs~
+  [ 22] L275   /~ 4
+  [ 25] L278   -~ 0.145
+  [ 26] L279   *~ 2.65
+  [ 27] L280   *~ 0.59
+  [ 28] L281   inlet~
+  [ 29] L282   max~ 100
+  conn <sub0:rlpf>(0) -> [26](0)   # <sub0:rlpf> -> *~ 2.65
+  conn [0](0) -> <sub3:normalize>(0)   # phasor~ -> <sub3:normalize>
+  conn [0](0) -> <sub2:polyblep>(0)   # phasor~ -> <sub2:polyblep>
+  conn [0](0) -> [9](0)   # phasor~ -> +~
+  conn [0](0) -> [13](1)   # phasor~ -> samphold~
+  conn [1](0) -> <sub2:polyblep>(1)   # *~ -> <sub2:polyblep>
+  conn [1](0) -> <sub4:polyblep>(1)   # *~ -> <sub4:polyblep>
+  conn [2](0) -> [11](0)   # +~ -> -~
+  conn <sub1:1/Fs>(0) -> [1](1)   # <sub1:1/Fs> -> *~
+  conn <sub2:polyblep>(0) -> [2](1)   # <sub2:polyblep> -> +~
+  conn <sub3:normalize>(0) -> [2](0)   # <sub3:normalize> -> +~
+  conn [7](0) -> [11](1)   # +~ -> -~
+  conn <sub4:polyblep>(0) -> [7](0)   # <sub4:polyblep> -> +~
+  conn <sub5:normalize>(0) -> [7](1)   # <sub5:normalize> -> +~
+  conn [9](0) -> [10](0)   # +~ -> wrap~
+  conn [10](0) -> <sub5:normalize>(0)   # wrap~ -> <sub5:normalize>
+  conn [10](0) -> <sub4:polyblep>(0)   # wrap~ -> <sub4:polyblep>
+  conn [11](0) -> [12](0)   # -~ -> +~
+  conn [12](0) -> [17](0)   # +~ -> -~ 1
+  conn [13](0) -> [9](1)   # samphold~ -> +~
+  conn [13](0) -> [15](0)   # samphold~ -> *~ 2
+  conn [14](0) -> [13](0)   # clip~ 0 1 -> samphold~
+  conn [15](0) -> [12](1)   # *~ 2 -> +~
+  conn [16](0) -> [13](0)   # reset -> samphold~
+  conn [17](0) -> <sub0:rlpf>(0)   # -~ 1 -> <sub0:rlpf>
+  conn [17](0) -> [27](0)   # -~ 1 -> *~ 0.59
+  conn [20](0) -> [21](0)   # inlet~ -> abs~
+  conn [21](0) -> [0](0)   # abs~ -> phasor~
+  conn [21](0) -> [1](0)   # abs~ -> *~
+  conn [21](0) -> [22](0)   # abs~ -> /~ 4
+  conn [22](0) -> [29](0)   # /~ 4 -> max~ 100
+  conn [25](0) -> [19](0)   # -~ 0.145 -> outlet~
+  conn [26](0) -> [25](0)   # *~ 2.65 -> -~ 0.145
+  conn [27](0) -> [8](0)   # *~ 0.59 -> outlet~
+  conn [28](0) -> [14](0)   # inlet~ -> clip~ 0 1
+  conn [29](0) -> <sub0:rlpf>(1)   # max~ 100 -> <sub0:rlpf>
+
+=====   $0 5 6@0 os.triangle~ args=[]/sub0:rlpf  (os.triangle~.pd:2) args=[] =====
+  [  0] L3     samplerate~
+  [  1] L4     loadbang
+  [  2] L5     sig~ 1
+  [  3] L6     -~
+  [  4] L7     / 2
+  [  5] L8     outlet~
+  [  6] L9     t f f
+  [  7] L10    inlet~
+  [  8] L11    inlet~
+  [  9] L12    bang
+  [ 10] L13    inlet
+  [ 11] L14    clear
+  [ 12] L15    1
+  [ 13] L16    atan
+  [ 14] L17    t b b
+  [ 15] L18    clip~ 0 22050
+  [ 16] L19    * -8
+  [ 17] L20    exp~
+  [ 18] L21    *~
+  [ 19] L22    abs~
+  [ 20] L23    rpole~
+  [ 21] L24    *~ -6.28319
+  [ 22] L25    /~ 44100
+  conn [0](0) -> [6](0)   # samplerate~ -> t f f
+  conn [1](0) -> [9](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # sig~ 1 -> -~
+  conn [3](0) -> [18](1)   # -~ -> *~
+  conn [4](0) -> [15](2)   # / 2 -> clip~ 0 22050
+  conn [6](0) -> [4](0)   # t f f -> / 2
+  conn [6](1) -> [22](1)   # t f f -> /~ 44100
+  conn [7](0) -> [15](0)   # inlet~ -> clip~ 0 22050
+  conn [8](0) -> [18](0)   # inlet~ -> *~
+  conn [9](0) -> [14](0)   # bang -> t b b
+  conn [10](0) -> [11](0)   # inlet -> clear
+  conn [11](0) -> [20](0)   # clear -> rpole~
+  conn [12](0) -> [13](0)   # 1 -> atan
+  conn [13](0) -> [16](0)   # atan -> * -8
+  conn [14](0) -> [0](0)   # t b b -> samplerate~
+  conn [14](1) -> [12](0)   # t b b -> 1
+  conn [15](0) -> [22](0)   # clip~ 0 22050 -> /~ 44100
+  conn [16](0) -> [21](1)   # * -8 -> *~ -6.28319
+  conn [17](0) -> [20](1)   # exp~ -> rpole~
+  conn [17](0) -> [19](0)   # exp~ -> abs~
+  conn [18](0) -> [20](0)   # *~ -> rpole~
+  conn [19](0) -> [3](1)   # abs~ -> -~
+  conn [20](0) -> [5](0)   # rpole~ -> outlet~
+  conn [21](0) -> [17](0)   # *~ -6.28319 -> exp~
+  conn [22](0) -> [21](0)   # /~ 44100 -> *~ -6.28319
+
+=====   $0 5 6@0 os.triangle~ args=[]/sub1:1/Fs  (os.triangle~.pd:63) args=[] =====
+  [  0] L64    samplerate~
+  [  1] L65    loadbang
+  [  2] L66    1 {1}
+  [  3] L67    /
+  [  4] L68    bang
+  [  5] L69    outlet
+  conn [0](0) -> [2](0)   # samplerate~ -> 1 {1}
+  conn [1](0) -> [4](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # 1 {1} -> /
+  conn [3](0) -> [5](0)   # / -> outlet
+  conn [4](0) -> [0](0)   # bang -> samplerate~
+
+=====   $0 5 6@0 os.triangle~ args=[]/sub2:polyblep  (os.triangle~.pd:80) args=[] =====
+  [  0] L81    -~
+  [  1] L82    -~
+  [  2] L83    sig~ 1
+  [  3] L84    /~
+  [  4] L85    outlet~
+  [  5] L86    *~
+  [  6] L87    *~
+  [  7] L88    *~
+  [  8] L89    -~
+  [  9] L90    inlet~
+  [ 11] L92    -~ 1
+  [ 12] L93    -~ 1
+  [ 14] L95    *~
+  [ 15] L96    *~
+  [ 16] L133   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   $0 5 6@0 os.triangle~ args=[]/sub2:polyblep/sub0:>=~  (os.triangle~.pd:97) args=[] =====
+  [  0] L98    -~
+  [  1] L99    clip~ -1e-37 0
+  [  2] L100   inlet~
+  [  3] L101   inlet~
+  [  4] L102   outlet~
+  [  5] L103   *~ 1e+37
+  [  6] L104   min~
+  [  7] L105   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 5 6@0 os.triangle~ args=[]/sub2:polyblep/sub1:<=~  (os.triangle~.pd:115) args=[] =====
+  [  0] L116   -~
+  [  1] L117   clip~ -1e-37 0
+  [  2] L118   inlet~
+  [  3] L119   inlet~
+  [  4] L120   outlet~
+  [  5] L121   *~ 1e+37
+  [  6] L122   min~
+  [  7] L123   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 5 6@0 os.triangle~ args=[]/sub3:normalize  (os.triangle~.pd:160) args=[] =====
+  [  0] L161   outlet~
+  [  1] L162   inlet~
+  [  2] L163   -~ 1
+  [  3] L164   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   $0 5 6@0 os.triangle~ args=[]/sub4:polyblep  (os.triangle~.pd:173) args=[] =====
+  [  0] L174   -~
+  [  1] L175   -~
+  [  2] L176   sig~ 1
+  [  3] L177   /~
+  [  4] L178   outlet~
+  [  5] L179   *~
+  [  6] L180   *~
+  [  7] L181   *~
+  [  8] L182   -~
+  [  9] L183   inlet~
+  [ 11] L185   -~ 1
+  [ 12] L186   -~ 1
+  [ 14] L188   *~
+  [ 15] L189   *~
+  [ 16] L226   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   $0 5 6@0 os.triangle~ args=[]/sub4:polyblep/sub0:>=~  (os.triangle~.pd:190) args=[] =====
+  [  0] L191   -~
+  [  1] L192   clip~ -1e-37 0
+  [  2] L193   inlet~
+  [  3] L194   inlet~
+  [  4] L195   outlet~
+  [  5] L196   *~ 1e+37
+  [  6] L197   min~
+  [  7] L198   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 5 6@0 os.triangle~ args=[]/sub4:polyblep/sub1:<=~  (os.triangle~.pd:208) args=[] =====
+  [  0] L209   -~
+  [  1] L210   clip~ -1e-37 0
+  [  2] L211   inlet~
+  [  3] L212   inlet~
+  [  4] L213   outlet~
+  [  5] L214   *~ 1e+37
+  [  6] L215   min~
+  [  7] L216   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 5 6@0 os.triangle~ args=[]/sub5:normalize  (os.triangle~.pd:253) args=[] =====
+  [  0] L254   outlet~
+  [  1] L255   inlet~
+  [  2] L256   -~ 1
+  [  3] L257   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   $0 5 6@6 os.triangle~ args=[]  (os.triangle~.pd:1) args=[] =====
+  [  0] L60    phasor~
+  [  1] L61    *~
+  [  2] L62    +~
+  [  7] L171   +~
+  [  8] L172   outlet~
+  [  9] L262   +~
+  [ 10] L263   wrap~
+  [ 11] L264   -~
+  [ 12] L265   +~
+  [ 13] L266   samphold~
+  [ 14] L267   clip~ 0 1
+  [ 15] L268   *~ 2
+  [ 16] L269   reset
+  [ 17] L270   -~ 1
+  [ 19] L272   outlet~
+  [ 20] L273   inlet~
+  [ 21] L274   abs~
+  [ 22] L275   /~ 4
+  [ 25] L278   -~ 0.145
+  [ 26] L279   *~ 2.65
+  [ 27] L280   *~ 0.59
+  [ 28] L281   inlet~
+  [ 29] L282   max~ 100
+  conn <sub0:rlpf>(0) -> [26](0)   # <sub0:rlpf> -> *~ 2.65
+  conn [0](0) -> <sub3:normalize>(0)   # phasor~ -> <sub3:normalize>
+  conn [0](0) -> <sub2:polyblep>(0)   # phasor~ -> <sub2:polyblep>
+  conn [0](0) -> [9](0)   # phasor~ -> +~
+  conn [0](0) -> [13](1)   # phasor~ -> samphold~
+  conn [1](0) -> <sub2:polyblep>(1)   # *~ -> <sub2:polyblep>
+  conn [1](0) -> <sub4:polyblep>(1)   # *~ -> <sub4:polyblep>
+  conn [2](0) -> [11](0)   # +~ -> -~
+  conn <sub1:1/Fs>(0) -> [1](1)   # <sub1:1/Fs> -> *~
+  conn <sub2:polyblep>(0) -> [2](1)   # <sub2:polyblep> -> +~
+  conn <sub3:normalize>(0) -> [2](0)   # <sub3:normalize> -> +~
+  conn [7](0) -> [11](1)   # +~ -> -~
+  conn <sub4:polyblep>(0) -> [7](0)   # <sub4:polyblep> -> +~
+  conn <sub5:normalize>(0) -> [7](1)   # <sub5:normalize> -> +~
+  conn [9](0) -> [10](0)   # +~ -> wrap~
+  conn [10](0) -> <sub5:normalize>(0)   # wrap~ -> <sub5:normalize>
+  conn [10](0) -> <sub4:polyblep>(0)   # wrap~ -> <sub4:polyblep>
+  conn [11](0) -> [12](0)   # -~ -> +~
+  conn [12](0) -> [17](0)   # +~ -> -~ 1
+  conn [13](0) -> [9](1)   # samphold~ -> +~
+  conn [13](0) -> [15](0)   # samphold~ -> *~ 2
+  conn [14](0) -> [13](0)   # clip~ 0 1 -> samphold~
+  conn [15](0) -> [12](1)   # *~ 2 -> +~
+  conn [16](0) -> [13](0)   # reset -> samphold~
+  conn [17](0) -> <sub0:rlpf>(0)   # -~ 1 -> <sub0:rlpf>
+  conn [17](0) -> [27](0)   # -~ 1 -> *~ 0.59
+  conn [20](0) -> [21](0)   # inlet~ -> abs~
+  conn [21](0) -> [0](0)   # abs~ -> phasor~
+  conn [21](0) -> [1](0)   # abs~ -> *~
+  conn [21](0) -> [22](0)   # abs~ -> /~ 4
+  conn [22](0) -> [29](0)   # /~ 4 -> max~ 100
+  conn [25](0) -> [19](0)   # -~ 0.145 -> outlet~
+  conn [26](0) -> [25](0)   # *~ 2.65 -> -~ 0.145
+  conn [27](0) -> [8](0)   # *~ 0.59 -> outlet~
+  conn [28](0) -> [14](0)   # inlet~ -> clip~ 0 1
+  conn [29](0) -> <sub0:rlpf>(1)   # max~ 100 -> <sub0:rlpf>
+
+=====   $0 5 6@6 os.triangle~ args=[]/sub0:rlpf  (os.triangle~.pd:2) args=[] =====
+  [  0] L3     samplerate~
+  [  1] L4     loadbang
+  [  2] L5     sig~ 1
+  [  3] L6     -~
+  [  4] L7     / 2
+  [  5] L8     outlet~
+  [  6] L9     t f f
+  [  7] L10    inlet~
+  [  8] L11    inlet~
+  [  9] L12    bang
+  [ 10] L13    inlet
+  [ 11] L14    clear
+  [ 12] L15    1
+  [ 13] L16    atan
+  [ 14] L17    t b b
+  [ 15] L18    clip~ 0 22050
+  [ 16] L19    * -8
+  [ 17] L20    exp~
+  [ 18] L21    *~
+  [ 19] L22    abs~
+  [ 20] L23    rpole~
+  [ 21] L24    *~ -6.28319
+  [ 22] L25    /~ 44100
+  conn [0](0) -> [6](0)   # samplerate~ -> t f f
+  conn [1](0) -> [9](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # sig~ 1 -> -~
+  conn [3](0) -> [18](1)   # -~ -> *~
+  conn [4](0) -> [15](2)   # / 2 -> clip~ 0 22050
+  conn [6](0) -> [4](0)   # t f f -> / 2
+  conn [6](1) -> [22](1)   # t f f -> /~ 44100
+  conn [7](0) -> [15](0)   # inlet~ -> clip~ 0 22050
+  conn [8](0) -> [18](0)   # inlet~ -> *~
+  conn [9](0) -> [14](0)   # bang -> t b b
+  conn [10](0) -> [11](0)   # inlet -> clear
+  conn [11](0) -> [20](0)   # clear -> rpole~
+  conn [12](0) -> [13](0)   # 1 -> atan
+  conn [13](0) -> [16](0)   # atan -> * -8
+  conn [14](0) -> [0](0)   # t b b -> samplerate~
+  conn [14](1) -> [12](0)   # t b b -> 1
+  conn [15](0) -> [22](0)   # clip~ 0 22050 -> /~ 44100
+  conn [16](0) -> [21](1)   # * -8 -> *~ -6.28319
+  conn [17](0) -> [20](1)   # exp~ -> rpole~
+  conn [17](0) -> [19](0)   # exp~ -> abs~
+  conn [18](0) -> [20](0)   # *~ -> rpole~
+  conn [19](0) -> [3](1)   # abs~ -> -~
+  conn [20](0) -> [5](0)   # rpole~ -> outlet~
+  conn [21](0) -> [17](0)   # *~ -6.28319 -> exp~
+  conn [22](0) -> [21](0)   # /~ 44100 -> *~ -6.28319
+
+=====   $0 5 6@6 os.triangle~ args=[]/sub1:1/Fs  (os.triangle~.pd:63) args=[] =====
+  [  0] L64    samplerate~
+  [  1] L65    loadbang
+  [  2] L66    1 {1}
+  [  3] L67    /
+  [  4] L68    bang
+  [  5] L69    outlet
+  conn [0](0) -> [2](0)   # samplerate~ -> 1 {1}
+  conn [1](0) -> [4](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # 1 {1} -> /
+  conn [3](0) -> [5](0)   # / -> outlet
+  conn [4](0) -> [0](0)   # bang -> samplerate~
+
+=====   $0 5 6@6 os.triangle~ args=[]/sub2:polyblep  (os.triangle~.pd:80) args=[] =====
+  [  0] L81    -~
+  [  1] L82    -~
+  [  2] L83    sig~ 1
+  [  3] L84    /~
+  [  4] L85    outlet~
+  [  5] L86    *~
+  [  6] L87    *~
+  [  7] L88    *~
+  [  8] L89    -~
+  [  9] L90    inlet~
+  [ 11] L92    -~ 1
+  [ 12] L93    -~ 1
+  [ 14] L95    *~
+  [ 15] L96    *~
+  [ 16] L133   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   $0 5 6@6 os.triangle~ args=[]/sub2:polyblep/sub0:>=~  (os.triangle~.pd:97) args=[] =====
+  [  0] L98    -~
+  [  1] L99    clip~ -1e-37 0
+  [  2] L100   inlet~
+  [  3] L101   inlet~
+  [  4] L102   outlet~
+  [  5] L103   *~ 1e+37
+  [  6] L104   min~
+  [  7] L105   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 5 6@6 os.triangle~ args=[]/sub2:polyblep/sub1:<=~  (os.triangle~.pd:115) args=[] =====
+  [  0] L116   -~
+  [  1] L117   clip~ -1e-37 0
+  [  2] L118   inlet~
+  [  3] L119   inlet~
+  [  4] L120   outlet~
+  [  5] L121   *~ 1e+37
+  [  6] L122   min~
+  [  7] L123   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 5 6@6 os.triangle~ args=[]/sub3:normalize  (os.triangle~.pd:160) args=[] =====
+  [  0] L161   outlet~
+  [  1] L162   inlet~
+  [  2] L163   -~ 1
+  [  3] L164   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   $0 5 6@6 os.triangle~ args=[]/sub4:polyblep  (os.triangle~.pd:173) args=[] =====
+  [  0] L174   -~
+  [  1] L175   -~
+  [  2] L176   sig~ 1
+  [  3] L177   /~
+  [  4] L178   outlet~
+  [  5] L179   *~
+  [  6] L180   *~
+  [  7] L181   *~
+  [  8] L182   -~
+  [  9] L183   inlet~
+  [ 11] L185   -~ 1
+  [ 12] L186   -~ 1
+  [ 14] L188   *~
+  [ 15] L189   *~
+  [ 16] L226   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   $0 5 6@6 os.triangle~ args=[]/sub4:polyblep/sub0:>=~  (os.triangle~.pd:190) args=[] =====
+  [  0] L191   -~
+  [  1] L192   clip~ -1e-37 0
+  [  2] L193   inlet~
+  [  3] L194   inlet~
+  [  4] L195   outlet~
+  [  5] L196   *~ 1e+37
+  [  6] L197   min~
+  [  7] L198   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 5 6@6 os.triangle~ args=[]/sub4:polyblep/sub1:<=~  (os.triangle~.pd:208) args=[] =====
+  [  0] L209   -~
+  [  1] L210   clip~ -1e-37 0
+  [  2] L211   inlet~
+  [  3] L212   inlet~
+  [  4] L213   outlet~
+  [  5] L214   *~ 1e+37
+  [  6] L215   min~
+  [  7] L216   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 5 6@6 os.triangle~ args=[]/sub5:normalize  (os.triangle~.pd:253) args=[] =====
+  [  0] L254   outlet~
+  [  1] L255   inlet~
+  [  2] L256   -~ 1
+  [  3] L257   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   $0 5 6@20 prm.tune args=['$0', '5']  (prm.tune.pd:1) args=['$0', '5'] =====
+  [  0] L2     line~
+  [  1] L3     outlet~
+  [  2] L4     loadbang
+  [  3] L5     f 5
+  [  4] L6     text get $0-tune
+  [  5] L7     unpack f f
+  [  6] L8     -
+  [  7] L9     / 127
+  [  8] L10    *
+  [  9] L11    +
+  [ 10] L12    mtof
+  [ 11] L13    - 1
+  [ 12] L14    {2} {1}
+  [ 13] L15    t f f
+  [ 14] L16    {1} 23.22
+  [ 15] L17    ftom
+  [ 16] L18    + 0.5
+  [ 17] L19    i
+  [ 18] L20    t f f
+  [ 19] L21    f
+  [ 20] L22    f
+  [ 21] L23    t f f
+  [ 22] L24    1 {1}
+  [ 23] L25    0 {1}
+  [ 24] L26    route
+  [ 25] L27    sel 0 1
+  [ 26] L28    mtof
+  [ 27] L29    inlet
+  [ 28] L30    *
+  [ 29] L31    t b f
+  [ 31] L33    r $0-s-tune-5
+  [ 32] L34    r $0-s-quantize
+  conn [0](0) -> [1](0)   # line~ -> outlet~
+  conn [2](0) -> [3](0)   # loadbang -> f 5
+  conn [3](0) -> [11](0)   # f 5 -> - 1
+  conn [4](0) -> [12](0)   # text get $0-tune -> {2} {1}
+  conn [5](0) -> [6](0)   # unpack f f -> -
+  conn [5](1) -> [13](0)   # unpack f f -> t f f
+  conn [6](0) -> [8](1)   # - -> *
+  conn [7](0) -> [8](0)   # / 127 -> *
+  conn [8](0) -> [9](0)   # * -> +
+  conn [9](0) -> [10](0)   # + -> mtof
+  conn [10](0) -> [28](0)   # mtof -> *
+  conn [11](0) -> [4](0)   # - 1 -> text get $0-tune
+  conn [12](0) -> [5](0)   # {2} {1} -> unpack f f
+  conn [13](0) -> [6](1)   # t f f -> -
+  conn [13](1) -> [9](1)   # t f f -> +
+  conn [14](0) -> [0](0)   # {1} 23.22 -> line~
+  conn [15](0) -> [16](0)   # ftom -> + 0.5
+  conn [16](0) -> [17](0)   # + 0.5 -> i
+  conn [17](0) -> [26](0)   # i -> mtof
+  conn [18](0) -> [19](0)   # t f f -> f
+  conn [18](1) -> [15](0)   # t f f -> ftom
+  conn [19](0) -> [23](0)   # f -> 0 {1}
+  conn [20](0) -> [22](0)   # f -> 1 {1}
+  conn [21](0) -> [25](0)   # t f f -> sel 0 1
+  conn [21](1) -> [24](1)   # t f f -> route
+  conn [22](0) -> [24](0)   # 1 {1} -> route
+  conn [23](0) -> [24](0)   # 0 {1} -> route
+  conn [24](0) -> [14](0)   # route -> {1} 23.22
+  conn [25](0) -> [19](0)   # sel 0 1 -> f
+  conn [25](1) -> [20](0)   # sel 0 1 -> f
+  conn [26](0) -> [20](0)   # mtof -> f
+  conn [27](0) -> [29](0)   # inlet -> t b f
+  conn [28](0) -> [18](0)   # * -> t f f
+  conn [29](0) -> [28](0)   # t b f -> *
+  conn [29](1) -> [28](1)   # t b f -> *
+  conn [31](0) -> [7](0)   # r $0-s-tune-5 -> / 127
+  conn [32](0) -> [21](0)   # r $0-s-quantize -> t f f
+
+=====   $0 5 6@21 prm.tune args=['$0', '6']  (prm.tune.pd:1) args=['$0', '6'] =====
+  [  0] L2     line~
+  [  1] L3     outlet~
+  [  2] L4     loadbang
+  [  3] L5     f 6
+  [  4] L6     text get $0-tune
+  [  5] L7     unpack f f
+  [  6] L8     -
+  [  7] L9     / 127
+  [  8] L10    *
+  [  9] L11    +
+  [ 10] L12    mtof
+  [ 11] L13    - 1
+  [ 12] L14    {2} {1}
+  [ 13] L15    t f f
+  [ 14] L16    {1} 23.22
+  [ 15] L17    ftom
+  [ 16] L18    + 0.5
+  [ 17] L19    i
+  [ 18] L20    t f f
+  [ 19] L21    f
+  [ 20] L22    f
+  [ 21] L23    t f f
+  [ 22] L24    1 {1}
+  [ 23] L25    0 {1}
+  [ 24] L26    route
+  [ 25] L27    sel 0 1
+  [ 26] L28    mtof
+  [ 27] L29    inlet
+  [ 28] L30    *
+  [ 29] L31    t b f
+  [ 31] L33    r $0-s-tune-6
+  [ 32] L34    r $0-s-quantize
+  conn [0](0) -> [1](0)   # line~ -> outlet~
+  conn [2](0) -> [3](0)   # loadbang -> f 6
+  conn [3](0) -> [11](0)   # f 6 -> - 1
+  conn [4](0) -> [12](0)   # text get $0-tune -> {2} {1}
+  conn [5](0) -> [6](0)   # unpack f f -> -
+  conn [5](1) -> [13](0)   # unpack f f -> t f f
+  conn [6](0) -> [8](1)   # - -> *
+  conn [7](0) -> [8](0)   # / 127 -> *
+  conn [8](0) -> [9](0)   # * -> +
+  conn [9](0) -> [10](0)   # + -> mtof
+  conn [10](0) -> [28](0)   # mtof -> *
+  conn [11](0) -> [4](0)   # - 1 -> text get $0-tune
+  conn [12](0) -> [5](0)   # {2} {1} -> unpack f f
+  conn [13](0) -> [6](1)   # t f f -> -
+  conn [13](1) -> [9](1)   # t f f -> +
+  conn [14](0) -> [0](0)   # {1} 23.22 -> line~
+  conn [15](0) -> [16](0)   # ftom -> + 0.5
+  conn [16](0) -> [17](0)   # + 0.5 -> i
+  conn [17](0) -> [26](0)   # i -> mtof
+  conn [18](0) -> [19](0)   # t f f -> f
+  conn [18](1) -> [15](0)   # t f f -> ftom
+  conn [19](0) -> [23](0)   # f -> 0 {1}
+  conn [20](0) -> [22](0)   # f -> 1 {1}
+  conn [21](0) -> [25](0)   # t f f -> sel 0 1
+  conn [21](1) -> [24](1)   # t f f -> route
+  conn [22](0) -> [24](0)   # 1 {1} -> route
+  conn [23](0) -> [24](0)   # 0 {1} -> route
+  conn [24](0) -> [14](0)   # route -> {1} 23.22
+  conn [25](0) -> [19](0)   # sel 0 1 -> f
+  conn [25](1) -> [20](0)   # sel 0 1 -> f
+  conn [26](0) -> [20](0)   # mtof -> f
+  conn [27](0) -> [29](0)   # inlet -> t b f
+  conn [28](0) -> [18](0)   # * -> t f f
+  conn [29](0) -> [28](0)   # t b f -> *
+  conn [29](1) -> [28](1)   # t b f -> *
+  conn [31](0) -> [7](0)   # r $0-s-tune-6 -> / 127
+  conn [32](0) -> [21](0)   # r $0-s-quantize -> t f f
+
+===== lira.voice instance $0 7 8 (gui obj 186)  (lira.voice.pd:1) args=['$0', '7', '8'] =====
+  [  0] L2     os.triangle~
+  [  1] L16    *~
+  [  2] L17    *~
+  [  3] L18    *~
+  [  4] L19    outlet~
+  [  5] L20    +~
+  [  6] L21    os.triangle~
+  [  7] L22    *~
+  [  8] L23    *~
+  [  9] L24    *~
+  [ 10] L25    *~
+  [ 11] L41    *~
+  [ 12] L42    *~
+  [ 13] L43    inlet~
+  [ 14] L77    loadbang
+  [ 15] L78    1
+  [ 16] L79    -~
+  [ 17] L80    inlet~
+  [ 18] L81    min~ 1
+  [ 19] L82    min~ 1
+  [ 20] L83    prm.tune $0 7
+  [ 21] L84    prm.tune $0 8
+  [ 25] L88    line~
+  [ 26] L89    osc~ 3
+  [ 27] L90    sig~ 0.53125
+  [ 28] L91    *~
+  [ 29] L92    r $0-s-vibrato
+  [ 30] L93    +~
+  [ 31] L94    +~
+  [ 32] L95    *~
+  [ 33] L96    *~
+  [ 34] L97    r $0-seed
+  [ 35] L98    +
+  [ 36] L99    loadbang
+  [ 37] L100   f 7
+  [ 38] L101   t b b
+  [ 39] L102   seed {1}
+  [ 40] L103   *~ 0.025
+  [ 41] L104   / 1000
+  [ 42] L105   random 1001
+  [ 43] L106   + 0.5
+  [ 44] L107   * 3
+  [ 45] L108   r $0-s-fast-78
+  [ 46] L109   sel 1 0
+  [ 47] L110   unpack f f
+  [ 48] L111   v $0-attack
+  [ 49] L112   v $0-release
+  [ 50] L113   t b f
+  [ 51] L114   s $0-trigger
+  [ 52] L148   *~ 0.005
+  [ 53] L149   100 100
+  [ 54] L150   200 8000
+  [ 55] L151   s~ $0-del-78
+  [ 56] L152   {1} 23.22
+  [ 57] L153   hip~ 3
+  [ 58] L154   inlet
+  [ 59] L155   t f f
+  conn [0](0) -> [1](0)   # os.triangle~ -> *~
+  conn [0](1) -> [2](0)   # os.triangle~ -> *~
+  conn <sub0:prm.sharp>(0) -> [1](1)   # <sub0:prm.sharp> -> *~
+  conn <sub0:prm.sharp>(0) -> [16](1)   # <sub0:prm.sharp> -> -~
+  conn <sub0:prm.sharp>(0) -> [7](1)   # <sub0:prm.sharp> -> *~
+  conn [1](0) -> [3](0)   # *~ -> *~
+  conn [2](0) -> [3](0)   # *~ -> *~
+  conn [3](0) -> [5](0)   # *~ -> +~
+  conn [5](0) -> [4](0)   # +~ -> outlet~
+  conn [5](0) -> [57](0)   # +~ -> hip~ 3
+  conn [6](0) -> [7](0)   # os.triangle~ -> *~
+  conn [6](1) -> [8](0)   # os.triangle~ -> *~
+  conn [7](0) -> [9](1)   # *~ -> *~
+  conn [8](0) -> [9](1)   # *~ -> *~
+  conn [9](0) -> [5](1)   # *~ -> +~
+  conn [10](0) -> [0](0)   # *~ -> os.triangle~
+  conn <sub1:prm.mod>(0) -> [12](1)   # <sub1:prm.mod> -> *~
+  conn [11](0) -> [6](0)   # *~ -> os.triangle~
+  conn [12](0) -> [10](1)   # *~ -> *~
+  conn [12](0) -> [11](0)   # *~ -> *~
+  conn [13](0) -> [12](0)   # inlet~ -> *~
+  conn <sub2:prm.sensor>(0) -> [18](0)   # <sub2:prm.sensor> -> min~ 1
+  conn <sub2:prm.sensor>(1) -> [3](0)   # <sub2:prm.sensor> -> *~
+  conn [14](0) -> [15](0)   # loadbang -> 1
+  conn [15](0) -> [16](0)   # 1 -> -~
+  conn [16](0) -> [2](1)   # -~ -> *~
+  conn [16](0) -> [8](1)   # -~ -> *~
+  conn [17](0) -> [19](0)   # inlet~ -> min~ 1
+  conn [17](0) -> [18](0)   # inlet~ -> min~ 1
+  conn [18](0) -> [3](1)   # min~ 1 -> *~
+  conn [19](0) -> [9](0)   # min~ 1 -> *~
+  conn [20](0) -> [30](0)   # prm.tune $0 7 -> +~
+  conn [20](0) -> [32](0)   # prm.tune $0 7 -> *~
+  conn [21](0) -> [31](0)   # prm.tune $0 8 -> +~
+  conn [21](0) -> [33](0)   # prm.tune $0 8 -> *~
+  conn [25](0) -> [28](1)   # line~ -> *~
+  conn [26](0) -> [28](0)   # osc~ 3 -> *~
+  conn [27](0) -> [0](1)   # sig~ 0.53125 -> os.triangle~
+  conn [27](0) -> [6](1)   # sig~ 0.53125 -> os.triangle~
+  conn [28](0) -> [40](0)   # *~ -> *~ 0.025
+  conn [28](0) -> [52](0)   # *~ -> *~ 0.005
+  conn [29](0) -> [56](0)   # r $0-s-vibrato -> {1} 23.22
+  conn [30](0) -> [10](0)   # +~ -> *~
+  conn [30](0) -> [0](0)   # +~ -> os.triangle~
+  conn [31](0) -> [11](1)   # +~ -> *~
+  conn [31](0) -> [6](0)   # +~ -> os.triangle~
+  conn [32](0) -> [30](1)   # *~ -> +~
+  conn [33](0) -> [31](1)   # *~ -> +~
+  conn [34](0) -> [35](0)   # r $0-seed -> +
+  conn [35](0) -> [39](0)   # + -> seed {1}
+  conn [36](0) -> [38](0)   # loadbang -> t b b
+  conn [37](0) -> [35](1)   # f 7 -> +
+  conn [38](0) -> [42](0)   # t b b -> random 1001
+  conn [38](1) -> [37](0)   # t b b -> f 7
+  conn [39](0) -> [42](0)   # seed {1} -> random 1001
+  conn [40](0) -> [0](1)   # *~ 0.025 -> os.triangle~
+  conn [40](0) -> [6](1)   # *~ 0.025 -> os.triangle~
+  conn [41](0) -> [44](0)   # / 1000 -> * 3
+  conn [42](0) -> [41](0)   # random 1001 -> / 1000
+  conn [43](0) -> [26](0)   # + 0.5 -> osc~ 3
+  conn [44](0) -> [43](0)   # * 3 -> + 0.5
+  conn [45](0) -> [50](0)   # r $0-s-fast-78 -> t b f
+  conn [46](0) -> [53](0)   # sel 1 0 -> 100 100
+  conn [46](1) -> [54](0)   # sel 1 0 -> 200 8000
+  conn [47](0) -> [48](0)   # unpack f f -> v $0-attack
+  conn [47](1) -> [49](0)   # unpack f f -> v $0-release
+  conn [50](0) -> [51](0)   # t b f -> s $0-trigger
+  conn [50](1) -> [46](0)   # t b f -> sel 1 0
+  conn <sub3:prm.sensor>(0) -> [19](0)   # <sub3:prm.sensor> -> min~ 1
+  conn <sub3:prm.sensor>(1) -> [9](1)   # <sub3:prm.sensor> -> *~
+  conn [52](0) -> [33](1)   # *~ 0.005 -> *~
+  conn [52](0) -> [32](1)   # *~ 0.005 -> *~
+  conn [53](0) -> [47](0)   # 100 100 -> unpack f f
+  conn [54](0) -> [47](0)   # 200 8000 -> unpack f f
+  conn [56](0) -> [25](0)   # {1} 23.22 -> line~
+  conn [57](0) -> [55](0)   # hip~ 3 -> s~ $0-del-78
+  conn [58](0) -> [59](0)   # inlet -> t f f
+  conn [59](0) -> [20](0)   # t f f -> prm.tune $0 7
+  conn [59](1) -> [21](0)   # t f f -> prm.tune $0 8
+
+===== lira.voice instance $0 7 8 (gui obj 186)/sub0:prm.sharp  (lira.voice.pd:3) args=['$0', '7', '8'] =====
+  [  0] L4     / 127
+  [  1] L5     pow 2
+  [  2] L6     line~
+  [  3] L7     r $0-s-sharp-78
+  [  4] L8     outlet~
+  [  5] L9     {1} 23.22
+  conn [0](0) -> [1](0)   # / 127 -> pow 2
+  conn [1](0) -> [5](0)   # pow 2 -> {1} 23.22
+  conn [2](0) -> [4](0)   # line~ -> outlet~
+  conn [3](0) -> [0](0)   # r $0-s-sharp-78 -> / 127
+  conn [5](0) -> [2](0)   # {1} 23.22 -> line~
+
+===== lira.voice instance $0 7 8 (gui obj 186)/sub1:prm.mod  (lira.voice.pd:26) args=['$0', '7', '8'] =====
+  [  0] L27    / 127
+  [  1] L28    line~
+  [  2] L29    outlet~
+  [  3] L30    r $0-s-mod-78
+  [  4] L31    pow 4
+  [  5] L32    * 2
+  [  6] L33    {1} 23.22
+  conn [0](0) -> [4](0)   # / 127 -> pow 4
+  conn [1](0) -> [2](0)   # line~ -> outlet~
+  conn [3](0) -> [0](0)   # r $0-s-mod-78 -> / 127
+  conn [4](0) -> [5](0)   # pow 4 -> * 2
+  conn [5](0) -> [6](0)   # * 2 -> {1} 23.22
+  conn [6](0) -> [1](0)   # {1} 23.22 -> line~
+
+===== lira.voice instance $0 7 8 (gui obj 186)/sub2:prm.sensor  (lira.voice.pd:44) args=['$0', '7', '8'] =====
+  [  0] L45    outlet~
+  [  1] L46    r $0-s-sensor-7
+  [  2] L47    sel 1 0
+  [  3] L48    v $0-attack
+  [  4] L49    v $0-release
+  [  5] L50    1 {1}
+  [  6] L51    0 {1}
+  [  7] L52    line~
+  [  8] L53    *~
+  [  9] L54    -~ 0.25
+  [ 10] L55    cos~
+  [ 11] L56    i
+  [ 12] L57    r $0-trigger
+  [ 13] L58    /~ 2
+  [ 14] L59    outlet~
+  conn [1](0) -> [11](0)   # r $0-s-sensor-7 -> i
+  conn [2](0) -> [3](0)   # sel 1 0 -> v $0-attack
+  conn [2](1) -> [4](0)   # sel 1 0 -> v $0-release
+  conn [3](0) -> [5](0)   # v $0-attack -> 1 {1}
+  conn [4](0) -> [6](0)   # v $0-release -> 0 {1}
+  conn [5](0) -> [7](0)   # 1 {1} -> line~
+  conn [6](0) -> [7](0)   # 0 {1} -> line~
+  conn [7](0) -> [8](0)   # line~ -> *~
+  conn [7](0) -> [8](1)   # line~ -> *~
+  conn [7](0) -> [9](0)   # line~ -> -~ 0.25
+  conn [8](0) -> [0](0)   # *~ -> outlet~
+  conn [9](0) -> [10](0)   # -~ 0.25 -> cos~
+  conn [10](0) -> [13](0)   # cos~ -> /~ 2
+  conn [11](0) -> [2](0)   # i -> sel 1 0
+  conn [12](0) -> [11](0)   # r $0-trigger -> i
+  conn [13](0) -> [14](0)   # /~ 2 -> outlet~
+
+===== lira.voice instance $0 7 8 (gui obj 186)/sub3:prm.sensor  (lira.voice.pd:115) args=['$0', '7', '8'] =====
+  [  0] L116   outlet~
+  [  1] L117   sel 1 0
+  [  2] L118   v $0-attack
+  [  3] L119   v $0-release
+  [  4] L120   1 {1}
+  [  5] L121   0 {1}
+  [  6] L122   line~
+  [  7] L123   *~
+  [  8] L124   -~ 0.25
+  [  9] L125   cos~
+  [ 10] L126   i
+  [ 11] L127   r $0-trigger
+  [ 12] L128   r $0-s-sensor-8
+  [ 13] L129   /~ 2
+  [ 14] L130   outlet~
+  conn [1](0) -> [2](0)   # sel 1 0 -> v $0-attack
+  conn [1](1) -> [3](0)   # sel 1 0 -> v $0-release
+  conn [2](0) -> [4](0)   # v $0-attack -> 1 {1}
+  conn [3](0) -> [5](0)   # v $0-release -> 0 {1}
+  conn [4](0) -> [6](0)   # 1 {1} -> line~
+  conn [5](0) -> [6](0)   # 0 {1} -> line~
+  conn [6](0) -> [7](0)   # line~ -> *~
+  conn [6](0) -> [7](1)   # line~ -> *~
+  conn [6](0) -> [8](0)   # line~ -> -~ 0.25
+  conn [7](0) -> [0](0)   # *~ -> outlet~
+  conn [8](0) -> [9](0)   # -~ 0.25 -> cos~
+  conn [9](0) -> [13](0)   # cos~ -> /~ 2
+  conn [10](0) -> [1](0)   # i -> sel 1 0
+  conn [11](0) -> [10](0)   # r $0-trigger -> i
+  conn [12](0) -> [10](0)   # r $0-s-sensor-8 -> i
+  conn [13](0) -> [14](0)   # /~ 2 -> outlet~
+
+=====   $0 7 8/prm.sharp  (lira.voice.pd:3) args=['$0', '7', '8'] =====
+  [  0] L4     / 127
+  [  1] L5     pow 2
+  [  2] L6     line~
+  [  3] L7     r $0-s-sharp-78
+  [  4] L8     outlet~
+  [  5] L9     {1} 23.22
+  conn [0](0) -> [1](0)   # / 127 -> pow 2
+  conn [1](0) -> [5](0)   # pow 2 -> {1} 23.22
+  conn [2](0) -> [4](0)   # line~ -> outlet~
+  conn [3](0) -> [0](0)   # r $0-s-sharp-78 -> / 127
+  conn [5](0) -> [2](0)   # {1} 23.22 -> line~
+
+=====   $0 7 8/prm.mod  (lira.voice.pd:26) args=['$0', '7', '8'] =====
+  [  0] L27    / 127
+  [  1] L28    line~
+  [  2] L29    outlet~
+  [  3] L30    r $0-s-mod-78
+  [  4] L31    pow 4
+  [  5] L32    * 2
+  [  6] L33    {1} 23.22
+  conn [0](0) -> [4](0)   # / 127 -> pow 4
+  conn [1](0) -> [2](0)   # line~ -> outlet~
+  conn [3](0) -> [0](0)   # r $0-s-mod-78 -> / 127
+  conn [4](0) -> [5](0)   # pow 4 -> * 2
+  conn [5](0) -> [6](0)   # * 2 -> {1} 23.22
+  conn [6](0) -> [1](0)   # {1} 23.22 -> line~
+
+=====   $0 7 8/prm.sensor  (lira.voice.pd:44) args=['$0', '7', '8'] =====
+  [  0] L45    outlet~
+  [  1] L46    r $0-s-sensor-7
+  [  2] L47    sel 1 0
+  [  3] L48    v $0-attack
+  [  4] L49    v $0-release
+  [  5] L50    1 {1}
+  [  6] L51    0 {1}
+  [  7] L52    line~
+  [  8] L53    *~
+  [  9] L54    -~ 0.25
+  [ 10] L55    cos~
+  [ 11] L56    i
+  [ 12] L57    r $0-trigger
+  [ 13] L58    /~ 2
+  [ 14] L59    outlet~
+  conn [1](0) -> [11](0)   # r $0-s-sensor-7 -> i
+  conn [2](0) -> [3](0)   # sel 1 0 -> v $0-attack
+  conn [2](1) -> [4](0)   # sel 1 0 -> v $0-release
+  conn [3](0) -> [5](0)   # v $0-attack -> 1 {1}
+  conn [4](0) -> [6](0)   # v $0-release -> 0 {1}
+  conn [5](0) -> [7](0)   # 1 {1} -> line~
+  conn [6](0) -> [7](0)   # 0 {1} -> line~
+  conn [7](0) -> [8](0)   # line~ -> *~
+  conn [7](0) -> [8](1)   # line~ -> *~
+  conn [7](0) -> [9](0)   # line~ -> -~ 0.25
+  conn [8](0) -> [0](0)   # *~ -> outlet~
+  conn [9](0) -> [10](0)   # -~ 0.25 -> cos~
+  conn [10](0) -> [13](0)   # cos~ -> /~ 2
+  conn [11](0) -> [2](0)   # i -> sel 1 0
+  conn [12](0) -> [11](0)   # r $0-trigger -> i
+  conn [13](0) -> [14](0)   # /~ 2 -> outlet~
+
+=====   $0 7 8/prm.sensor  (lira.voice.pd:115) args=['$0', '7', '8'] =====
+  [  0] L116   outlet~
+  [  1] L117   sel 1 0
+  [  2] L118   v $0-attack
+  [  3] L119   v $0-release
+  [  4] L120   1 {1}
+  [  5] L121   0 {1}
+  [  6] L122   line~
+  [  7] L123   *~
+  [  8] L124   -~ 0.25
+  [  9] L125   cos~
+  [ 10] L126   i
+  [ 11] L127   r $0-trigger
+  [ 12] L128   r $0-s-sensor-8
+  [ 13] L129   /~ 2
+  [ 14] L130   outlet~
+  conn [1](0) -> [2](0)   # sel 1 0 -> v $0-attack
+  conn [1](1) -> [3](0)   # sel 1 0 -> v $0-release
+  conn [2](0) -> [4](0)   # v $0-attack -> 1 {1}
+  conn [3](0) -> [5](0)   # v $0-release -> 0 {1}
+  conn [4](0) -> [6](0)   # 1 {1} -> line~
+  conn [5](0) -> [6](0)   # 0 {1} -> line~
+  conn [6](0) -> [7](0)   # line~ -> *~
+  conn [6](0) -> [7](1)   # line~ -> *~
+  conn [6](0) -> [8](0)   # line~ -> -~ 0.25
+  conn [7](0) -> [0](0)   # *~ -> outlet~
+  conn [8](0) -> [9](0)   # -~ 0.25 -> cos~
+  conn [9](0) -> [13](0)   # cos~ -> /~ 2
+  conn [10](0) -> [1](0)   # i -> sel 1 0
+  conn [11](0) -> [10](0)   # r $0-trigger -> i
+  conn [12](0) -> [10](0)   # r $0-s-sensor-8 -> i
+  conn [13](0) -> [14](0)   # /~ 2 -> outlet~
+
+=====   $0 7 8@0 os.triangle~ args=[]  (os.triangle~.pd:1) args=[] =====
+  [  0] L60    phasor~
+  [  1] L61    *~
+  [  2] L62    +~
+  [  7] L171   +~
+  [  8] L172   outlet~
+  [  9] L262   +~
+  [ 10] L263   wrap~
+  [ 11] L264   -~
+  [ 12] L265   +~
+  [ 13] L266   samphold~
+  [ 14] L267   clip~ 0 1
+  [ 15] L268   *~ 2
+  [ 16] L269   reset
+  [ 17] L270   -~ 1
+  [ 19] L272   outlet~
+  [ 20] L273   inlet~
+  [ 21] L274   abs~
+  [ 22] L275   /~ 4
+  [ 25] L278   -~ 0.145
+  [ 26] L279   *~ 2.65
+  [ 27] L280   *~ 0.59
+  [ 28] L281   inlet~
+  [ 29] L282   max~ 100
+  conn <sub0:rlpf>(0) -> [26](0)   # <sub0:rlpf> -> *~ 2.65
+  conn [0](0) -> <sub3:normalize>(0)   # phasor~ -> <sub3:normalize>
+  conn [0](0) -> <sub2:polyblep>(0)   # phasor~ -> <sub2:polyblep>
+  conn [0](0) -> [9](0)   # phasor~ -> +~
+  conn [0](0) -> [13](1)   # phasor~ -> samphold~
+  conn [1](0) -> <sub2:polyblep>(1)   # *~ -> <sub2:polyblep>
+  conn [1](0) -> <sub4:polyblep>(1)   # *~ -> <sub4:polyblep>
+  conn [2](0) -> [11](0)   # +~ -> -~
+  conn <sub1:1/Fs>(0) -> [1](1)   # <sub1:1/Fs> -> *~
+  conn <sub2:polyblep>(0) -> [2](1)   # <sub2:polyblep> -> +~
+  conn <sub3:normalize>(0) -> [2](0)   # <sub3:normalize> -> +~
+  conn [7](0) -> [11](1)   # +~ -> -~
+  conn <sub4:polyblep>(0) -> [7](0)   # <sub4:polyblep> -> +~
+  conn <sub5:normalize>(0) -> [7](1)   # <sub5:normalize> -> +~
+  conn [9](0) -> [10](0)   # +~ -> wrap~
+  conn [10](0) -> <sub5:normalize>(0)   # wrap~ -> <sub5:normalize>
+  conn [10](0) -> <sub4:polyblep>(0)   # wrap~ -> <sub4:polyblep>
+  conn [11](0) -> [12](0)   # -~ -> +~
+  conn [12](0) -> [17](0)   # +~ -> -~ 1
+  conn [13](0) -> [9](1)   # samphold~ -> +~
+  conn [13](0) -> [15](0)   # samphold~ -> *~ 2
+  conn [14](0) -> [13](0)   # clip~ 0 1 -> samphold~
+  conn [15](0) -> [12](1)   # *~ 2 -> +~
+  conn [16](0) -> [13](0)   # reset -> samphold~
+  conn [17](0) -> <sub0:rlpf>(0)   # -~ 1 -> <sub0:rlpf>
+  conn [17](0) -> [27](0)   # -~ 1 -> *~ 0.59
+  conn [20](0) -> [21](0)   # inlet~ -> abs~
+  conn [21](0) -> [0](0)   # abs~ -> phasor~
+  conn [21](0) -> [1](0)   # abs~ -> *~
+  conn [21](0) -> [22](0)   # abs~ -> /~ 4
+  conn [22](0) -> [29](0)   # /~ 4 -> max~ 100
+  conn [25](0) -> [19](0)   # -~ 0.145 -> outlet~
+  conn [26](0) -> [25](0)   # *~ 2.65 -> -~ 0.145
+  conn [27](0) -> [8](0)   # *~ 0.59 -> outlet~
+  conn [28](0) -> [14](0)   # inlet~ -> clip~ 0 1
+  conn [29](0) -> <sub0:rlpf>(1)   # max~ 100 -> <sub0:rlpf>
+
+=====   $0 7 8@0 os.triangle~ args=[]/sub0:rlpf  (os.triangle~.pd:2) args=[] =====
+  [  0] L3     samplerate~
+  [  1] L4     loadbang
+  [  2] L5     sig~ 1
+  [  3] L6     -~
+  [  4] L7     / 2
+  [  5] L8     outlet~
+  [  6] L9     t f f
+  [  7] L10    inlet~
+  [  8] L11    inlet~
+  [  9] L12    bang
+  [ 10] L13    inlet
+  [ 11] L14    clear
+  [ 12] L15    1
+  [ 13] L16    atan
+  [ 14] L17    t b b
+  [ 15] L18    clip~ 0 22050
+  [ 16] L19    * -8
+  [ 17] L20    exp~
+  [ 18] L21    *~
+  [ 19] L22    abs~
+  [ 20] L23    rpole~
+  [ 21] L24    *~ -6.28319
+  [ 22] L25    /~ 44100
+  conn [0](0) -> [6](0)   # samplerate~ -> t f f
+  conn [1](0) -> [9](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # sig~ 1 -> -~
+  conn [3](0) -> [18](1)   # -~ -> *~
+  conn [4](0) -> [15](2)   # / 2 -> clip~ 0 22050
+  conn [6](0) -> [4](0)   # t f f -> / 2
+  conn [6](1) -> [22](1)   # t f f -> /~ 44100
+  conn [7](0) -> [15](0)   # inlet~ -> clip~ 0 22050
+  conn [8](0) -> [18](0)   # inlet~ -> *~
+  conn [9](0) -> [14](0)   # bang -> t b b
+  conn [10](0) -> [11](0)   # inlet -> clear
+  conn [11](0) -> [20](0)   # clear -> rpole~
+  conn [12](0) -> [13](0)   # 1 -> atan
+  conn [13](0) -> [16](0)   # atan -> * -8
+  conn [14](0) -> [0](0)   # t b b -> samplerate~
+  conn [14](1) -> [12](0)   # t b b -> 1
+  conn [15](0) -> [22](0)   # clip~ 0 22050 -> /~ 44100
+  conn [16](0) -> [21](1)   # * -8 -> *~ -6.28319
+  conn [17](0) -> [20](1)   # exp~ -> rpole~
+  conn [17](0) -> [19](0)   # exp~ -> abs~
+  conn [18](0) -> [20](0)   # *~ -> rpole~
+  conn [19](0) -> [3](1)   # abs~ -> -~
+  conn [20](0) -> [5](0)   # rpole~ -> outlet~
+  conn [21](0) -> [17](0)   # *~ -6.28319 -> exp~
+  conn [22](0) -> [21](0)   # /~ 44100 -> *~ -6.28319
+
+=====   $0 7 8@0 os.triangle~ args=[]/sub1:1/Fs  (os.triangle~.pd:63) args=[] =====
+  [  0] L64    samplerate~
+  [  1] L65    loadbang
+  [  2] L66    1 {1}
+  [  3] L67    /
+  [  4] L68    bang
+  [  5] L69    outlet
+  conn [0](0) -> [2](0)   # samplerate~ -> 1 {1}
+  conn [1](0) -> [4](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # 1 {1} -> /
+  conn [3](0) -> [5](0)   # / -> outlet
+  conn [4](0) -> [0](0)   # bang -> samplerate~
+
+=====   $0 7 8@0 os.triangle~ args=[]/sub2:polyblep  (os.triangle~.pd:80) args=[] =====
+  [  0] L81    -~
+  [  1] L82    -~
+  [  2] L83    sig~ 1
+  [  3] L84    /~
+  [  4] L85    outlet~
+  [  5] L86    *~
+  [  6] L87    *~
+  [  7] L88    *~
+  [  8] L89    -~
+  [  9] L90    inlet~
+  [ 11] L92    -~ 1
+  [ 12] L93    -~ 1
+  [ 14] L95    *~
+  [ 15] L96    *~
+  [ 16] L133   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   $0 7 8@0 os.triangle~ args=[]/sub2:polyblep/sub0:>=~  (os.triangle~.pd:97) args=[] =====
+  [  0] L98    -~
+  [  1] L99    clip~ -1e-37 0
+  [  2] L100   inlet~
+  [  3] L101   inlet~
+  [  4] L102   outlet~
+  [  5] L103   *~ 1e+37
+  [  6] L104   min~
+  [  7] L105   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 7 8@0 os.triangle~ args=[]/sub2:polyblep/sub1:<=~  (os.triangle~.pd:115) args=[] =====
+  [  0] L116   -~
+  [  1] L117   clip~ -1e-37 0
+  [  2] L118   inlet~
+  [  3] L119   inlet~
+  [  4] L120   outlet~
+  [  5] L121   *~ 1e+37
+  [  6] L122   min~
+  [  7] L123   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 7 8@0 os.triangle~ args=[]/sub3:normalize  (os.triangle~.pd:160) args=[] =====
+  [  0] L161   outlet~
+  [  1] L162   inlet~
+  [  2] L163   -~ 1
+  [  3] L164   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   $0 7 8@0 os.triangle~ args=[]/sub4:polyblep  (os.triangle~.pd:173) args=[] =====
+  [  0] L174   -~
+  [  1] L175   -~
+  [  2] L176   sig~ 1
+  [  3] L177   /~
+  [  4] L178   outlet~
+  [  5] L179   *~
+  [  6] L180   *~
+  [  7] L181   *~
+  [  8] L182   -~
+  [  9] L183   inlet~
+  [ 11] L185   -~ 1
+  [ 12] L186   -~ 1
+  [ 14] L188   *~
+  [ 15] L189   *~
+  [ 16] L226   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   $0 7 8@0 os.triangle~ args=[]/sub4:polyblep/sub0:>=~  (os.triangle~.pd:190) args=[] =====
+  [  0] L191   -~
+  [  1] L192   clip~ -1e-37 0
+  [  2] L193   inlet~
+  [  3] L194   inlet~
+  [  4] L195   outlet~
+  [  5] L196   *~ 1e+37
+  [  6] L197   min~
+  [  7] L198   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 7 8@0 os.triangle~ args=[]/sub4:polyblep/sub1:<=~  (os.triangle~.pd:208) args=[] =====
+  [  0] L209   -~
+  [  1] L210   clip~ -1e-37 0
+  [  2] L211   inlet~
+  [  3] L212   inlet~
+  [  4] L213   outlet~
+  [  5] L214   *~ 1e+37
+  [  6] L215   min~
+  [  7] L216   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 7 8@0 os.triangle~ args=[]/sub5:normalize  (os.triangle~.pd:253) args=[] =====
+  [  0] L254   outlet~
+  [  1] L255   inlet~
+  [  2] L256   -~ 1
+  [  3] L257   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   $0 7 8@6 os.triangle~ args=[]  (os.triangle~.pd:1) args=[] =====
+  [  0] L60    phasor~
+  [  1] L61    *~
+  [  2] L62    +~
+  [  7] L171   +~
+  [  8] L172   outlet~
+  [  9] L262   +~
+  [ 10] L263   wrap~
+  [ 11] L264   -~
+  [ 12] L265   +~
+  [ 13] L266   samphold~
+  [ 14] L267   clip~ 0 1
+  [ 15] L268   *~ 2
+  [ 16] L269   reset
+  [ 17] L270   -~ 1
+  [ 19] L272   outlet~
+  [ 20] L273   inlet~
+  [ 21] L274   abs~
+  [ 22] L275   /~ 4
+  [ 25] L278   -~ 0.145
+  [ 26] L279   *~ 2.65
+  [ 27] L280   *~ 0.59
+  [ 28] L281   inlet~
+  [ 29] L282   max~ 100
+  conn <sub0:rlpf>(0) -> [26](0)   # <sub0:rlpf> -> *~ 2.65
+  conn [0](0) -> <sub3:normalize>(0)   # phasor~ -> <sub3:normalize>
+  conn [0](0) -> <sub2:polyblep>(0)   # phasor~ -> <sub2:polyblep>
+  conn [0](0) -> [9](0)   # phasor~ -> +~
+  conn [0](0) -> [13](1)   # phasor~ -> samphold~
+  conn [1](0) -> <sub2:polyblep>(1)   # *~ -> <sub2:polyblep>
+  conn [1](0) -> <sub4:polyblep>(1)   # *~ -> <sub4:polyblep>
+  conn [2](0) -> [11](0)   # +~ -> -~
+  conn <sub1:1/Fs>(0) -> [1](1)   # <sub1:1/Fs> -> *~
+  conn <sub2:polyblep>(0) -> [2](1)   # <sub2:polyblep> -> +~
+  conn <sub3:normalize>(0) -> [2](0)   # <sub3:normalize> -> +~
+  conn [7](0) -> [11](1)   # +~ -> -~
+  conn <sub4:polyblep>(0) -> [7](0)   # <sub4:polyblep> -> +~
+  conn <sub5:normalize>(0) -> [7](1)   # <sub5:normalize> -> +~
+  conn [9](0) -> [10](0)   # +~ -> wrap~
+  conn [10](0) -> <sub5:normalize>(0)   # wrap~ -> <sub5:normalize>
+  conn [10](0) -> <sub4:polyblep>(0)   # wrap~ -> <sub4:polyblep>
+  conn [11](0) -> [12](0)   # -~ -> +~
+  conn [12](0) -> [17](0)   # +~ -> -~ 1
+  conn [13](0) -> [9](1)   # samphold~ -> +~
+  conn [13](0) -> [15](0)   # samphold~ -> *~ 2
+  conn [14](0) -> [13](0)   # clip~ 0 1 -> samphold~
+  conn [15](0) -> [12](1)   # *~ 2 -> +~
+  conn [16](0) -> [13](0)   # reset -> samphold~
+  conn [17](0) -> <sub0:rlpf>(0)   # -~ 1 -> <sub0:rlpf>
+  conn [17](0) -> [27](0)   # -~ 1 -> *~ 0.59
+  conn [20](0) -> [21](0)   # inlet~ -> abs~
+  conn [21](0) -> [0](0)   # abs~ -> phasor~
+  conn [21](0) -> [1](0)   # abs~ -> *~
+  conn [21](0) -> [22](0)   # abs~ -> /~ 4
+  conn [22](0) -> [29](0)   # /~ 4 -> max~ 100
+  conn [25](0) -> [19](0)   # -~ 0.145 -> outlet~
+  conn [26](0) -> [25](0)   # *~ 2.65 -> -~ 0.145
+  conn [27](0) -> [8](0)   # *~ 0.59 -> outlet~
+  conn [28](0) -> [14](0)   # inlet~ -> clip~ 0 1
+  conn [29](0) -> <sub0:rlpf>(1)   # max~ 100 -> <sub0:rlpf>
+
+=====   $0 7 8@6 os.triangle~ args=[]/sub0:rlpf  (os.triangle~.pd:2) args=[] =====
+  [  0] L3     samplerate~
+  [  1] L4     loadbang
+  [  2] L5     sig~ 1
+  [  3] L6     -~
+  [  4] L7     / 2
+  [  5] L8     outlet~
+  [  6] L9     t f f
+  [  7] L10    inlet~
+  [  8] L11    inlet~
+  [  9] L12    bang
+  [ 10] L13    inlet
+  [ 11] L14    clear
+  [ 12] L15    1
+  [ 13] L16    atan
+  [ 14] L17    t b b
+  [ 15] L18    clip~ 0 22050
+  [ 16] L19    * -8
+  [ 17] L20    exp~
+  [ 18] L21    *~
+  [ 19] L22    abs~
+  [ 20] L23    rpole~
+  [ 21] L24    *~ -6.28319
+  [ 22] L25    /~ 44100
+  conn [0](0) -> [6](0)   # samplerate~ -> t f f
+  conn [1](0) -> [9](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # sig~ 1 -> -~
+  conn [3](0) -> [18](1)   # -~ -> *~
+  conn [4](0) -> [15](2)   # / 2 -> clip~ 0 22050
+  conn [6](0) -> [4](0)   # t f f -> / 2
+  conn [6](1) -> [22](1)   # t f f -> /~ 44100
+  conn [7](0) -> [15](0)   # inlet~ -> clip~ 0 22050
+  conn [8](0) -> [18](0)   # inlet~ -> *~
+  conn [9](0) -> [14](0)   # bang -> t b b
+  conn [10](0) -> [11](0)   # inlet -> clear
+  conn [11](0) -> [20](0)   # clear -> rpole~
+  conn [12](0) -> [13](0)   # 1 -> atan
+  conn [13](0) -> [16](0)   # atan -> * -8
+  conn [14](0) -> [0](0)   # t b b -> samplerate~
+  conn [14](1) -> [12](0)   # t b b -> 1
+  conn [15](0) -> [22](0)   # clip~ 0 22050 -> /~ 44100
+  conn [16](0) -> [21](1)   # * -8 -> *~ -6.28319
+  conn [17](0) -> [20](1)   # exp~ -> rpole~
+  conn [17](0) -> [19](0)   # exp~ -> abs~
+  conn [18](0) -> [20](0)   # *~ -> rpole~
+  conn [19](0) -> [3](1)   # abs~ -> -~
+  conn [20](0) -> [5](0)   # rpole~ -> outlet~
+  conn [21](0) -> [17](0)   # *~ -6.28319 -> exp~
+  conn [22](0) -> [21](0)   # /~ 44100 -> *~ -6.28319
+
+=====   $0 7 8@6 os.triangle~ args=[]/sub1:1/Fs  (os.triangle~.pd:63) args=[] =====
+  [  0] L64    samplerate~
+  [  1] L65    loadbang
+  [  2] L66    1 {1}
+  [  3] L67    /
+  [  4] L68    bang
+  [  5] L69    outlet
+  conn [0](0) -> [2](0)   # samplerate~ -> 1 {1}
+  conn [1](0) -> [4](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # 1 {1} -> /
+  conn [3](0) -> [5](0)   # / -> outlet
+  conn [4](0) -> [0](0)   # bang -> samplerate~
+
+=====   $0 7 8@6 os.triangle~ args=[]/sub2:polyblep  (os.triangle~.pd:80) args=[] =====
+  [  0] L81    -~
+  [  1] L82    -~
+  [  2] L83    sig~ 1
+  [  3] L84    /~
+  [  4] L85    outlet~
+  [  5] L86    *~
+  [  6] L87    *~
+  [  7] L88    *~
+  [  8] L89    -~
+  [  9] L90    inlet~
+  [ 11] L92    -~ 1
+  [ 12] L93    -~ 1
+  [ 14] L95    *~
+  [ 15] L96    *~
+  [ 16] L133   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   $0 7 8@6 os.triangle~ args=[]/sub2:polyblep/sub0:>=~  (os.triangle~.pd:97) args=[] =====
+  [  0] L98    -~
+  [  1] L99    clip~ -1e-37 0
+  [  2] L100   inlet~
+  [  3] L101   inlet~
+  [  4] L102   outlet~
+  [  5] L103   *~ 1e+37
+  [  6] L104   min~
+  [  7] L105   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 7 8@6 os.triangle~ args=[]/sub2:polyblep/sub1:<=~  (os.triangle~.pd:115) args=[] =====
+  [  0] L116   -~
+  [  1] L117   clip~ -1e-37 0
+  [  2] L118   inlet~
+  [  3] L119   inlet~
+  [  4] L120   outlet~
+  [  5] L121   *~ 1e+37
+  [  6] L122   min~
+  [  7] L123   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 7 8@6 os.triangle~ args=[]/sub3:normalize  (os.triangle~.pd:160) args=[] =====
+  [  0] L161   outlet~
+  [  1] L162   inlet~
+  [  2] L163   -~ 1
+  [  3] L164   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   $0 7 8@6 os.triangle~ args=[]/sub4:polyblep  (os.triangle~.pd:173) args=[] =====
+  [  0] L174   -~
+  [  1] L175   -~
+  [  2] L176   sig~ 1
+  [  3] L177   /~
+  [  4] L178   outlet~
+  [  5] L179   *~
+  [  6] L180   *~
+  [  7] L181   *~
+  [  8] L182   -~
+  [  9] L183   inlet~
+  [ 11] L185   -~ 1
+  [ 12] L186   -~ 1
+  [ 14] L188   *~
+  [ 15] L189   *~
+  [ 16] L226   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   $0 7 8@6 os.triangle~ args=[]/sub4:polyblep/sub0:>=~  (os.triangle~.pd:190) args=[] =====
+  [  0] L191   -~
+  [  1] L192   clip~ -1e-37 0
+  [  2] L193   inlet~
+  [  3] L194   inlet~
+  [  4] L195   outlet~
+  [  5] L196   *~ 1e+37
+  [  6] L197   min~
+  [  7] L198   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 7 8@6 os.triangle~ args=[]/sub4:polyblep/sub1:<=~  (os.triangle~.pd:208) args=[] =====
+  [  0] L209   -~
+  [  1] L210   clip~ -1e-37 0
+  [  2] L211   inlet~
+  [  3] L212   inlet~
+  [  4] L213   outlet~
+  [  5] L214   *~ 1e+37
+  [  6] L215   min~
+  [  7] L216   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   $0 7 8@6 os.triangle~ args=[]/sub5:normalize  (os.triangle~.pd:253) args=[] =====
+  [  0] L254   outlet~
+  [  1] L255   inlet~
+  [  2] L256   -~ 1
+  [  3] L257   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   $0 7 8@20 prm.tune args=['$0', '7']  (prm.tune.pd:1) args=['$0', '7'] =====
+  [  0] L2     line~
+  [  1] L3     outlet~
+  [  2] L4     loadbang
+  [  3] L5     f 7
+  [  4] L6     text get $0-tune
+  [  5] L7     unpack f f
+  [  6] L8     -
+  [  7] L9     / 127
+  [  8] L10    *
+  [  9] L11    +
+  [ 10] L12    mtof
+  [ 11] L13    - 1
+  [ 12] L14    {2} {1}
+  [ 13] L15    t f f
+  [ 14] L16    {1} 23.22
+  [ 15] L17    ftom
+  [ 16] L18    + 0.5
+  [ 17] L19    i
+  [ 18] L20    t f f
+  [ 19] L21    f
+  [ 20] L22    f
+  [ 21] L23    t f f
+  [ 22] L24    1 {1}
+  [ 23] L25    0 {1}
+  [ 24] L26    route
+  [ 25] L27    sel 0 1
+  [ 26] L28    mtof
+  [ 27] L29    inlet
+  [ 28] L30    *
+  [ 29] L31    t b f
+  [ 31] L33    r $0-s-tune-7
+  [ 32] L34    r $0-s-quantize
+  conn [0](0) -> [1](0)   # line~ -> outlet~
+  conn [2](0) -> [3](0)   # loadbang -> f 7
+  conn [3](0) -> [11](0)   # f 7 -> - 1
+  conn [4](0) -> [12](0)   # text get $0-tune -> {2} {1}
+  conn [5](0) -> [6](0)   # unpack f f -> -
+  conn [5](1) -> [13](0)   # unpack f f -> t f f
+  conn [6](0) -> [8](1)   # - -> *
+  conn [7](0) -> [8](0)   # / 127 -> *
+  conn [8](0) -> [9](0)   # * -> +
+  conn [9](0) -> [10](0)   # + -> mtof
+  conn [10](0) -> [28](0)   # mtof -> *
+  conn [11](0) -> [4](0)   # - 1 -> text get $0-tune
+  conn [12](0) -> [5](0)   # {2} {1} -> unpack f f
+  conn [13](0) -> [6](1)   # t f f -> -
+  conn [13](1) -> [9](1)   # t f f -> +
+  conn [14](0) -> [0](0)   # {1} 23.22 -> line~
+  conn [15](0) -> [16](0)   # ftom -> + 0.5
+  conn [16](0) -> [17](0)   # + 0.5 -> i
+  conn [17](0) -> [26](0)   # i -> mtof
+  conn [18](0) -> [19](0)   # t f f -> f
+  conn [18](1) -> [15](0)   # t f f -> ftom
+  conn [19](0) -> [23](0)   # f -> 0 {1}
+  conn [20](0) -> [22](0)   # f -> 1 {1}
+  conn [21](0) -> [25](0)   # t f f -> sel 0 1
+  conn [21](1) -> [24](1)   # t f f -> route
+  conn [22](0) -> [24](0)   # 1 {1} -> route
+  conn [23](0) -> [24](0)   # 0 {1} -> route
+  conn [24](0) -> [14](0)   # route -> {1} 23.22
+  conn [25](0) -> [19](0)   # sel 0 1 -> f
+  conn [25](1) -> [20](0)   # sel 0 1 -> f
+  conn [26](0) -> [20](0)   # mtof -> f
+  conn [27](0) -> [29](0)   # inlet -> t b f
+  conn [28](0) -> [18](0)   # * -> t f f
+  conn [29](0) -> [28](0)   # t b f -> *
+  conn [29](1) -> [28](1)   # t b f -> *
+  conn [31](0) -> [7](0)   # r $0-s-tune-7 -> / 127
+  conn [32](0) -> [21](0)   # r $0-s-quantize -> t f f
+
+=====   $0 7 8@21 prm.tune args=['$0', '8']  (prm.tune.pd:1) args=['$0', '8'] =====
+  [  0] L2     line~
+  [  1] L3     outlet~
+  [  2] L4     loadbang
+  [  3] L5     f 8
+  [  4] L6     text get $0-tune
+  [  5] L7     unpack f f
+  [  6] L8     -
+  [  7] L9     / 127
+  [  8] L10    *
+  [  9] L11    +
+  [ 10] L12    mtof
+  [ 11] L13    - 1
+  [ 12] L14    {2} {1}
+  [ 13] L15    t f f
+  [ 14] L16    {1} 23.22
+  [ 15] L17    ftom
+  [ 16] L18    + 0.5
+  [ 17] L19    i
+  [ 18] L20    t f f
+  [ 19] L21    f
+  [ 20] L22    f
+  [ 21] L23    t f f
+  [ 22] L24    1 {1}
+  [ 23] L25    0 {1}
+  [ 24] L26    route
+  [ 25] L27    sel 0 1
+  [ 26] L28    mtof
+  [ 27] L29    inlet
+  [ 28] L30    *
+  [ 29] L31    t b f
+  [ 31] L33    r $0-s-tune-8
+  [ 32] L34    r $0-s-quantize
+  conn [0](0) -> [1](0)   # line~ -> outlet~
+  conn [2](0) -> [3](0)   # loadbang -> f 8
+  conn [3](0) -> [11](0)   # f 8 -> - 1
+  conn [4](0) -> [12](0)   # text get $0-tune -> {2} {1}
+  conn [5](0) -> [6](0)   # unpack f f -> -
+  conn [5](1) -> [13](0)   # unpack f f -> t f f
+  conn [6](0) -> [8](1)   # - -> *
+  conn [7](0) -> [8](0)   # / 127 -> *
+  conn [8](0) -> [9](0)   # * -> +
+  conn [9](0) -> [10](0)   # + -> mtof
+  conn [10](0) -> [28](0)   # mtof -> *
+  conn [11](0) -> [4](0)   # - 1 -> text get $0-tune
+  conn [12](0) -> [5](0)   # {2} {1} -> unpack f f
+  conn [13](0) -> [6](1)   # t f f -> -
+  conn [13](1) -> [9](1)   # t f f -> +
+  conn [14](0) -> [0](0)   # {1} 23.22 -> line~
+  conn [15](0) -> [16](0)   # ftom -> + 0.5
+  conn [16](0) -> [17](0)   # + 0.5 -> i
+  conn [17](0) -> [26](0)   # i -> mtof
+  conn [18](0) -> [19](0)   # t f f -> f
+  conn [18](1) -> [15](0)   # t f f -> ftom
+  conn [19](0) -> [23](0)   # f -> 0 {1}
+  conn [20](0) -> [22](0)   # f -> 1 {1}
+  conn [21](0) -> [25](0)   # t f f -> sel 0 1
+  conn [21](1) -> [24](1)   # t f f -> route
+  conn [22](0) -> [24](0)   # 1 {1} -> route
+  conn [23](0) -> [24](0)   # 0 {1} -> route
+  conn [24](0) -> [14](0)   # route -> {1} 23.22
+  conn [25](0) -> [19](0)   # sel 0 1 -> f
+  conn [25](1) -> [20](0)   # sel 0 1 -> f
+  conn [26](0) -> [20](0)   # mtof -> f
+  conn [27](0) -> [29](0)   # inlet -> t b f
+  conn [28](0) -> [18](0)   # * -> t f f
+  conn [29](0) -> [28](0)   # t b f -> *
+  conn [29](1) -> [28](1)   # t b f -> *
+  conn [31](0) -> [7](0)   # r $0-s-tune-8 -> / 127
+  conn [32](0) -> [21](0)   # r $0-s-quantize -> t f f
+
+===== pd hyper-lfo  (_LIRA-8.pd:547) args=[] =====
+  [  0] L548   phasor~
+  [  1] L549   phasor~
+  [  2] L550   *~
+  [  3] L551   *~
+  [  4] L552   r $0-s-link
+  [  5] L622   *~ 1000
+  [  6] L623   clip~ -1 1
+  [  7] L624   r $0-s-f-a
+  [  8] L625   / 127
+  [  9] L626   - 75
+  [ 10] L627   mtof
+  [ 11] L628   line~
+  [ 12] L629   / 127
+  [ 13] L630   - 75
+  [ 14] L631   mtof
+  [ 15] L632   line~
+  [ 16] L633   r $0-s-f-b
+  [ 17] L634   pow 2
+  [ 18] L635   * 127
+  [ 19] L636   pow 2
+  [ 20] L637   * 127
+  [ 21] L638   /~ 2
+  [ 22] L639   cos~
+  [ 23] L640   {1} 23.22
+  [ 24] L641   {1} 23.22
+  conn [0](0) -> <sub0:triangle-lfo>(0)   # phasor~ -> <sub0:triangle-lfo>
+  conn [0](0) -> [22](0)   # phasor~ -> cos~
+  conn [1](0) -> <sub0:triangle-lfo>(1)   # phasor~ -> <sub0:triangle-lfo>
+  conn [1](0) -> <sub1:square-lfo>(1)   # phasor~ -> <sub1:square-lfo>
+  conn [2](0) -> [21](0)   # *~ -> /~ 2
+  conn [3](0) -> [1](0)   # *~ -> phasor~
+  conn [4](0) -> [3](1)   # r $0-s-link -> *~
+  conn [5](0) -> [6](0)   # *~ 1000 -> clip~ -1 1
+  conn [6](0) -> [2](0)   # clip~ -1 1 -> *~
+  conn [6](0) -> <sub1:square-lfo>(0)   # clip~ -1 1 -> <sub1:square-lfo>
+  conn [7](0) -> [8](0)   # r $0-s-f-a -> / 127
+  conn [8](0) -> [19](0)   # / 127 -> pow 2
+  conn [9](0) -> [10](0)   # - 75 -> mtof
+  conn [10](0) -> [23](0)   # mtof -> {1} 23.22
+  conn [11](0) -> [0](0)   # line~ -> phasor~
+  conn [12](0) -> [17](0)   # / 127 -> pow 2
+  conn [13](0) -> [14](0)   # - 75 -> mtof
+  conn [14](0) -> [24](0)   # mtof -> {1} 23.22
+  conn [15](0) -> [2](1)   # line~ -> *~
+  conn [15](0) -> [1](0)   # line~ -> phasor~
+  conn [16](0) -> [12](0)   # r $0-s-f-b -> / 127
+  conn [17](0) -> [18](0)   # pow 2 -> * 127
+  conn [18](0) -> [13](0)   # * 127 -> - 75
+  conn [19](0) -> [20](0)   # pow 2 -> * 127
+  conn [20](0) -> [9](0)   # * 127 -> - 75
+  conn [21](0) -> [3](0)   # /~ 2 -> *~
+  conn [22](0) -> [5](0)   # cos~ -> *~ 1000
+  conn [23](0) -> [11](0)   # {1} 23.22 -> line~
+  conn [24](0) -> [15](0)   # {1} 23.22 -> line~
+
+===== pd hyper-lfo/sub0:triangle-lfo  (_LIRA-8.pd:553) args=[] =====
+  [  0] L554   inlet~
+  [  1] L555   inlet~
+  [  2] L556   -~ 0.5
+  [  3] L557   abs~
+  [  4] L558   *~ 4
+  [  5] L559   -~ 1
+  [  6] L560   -~ 0.5
+  [  7] L561   abs~
+  [  8] L562   *~ 4
+  [  9] L563   -~ 1
+  [ 10] L564   *~ 0.5
+  [ 11] L565   s~ $0-del-tri
+  conn [0](0) -> [2](0)   # inlet~ -> -~ 0.5
+  conn [1](0) -> [6](0)   # inlet~ -> -~ 0.5
+  conn [2](0) -> [3](0)   # -~ 0.5 -> abs~
+  conn [3](0) -> [4](0)   # abs~ -> *~ 4
+  conn [4](0) -> [5](0)   # *~ 4 -> -~ 1
+  conn [5](0) -> [10](0)   # -~ 1 -> *~ 0.5
+  conn [6](0) -> [7](0)   # -~ 0.5 -> abs~
+  conn [7](0) -> [8](0)   # abs~ -> *~ 4
+  conn [8](0) -> [9](0)   # *~ 4 -> -~ 1
+  conn [9](0) -> [10](0)   # -~ 1 -> *~ 0.5
+  conn [10](0) -> [11](0)   # *~ 0.5 -> s~ $0-del-tri
+
+===== pd hyper-lfo/sub1:square-lfo  (_LIRA-8.pd:578) args=[] =====
+  [  0] L579   *~ 1000
+  [  1] L580   clip~ -1 1
+  [  2] L581   *~
+  [  3] L582   *~
+  [  4] L583   r $0-s-andor
+  [  5] L584   == 0
+  [  6] L585   *~
+  [  7] L586   r $0-s-andor
+  [  8] L587   snapshot~
+  [  9] L588   /~ 2
+  [ 10] L589   change
+  [ 11] L590   s $0-r-led
+  [ 12] L591   +~
+  [ 13] L592   inlet~
+  [ 14] L593   inlet~
+  [ 15] L594   s~ $0-del-sqr 0
+  [ 16] L595   bang~
+  [ 17] L596   sel 1 -1
+  [ 18] L597   cos~
+  [ 19] L598   s~ $0-sqr-lfo
+  conn [0](0) -> [1](0)   # *~ 1000 -> clip~ -1 1
+  conn [1](0) -> [2](1)   # clip~ -1 1 -> *~
+  conn [1](0) -> [9](0)   # clip~ -1 1 -> /~ 2
+  conn [2](0) -> [3](0)   # *~ -> *~
+  conn [3](0) -> [12](0)   # *~ -> +~
+  conn [4](0) -> [5](0)   # r $0-s-andor -> == 0
+  conn [5](0) -> [3](1)   # == 0 -> *~
+  conn [6](0) -> [12](1)   # *~ -> +~
+  conn [7](0) -> [6](1)   # r $0-s-andor -> *~
+  conn [8](0) -> [10](0)   # snapshot~ -> change
+  conn [9](0) -> [6](0)   # /~ 2 -> *~
+  conn [9](0) -> [15](0)   # /~ 2 -> s~ $0-del-sqr 0
+  conn [10](0) -> [17](0)   # change -> sel 1 -1
+  conn [12](0) -> [8](0)   # +~ -> snapshot~
+  conn [12](0) -> [19](0)   # +~ -> s~ $0-sqr-lfo
+  conn [13](0) -> [2](0)   # inlet~ -> *~
+  conn [13](0) -> [9](0)   # inlet~ -> /~ 2
+  conn [14](0) -> [18](0)   # inlet~ -> cos~
+  conn [16](0) -> [8](0)   # bang~ -> snapshot~
+  conn [17](0) -> [11](0)   # sel 1 -1 -> s $0-r-led
+  conn [17](1) -> [11](0)   # sel 1 -1 -> s $0-r-led
+  conn [18](0) -> [0](0)   # cos~ -> *~ 1000
+
+=====   hyper-lfo/triangle-lfo  (_LIRA-8.pd:553) args=[] =====
+  [  0] L554   inlet~
+  [  1] L555   inlet~
+  [  2] L556   -~ 0.5
+  [  3] L557   abs~
+  [  4] L558   *~ 4
+  [  5] L559   -~ 1
+  [  6] L560   -~ 0.5
+  [  7] L561   abs~
+  [  8] L562   *~ 4
+  [  9] L563   -~ 1
+  [ 10] L564   *~ 0.5
+  [ 11] L565   s~ $0-del-tri
+  conn [0](0) -> [2](0)   # inlet~ -> -~ 0.5
+  conn [1](0) -> [6](0)   # inlet~ -> -~ 0.5
+  conn [2](0) -> [3](0)   # -~ 0.5 -> abs~
+  conn [3](0) -> [4](0)   # abs~ -> *~ 4
+  conn [4](0) -> [5](0)   # *~ 4 -> -~ 1
+  conn [5](0) -> [10](0)   # -~ 1 -> *~ 0.5
+  conn [6](0) -> [7](0)   # -~ 0.5 -> abs~
+  conn [7](0) -> [8](0)   # abs~ -> *~ 4
+  conn [8](0) -> [9](0)   # *~ 4 -> -~ 1
+  conn [9](0) -> [10](0)   # -~ 1 -> *~ 0.5
+  conn [10](0) -> [11](0)   # *~ 0.5 -> s~ $0-del-tri
+
+=====   hyper-lfo/square-lfo  (_LIRA-8.pd:578) args=[] =====
+  [  0] L579   *~ 1000
+  [  1] L580   clip~ -1 1
+  [  2] L581   *~
+  [  3] L582   *~
+  [  4] L583   r $0-s-andor
+  [  5] L584   == 0
+  [  6] L585   *~
+  [  7] L586   r $0-s-andor
+  [  8] L587   snapshot~
+  [  9] L588   /~ 2
+  [ 10] L589   change
+  [ 11] L590   s $0-r-led
+  [ 12] L591   +~
+  [ 13] L592   inlet~
+  [ 14] L593   inlet~
+  [ 15] L594   s~ $0-del-sqr 0
+  [ 16] L595   bang~
+  [ 17] L596   sel 1 -1
+  [ 18] L597   cos~
+  [ 19] L598   s~ $0-sqr-lfo
+  conn [0](0) -> [1](0)   # *~ 1000 -> clip~ -1 1
+  conn [1](0) -> [2](1)   # clip~ -1 1 -> *~
+  conn [1](0) -> [9](0)   # clip~ -1 1 -> /~ 2
+  conn [2](0) -> [3](0)   # *~ -> *~
+  conn [3](0) -> [12](0)   # *~ -> +~
+  conn [4](0) -> [5](0)   # r $0-s-andor -> == 0
+  conn [5](0) -> [3](1)   # == 0 -> *~
+  conn [6](0) -> [12](1)   # *~ -> +~
+  conn [7](0) -> [6](1)   # r $0-s-andor -> *~
+  conn [8](0) -> [10](0)   # snapshot~ -> change
+  conn [9](0) -> [6](0)   # /~ 2 -> *~
+  conn [9](0) -> [15](0)   # /~ 2 -> s~ $0-del-sqr 0
+  conn [10](0) -> [17](0)   # change -> sel 1 -1
+  conn [12](0) -> [8](0)   # +~ -> snapshot~
+  conn [12](0) -> [19](0)   # +~ -> s~ $0-sqr-lfo
+  conn [13](0) -> [2](0)   # inlet~ -> *~
+  conn [13](0) -> [9](0)   # inlet~ -> /~ 2
+  conn [14](0) -> [18](0)   # inlet~ -> cos~
+  conn [16](0) -> [8](0)   # bang~ -> snapshot~
+  conn [17](0) -> [11](0)   # sel 1 -1 -> s $0-r-led
+  conn [17](1) -> [11](0)   # sel 1 -1 -> s $0-r-led
+  conn [18](0) -> [0](0)   # cos~ -> *~ 1000
+
+===== pd keyboard  (_LIRA-8.pd:253) args=[] =====
+  [  0] L254   s $0-r-sensor-1
+  [  1] L255   s $0-r-sensor-2
+  [  2] L256   s $0-r-sensor-3
+  [  3] L257   s $0-r-sensor-4
+  [  4] L258   s $0-r-sensor-5
+  [  5] L259   s $0-r-sensor-6
+  [  6] L260   s $0-r-sensor-7
+  [  7] L261   s $0-r-sensor-8
+  [  8] L262   key.tgl 49
+  [  9] L263   key.tgl 50
+  [ 10] L264   key.tgl 51
+  [ 11] L265   key.tgl 52
+  [ 12] L266   key.tgl 53
+  [ 13] L267   key.tgl 54
+  [ 14] L268   key.tgl 55
+  [ 15] L269   key.tgl 56
+  conn [8](0) -> [0](0)   # key.tgl 49 -> s $0-r-sensor-1
+  conn [9](0) -> [1](0)   # key.tgl 50 -> s $0-r-sensor-2
+  conn [10](0) -> [2](0)   # key.tgl 51 -> s $0-r-sensor-3
+  conn [11](0) -> [3](0)   # key.tgl 52 -> s $0-r-sensor-4
+  conn [12](0) -> [4](0)   # key.tgl 53 -> s $0-r-sensor-5
+  conn [13](0) -> [5](0)   # key.tgl 54 -> s $0-r-sensor-6
+  conn [14](0) -> [6](0)   # key.tgl 55 -> s $0-r-sensor-7
+  conn [15](0) -> [7](0)   # key.tgl 56 -> s $0-r-sensor-8
+
+===== pd prm.hold (r r $0-s-hold-1234)  (_LIRA-8.pd:1085) args=[] =====
+  [  0] L1086  line~
+  [  1] L1087  outlet~
+  [  2] L1088  r $0-s-hold-1234
+  [  3] L1089  {1} 23.22
+  [  4] L1090  / 127
+  [  5] L1091  pow 2
+  conn [0](0) -> [1](0)   # line~ -> outlet~
+  conn [2](0) -> [4](0)   # r $0-s-hold-1234 -> / 127
+  conn [3](0) -> [0](0)   # {1} 23.22 -> line~
+  conn [4](0) -> [5](0)   # / 127 -> pow 2
+  conn [5](0) -> [3](0)   # pow 2 -> {1} 23.22
+
+===== pd prm.hold (r r $0-s-hold-5678)  (_LIRA-8.pd:1098) args=[] =====
+  [  0] L1099  line~
+  [  1] L1100  outlet~
+  [  2] L1101  r $0-s-hold-5678
+  [  3] L1102  {1} 23.22
+  [  4] L1103  / 127
+  [  5] L1104  pow 2
+  conn [0](0) -> [1](0)   # line~ -> outlet~
+  conn [2](0) -> [4](0)   # r $0-s-hold-5678 -> / 127
+  conn [3](0) -> [0](0)   # {1} 23.22 -> line~
+  conn [4](0) -> [5](0)   # / 127 -> pow 2
+  conn [5](0) -> [3](0)   # pow 2 -> {1} 23.22
+
+===== gui@187 prm.source $0 1 2 3 4 7 8  (prm.source.pd:1) args=['$0', '1', '2', '3', '4', '7', '8'] =====
+  [  0] L2     == 0
+  [  1] L3     *~
+  [  2] L4     *~
+  [  3] L5     == 2
+  [  4] L6     *~
+  [  5] L7     r $0-s-source-12
+  [  6] L8     r $0-s-switch
+  [  7] L9     *~
+  [  8] L10    r $0-s-switch
+  [  9] L11    *~
+  [ 10] L12    r $0-s-total-fb
+  [ 11] L13    == 0
+  [ 12] L14    *~
+  [ 13] L15    r $0-s-total-fb
+  [ 14] L16    == 0
+  [ 15] L17    r $0-s-source-12
+  [ 16] L18    * 0.999
+  [ 17] L19    + 0.001
+  [ 18] L20    * 0.999
+  [ 19] L21    + 0.001
+  [ 20] L22    * 0.999
+  [ 21] L23    + 0.001
+  [ 22] L24    * 0.999
+  [ 23] L25    + 0.001
+  [ 24] L26    * 0.999
+  [ 25] L27    + 0.001
+  [ 26] L28    * 0.999
+  [ 27] L29    + 0.001
+  [ 28] L30    outlet~
+  [ 29] L31    r~ $0-sqr-lfo
+  [ 30] L32    r~ $0-total-feedback
+  [ 31] L33    r~ $0-del-78
+  [ 32] L34    r~ $0-del-34
+  conn [0](0) -> [16](0)   # == 0 -> * 0.999
+  conn [1](0) -> [28](0)   # *~ -> outlet~
+  conn [2](0) -> [28](0)   # *~ -> outlet~
+  conn [3](0) -> [18](0)   # == 2 -> * 0.999
+  conn [4](0) -> [2](0)   # *~ -> *~
+  conn [5](0) -> [3](0)   # r $0-s-source-12 -> == 2
+  conn [6](0) -> [11](0)   # r $0-s-switch -> == 0
+  conn [7](0) -> [1](0)   # *~ -> *~
+  conn [8](0) -> [22](0)   # r $0-s-switch -> * 0.999
+  conn [9](0) -> [1](0)   # *~ -> *~
+  conn [10](0) -> [26](0)   # r $0-s-total-fb -> * 0.999
+  conn [11](0) -> [20](0)   # == 0 -> * 0.999
+  conn [12](0) -> [2](0)   # *~ -> *~
+  conn [13](0) -> [14](0)   # r $0-s-total-fb -> == 0
+  conn [14](0) -> [24](0)   # == 0 -> * 0.999
+  conn [15](0) -> [0](0)   # r $0-s-source-12 -> == 0
+  conn [16](0) -> [17](0)   # * 0.999 -> + 0.001
+  conn [17](0) -> [1](1)   # + 0.001 -> *~
+  conn [18](0) -> [19](0)   # * 0.999 -> + 0.001
+  conn [19](0) -> [2](1)   # + 0.001 -> *~
+  conn [20](0) -> [21](0)   # * 0.999 -> + 0.001
+  conn [21](0) -> [7](1)   # + 0.001 -> *~
+  conn [22](0) -> [23](0)   # * 0.999 -> + 0.001
+  conn [23](0) -> [9](1)   # + 0.001 -> *~
+  conn [24](0) -> [25](0)   # * 0.999 -> + 0.001
+  conn [25](0) -> [12](1)   # + 0.001 -> *~
+  conn [26](0) -> [27](0)   # * 0.999 -> + 0.001
+  conn [27](0) -> [4](1)   # + 0.001 -> *~
+  conn [29](0) -> [12](0)   # r~ $0-sqr-lfo -> *~
+  conn [30](0) -> [4](0)   # r~ $0-total-feedback -> *~
+  conn [31](0) -> [9](0)   # r~ $0-del-78 -> *~
+  conn [32](0) -> [7](0)   # r~ $0-del-34 -> *~
+
+===== gui@188 prm.source $0 3 4 1 2 1 2  (prm.source.pd:1) args=['$0', '3', '4', '1', '2', '1', '2'] =====
+  [  0] L2     == 0
+  [  1] L3     *~
+  [  2] L4     *~
+  [  3] L5     == 2
+  [  4] L6     *~
+  [  5] L7     r $0-s-source-34
+  [  6] L8     r $0-s-switch
+  [  7] L9     *~
+  [  8] L10    r $0-s-switch
+  [  9] L11    *~
+  [ 10] L12    r $0-s-total-fb
+  [ 11] L13    == 0
+  [ 12] L14    *~
+  [ 13] L15    r $0-s-total-fb
+  [ 14] L16    == 0
+  [ 15] L17    r $0-s-source-34
+  [ 16] L18    * 0.999
+  [ 17] L19    + 0.001
+  [ 18] L20    * 0.999
+  [ 19] L21    + 0.001
+  [ 20] L22    * 0.999
+  [ 21] L23    + 0.001
+  [ 22] L24    * 0.999
+  [ 23] L25    + 0.001
+  [ 24] L26    * 0.999
+  [ 25] L27    + 0.001
+  [ 26] L28    * 0.999
+  [ 27] L29    + 0.001
+  [ 28] L30    outlet~
+  [ 29] L31    r~ $0-sqr-lfo
+  [ 30] L32    r~ $0-total-feedback
+  [ 31] L33    r~ $0-del-12
+  [ 32] L34    r~ $0-del-12
+  conn [0](0) -> [16](0)   # == 0 -> * 0.999
+  conn [1](0) -> [28](0)   # *~ -> outlet~
+  conn [2](0) -> [28](0)   # *~ -> outlet~
+  conn [3](0) -> [18](0)   # == 2 -> * 0.999
+  conn [4](0) -> [2](0)   # *~ -> *~
+  conn [5](0) -> [3](0)   # r $0-s-source-34 -> == 2
+  conn [6](0) -> [11](0)   # r $0-s-switch -> == 0
+  conn [7](0) -> [1](0)   # *~ -> *~
+  conn [8](0) -> [22](0)   # r $0-s-switch -> * 0.999
+  conn [9](0) -> [1](0)   # *~ -> *~
+  conn [10](0) -> [26](0)   # r $0-s-total-fb -> * 0.999
+  conn [11](0) -> [20](0)   # == 0 -> * 0.999
+  conn [12](0) -> [2](0)   # *~ -> *~
+  conn [13](0) -> [14](0)   # r $0-s-total-fb -> == 0
+  conn [14](0) -> [24](0)   # == 0 -> * 0.999
+  conn [15](0) -> [0](0)   # r $0-s-source-34 -> == 0
+  conn [16](0) -> [17](0)   # * 0.999 -> + 0.001
+  conn [17](0) -> [1](1)   # + 0.001 -> *~
+  conn [18](0) -> [19](0)   # * 0.999 -> + 0.001
+  conn [19](0) -> [2](1)   # + 0.001 -> *~
+  conn [20](0) -> [21](0)   # * 0.999 -> + 0.001
+  conn [21](0) -> [7](1)   # + 0.001 -> *~
+  conn [22](0) -> [23](0)   # * 0.999 -> + 0.001
+  conn [23](0) -> [9](1)   # + 0.001 -> *~
+  conn [24](0) -> [25](0)   # * 0.999 -> + 0.001
+  conn [25](0) -> [12](1)   # + 0.001 -> *~
+  conn [26](0) -> [27](0)   # * 0.999 -> + 0.001
+  conn [27](0) -> [4](1)   # + 0.001 -> *~
+  conn [29](0) -> [12](0)   # r~ $0-sqr-lfo -> *~
+  conn [30](0) -> [4](0)   # r~ $0-total-feedback -> *~
+  conn [31](0) -> [9](0)   # r~ $0-del-12 -> *~
+  conn [32](0) -> [7](0)   # r~ $0-del-12 -> *~
+
+===== gui@189 prm.source $0 5 6 7 8 3 4  (prm.source.pd:1) args=['$0', '5', '6', '7', '8', '3', '4'] =====
+  [  0] L2     == 0
+  [  1] L3     *~
+  [  2] L4     *~
+  [  3] L5     == 2
+  [  4] L6     *~
+  [  5] L7     r $0-s-source-56
+  [  6] L8     r $0-s-switch
+  [  7] L9     *~
+  [  8] L10    r $0-s-switch
+  [  9] L11    *~
+  [ 10] L12    r $0-s-total-fb
+  [ 11] L13    == 0
+  [ 12] L14    *~
+  [ 13] L15    r $0-s-total-fb
+  [ 14] L16    == 0
+  [ 15] L17    r $0-s-source-56
+  [ 16] L18    * 0.999
+  [ 17] L19    + 0.001
+  [ 18] L20    * 0.999
+  [ 19] L21    + 0.001
+  [ 20] L22    * 0.999
+  [ 21] L23    + 0.001
+  [ 22] L24    * 0.999
+  [ 23] L25    + 0.001
+  [ 24] L26    * 0.999
+  [ 25] L27    + 0.001
+  [ 26] L28    * 0.999
+  [ 27] L29    + 0.001
+  [ 28] L30    outlet~
+  [ 29] L31    r~ $0-sqr-lfo
+  [ 30] L32    r~ $0-total-feedback
+  [ 31] L33    r~ $0-del-34
+  [ 32] L34    r~ $0-del-78
+  conn [0](0) -> [16](0)   # == 0 -> * 0.999
+  conn [1](0) -> [28](0)   # *~ -> outlet~
+  conn [2](0) -> [28](0)   # *~ -> outlet~
+  conn [3](0) -> [18](0)   # == 2 -> * 0.999
+  conn [4](0) -> [2](0)   # *~ -> *~
+  conn [5](0) -> [3](0)   # r $0-s-source-56 -> == 2
+  conn [6](0) -> [11](0)   # r $0-s-switch -> == 0
+  conn [7](0) -> [1](0)   # *~ -> *~
+  conn [8](0) -> [22](0)   # r $0-s-switch -> * 0.999
+  conn [9](0) -> [1](0)   # *~ -> *~
+  conn [10](0) -> [26](0)   # r $0-s-total-fb -> * 0.999
+  conn [11](0) -> [20](0)   # == 0 -> * 0.999
+  conn [12](0) -> [2](0)   # *~ -> *~
+  conn [13](0) -> [14](0)   # r $0-s-total-fb -> == 0
+  conn [14](0) -> [24](0)   # == 0 -> * 0.999
+  conn [15](0) -> [0](0)   # r $0-s-source-56 -> == 0
+  conn [16](0) -> [17](0)   # * 0.999 -> + 0.001
+  conn [17](0) -> [1](1)   # + 0.001 -> *~
+  conn [18](0) -> [19](0)   # * 0.999 -> + 0.001
+  conn [19](0) -> [2](1)   # + 0.001 -> *~
+  conn [20](0) -> [21](0)   # * 0.999 -> + 0.001
+  conn [21](0) -> [7](1)   # + 0.001 -> *~
+  conn [22](0) -> [23](0)   # * 0.999 -> + 0.001
+  conn [23](0) -> [9](1)   # + 0.001 -> *~
+  conn [24](0) -> [25](0)   # * 0.999 -> + 0.001
+  conn [25](0) -> [12](1)   # + 0.001 -> *~
+  conn [26](0) -> [27](0)   # * 0.999 -> + 0.001
+  conn [27](0) -> [4](1)   # + 0.001 -> *~
+  conn [29](0) -> [12](0)   # r~ $0-sqr-lfo -> *~
+  conn [30](0) -> [4](0)   # r~ $0-total-feedback -> *~
+  conn [31](0) -> [9](0)   # r~ $0-del-34 -> *~
+  conn [32](0) -> [7](0)   # r~ $0-del-78 -> *~
+
+===== gui@190 prm.source $0 7 8 5 6 5 6  (prm.source.pd:1) args=['$0', '7', '8', '5', '6', '5', '6'] =====
+  [  0] L2     == 0
+  [  1] L3     *~
+  [  2] L4     *~
+  [  3] L5     == 2
+  [  4] L6     *~
+  [  5] L7     r $0-s-source-78
+  [  6] L8     r $0-s-switch
+  [  7] L9     *~
+  [  8] L10    r $0-s-switch
+  [  9] L11    *~
+  [ 10] L12    r $0-s-total-fb
+  [ 11] L13    == 0
+  [ 12] L14    *~
+  [ 13] L15    r $0-s-total-fb
+  [ 14] L16    == 0
+  [ 15] L17    r $0-s-source-78
+  [ 16] L18    * 0.999
+  [ 17] L19    + 0.001
+  [ 18] L20    * 0.999
+  [ 19] L21    + 0.001
+  [ 20] L22    * 0.999
+  [ 21] L23    + 0.001
+  [ 22] L24    * 0.999
+  [ 23] L25    + 0.001
+  [ 24] L26    * 0.999
+  [ 25] L27    + 0.001
+  [ 26] L28    * 0.999
+  [ 27] L29    + 0.001
+  [ 28] L30    outlet~
+  [ 29] L31    r~ $0-sqr-lfo
+  [ 30] L32    r~ $0-total-feedback
+  [ 31] L33    r~ $0-del-56
+  [ 32] L34    r~ $0-del-56
+  conn [0](0) -> [16](0)   # == 0 -> * 0.999
+  conn [1](0) -> [28](0)   # *~ -> outlet~
+  conn [2](0) -> [28](0)   # *~ -> outlet~
+  conn [3](0) -> [18](0)   # == 2 -> * 0.999
+  conn [4](0) -> [2](0)   # *~ -> *~
+  conn [5](0) -> [3](0)   # r $0-s-source-78 -> == 2
+  conn [6](0) -> [11](0)   # r $0-s-switch -> == 0
+  conn [7](0) -> [1](0)   # *~ -> *~
+  conn [8](0) -> [22](0)   # r $0-s-switch -> * 0.999
+  conn [9](0) -> [1](0)   # *~ -> *~
+  conn [10](0) -> [26](0)   # r $0-s-total-fb -> * 0.999
+  conn [11](0) -> [20](0)   # == 0 -> * 0.999
+  conn [12](0) -> [2](0)   # *~ -> *~
+  conn [13](0) -> [14](0)   # r $0-s-total-fb -> == 0
+  conn [14](0) -> [24](0)   # == 0 -> * 0.999
+  conn [15](0) -> [0](0)   # r $0-s-source-78 -> == 0
+  conn [16](0) -> [17](0)   # * 0.999 -> + 0.001
+  conn [17](0) -> [1](1)   # + 0.001 -> *~
+  conn [18](0) -> [19](0)   # * 0.999 -> + 0.001
+  conn [19](0) -> [2](1)   # + 0.001 -> *~
+  conn [20](0) -> [21](0)   # * 0.999 -> + 0.001
+  conn [21](0) -> [7](1)   # + 0.001 -> *~
+  conn [22](0) -> [23](0)   # * 0.999 -> + 0.001
+  conn [23](0) -> [9](1)   # + 0.001 -> *~
+  conn [24](0) -> [25](0)   # * 0.999 -> + 0.001
+  conn [25](0) -> [12](1)   # + 0.001 -> *~
+  conn [26](0) -> [27](0)   # * 0.999 -> + 0.001
+  conn [27](0) -> [4](1)   # + 0.001 -> *~
+  conn [29](0) -> [12](0)   # r~ $0-sqr-lfo -> *~
+  conn [30](0) -> [4](0)   # r~ $0-total-feedback -> *~
+  conn [31](0) -> [9](0)   # r~ $0-del-56 -> *~
+  conn [32](0) -> [7](0)   # r~ $0-del-56 -> *~
+
+===== gui@191 prm.pitch $0 1 2 3 4  (prm.pitch.pd:1) args=['$0', '1', '2', '3', '4'] =====
+  [  0] L2     / 127
+  [  1] L3     r $0-s-pitch-1234
+  [  2] L4     + 0.01
+  [  3] L5     * 1.99
+  [  4] L6     outlet
+  conn [0](0) -> [3](0)   # / 127 -> * 1.99
+  conn [1](0) -> [0](0)   # r $0-s-pitch-1234 -> / 127
+  conn [2](0) -> [4](0)   # + 0.01 -> outlet
+  conn [3](0) -> [2](0)   # * 1.99 -> + 0.01
+
+===== gui@192 prm.pitch $0 5 6 7 8  (prm.pitch.pd:1) args=['$0', '5', '6', '7', '8'] =====
+  [  0] L2     / 127
+  [  1] L3     r $0-s-pitch-5678
+  [  2] L4     + 0.01
+  [  3] L5     * 1.99
+  [  4] L6     outlet
+  conn [0](0) -> [3](0)   # / 127 -> * 1.99
+  conn [1](0) -> [0](0)   # r $0-s-pitch-5678 -> / 127
+  conn [2](0) -> [4](0)   # + 0.01 -> outlet
+  conn [3](0) -> [2](0)   # * 1.99 -> + 0.01
+
+===== $0 1 2@0 os.triangle~ args=[]  (os.triangle~.pd:1) args=[] =====
+  [  0] L60    phasor~
+  [  1] L61    *~
+  [  2] L62    +~
+  [  7] L171   +~
+  [  8] L172   outlet~
+  [  9] L262   +~
+  [ 10] L263   wrap~
+  [ 11] L264   -~
+  [ 12] L265   +~
+  [ 13] L266   samphold~
+  [ 14] L267   clip~ 0 1
+  [ 15] L268   *~ 2
+  [ 16] L269   reset
+  [ 17] L270   -~ 1
+  [ 19] L272   outlet~
+  [ 20] L273   inlet~
+  [ 21] L274   abs~
+  [ 22] L275   /~ 4
+  [ 25] L278   -~ 0.145
+  [ 26] L279   *~ 2.65
+  [ 27] L280   *~ 0.59
+  [ 28] L281   inlet~
+  [ 29] L282   max~ 100
+  conn <sub0:rlpf>(0) -> [26](0)   # <sub0:rlpf> -> *~ 2.65
+  conn [0](0) -> <sub3:normalize>(0)   # phasor~ -> <sub3:normalize>
+  conn [0](0) -> <sub2:polyblep>(0)   # phasor~ -> <sub2:polyblep>
+  conn [0](0) -> [9](0)   # phasor~ -> +~
+  conn [0](0) -> [13](1)   # phasor~ -> samphold~
+  conn [1](0) -> <sub2:polyblep>(1)   # *~ -> <sub2:polyblep>
+  conn [1](0) -> <sub4:polyblep>(1)   # *~ -> <sub4:polyblep>
+  conn [2](0) -> [11](0)   # +~ -> -~
+  conn <sub1:1/Fs>(0) -> [1](1)   # <sub1:1/Fs> -> *~
+  conn <sub2:polyblep>(0) -> [2](1)   # <sub2:polyblep> -> +~
+  conn <sub3:normalize>(0) -> [2](0)   # <sub3:normalize> -> +~
+  conn [7](0) -> [11](1)   # +~ -> -~
+  conn <sub4:polyblep>(0) -> [7](0)   # <sub4:polyblep> -> +~
+  conn <sub5:normalize>(0) -> [7](1)   # <sub5:normalize> -> +~
+  conn [9](0) -> [10](0)   # +~ -> wrap~
+  conn [10](0) -> <sub5:normalize>(0)   # wrap~ -> <sub5:normalize>
+  conn [10](0) -> <sub4:polyblep>(0)   # wrap~ -> <sub4:polyblep>
+  conn [11](0) -> [12](0)   # -~ -> +~
+  conn [12](0) -> [17](0)   # +~ -> -~ 1
+  conn [13](0) -> [9](1)   # samphold~ -> +~
+  conn [13](0) -> [15](0)   # samphold~ -> *~ 2
+  conn [14](0) -> [13](0)   # clip~ 0 1 -> samphold~
+  conn [15](0) -> [12](1)   # *~ 2 -> +~
+  conn [16](0) -> [13](0)   # reset -> samphold~
+  conn [17](0) -> <sub0:rlpf>(0)   # -~ 1 -> <sub0:rlpf>
+  conn [17](0) -> [27](0)   # -~ 1 -> *~ 0.59
+  conn [20](0) -> [21](0)   # inlet~ -> abs~
+  conn [21](0) -> [0](0)   # abs~ -> phasor~
+  conn [21](0) -> [1](0)   # abs~ -> *~
+  conn [21](0) -> [22](0)   # abs~ -> /~ 4
+  conn [22](0) -> [29](0)   # /~ 4 -> max~ 100
+  conn [25](0) -> [19](0)   # -~ 0.145 -> outlet~
+  conn [26](0) -> [25](0)   # *~ 2.65 -> -~ 0.145
+  conn [27](0) -> [8](0)   # *~ 0.59 -> outlet~
+  conn [28](0) -> [14](0)   # inlet~ -> clip~ 0 1
+  conn [29](0) -> <sub0:rlpf>(1)   # max~ 100 -> <sub0:rlpf>
+
+===== $0 1 2@0 os.triangle~ args=[]/sub0:rlpf  (os.triangle~.pd:2) args=[] =====
+  [  0] L3     samplerate~
+  [  1] L4     loadbang
+  [  2] L5     sig~ 1
+  [  3] L6     -~
+  [  4] L7     / 2
+  [  5] L8     outlet~
+  [  6] L9     t f f
+  [  7] L10    inlet~
+  [  8] L11    inlet~
+  [  9] L12    bang
+  [ 10] L13    inlet
+  [ 11] L14    clear
+  [ 12] L15    1
+  [ 13] L16    atan
+  [ 14] L17    t b b
+  [ 15] L18    clip~ 0 22050
+  [ 16] L19    * -8
+  [ 17] L20    exp~
+  [ 18] L21    *~
+  [ 19] L22    abs~
+  [ 20] L23    rpole~
+  [ 21] L24    *~ -6.28319
+  [ 22] L25    /~ 44100
+  conn [0](0) -> [6](0)   # samplerate~ -> t f f
+  conn [1](0) -> [9](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # sig~ 1 -> -~
+  conn [3](0) -> [18](1)   # -~ -> *~
+  conn [4](0) -> [15](2)   # / 2 -> clip~ 0 22050
+  conn [6](0) -> [4](0)   # t f f -> / 2
+  conn [6](1) -> [22](1)   # t f f -> /~ 44100
+  conn [7](0) -> [15](0)   # inlet~ -> clip~ 0 22050
+  conn [8](0) -> [18](0)   # inlet~ -> *~
+  conn [9](0) -> [14](0)   # bang -> t b b
+  conn [10](0) -> [11](0)   # inlet -> clear
+  conn [11](0) -> [20](0)   # clear -> rpole~
+  conn [12](0) -> [13](0)   # 1 -> atan
+  conn [13](0) -> [16](0)   # atan -> * -8
+  conn [14](0) -> [0](0)   # t b b -> samplerate~
+  conn [14](1) -> [12](0)   # t b b -> 1
+  conn [15](0) -> [22](0)   # clip~ 0 22050 -> /~ 44100
+  conn [16](0) -> [21](1)   # * -8 -> *~ -6.28319
+  conn [17](0) -> [20](1)   # exp~ -> rpole~
+  conn [17](0) -> [19](0)   # exp~ -> abs~
+  conn [18](0) -> [20](0)   # *~ -> rpole~
+  conn [19](0) -> [3](1)   # abs~ -> -~
+  conn [20](0) -> [5](0)   # rpole~ -> outlet~
+  conn [21](0) -> [17](0)   # *~ -6.28319 -> exp~
+  conn [22](0) -> [21](0)   # /~ 44100 -> *~ -6.28319
+
+===== $0 1 2@0 os.triangle~ args=[]/sub1:1/Fs  (os.triangle~.pd:63) args=[] =====
+  [  0] L64    samplerate~
+  [  1] L65    loadbang
+  [  2] L66    1 {1}
+  [  3] L67    /
+  [  4] L68    bang
+  [  5] L69    outlet
+  conn [0](0) -> [2](0)   # samplerate~ -> 1 {1}
+  conn [1](0) -> [4](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # 1 {1} -> /
+  conn [3](0) -> [5](0)   # / -> outlet
+  conn [4](0) -> [0](0)   # bang -> samplerate~
+
+===== $0 1 2@0 os.triangle~ args=[]/sub2:polyblep  (os.triangle~.pd:80) args=[] =====
+  [  0] L81    -~
+  [  1] L82    -~
+  [  2] L83    sig~ 1
+  [  3] L84    /~
+  [  4] L85    outlet~
+  [  5] L86    *~
+  [  6] L87    *~
+  [  7] L88    *~
+  [  8] L89    -~
+  [  9] L90    inlet~
+  [ 11] L92    -~ 1
+  [ 12] L93    -~ 1
+  [ 14] L95    *~
+  [ 15] L96    *~
+  [ 16] L133   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+===== $0 1 2@0 os.triangle~ args=[]/sub2:polyblep/sub0:>=~  (os.triangle~.pd:97) args=[] =====
+  [  0] L98    -~
+  [  1] L99    clip~ -1e-37 0
+  [  2] L100   inlet~
+  [  3] L101   inlet~
+  [  4] L102   outlet~
+  [  5] L103   *~ 1e+37
+  [  6] L104   min~
+  [  7] L105   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+===== $0 1 2@0 os.triangle~ args=[]/sub2:polyblep/sub1:<=~  (os.triangle~.pd:115) args=[] =====
+  [  0] L116   -~
+  [  1] L117   clip~ -1e-37 0
+  [  2] L118   inlet~
+  [  3] L119   inlet~
+  [  4] L120   outlet~
+  [  5] L121   *~ 1e+37
+  [  6] L122   min~
+  [  7] L123   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+===== $0 1 2@0 os.triangle~ args=[]/sub3:normalize  (os.triangle~.pd:160) args=[] =====
+  [  0] L161   outlet~
+  [  1] L162   inlet~
+  [  2] L163   -~ 1
+  [  3] L164   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+===== $0 1 2@0 os.triangle~ args=[]/sub4:polyblep  (os.triangle~.pd:173) args=[] =====
+  [  0] L174   -~
+  [  1] L175   -~
+  [  2] L176   sig~ 1
+  [  3] L177   /~
+  [  4] L178   outlet~
+  [  5] L179   *~
+  [  6] L180   *~
+  [  7] L181   *~
+  [  8] L182   -~
+  [  9] L183   inlet~
+  [ 11] L185   -~ 1
+  [ 12] L186   -~ 1
+  [ 14] L188   *~
+  [ 15] L189   *~
+  [ 16] L226   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+===== $0 1 2@0 os.triangle~ args=[]/sub4:polyblep/sub0:>=~  (os.triangle~.pd:190) args=[] =====
+  [  0] L191   -~
+  [  1] L192   clip~ -1e-37 0
+  [  2] L193   inlet~
+  [  3] L194   inlet~
+  [  4] L195   outlet~
+  [  5] L196   *~ 1e+37
+  [  6] L197   min~
+  [  7] L198   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+===== $0 1 2@0 os.triangle~ args=[]/sub4:polyblep/sub1:<=~  (os.triangle~.pd:208) args=[] =====
+  [  0] L209   -~
+  [  1] L210   clip~ -1e-37 0
+  [  2] L211   inlet~
+  [  3] L212   inlet~
+  [  4] L213   outlet~
+  [  5] L214   *~ 1e+37
+  [  6] L215   min~
+  [  7] L216   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+===== $0 1 2@0 os.triangle~ args=[]/sub5:normalize  (os.triangle~.pd:253) args=[] =====
+  [  0] L254   outlet~
+  [  1] L255   inlet~
+  [  2] L256   -~ 1
+  [  3] L257   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   os.triangle~/rlpf  (os.triangle~.pd:2) args=[] =====
+  [  0] L3     samplerate~
+  [  1] L4     loadbang
+  [  2] L5     sig~ 1
+  [  3] L6     -~
+  [  4] L7     / 2
+  [  5] L8     outlet~
+  [  6] L9     t f f
+  [  7] L10    inlet~
+  [  8] L11    inlet~
+  [  9] L12    bang
+  [ 10] L13    inlet
+  [ 11] L14    clear
+  [ 12] L15    1
+  [ 13] L16    atan
+  [ 14] L17    t b b
+  [ 15] L18    clip~ 0 22050
+  [ 16] L19    * -8
+  [ 17] L20    exp~
+  [ 18] L21    *~
+  [ 19] L22    abs~
+  [ 20] L23    rpole~
+  [ 21] L24    *~ -6.28319
+  [ 22] L25    /~ 44100
+  conn [0](0) -> [6](0)   # samplerate~ -> t f f
+  conn [1](0) -> [9](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # sig~ 1 -> -~
+  conn [3](0) -> [18](1)   # -~ -> *~
+  conn [4](0) -> [15](2)   # / 2 -> clip~ 0 22050
+  conn [6](0) -> [4](0)   # t f f -> / 2
+  conn [6](1) -> [22](1)   # t f f -> /~ 44100
+  conn [7](0) -> [15](0)   # inlet~ -> clip~ 0 22050
+  conn [8](0) -> [18](0)   # inlet~ -> *~
+  conn [9](0) -> [14](0)   # bang -> t b b
+  conn [10](0) -> [11](0)   # inlet -> clear
+  conn [11](0) -> [20](0)   # clear -> rpole~
+  conn [12](0) -> [13](0)   # 1 -> atan
+  conn [13](0) -> [16](0)   # atan -> * -8
+  conn [14](0) -> [0](0)   # t b b -> samplerate~
+  conn [14](1) -> [12](0)   # t b b -> 1
+  conn [15](0) -> [22](0)   # clip~ 0 22050 -> /~ 44100
+  conn [16](0) -> [21](1)   # * -8 -> *~ -6.28319
+  conn [17](0) -> [20](1)   # exp~ -> rpole~
+  conn [17](0) -> [19](0)   # exp~ -> abs~
+  conn [18](0) -> [20](0)   # *~ -> rpole~
+  conn [19](0) -> [3](1)   # abs~ -> -~
+  conn [20](0) -> [5](0)   # rpole~ -> outlet~
+  conn [21](0) -> [17](0)   # *~ -6.28319 -> exp~
+  conn [22](0) -> [21](0)   # /~ 44100 -> *~ -6.28319
+
+=====   os.triangle~/1/Fs  (os.triangle~.pd:63) args=[] =====
+  [  0] L64    samplerate~
+  [  1] L65    loadbang
+  [  2] L66    1 {1}
+  [  3] L67    /
+  [  4] L68    bang
+  [  5] L69    outlet
+  conn [0](0) -> [2](0)   # samplerate~ -> 1 {1}
+  conn [1](0) -> [4](0)   # loadbang -> bang
+  conn [2](0) -> [3](0)   # 1 {1} -> /
+  conn [3](0) -> [5](0)   # / -> outlet
+  conn [4](0) -> [0](0)   # bang -> samplerate~
+
+=====   os.triangle~/polyblep  (os.triangle~.pd:80) args=[] =====
+  [  0] L81    -~
+  [  1] L82    -~
+  [  2] L83    sig~ 1
+  [  3] L84    /~
+  [  4] L85    outlet~
+  [  5] L86    *~
+  [  6] L87    *~
+  [  7] L88    *~
+  [  8] L89    -~
+  [  9] L90    inlet~
+  [ 11] L92    -~ 1
+  [ 12] L93    -~ 1
+  [ 14] L95    *~
+  [ 15] L96    *~
+  [ 16] L133   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   os.triangle~/polyblep/sub0:>=~  (os.triangle~.pd:97) args=[] =====
+  [  0] L98    -~
+  [  1] L99    clip~ -1e-37 0
+  [  2] L100   inlet~
+  [  3] L101   inlet~
+  [  4] L102   outlet~
+  [  5] L103   *~ 1e+37
+  [  6] L104   min~
+  [  7] L105   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   os.triangle~/polyblep/sub1:<=~  (os.triangle~.pd:115) args=[] =====
+  [  0] L116   -~
+  [  1] L117   clip~ -1e-37 0
+  [  2] L118   inlet~
+  [  3] L119   inlet~
+  [  4] L120   outlet~
+  [  5] L121   *~ 1e+37
+  [  6] L122   min~
+  [  7] L123   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   os.triangle~/normalize  (os.triangle~.pd:160) args=[] =====
+  [  0] L161   outlet~
+  [  1] L162   inlet~
+  [  2] L163   -~ 1
+  [  3] L164   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1
+
+=====   os.triangle~/polyblep  (os.triangle~.pd:173) args=[] =====
+  [  0] L174   -~
+  [  1] L175   -~
+  [  2] L176   sig~ 1
+  [  3] L177   /~
+  [  4] L178   outlet~
+  [  5] L179   *~
+  [  6] L180   *~
+  [  7] L181   *~
+  [  8] L182   -~
+  [  9] L183   inlet~
+  [ 11] L185   -~ 1
+  [ 12] L186   -~ 1
+  [ 14] L188   *~
+  [ 15] L189   *~
+  [ 16] L226   inlet~
+  conn [0](0) -> [4](0)   # -~ -> outlet~
+  conn [1](0) -> <sub0:>=~>(1)   # -~ -> <sub0:>=~>
+  conn [2](0) -> [3](0)   # sig~ 1 -> /~
+  conn [2](0) -> [1](0)   # sig~ 1 -> -~
+  conn [3](0) -> [7](1)   # /~ -> *~
+  conn [3](0) -> [12](0)   # /~ -> -~ 1
+  conn [5](0) -> [14](0)   # *~ -> *~
+  conn [6](0) -> [15](0)   # *~ -> *~
+  conn [7](0) -> [8](0)   # *~ -> -~
+  conn [7](0) -> [11](0)   # *~ -> -~ 1
+  conn [8](0) -> [6](0)   # -~ -> *~
+  conn [8](0) -> [6](1)   # -~ -> *~
+  conn [9](0) -> [7](0)   # inlet~ -> *~
+  conn [9](0) -> <sub1:<=~>(0)   # inlet~ -> <sub1:<=~>
+  conn [9](0) -> <sub0:>=~>(0)   # inlet~ -> <sub0:>=~>
+  conn [11](0) -> [5](0)   # -~ 1 -> *~
+  conn [11](0) -> [5](1)   # -~ 1 -> *~
+  conn [12](0) -> [8](1)   # -~ 1 -> -~
+  conn [14](0) -> [0](0)   # *~ -> -~
+  conn [15](0) -> [0](1)   # *~ -> -~
+  conn <sub0:>=~>(0) -> [15](1)   # <sub0:>=~> -> *~
+  conn <sub1:<=~>(0) -> [14](1)   # <sub1:<=~> -> *~
+  conn [16](0) -> [1](1)   # inlet~ -> -~
+  conn [16](0) -> [3](1)   # inlet~ -> /~
+  conn [16](0) -> <sub1:<=~>(1)   # inlet~ -> <sub1:<=~>
+
+=====   os.triangle~/polyblep/sub0:>=~  (os.triangle~.pd:190) args=[] =====
+  [  0] L191   -~
+  [  1] L192   clip~ -1e-37 0
+  [  2] L193   inlet~
+  [  3] L194   inlet~
+  [  4] L195   outlet~
+  [  5] L196   *~ 1e+37
+  [  6] L197   min~
+  [  7] L198   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   os.triangle~/polyblep/sub1:<=~  (os.triangle~.pd:208) args=[] =====
+  [  0] L209   -~
+  [  1] L210   clip~ -1e-37 0
+  [  2] L211   inlet~
+  [  3] L212   inlet~
+  [  4] L213   outlet~
+  [  5] L214   *~ 1e+37
+  [  6] L215   min~
+  [  7] L216   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [2](0) -> [0](1)   # inlet~ -> -~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+=====   os.triangle~/normalize  (os.triangle~.pd:253) args=[] =====
+  [  0] L254   outlet~
+  [  1] L255   inlet~
+  [  2] L256   -~ 1
+  [  3] L257   *~ 2
+  conn [1](0) -> [3](0)   # inlet~ -> *~ 2
+  conn [2](0) -> [0](0)   # -~ 1 -> outlet~
+  conn [3](0) -> [2](0)   # *~ 2 -> -~ 1

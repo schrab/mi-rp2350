@@ -1,0 +1,156 @@
+
+===== pd hyper-lfo  (_LIRA-8.pd:547) args=[] =====
+  [  0] L548   phasor~
+  [  1] L549   phasor~
+  [  2] L550   *~
+  [  3] L551   *~
+  [  4] L552   r $0-s-link
+  [  5] L622   *~ 1000
+  [  6] L623   clip~ -1 1
+  [  7] L624   r $0-s-f-a
+  [  8] L625   / 127
+  [  9] L626   - 75
+  [ 10] L627   mtof
+  [ 11] L628   line~
+  [ 12] L629   / 127
+  [ 13] L630   - 75
+  [ 14] L631   mtof
+  [ 15] L632   line~
+  [ 16] L633   r $0-s-f-b
+  [ 17] L634   pow 2
+  [ 18] L635   * 127
+  [ 19] L636   pow 2
+  [ 20] L637   * 127
+  [ 21] L638   /~ 2
+  [ 22] L639   cos~
+  [ 23] L640   {1} 23.22
+  [ 24] L641   {1} 23.22
+  conn [0](0) -> <sub:triangle-lfo>(0)   # phasor~ -> <sub:triangle-lfo>
+  conn [0](0) -> [22](0)   # phasor~ -> cos~
+  conn [1](0) -> <sub:triangle-lfo>(1)   # phasor~ -> <sub:triangle-lfo>
+  conn [1](0) -> <sub:square-lfo>(1)   # phasor~ -> <sub:square-lfo>
+  conn [2](0) -> [21](0)   # *~ -> /~ 2
+  conn [3](0) -> [1](0)   # *~ -> phasor~
+  conn [4](0) -> [3](1)   # r $0-s-link -> *~
+  conn [5](0) -> [6](0)   # *~ 1000 -> clip~ -1 1
+  conn [6](0) -> [2](0)   # clip~ -1 1 -> *~
+  conn [6](0) -> <sub:square-lfo>(0)   # clip~ -1 1 -> <sub:square-lfo>
+  conn [7](0) -> [8](0)   # r $0-s-f-a -> / 127
+  conn [8](0) -> [19](0)   # / 127 -> pow 2
+  conn [9](0) -> [10](0)   # - 75 -> mtof
+  conn [10](0) -> [23](0)   # mtof -> {1} 23.22
+  conn [11](0) -> [0](0)   # line~ -> phasor~
+  conn [12](0) -> [17](0)   # / 127 -> pow 2
+  conn [13](0) -> [14](0)   # - 75 -> mtof
+  conn [14](0) -> [24](0)   # mtof -> {1} 23.22
+  conn [15](0) -> [2](1)   # line~ -> *~
+  conn [15](0) -> [1](0)   # line~ -> phasor~
+  conn [16](0) -> [12](0)   # r $0-s-f-b -> / 127
+  conn [17](0) -> [18](0)   # pow 2 -> * 127
+  conn [18](0) -> [13](0)   # * 127 -> - 75
+  conn [19](0) -> [20](0)   # pow 2 -> * 127
+  conn [20](0) -> [9](0)   # * 127 -> - 75
+  conn [21](0) -> [3](0)   # /~ 2 -> *~
+  conn [22](0) -> [5](0)   # cos~ -> *~ 1000
+  conn [23](0) -> [11](0)   # {1} 23.22 -> line~
+  conn [24](0) -> [15](0)   # {1} 23.22 -> line~
+
+=====   hyper-lfo/triangle-lfo  (_LIRA-8.pd:553) args=[] =====
+  [  0] L554   inlet~
+  [  1] L555   inlet~
+  [  2] L556   -~ 0.5
+  [  3] L557   abs~
+  [  4] L558   *~ 4
+  [  5] L559   -~ 1
+  [  6] L560   -~ 0.5
+  [  7] L561   abs~
+  [  8] L562   *~ 4
+  [  9] L563   -~ 1
+  [ 10] L564   *~ 0.5
+  [ 11] L565   s~ $0-del-tri
+  conn [0](0) -> [2](0)   # inlet~ -> -~ 0.5
+  conn [1](0) -> [6](0)   # inlet~ -> -~ 0.5
+  conn [2](0) -> [3](0)   # -~ 0.5 -> abs~
+  conn [3](0) -> [4](0)   # abs~ -> *~ 4
+  conn [4](0) -> [5](0)   # *~ 4 -> -~ 1
+  conn [5](0) -> [10](0)   # -~ 1 -> *~ 0.5
+  conn [6](0) -> [7](0)   # -~ 0.5 -> abs~
+  conn [7](0) -> [8](0)   # abs~ -> *~ 4
+  conn [8](0) -> [9](0)   # *~ 4 -> -~ 1
+  conn [9](0) -> [10](0)   # -~ 1 -> *~ 0.5
+  conn [10](0) -> [11](0)   # *~ 0.5 -> s~ $0-del-tri
+
+=====   hyper-lfo/square-lfo  (_LIRA-8.pd:578) args=[] =====
+  [  0] L579   *~ 1000
+  [  1] L580   clip~ -1 1
+  [  2] L581   *~
+  [  3] L582   *~
+  [  4] L583   r $0-s-andor
+  [  5] L584   == 0
+  [  6] L585   *~
+  [  7] L586   r $0-s-andor
+  [  8] L587   snapshot~
+  [  9] L588   /~ 2
+  [ 10] L589   change
+  [ 11] L590   s $0-r-led
+  [ 12] L591   +~
+  [ 13] L592   inlet~
+  [ 14] L593   inlet~
+  [ 15] L594   s~ $0-del-sqr 0
+  [ 16] L595   bang~
+  [ 17] L596   sel 1 -1
+  [ 18] L597   cos~
+  [ 19] L598   s~ $0-sqr-lfo
+  conn [0](0) -> [1](0)   # *~ 1000 -> clip~ -1 1
+  conn [1](0) -> [2](1)   # clip~ -1 1 -> *~
+  conn [1](0) -> [9](0)   # clip~ -1 1 -> /~ 2
+  conn [2](0) -> [3](0)   # *~ -> *~
+  conn [3](0) -> [12](0)   # *~ -> +~
+  conn [4](0) -> [5](0)   # r $0-s-andor -> == 0
+  conn [5](0) -> [3](1)   # == 0 -> *~
+  conn [6](0) -> [12](1)   # *~ -> +~
+  conn [7](0) -> [6](1)   # r $0-s-andor -> *~
+  conn [8](0) -> [10](0)   # snapshot~ -> change
+  conn [9](0) -> [6](0)   # /~ 2 -> *~
+  conn [9](0) -> [15](0)   # /~ 2 -> s~ $0-del-sqr 0
+  conn [10](0) -> [17](0)   # change -> sel 1 -1
+  conn [12](0) -> [8](0)   # +~ -> snapshot~
+  conn [12](0) -> [19](0)   # +~ -> s~ $0-sqr-lfo
+  conn [13](0) -> [2](0)   # inlet~ -> *~
+  conn [13](0) -> [9](0)   # inlet~ -> /~ 2
+  conn [14](0) -> [18](0)   # inlet~ -> cos~
+  conn [16](0) -> [8](0)   # bang~ -> snapshot~
+  conn [17](0) -> [11](0)   # sel 1 -1 -> s $0-r-led
+  conn [17](1) -> [11](0)   # sel 1 -1 -> s $0-r-led
+  conn [18](0) -> [0](0)   # cos~ -> *~ 1000
+
+===== pd keyboard  (_LIRA-8.pd:253) args=[] =====
+  [  0] L254   s $0-r-sensor-1
+  [  1] L255   s $0-r-sensor-2
+  [  2] L256   s $0-r-sensor-3
+  [  3] L257   s $0-r-sensor-4
+  [  4] L258   s $0-r-sensor-5
+  [  5] L259   s $0-r-sensor-6
+  [  6] L260   s $0-r-sensor-7
+  [  7] L261   s $0-r-sensor-8
+  [  8] L262   key.tgl 49
+  [  9] L263   key.tgl 50
+  [ 10] L264   key.tgl 51
+  [ 11] L265   key.tgl 52
+  [ 12] L266   key.tgl 53
+  [ 13] L267   key.tgl 54
+  [ 14] L268   key.tgl 55
+  [ 15] L269   key.tgl 56
+  conn [8](0) -> [0](0)   # key.tgl 49 -> s $0-r-sensor-1
+  conn [9](0) -> [1](0)   # key.tgl 50 -> s $0-r-sensor-2
+  conn [10](0) -> [2](0)   # key.tgl 51 -> s $0-r-sensor-3
+  conn [11](0) -> [3](0)   # key.tgl 52 -> s $0-r-sensor-4
+  conn [12](0) -> [4](0)   # key.tgl 53 -> s $0-r-sensor-5
+  conn [13](0) -> [5](0)   # key.tgl 54 -> s $0-r-sensor-6
+  conn [14](0) -> [6](0)   # key.tgl 55 -> s $0-r-sensor-7
+  conn [15](0) -> [7](0)   # key.tgl 56 -> s $0-r-sensor-8
+Traceback (most recent call last):
+  File "/home/schrab/Projects/mi-rp2350/rack-rp2350/test/lira8_ref/spec_dump.py", line 183, in <module>
+    dump_canvas(ci, f"pd prm.hold (r {ci.objs[2].text})")
+                                      ^^^^^^^^^^^^^^^
+AttributeError: 'tuple' object has no attribute 'text'

@@ -1,0 +1,644 @@
+====================================================================================================
+GLOBAL BUS TABLE (after $-substitution)
+====================================================================================================
+
+--- $0-attack
+    send    v(write) root/gui@183:lira.voice[48]
+    send    v(write) root/gui@183:lira.voice/prm.sensor[3]
+    send    v(write) root/gui@183:lira.voice/prm.sensor[2]
+    send    v(write) root/gui@184:lira.voice[48]
+    send    v(write) root/gui@184:lira.voice/prm.sensor[3]
+    send    v(write) root/gui@184:lira.voice/prm.sensor[2]
+    send    v(write) root/gui@185:lira.voice[48]
+    send    v(write) root/gui@185:lira.voice/prm.sensor[3]
+    send    v(write) root/gui@185:lira.voice/prm.sensor[2]
+    send    v(write) root/gui@186:lira.voice[48]
+    send    v(write) root/gui@186:lira.voice/prm.sensor[3]
+    send    v(write) root/gui@186:lira.voice/prm.sensor[2]
+    recv    v(read)  root/gui@183:lira.voice[48]
+    recv    v(read)  root/gui@183:lira.voice/prm.sensor[3]
+    recv    v(read)  root/gui@183:lira.voice/prm.sensor[2]
+    recv    v(read)  root/gui@184:lira.voice[48]
+    recv    v(read)  root/gui@184:lira.voice/prm.sensor[3]
+    recv    v(read)  root/gui@184:lira.voice/prm.sensor[2]
+    recv    v(read)  root/gui@185:lira.voice[48]
+    recv    v(read)  root/gui@185:lira.voice/prm.sensor[3]
+    recv    v(read)  root/gui@185:lira.voice/prm.sensor[2]
+    recv    v(read)  root/gui@186:lira.voice[48]
+    recv    v(read)  root/gui@186:lira.voice/prm.sensor[3]
+    recv    v(read)  root/gui@186:lira.voice/prm.sensor[2]
+
+--- $0-del-12
+    send    s~       root/gui@183:lira.voice[55]
+    recv    r~       root/gui@188:prm.source[31]
+    recv    r~       root/gui@188:prm.source[32]
+
+--- $0-del-34
+    send    s~       root/gui@184:lira.voice[55]
+    recv    r~       root/gui@187:prm.source[32]
+    recv    r~       root/gui@189:prm.source[31]
+
+--- $0-del-56
+    send    s~       root/gui@185:lira.voice[55]
+    recv    r~       root/gui@190:prm.source[31]
+    recv    r~       root/gui@190:prm.source[32]
+
+--- $0-del-78
+    send    s~       root/gui@186:lira.voice[55]
+    recv    r~       root/gui@187:prm.source[31]
+    recv    r~       root/gui@189:prm.source[32]
+
+--- $0-del-sqr
+    send    s~       root/gui/hyper-lfo/square-lfo[15]
+    recv    r~       root/gui/delay[103]
+
+--- $0-del-tri
+    send    s~       root/gui/hyper-lfo/triangle-lfo[11]
+    recv    r~       root/gui/delay[102]
+
+--- $0-env
+    send    s~       root/gui/delay@14:compressor~/hv.envfollow[12]
+    send    s~       root/gui/delay@63:compressor~/hv.envfollow[12]
+    recv    r~       root/gui/delay@14:compressor~/hv.envfollow[11]
+    recv    r~       root/gui/delay@63:compressor~/hv.envfollow[11]
+
+--- $0-loadbang-0
+    send    s        root/gui/gui.link[28]
+    recv    r        root/gui/gui.link[31]
+
+--- $0-loadbang-1
+    send    s        root/gui/gui.link[27]
+    (NO-RECEIVER)
+
+--- $0-r-andor
+    send    s        root/gui/labels[49]
+    send    s        root/gui/labels[51]
+    recv    vradio   root/gui[91]
+
+--- $0-r-cpu
+    send    s        root/gui[212]
+    recv    nbx      root[4]
+
+--- $0-r-del-mix
+    recv    hsl      root/gui[173]
+    (NO-SENDER)
+
+--- $0-r-del-mod
+    send    s        root/gui/labels[59]
+    recv    hradio   root/gui[81]
+
+--- $0-r-drv
+    recv    vsl      root/gui[88]
+    (NO-SENDER)
+
+--- $0-r-dsp
+    send    s        root/gui[200]
+    recv    tgl      root[0]
+
+--- $0-r-dst-mix
+    recv    vsl      root/gui[87]
+    (NO-SENDER)
+
+--- $0-r-f-a
+    recv    vsl      root/gui[90]
+    (NO-SENDER)
+
+--- $0-r-f-b
+    recv    vsl      root/gui[89]
+    (NO-SENDER)
+
+--- $0-r-fast-12
+    recv    tgl      root/gui[5]
+    (NO-SENDER)
+
+--- $0-r-fast-34
+    recv    tgl      root/gui[37]
+    (NO-SENDER)
+
+--- $0-r-fast-56
+    recv    tgl      root/gui[38]
+    (NO-SENDER)
+
+--- $0-r-fast-78
+    recv    tgl      root/gui[39]
+    (NO-SENDER)
+
+--- $0-r-feedback
+    recv    hsl      root/gui[174]
+    (NO-SENDER)
+
+--- $0-r-hold-1234
+    recv    hsl      root/gui[77]
+    (NO-SENDER)
+
+--- $0-r-hold-5678
+    recv    hsl      root/gui[55]
+    (NO-SENDER)
+
+--- $0-r-led
+    send    s        root/gui/hyper-lfo/square-lfo[11]
+    recv    bng      root/gui[92]
+
+--- $0-r-lfo-wav
+    send    s        root/gui/labels[66]
+    recv    hradio   root/gui[80]
+
+--- $0-r-link
+    recv    tgl      root/gui[111]
+    (NO-SENDER)
+
+--- $0-r-mod-1
+    recv    hsl      root/gui[85]
+    (NO-SENDER)
+
+--- $0-r-mod-12
+    recv    hsl      root/gui[3]
+    (NO-SENDER)
+
+--- $0-r-mod-2
+    recv    hsl      root/gui[83]
+    (NO-SENDER)
+
+--- $0-r-mod-34
+    recv    hsl      root/gui[34]
+    (NO-SENDER)
+
+--- $0-r-mod-56
+    recv    hsl      root/gui[35]
+    (NO-SENDER)
+
+--- $0-r-mod-78
+    recv    hsl      root/gui[36]
+    (NO-SENDER)
+
+--- $0-r-pitch-1234
+    recv    hsl      root/gui[22]
+    (NO-SENDER)
+
+--- $0-r-pitch-5678
+    recv    hsl      root/gui[23]
+    (NO-SENDER)
+
+--- $0-r-quantize
+    recv    tgl      root/gui[217]
+    (NO-SENDER)
+
+--- $0-r-sensor-1
+    send    s        root/gui/keyboard[0]
+    recv    tgl      root/gui[7]
+
+--- $0-r-sensor-2
+    send    s        root/gui/keyboard[1]
+    recv    tgl      root/gui[9]
+
+--- $0-r-sensor-3
+    send    s        root/gui/keyboard[2]
+    recv    tgl      root/gui[11]
+
+--- $0-r-sensor-4
+    send    s        root/gui/keyboard[3]
+    recv    tgl      root/gui[13]
+
+--- $0-r-sensor-5
+    send    s        root/gui/keyboard[4]
+    recv    tgl      root/gui[15]
+
+--- $0-r-sensor-6
+    send    s        root/gui/keyboard[5]
+    recv    tgl      root/gui[17]
+
+--- $0-r-sensor-7
+    send    s        root/gui/keyboard[6]
+    recv    tgl      root/gui[19]
+
+--- $0-r-sensor-8
+    send    s        root/gui/keyboard[7]
+    recv    tgl      root/gui[21]
+
+--- $0-r-sharp-12
+    recv    hsl      root/gui[2]
+    (NO-SENDER)
+
+--- $0-r-sharp-34
+    recv    hsl      root/gui[31]
+    (NO-SENDER)
+
+--- $0-r-sharp-56
+    recv    hsl      root/gui[32]
+    (NO-SENDER)
+
+--- $0-r-sharp-78
+    recv    hsl      root/gui[33]
+    (NO-SENDER)
+
+--- $0-r-source-12
+    send    s        root/gui/labels[1]
+    send    s        root/gui/labels[10]
+    recv    hradio   root/gui[24]
+
+--- $0-r-source-34
+    send    s        root/gui/labels[29]
+    send    s        root/gui/labels[41]
+    recv    hradio   root/gui[74]
+
+--- $0-r-source-56
+    send    s        root/gui/labels[31]
+    send    s        root/gui/labels[42]
+    recv    hradio   root/gui[75]
+
+--- $0-r-source-78
+    send    s        root/gui/labels[32]
+    send    s        root/gui/labels[43]
+    recv    hradio   root/gui[76]
+
+--- $0-r-switch
+    recv    tgl      root/gui[56]
+    (NO-SENDER)
+
+--- $0-r-time-1
+    recv    hsl      root/gui[84]
+    (NO-SENDER)
+
+--- $0-r-time-2
+    recv    hsl      root/gui[82]
+    (NO-SENDER)
+
+--- $0-r-total-fb
+    recv    tgl      root/gui[57]
+    (NO-SENDER)
+
+--- $0-r-tune-1
+    recv    vsl      root/gui[1]
+    (NO-SENDER)
+
+--- $0-r-tune-2
+    recv    vsl      root/gui[4]
+    (NO-SENDER)
+
+--- $0-r-tune-3
+    recv    vsl      root/gui[25]
+    (NO-SENDER)
+
+--- $0-r-tune-4
+    recv    vsl      root/gui[26]
+    (NO-SENDER)
+
+--- $0-r-tune-5
+    recv    vsl      root/gui[27]
+    (NO-SENDER)
+
+--- $0-r-tune-6
+    recv    vsl      root/gui[28]
+    (NO-SENDER)
+
+--- $0-r-tune-7
+    recv    vsl      root/gui[29]
+    (NO-SENDER)
+
+--- $0-r-tune-8
+    recv    vsl      root/gui[30]
+    (NO-SENDER)
+
+--- $0-r-vibrato
+    recv    tgl      root/gui[58]
+    (NO-SENDER)
+
+--- $0-r-vol
+    recv    vsl      root/gui[86]
+    (NO-SENDER)
+
+--- $0-release
+    send    v(write) root/gui@183:lira.voice[49]
+    send    v(write) root/gui@183:lira.voice/prm.sensor[4]
+    send    v(write) root/gui@183:lira.voice/prm.sensor[3]
+    send    v(write) root/gui@184:lira.voice[49]
+    send    v(write) root/gui@184:lira.voice/prm.sensor[4]
+    send    v(write) root/gui@184:lira.voice/prm.sensor[3]
+    send    v(write) root/gui@185:lira.voice[49]
+    send    v(write) root/gui@185:lira.voice/prm.sensor[4]
+    send    v(write) root/gui@185:lira.voice/prm.sensor[3]
+    send    v(write) root/gui@186:lira.voice[49]
+    send    v(write) root/gui@186:lira.voice/prm.sensor[4]
+    send    v(write) root/gui@186:lira.voice/prm.sensor[3]
+    recv    v(read)  root/gui@183:lira.voice[49]
+    recv    v(read)  root/gui@183:lira.voice/prm.sensor[4]
+    recv    v(read)  root/gui@183:lira.voice/prm.sensor[3]
+    recv    v(read)  root/gui@184:lira.voice[49]
+    recv    v(read)  root/gui@184:lira.voice/prm.sensor[4]
+    recv    v(read)  root/gui@184:lira.voice/prm.sensor[3]
+    recv    v(read)  root/gui@185:lira.voice[49]
+    recv    v(read)  root/gui@185:lira.voice/prm.sensor[4]
+    recv    v(read)  root/gui@185:lira.voice/prm.sensor[3]
+    recv    v(read)  root/gui@186:lira.voice[49]
+    recv    v(read)  root/gui@186:lira.voice/prm.sensor[4]
+    recv    v(read)  root/gui@186:lira.voice/prm.sensor[3]
+
+--- $0-s-andor
+    send    vradio   root/gui[91]
+    recv    r        root/gui/hyper-lfo/square-lfo[4]
+    recv    r        root/gui/hyper-lfo/square-lfo[7]
+    recv    r        root/gui/labels[47]
+
+--- $0-s-cpu
+    send    nbx      root[4]
+    (NO-RECEIVER)
+
+--- $0-s-del-mix
+    send    hsl      root/gui[173]
+    recv    r        root/gui/delay[91]
+
+--- $0-s-del-mod
+    send    hradio   root/gui[81]
+    recv    r        root/gui/delay[41]
+    recv    r        root/gui/delay[43]
+    recv    r        root/gui/delay[72]
+    recv    r        root/gui/labels[56]
+
+--- $0-s-drv
+    send    vsl      root/gui[88]
+    recv    r        root/gui/master_output[5]
+
+--- $0-s-dsp
+    send    tgl      root[0]
+    recv    r        root/gui[193]
+
+--- $0-s-dst-mix
+    send    vsl      root/gui[87]
+    recv    r        root/gui/master_output[17]
+
+--- $0-s-f-a
+    send    vsl      root/gui[90]
+    recv    r        root/gui/hyper-lfo[7]
+
+--- $0-s-f-b
+    send    vsl      root/gui[89]
+    recv    r        root/gui/hyper-lfo[16]
+
+--- $0-s-fast-12
+    send    tgl      root/gui[5]
+    recv    r        root/gui@183:lira.voice[45]
+
+--- $0-s-fast-34
+    send    tgl      root/gui[37]
+    recv    r        root/gui@184:lira.voice[45]
+
+--- $0-s-fast-56
+    send    tgl      root/gui[38]
+    recv    r        root/gui@185:lira.voice[45]
+
+--- $0-s-fast-78
+    send    tgl      root/gui[39]
+    recv    r        root/gui@186:lira.voice[45]
+
+--- $0-s-feedback
+    send    hsl      root/gui[174]
+    recv    r        root/gui/delay[21]
+
+--- $0-s-hold-1234
+    send    hsl      root/gui[77]
+    recv    r        root/gui/prm.hold[2]
+
+--- $0-s-hold-5678
+    send    hsl      root/gui[55]
+    recv    r        root/gui/prm.hold[2]
+
+--- $0-s-lfo-wav
+    send    hradio   root/gui[80]
+    recv    r        root/gui/delay[34]
+    recv    r        root/gui/delay[37]
+    recv    r        root/gui/labels[64]
+
+--- $0-s-link
+    send    tgl      root/gui[111]
+    recv    r        root/gui/hyper-lfo[4]
+
+--- $0-s-mod-1
+    send    hsl      root/gui[85]
+    recv    r        root/gui/delay[47]
+
+--- $0-s-mod-12
+    send    hsl      root/gui[3]
+    recv    r        root/gui@183:lira.voice/prm.mod[3]
+
+--- $0-s-mod-2
+    send    hsl      root/gui[83]
+    recv    r        root/gui/delay[85]
+
+--- $0-s-mod-34
+    send    hsl      root/gui[34]
+    recv    r        root/gui@184:lira.voice/prm.mod[3]
+
+--- $0-s-mod-56
+    send    hsl      root/gui[35]
+    recv    r        root/gui@185:lira.voice/prm.mod[3]
+
+--- $0-s-mod-78
+    send    hsl      root/gui[36]
+    recv    r        root/gui@186:lira.voice/prm.mod[3]
+
+--- $0-s-pitch-1234
+    send    hsl      root/gui[22]
+    recv    r        root/gui@191:prm.pitch[1]
+
+--- $0-s-pitch-5678
+    send    hsl      root/gui[23]
+    recv    r        root/gui@192:prm.pitch[1]
+
+--- $0-s-quantize
+    send    tgl      root/gui[217]
+    recv    r        root/gui@183:lira.voice@20:prm.tune[32]
+    recv    r        root/gui@183:lira.voice@21:prm.tune[32]
+    recv    r        root/gui@184:lira.voice@20:prm.tune[32]
+    recv    r        root/gui@184:lira.voice@21:prm.tune[32]
+    recv    r        root/gui@185:lira.voice@20:prm.tune[32]
+    recv    r        root/gui@185:lira.voice@21:prm.tune[32]
+    recv    r        root/gui@186:lira.voice@20:prm.tune[32]
+    recv    r        root/gui@186:lira.voice@21:prm.tune[32]
+
+--- $0-s-sensor-1
+    send    tgl      root/gui[7]
+    recv    r        root/gui@183:lira.voice/prm.sensor[1]
+
+--- $0-s-sensor-2
+    send    tgl      root/gui[9]
+    recv    r        root/gui@183:lira.voice/prm.sensor[12]
+
+--- $0-s-sensor-3
+    send    tgl      root/gui[11]
+    recv    r        root/gui@184:lira.voice/prm.sensor[1]
+
+--- $0-s-sensor-4
+    send    tgl      root/gui[13]
+    recv    r        root/gui@184:lira.voice/prm.sensor[12]
+
+--- $0-s-sensor-5
+    send    tgl      root/gui[15]
+    recv    r        root/gui@185:lira.voice/prm.sensor[1]
+
+--- $0-s-sensor-6
+    send    tgl      root/gui[17]
+    recv    r        root/gui@185:lira.voice/prm.sensor[12]
+
+--- $0-s-sensor-7
+    send    tgl      root/gui[19]
+    recv    r        root/gui@186:lira.voice/prm.sensor[1]
+
+--- $0-s-sensor-8
+    send    tgl      root/gui[21]
+    recv    r        root/gui@186:lira.voice/prm.sensor[12]
+
+--- $0-s-sharp-12
+    send    hsl      root/gui[2]
+    recv    r        root/gui@183:lira.voice/prm.sharp[3]
+
+--- $0-s-sharp-34
+    send    hsl      root/gui[31]
+    recv    r        root/gui@184:lira.voice/prm.sharp[3]
+
+--- $0-s-sharp-56
+    send    hsl      root/gui[32]
+    recv    r        root/gui@185:lira.voice/prm.sharp[3]
+
+--- $0-s-sharp-78
+    send    hsl      root/gui[33]
+    recv    r        root/gui@186:lira.voice/prm.sharp[3]
+
+--- $0-s-source-12
+    send    hradio   root/gui[24]
+    recv    r        root/gui/labels[0]
+    recv    r        root/gui@187:prm.source[5]
+    recv    r        root/gui@187:prm.source[15]
+
+--- $0-s-source-34
+    send    hradio   root/gui[74]
+    recv    r        root/gui/labels[30]
+    recv    r        root/gui@188:prm.source[5]
+    recv    r        root/gui@188:prm.source[15]
+
+--- $0-s-source-56
+    send    hradio   root/gui[75]
+    recv    r        root/gui/labels[38]
+    recv    r        root/gui@189:prm.source[5]
+    recv    r        root/gui@189:prm.source[15]
+
+--- $0-s-source-78
+    send    hradio   root/gui[76]
+    recv    r        root/gui/labels[33]
+    recv    r        root/gui@190:prm.source[5]
+    recv    r        root/gui@190:prm.source[15]
+
+--- $0-s-switch
+    send    tgl      root/gui[56]
+    recv    r        root/gui@187:prm.source[6]
+    recv    r        root/gui@187:prm.source[8]
+    recv    r        root/gui@188:prm.source[6]
+    recv    r        root/gui@188:prm.source[8]
+    recv    r        root/gui@189:prm.source[6]
+    recv    r        root/gui@189:prm.source[8]
+    recv    r        root/gui@190:prm.source[6]
+    recv    r        root/gui@190:prm.source[8]
+
+--- $0-s-time-1
+    send    hsl      root/gui[84]
+    recv    r        root/gui/delay[9]
+
+--- $0-s-time-2
+    send    hsl      root/gui[82]
+    recv    r        root/gui/delay[86]
+
+--- $0-s-total-fb
+    send    tgl      root/gui[57]
+    recv    r        root/gui@187:prm.source[10]
+    recv    r        root/gui@187:prm.source[13]
+    recv    r        root/gui@188:prm.source[10]
+    recv    r        root/gui@188:prm.source[13]
+    recv    r        root/gui@189:prm.source[10]
+    recv    r        root/gui@189:prm.source[13]
+    recv    r        root/gui@190:prm.source[10]
+    recv    r        root/gui@190:prm.source[13]
+
+--- $0-s-tune-1
+    send    vsl      root/gui[1]
+    recv    r        root/gui@183:lira.voice@20:prm.tune[31]
+
+--- $0-s-tune-2
+    send    vsl      root/gui[4]
+    recv    r        root/gui@183:lira.voice@21:prm.tune[31]
+
+--- $0-s-tune-3
+    send    vsl      root/gui[25]
+    recv    r        root/gui@184:lira.voice@20:prm.tune[31]
+
+--- $0-s-tune-4
+    send    vsl      root/gui[26]
+    recv    r        root/gui@184:lira.voice@21:prm.tune[31]
+
+--- $0-s-tune-5
+    send    vsl      root/gui[27]
+    recv    r        root/gui@185:lira.voice@20:prm.tune[31]
+
+--- $0-s-tune-6
+    send    vsl      root/gui[28]
+    recv    r        root/gui@185:lira.voice@21:prm.tune[31]
+
+--- $0-s-tune-7
+    send    vsl      root/gui[29]
+    recv    r        root/gui@186:lira.voice@20:prm.tune[31]
+
+--- $0-s-tune-8
+    send    vsl      root/gui[30]
+    recv    r        root/gui@186:lira.voice@21:prm.tune[31]
+
+--- $0-s-vibrato
+    send    tgl      root/gui[58]
+    recv    r        root/gui@183:lira.voice[29]
+    recv    r        root/gui@184:lira.voice[29]
+    recv    r        root/gui@185:lira.voice[29]
+    recv    r        root/gui@186:lira.voice[29]
+
+--- $0-s-vol
+    send    vsl      root/gui[86]
+    recv    r        root/gui/master_output[0]
+
+--- $0-seed
+    send    s        root/gui[181]
+    recv    r        root/gui@183:lira.voice[34]
+    recv    r        root/gui@184:lira.voice[34]
+    recv    r        root/gui@185:lira.voice[34]
+    recv    r        root/gui@186:lira.voice[34]
+
+--- $0-sqr-lfo
+    send    s~       root/gui/hyper-lfo/square-lfo[19]
+    recv    r~       root/gui@187:prm.source[29]
+    recv    r~       root/gui@188:prm.source[29]
+    recv    r~       root/gui@189:prm.source[29]
+    recv    r~       root/gui@190:prm.source[29]
+
+--- $0-total-feedback
+    send    s~       root/gui/master_output[35]
+    recv    r~       root/gui@187:prm.source[30]
+    recv    r~       root/gui@188:prm.source[30]
+    recv    r~       root/gui@189:prm.source[30]
+    recv    r~       root/gui@190:prm.source[30]
+
+--- $0-trigger
+    send    s        root/gui@183:lira.voice[51]
+    send    s        root/gui@184:lira.voice[51]
+    send    s        root/gui@185:lira.voice[51]
+    send    s        root/gui@186:lira.voice[51]
+    recv    r        root/gui@183:lira.voice/prm.sensor[12]
+    recv    r        root/gui@183:lira.voice/prm.sensor[11]
+    recv    r        root/gui@184:lira.voice/prm.sensor[12]
+    recv    r        root/gui@184:lira.voice/prm.sensor[11]
+    recv    r        root/gui@185:lira.voice/prm.sensor[12]
+    recv    r        root/gui@185:lira.voice/prm.sensor[11]
+    recv    r        root/gui@186:lira.voice/prm.sensor[12]
+    recv    r        root/gui@186:lira.voice/prm.sensor[11]
+
+--- $0-write
+    recv    r        root/gui/gui.link[25]
+    (NO-SENDER)
+
+--- pd
+    send    s        root/gui[195]
+    (NO-RECEIVER)

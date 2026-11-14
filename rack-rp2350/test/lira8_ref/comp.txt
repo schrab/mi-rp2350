@@ -1,0 +1,239 @@
+
+===== compressor~ args=[] =====
+  [  0] L150   inlet~
+  [  1] L151   -~
+  [  2] L152   inlet
+  [  3] L153   + 100
+  [  4] L154   dbtorms
+  [  5] L155   *~
+  [  6] L156   1 {1}
+  [  7] L157   /
+  [  8] L158   inlet
+  [  9] L159   +~
+  [ 10] L160   /~
+  [ 11] L161   clip~ 0 1
+  [ 12] L162   *~
+  [ 13] L163   inlet
+  [ 14] L164   inlet
+  [ 15] L165   outlet~
+  [ 21] L171   ma.tanh~
+  conn <sub0:hv.envfollow>(0) -> [1](0)   # <sub0:hv.envfollow> -> -~
+  conn <sub0:hv.envfollow>(0) -> [10](1)   # <sub0:hv.envfollow> -> /~
+  conn [0](0) -> [12](0)   # inlet~ -> *~
+  conn [0](0) -> <sub0:hv.envfollow>(0)   # inlet~ -> <sub0:hv.envfollow>
+  conn [1](0) -> [5](0)   # -~ -> *~
+  conn [2](0) -> [3](0)   # inlet -> + 100
+  conn [3](0) -> [4](0)   # + 100 -> dbtorms
+  conn [4](0) -> [1](1)   # dbtorms -> -~
+  conn [4](0) -> [9](1)   # dbtorms -> +~
+  conn [5](0) -> [9](0)   # *~ -> +~
+  conn [6](0) -> [7](0)   # 1 {1} -> /
+  conn [7](0) -> [5](1)   # / -> *~
+  conn [8](0) -> [6](0)   # inlet -> 1 {1}
+  conn [9](0) -> [10](0)   # +~ -> /~
+  conn [10](0) -> [11](0)   # /~ -> clip~ 0 1
+  conn [11](0) -> [21](0)   # clip~ 0 1 -> ma.tanh~
+  conn [12](0) -> [15](0)   # *~ -> outlet~
+  conn [13](0) -> <sub0:hv.envfollow>(1)   # inlet -> <sub0:hv.envfollow>
+  conn [14](0) -> <sub0:hv.envfollow>(2)   # inlet -> <sub0:hv.envfollow>
+  conn [21](0) -> [12](1)   # ma.tanh~ -> *~
+
+===== compressor~/sub0:hv.envfollow args=[] =====
+  [  0] L3     -~
+  [  1] L4     sig~ 1
+  [  2] L5     rpole~
+  [  3] L6     loadbang
+  [  4] L7     samplerate~
+  [  5] L8     *
+  [  6] L9     *~
+  [  7] L10    outlet~
+  [  8] L11    *
+  [ 11] L14    r~ $0-env
+  [ 12] L15    s~ $0-env
+  [ 15] L18    / 1000
+  [ 17] L20    inlet~
+  [ 18] L21    abs~
+  [ 20] L124   inlet
+  [ 21] L125   inlet
+  conn [0](0) -> [6](1)   # -~ -> *~
+  conn [1](0) -> [0](0)   # sig~ 1 -> -~
+  conn [2](0) -> [7](0)   # rpole~ -> outlet~
+  conn [2](0) -> [12](0)   # rpole~ -> s~ $0-env
+  conn [3](0) -> [4](0)   # loadbang -> samplerate~
+  conn [4](0) -> [15](0)   # samplerate~ -> / 1000
+  conn [5](0) -> <sub1:coeff>(0)   # * -> <sub1:coeff>
+  conn [6](0) -> [2](0)   # *~ -> rpole~
+  conn [8](0) -> <sub0:coeff>(0)   # * -> <sub0:coeff>
+  conn [11](0) -> <sub2:hv.multiplex>(3)   # r~ $0-env -> <sub2:hv.multiplex>
+  conn [15](0) -> [5](1)   # / 1000 -> *
+  conn [15](0) -> [8](1)   # / 1000 -> *
+  conn [17](0) -> [18](0)   # inlet~ -> abs~
+  conn [18](0) -> [6](0)   # abs~ -> *~
+  conn [18](0) -> <sub2:hv.multiplex>(2)   # abs~ -> <sub2:hv.multiplex>
+  conn <sub0:coeff>(0) -> <sub2:hv.multiplex>(1)   # <sub0:coeff> -> <sub2:hv.multiplex>
+  conn <sub1:coeff>(0) -> <sub2:hv.multiplex>(0)   # <sub1:coeff> -> <sub2:hv.multiplex>
+  conn <sub2:hv.multiplex>(0) -> [0](1)   # <sub2:hv.multiplex> -> -~
+  conn <sub2:hv.multiplex>(0) -> [2](1)   # <sub2:hv.multiplex> -> rpole~
+  conn [20](0) -> [5](0)   # inlet -> *
+  conn [21](0) -> [8](0)   # inlet -> *
+
+===== compressor~/sub0:hv.envfollow/sub0:coeff args=[] =====
+  [  0] L23    inlet
+  [  1] L24    exp
+  [  2] L25    {1} 10
+  [  3] L26    line~
+  [  4] L27    /
+  [  5] L28    -4.60517 {1}
+  [  6] L29    max 1
+  [  7] L30    outlet~
+  conn [0](0) -> [6](0)   # inlet -> max 1
+  conn [1](0) -> [2](0)   # exp -> {1} 10
+  conn [2](0) -> [3](0)   # {1} 10 -> line~
+  conn [3](0) -> [7](0)   # line~ -> outlet~
+  conn [4](0) -> [1](0)   # / -> exp
+  conn [5](0) -> [4](0)   # -4.60517 {1} -> /
+  conn [6](0) -> [5](0)   # max 1 -> -4.60517 {1}
+
+===== compressor~/sub0:hv.envfollow/sub1:coeff args=[] =====
+  [  0] L41    inlet
+  [  1] L42    exp
+  [  2] L43    {1} 10
+  [  3] L44    line~
+  [  4] L45    /
+  [  5] L46    -4.60517 {1}
+  [  6] L47    max 1
+  [  7] L48    outlet~
+  conn [0](0) -> [6](0)   # inlet -> max 1
+  conn [1](0) -> [2](0)   # exp -> {1} 10
+  conn [2](0) -> [3](0)   # {1} 10 -> line~
+  conn [3](0) -> [7](0)   # line~ -> outlet~
+  conn [4](0) -> [1](0)   # / -> exp
+  conn [5](0) -> [4](0)   # -4.60517 {1} -> /
+  conn [6](0) -> [5](0)   # max 1 -> -4.60517 {1}
+
+===== compressor~/sub0:hv.envfollow/sub2:hv.multiplex args=[] =====
+  [  0] L60    outlet~
+  [  1] L92    inlet~ lhs
+  [  2] L93    inlet~ rhs
+  [  3] L94    inlet~ input-a
+  [  4] L95    inlet~ input-b
+  conn <sub0:@hv_obj>(0) -> <sub2:@hv_obj>(0)   # <sub0:@hv_obj> -> <sub2:@hv_obj>
+  conn <sub1:@hv_obj>(0) -> <sub2:@hv_obj>(1)   # <sub1:@hv_obj> -> <sub2:@hv_obj>
+  conn <sub2:@hv_obj>(0) -> [0](0)   # <sub2:@hv_obj> -> outlet~
+  conn [1](0) -> <sub3:@hv_obj>(0)   # inlet~ lhs -> <sub3:@hv_obj>
+  conn [2](0) -> <sub3:@hv_obj>(1)   # inlet~ rhs -> <sub3:@hv_obj>
+  conn [3](0) -> <sub0:@hv_obj>(0)   # inlet~ input-a -> <sub0:@hv_obj>
+  conn [4](0) -> <sub1:@hv_obj>(1)   # inlet~ input-b -> <sub1:@hv_obj>
+  conn <sub3:@hv_obj>(0) -> <sub1:@hv_obj>(0)   # <sub3:@hv_obj> -> <sub1:@hv_obj>
+  conn <sub3:@hv_obj>(0) -> <sub0:@hv_obj>(1)   # <sub3:@hv_obj> -> <sub0:@hv_obj>
+
+===== compressor~/sub0:hv.envfollow/sub2:hv.multiplex/sub0:@hv_obj args=[] =====
+  [  0] L62    inlet~
+  [  1] L63    inlet~
+  [  2] L64    outlet~
+  [  3] L65    *~
+  conn [0](0) -> [3](1)   # inlet~ -> *~
+  conn [1](0) -> [3](0)   # inlet~ -> *~
+  conn [3](0) -> [2](0)   # *~ -> outlet~
+
+===== compressor~/sub0:hv.envfollow/sub2:hv.multiplex/sub1:@hv_obj args=[] =====
+  [  0] L71    inlet~
+  [  1] L72    inlet~
+  [  2] L73    outlet~
+  [  3] L74    sig~ 1
+  [  4] L75    -~
+  [  5] L76    *~
+  conn [0](0) -> [5](1)   # inlet~ -> *~
+  conn [1](0) -> [4](1)   # inlet~ -> -~
+  conn [3](0) -> [4](0)   # sig~ 1 -> -~
+  conn [4](0) -> [5](0)   # -~ -> *~
+  conn [5](0) -> [2](0)   # *~ -> outlet~
+
+===== compressor~/sub0:hv.envfollow/sub2:hv.multiplex/sub2:@hv_obj args=[] =====
+  [  0] L84    inlet~
+  [  1] L85    inlet~
+  [  2] L86    outlet~
+  [  3] L87    +~, f 9
+  conn [0](0) -> [3](1)   # inlet~ -> +~, f 9
+  conn [1](0) -> [3](0)   # inlet~ -> +~, f 9
+  conn [3](0) -> [2](0)   # +~, f 9 -> outlet~
+
+===== compressor~/sub0:hv.envfollow/sub2:hv.multiplex/sub3:@hv_obj args=[] =====
+  [  0] L97    -~
+  [  1] L98    clip~ -1e-37 0
+  [  2] L99    inlet~
+  [  3] L100   inlet~
+  [  4] L101   outlet~
+  [  5] L102   *~ 1e+37
+  [  6] L103   min~
+  [  7] L104   +~ 1e-37
+  conn [0](0) -> [1](0)   # -~ -> clip~ -1e-37 0
+  conn [1](0) -> [7](0)   # clip~ -1e-37 0 -> +~ 1e-37
+  conn [2](0) -> [6](0)   # inlet~ -> min~
+  conn [3](0) -> [6](1)   # inlet~ -> min~
+  conn [3](0) -> [0](1)   # inlet~ -> -~
+  conn [5](0) -> [4](0)   # *~ 1e+37 -> outlet~
+  conn [6](0) -> [0](0)   # min~ -> -~
+  conn [7](0) -> [5](0)   # +~ 1e-37 -> *~ 1e+37
+
+===== expander~ args=[] =====
+  [  0] L2     inlet~
+  [  1] L3     inlet
+  [  2] L4     1 {1}
+  [  3] L5     /
+  [  4] L6     inlet
+  [  5] L7     *~
+  [  6] L8     outlet~
+  [  7] L9     1 {1}
+  [  8] L10    -
+  [  9] L11    max 1
+  [ 10] L12    env~ 512
+  [ 11] L13    - 100
+  [ 12] L14    min 0
+  [ 13] L15    * 2
+  [ 14] L16    - -20
+  [ 15] L17    line~
+  [ 16] L18    +~ 100
+  [ 17] L19    dbtorms~
+  [ 18] L20    {1} 11
+  conn [0](0) -> [5](0)   # inlet~ -> *~
+  conn [0](0) -> [10](0)   # inlet~ -> env~ 512
+  conn [1](0) -> [14](1)   # inlet -> - -20
+  conn [2](0) -> [3](0)   # 1 {1} -> /
+  conn [3](0) -> [7](0)   # / -> 1 {1}
+  conn [4](0) -> [9](0)   # inlet -> max 1
+  conn [5](0) -> [6](0)   # *~ -> outlet~
+  conn [7](0) -> [8](0)   # 1 {1} -> -
+  conn [8](0) -> [13](1)   # - -> * 2
+  conn [9](0) -> [2](0)   # max 1 -> 1 {1}
+  conn [10](0) -> [11](0)   # env~ 512 -> - 100
+  conn [11](0) -> [14](0)   # - 100 -> - -20
+  conn [12](0) -> [18](0)   # min 0 -> {1} 11
+  conn [13](0) -> [12](0)   # * 2 -> min 0
+  conn [14](0) -> [13](0)   # - -20 -> * 2
+  conn [15](0) -> [16](0)   # line~ -> +~ 100
+  conn [16](0) -> [17](0)   # +~ 100 -> dbtorms~
+  conn [17](0) -> [5](1)   # dbtorms~ -> *~
+  conn [18](0) -> [15](0)   # {1} 11 -> line~
+
+===== ma.tanh~ args=[] =====
+  [  0] L2     inlet~
+  [  1] L3     clip~ -3 3
+  [  2] L4     *~
+  [  3] L5     outlet~
+  [  4] L6     /~
+  [  5] L7     *~
+  [  6] L8     *~ 9
+  [  9] L11    +~ 27
+  [ 10] L12    +~ 27
+  conn [0](0) -> [1](0)   # inlet~ -> clip~ -3 3
+  conn [1](0) -> [2](0)   # clip~ -3 3 -> *~
+  conn [1](0) -> [2](1)   # clip~ -3 3 -> *~
+  conn [1](0) -> [5](0)   # clip~ -3 3 -> *~
+  conn [2](0) -> [9](0)   # *~ -> +~ 27
+  conn [2](0) -> [6](0)   # *~ -> *~ 9
+  conn [4](0) -> [5](1)   # /~ -> *~
+  conn [5](0) -> [3](0)   # *~ -> outlet~
+  conn [6](0) -> [10](0)   # *~ 9 -> +~ 27
+  conn [9](0) -> [4](0)   # +~ 27 -> /~
+  conn [10](0) -> [4](1)   # +~ 27 -> /~

@@ -1,0 +1,15 @@
+#N canvas 0 0 450 300 10;
+#X obj 50 50 loadbang;
+#X msg 50 90 \; pd dsp 1;
+#X obj 150 50 noise~;
+#X obj 150 90 snapshot~;
+#X obj 150 130 print val;
+#X obj 220 90 metro 100;
+#X obj 220 50 loadbang;
+#X obj 150 170 print~ blk;
+#X connect 0 0 1 0;
+#X connect 2 0 3 0;
+#X connect 2 0 7 0;
+#X connect 3 0 4 0;
+#X connect 5 0 3 0;
+#X connect 6 0 5 0;

@@ -1,0 +1,275 @@
+
+===== pd gui (main synth canvas)  (_LIRA-8.pd:3) args=[] =====
+  [  0] L4     cnv 19 383 675 empty empty LIRA•8 308 195 0 20 #f8a4c4 #000000 0
+  [  1] L6     vsl 19 128 0 127 0 0 $0-s-tune-1 $0-r-tune-1 TUNE -5 -9 0 14 #fcfcfc #000000 #000000 0 1
+  [  2] L8     hsl 54 19 0 127 0 0 $0-s-sharp-12 $0-r-sharp-12 SHARP 5 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [  3] L10    hsl 54 19 0 127 0 0 $0-s-mod-12 $0-r-mod-12 MOD 14 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [  4] L12    vsl 19 128 0 127 0 0 $0-s-tune-2 $0-r-tune-2 TUNE -5 -9 0 14 #fcfcfc #000000 #000000 0 1
+  [  5] L14    tgl 17 0 $0-s-fast-12 $0-r-fast-12 FAST -5 -7 0 12 #fcfcfc #000000 #000000 0 1
+  [  6] L16    cnv 19 29 50 empty empty empty 20 12 0 14 #000000 #404040 0
+  [  7] L18    tgl 19 0 $0-s-sensor-1 $0-r-sensor-1 1 5 -10 0 14 #fcfcfc #000000 #fcfcfc 0 1
+  [  8] L20    cnv 19 29 50 empty empty empty 20 12 0 14 #000000 #404040 0
+  [  9] L22    tgl 19 0 $0-s-sensor-2 $0-r-sensor-2 2 5 -10 0 14 #fcfcfc #000000 #fcfcfc 0 1
+  [ 10] L24    cnv 19 29 50 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 11] L26    tgl 19 0 $0-s-sensor-3 $0-r-sensor-3 3 5 -10 0 14 #fcfcfc #000000 #fcfcfc 0 1
+  [ 12] L28    cnv 19 29 50 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 13] L30    tgl 19 0 $0-s-sensor-4 $0-r-sensor-4 4 5 -10 0 14 #fcfcfc #000000 #fcfcfc 0 1
+  [ 14] L32    cnv 19 29 50 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 15] L34    tgl 19 0 $0-s-sensor-5 $0-r-sensor-5 5 5 -10 0 14 #fcfcfc #000000 #fcfcfc 0 1
+  [ 16] L36    cnv 19 29 50 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 17] L38    tgl 19 0 $0-s-sensor-6 $0-r-sensor-6 6 5 -10 0 14 #fcfcfc #000000 #fcfcfc 0 1
+  [ 18] L40    cnv 19 29 50 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 19] L42    tgl 19 0 $0-s-sensor-7 $0-r-sensor-7 7 5 -10 0 14 #fcfcfc #000000 #fcfcfc 0 1
+  [ 20] L44    cnv 19 29 50 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 21] L46    tgl 19 0 $0-s-sensor-8 $0-r-sensor-8 8 5 -10 0 14 #fcfcfc #000000 #fcfcfc 0 1
+  [ 22] L48    hsl 128 19 0 127 0 0 $0-s-pitch-1234 $0-r-pitch-1234 PITCH 40 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [ 23] L50    hsl 128 19 0 127 0 0 $0-s-pitch-5678 $0-r-pitch-5678 PITCH 40 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [ 24] L52    hradio 19 1 0 3 $0-s-source-12 $0-r-source-12 34 20 -7 0 14 #fcfcfc #000000 #000000 0
+  [ 25] L54    vsl 19 128 0 127 0 0 $0-s-tune-3 $0-r-tune-3 TUNE -5 -9 0 14 #fcfcfc #000000 #000000 0 1
+  [ 26] L56    vsl 19 128 0 127 0 0 $0-s-tune-4 $0-r-tune-4 TUNE -5 -10 0 14 #fcfcfc #000000 #000000 0 1
+  [ 27] L58    vsl 19 128 0 127 0 0 $0-s-tune-5 $0-r-tune-5 TUNE -5 -10 0 14 #fcfcfc #000000 #000000 0 1
+  [ 28] L60    vsl 19 128 0 127 0 0 $0-s-tune-6 $0-r-tune-6 TUNE -5 -10 0 14 #fcfcfc #000000 #000000 0 1
+  [ 29] L62    vsl 19 128 0 127 0 0 $0-s-tune-7 $0-r-tune-7 TUNE -5 -10 0 14 #fcfcfc #000000 #000000 0 1
+  [ 30] L64    vsl 19 128 0 127 0 0 $0-s-tune-8 $0-r-tune-8 TUNE -5 -10 0 14 #fcfcfc #000000 #000000 0 1
+  [ 31] L66    hsl 54 19 0 127 0 0 $0-s-sharp-34 $0-r-sharp-34 SHARP 5 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [ 32] L68    hsl 54 19 0 127 0 0 $0-s-sharp-56 $0-r-sharp-56 SHARP 5 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [ 33] L70    hsl 54 19 0 127 0 0 $0-s-sharp-78 $0-r-sharp-78 SHARP 5 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [ 34] L72    hsl 54 19 0 127 0 0 $0-s-mod-34 $0-r-mod-34 MOD 14 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [ 35] L74    hsl 54 19 0 127 0 0 $0-s-mod-56 $0-r-mod-56 MOD 14 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [ 36] L76    hsl 54 19 0 127 0 0 $0-s-mod-78 $0-r-mod-78 MOD 14 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [ 37] L78    tgl 17 0 $0-s-fast-34 $0-r-fast-34 FAST -5 -7 0 12 #fcfcfc #000000 #000000 0 1
+  [ 38] L80    tgl 17 0 $0-s-fast-56 $0-r-fast-56 FAST -5 -7 0 12 #fcfcfc #000000 #000000 0 1
+  [ 39] L82    tgl 17 0 $0-s-fast-78 $0-r-fast-78 FAST -5 -7 0 12 #fcfcfc #000000 #000000 0 1
+  [ 40] L84    cnv 3 3 200 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 41] L86    cnv 3 3 240 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 42] L88    cnv 3 3 240 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 43] L90    cnv 3 3 240 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 44] L92    cnv 3 29 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 45] L94    cnv 3 29 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 46] L96    cnv 3 29 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 47] L98    cnv 3 16 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 48] L100   cnv 3 16 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 49] L102   cnv 3 19 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 50] L104   cnv 3 19 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 51] L106   cnv 3 19 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 52] L108   cnv 3 11 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 53] L110   cnv 3 3 200 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 54] L112   cnv 3 11 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 55] L114   hsl 128 19 0 127 0 0 $0-s-hold-5678 $0-r-hold-5678 HOLD 45 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [ 56] L116   tgl 17 0 $0-s-switch $0-r-switch SWITCH -13 -7 0 12 #fcfcfc #000000 #000000 0 1
+  [ 57] L118   tgl 17 0 $0-s-total-fb $0-r-total-fb TOTAL-FB -20 -7 0 12 #fcfcfc #000000 #000000 0 1
+  [ 58] L120   tgl 17 0 $0-s-vibrato $0-r-vibrato VIBRATO -15 -7 0 12 #fcfcfc #000000 #000000 0 1
+  [ 59] L122   8
+  [ 60] L123   until
+  [ 61] L124   i
+  [ 62] L125   + 1
+  [ 63] L126   t f f
+  [ 64] L127   list prepend
+  [ 65] L128   + 1
+  [ 66] L129   + 1
+  [ 67] L130   % 8
+  [ 68] L131   cnv 19 95 20 empty empty HYPER-LFO 5 11 0 14 #000000 #fcfcfc 0
+  [ 69] L133   cnv 19 95 20 empty empty DISTORTION 10 11 0 14 #000000 #fcfcfc 0
+  [ 70] L135   cnv 19 95 20 empty empty MOD-DELAY 12 11 0 14 #000000 #fcfcfc 0
+  [ 71] L137   cnv 3 3 160 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 72] L139   cnv 3 3 160 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 73] L141   cnv 3 383 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 74] L143   hradio 19 1 0 3 $0-s-source-34 $0-r-source-34 12 20 -7 0 14 #fcfcfc #000000 #000000 0
+  [ 75] L145   hradio 19 1 0 3 $0-s-source-56 $0-r-source-56 78 20 -7 0 14 #fcfcfc #000000 #000000 0
+  [ 76] L147   hradio 19 1 0 3 $0-s-source-78 $0-r-source-78 56 20 -7 0 14 #fcfcfc #000000 #000000 0
+  [ 77] L149   hsl 128 19 0 127 0 0 $0-s-hold-1234 $0-r-hold-1234 HOLD 45 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [ 78] L151   route 1 2 3 4 5 6 7 8
+  [ 79] L152   receive $\\{0}-tune-\\{1}
+  [ 80] L153   hradio 19 1 0 2 $0-s-lfo-wav $0-r-lfo-wav TRI 0 -8 0 14 #000000 #fcfcfc #000000 0
+  [ 81] L155   hradio 19 1 0 3 $0-s-del-mod $0-r-del-mod LFO 0 -7 0 14 #000000 #fcfcfc #000000 0
+  [ 82] L157   hsl 95 19 0 127 0 0 $0-s-time-2 $0-r-time-2 TIME-2 23 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [ 83] L159   hsl 54 19 0 127 0 0 $0-s-mod-2 $0-r-mod-2 MOD-2 6 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [ 84] L161   hsl 95 19 0 127 0 0 $0-s-time-1 $0-r-time-1 TIME-1 23 -8 0 14 #000000 #fcfcfc #000000 0 1
+  [ 85] L163   hsl 54 19 0 127 0 0 $0-s-mod-1 $0-r-mod-1 MOD-1 6 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [ 86] L165   vsl 19 128 0 127 0 0 $0-s-vol $0-r-vol VOL -2 -9 0 14 #000000 #fcfcfc #000000 0 1
+  [ 87] L167   vsl 19 128 0 127 0 0 $0-s-dst-mix $0-r-dst-mix MIX -2 -9 0 14 #000000 #fcfcfc #000000 0 1
+  [ 88] L169   vsl 19 128 0 127 0 0 $0-s-drv $0-r-drv DRV -2 -9 0 14 #000000 #fcfcfc #000000 0 1
+  [ 89] L171   vsl 19 128 0 127 0 0 $0-s-f-b $0-r-f-b F-B -2 -9 0 14 #000000 #fcfcfc #000000 0 1
+  [ 90] L173   vsl 19 128 0 127 0 0 $0-s-f-a $0-r-f-a F-A -2 -9 0 14 #000000 #dcdcdc #000000 0 1
+  [ 91] L175   vradio 19 1 0 2 $0-s-andor $0-r-andor OR 2 -7 0 14 #000000 #fcfcfc #000000 0
+  [ 92] L177   bng 19 50 10 0 empty $0-r-led empty 17 7 0 10 #000000 #00fc04 #000000
+  [ 93] L179   cnv 15 15 15 empty empty ORGANISMIC 0 8 0 12 #f8a4c4 #000000 0
+  [ 94] L181   cnv 15 15 15 empty empty SYNTHESIZER 0 8 0 10 #f8a4c4 #000000 0
+  [ 95] L183   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 96] L252   declare -path ./abs
+  [ 97] L279   cnv 3 10 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 98] L281   cnv 3 10 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [ 99] L283   cnv 3 11 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [100] L285   cnv 3 11 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [101] L287   cnv 3 3 35 empty empty empty 20 12 0 14 #000000 #404040 0
+  [102] L289   cnv 3 3 35 empty empty empty 20 12 0 14 #000000 #404040 0
+  [103] L291   cnv 3 10 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [104] L293   cnv 3 10 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [105] L295   cnv 3 11 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [106] L297   cnv 3 11 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [107] L299   cnv 3 3 35 empty empty empty 20 12 0 14 #000000 #404040 0
+  [108] L301   cnv 3 3 35 empty empty empty 20 12 0 14 #000000 #404040 0
+  [111] L305   tgl 19 0 $0-s-link $0-r-link LINK -4 -8 0 14 #000000 #fcfcfc #000000 0 1
+  [112] L307   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [113] L309   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [114] L311   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [115] L313   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [116] L315   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [117] L317   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [118] L319   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [119] L321   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [120] L323   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [121] L325   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [122] L327   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [123] L329   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [124] L331   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [125] L333   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [126] L335   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [127] L337   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [128] L339   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [129] L341   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [130] L343   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [131] L345   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [132] L347   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [133] L349   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [134] L351   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [135] L353   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [136] L355   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [137] L357   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [138] L359   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [139] L361   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [140] L363   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [141] L365   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [142] L367   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [143] L369   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [144] L371   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [145] L373   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [146] L375   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [147] L377   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [148] L379   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [149] L381   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [150] L383   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [151] L385   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [152] L387   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [153] L389   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [154] L391   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [155] L393   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [156] L395   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [157] L397   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [158] L399   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [159] L401   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [160] L403   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [161] L405   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [162] L407   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [163] L409   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [164] L411   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [165] L413   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [166] L415   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [167] L417   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [168] L419   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [169] L421   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [170] L423   cnv 4 4 4 empty empty empty 20 12 0 14 #000000 #404040 0
+  [171] L425   cnv 3 3 24 empty empty empty 20 12 0 14 #000000 #404040 0
+  [172] L427   cnv 3 11 3 empty empty empty 20 12 0 14 #000000 #404040 0
+  [173] L429   hsl 95 19 0 127 0 0 $0-s-del-mix $0-r-del-mix MIX 35 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [174] L431   hsl 95 19 0 127 0 0 $0-s-feedback $0-r-feedback FEEDBACK 16 -7 0 14 #000000 #fcfcfc #000000 0 1
+  [175] L433   text define -k $0-tune
+  [176] L436   loadbang
+  [177] L437   t b b
+  [178] L438   realtime
+  [179] L439   * 1000
+  [180] L440   i
+  [181] L441   s $0-seed
+  [182] L442   del 200
+  [183] L443   lira.voice $0 1 2
+  [184] L540   lira.voice $0 3 4
+  [185] L541   lira.voice $0 5 6
+  [186] L542   lira.voice $0 7 8
+  [187] L543   prm.source $0 1 2 3 4 7 8
+  [188] L544   prm.source $0 3 4 1 2 1 2
+  [189] L545   prm.source $0 5 6 7 8 3 4
+  [190] L546   prm.source $0 7 8 5 6 5 6
+  [191] L672   prm.pitch $0 1 2 3 4
+  [192] L673   prm.pitch $0 5 6 7 8
+  [193] L920   r $0-s-dsp
+  [194] L921   dsp {1}
+  [195] L922   s pd
+  [196] L923   print -n
+  [197] L924   loadbang
+  [198] L925   loadbang
+  [199] L926   1
+  [200] L927   s $0-r-dsp
+  [201] L1071  notein
+  [202] L1072  pack f f
+  [203] L1073  list prepend all
+  [204] L1074  list trim
+  [205] L1075  outlet~
+  [206] L1076  cputime
+  [207] L1077  loadbang
+  [208] L1078  metro 1000
+  [209] L1079  t b b
+  [210] L1080  * 0.1
+  [211] L1081  int
+  [212] L1082  s $0-r-cpu
+  [213] L1083  LIRA-8 by Mike Moreno DSP 2020
+  [214] L1084  1
+  [215] L1111  clone -s 1 notemap 8 $0
+  [216] L1112  *~ 0.166667
+  [217] L1113  tgl 17 0 $0-s-quantize $0-r-quantize QUANTIZE -18 -7 0 12 #fcfcfc #000000 #000000 0 1
+  conn [59](0) -> [60](0)   # 8 -> until
+  conn [60](0) -> [61](0)   # until -> i
+  conn [61](0) -> [67](0)   # i -> % 8
+  conn [62](0) -> [61](1)   # + 1 -> i
+  conn [63](0) -> [66](0)   # t f f -> + 1
+  conn [63](1) -> [65](0)   # t f f -> + 1
+  conn [64](0) -> [78](0)   # list prepend -> route 1 2 3 4 5 6 7 8
+  conn [65](0) -> [64](1)   # + 1 -> list prepend
+  conn [66](0) -> [79](0)   # + 1 -> receive $\\{0}-tune-\\{1}
+  conn [67](0) -> [62](0)   # % 8 -> + 1
+  conn [67](0) -> [63](0)   # % 8 -> t f f
+  conn [79](0) -> [64](0)   # receive $\\{0}-tune-\\{1} -> list prepend
+  conn [176](0) -> [177](0)   # loadbang -> t b b
+  conn [177](0) -> [178](0)   # t b b -> realtime
+  conn [177](1) -> [182](0)   # t b b -> del 200
+  conn [178](0) -> [179](0)   # realtime -> * 1000
+  conn [179](0) -> [180](0)   # * 1000 -> i
+  conn [180](0) -> [181](0)   # i -> s $0-seed
+  conn [182](0) -> [178](1)   # del 200 -> realtime
+  conn [183](0) -> [216](0)   # lira.voice $0 1 2 -> *~ 0.166667
+  conn <sub:master_output>(0) -> [205](0)   # <sub:master_output> -> outlet~
+  conn [184](0) -> [216](0)   # lira.voice $0 3 4 -> *~ 0.166667
+  conn [185](0) -> [216](0)   # lira.voice $0 5 6 -> *~ 0.166667
+  conn [186](0) -> [216](0)   # lira.voice $0 7 8 -> *~ 0.166667
+  conn [187](0) -> [183](0)   # prm.source $0 1 2 3 4 7 8 -> lira.voice $0 1 2
+  conn [188](0) -> [184](0)   # prm.source $0 3 4 1 2 1 2 -> lira.voice $0 3 4
+  conn [189](0) -> [185](0)   # prm.source $0 5 6 7 8 3 4 -> lira.voice $0 5 6
+  conn [190](0) -> [186](0)   # prm.source $0 7 8 5 6 5 6 -> lira.voice $0 7 8
+  conn [191](0) -> [184](1)   # prm.pitch $0 1 2 3 4 -> lira.voice $0 3 4
+  conn [191](0) -> [183](1)   # prm.pitch $0 1 2 3 4 -> lira.voice $0 1 2
+  conn [192](0) -> [186](1)   # prm.pitch $0 5 6 7 8 -> lira.voice $0 7 8
+  conn [192](0) -> [185](1)   # prm.pitch $0 5 6 7 8 -> lira.voice $0 5 6
+  conn <sub:delay>(0) -> <sub:master_output>(0)   # <sub:delay> -> <sub:master_output>
+  conn [193](0) -> [194](0)   # r $0-s-dsp -> dsp {1}
+  conn [194](0) -> [195](0)   # dsp {1} -> s pd
+  conn [197](0) -> [213](0)   # loadbang -> LIRA-8 by Mike Moreno DSP 2020
+  conn [198](0) -> [199](0)   # loadbang -> 1
+  conn [199](0) -> [200](0)   # 1 -> s $0-r-dsp
+  conn [201](0) -> [202](0)   # notein -> pack f f
+  conn [201](1) -> [202](1)   # notein -> pack f f
+  conn [202](0) -> [203](0)   # pack f f -> list prepend all
+  conn [203](0) -> [204](0)   # list prepend all -> list trim
+  conn [204](0) -> [215](0)   # list trim -> clone -s 1 notemap 8 $0
+  conn [206](0) -> [211](0)   # cputime -> int
+  conn [207](0) -> [214](0)   # loadbang -> 1
+  conn [208](0) -> [209](0)   # metro 1000 -> t b b
+  conn [209](0) -> [206](0)   # t b b -> cputime
+  conn [209](1) -> [206](1)   # t b b -> cputime
+  conn [210](0) -> [212](0)   # * 0.1 -> s $0-r-cpu
+  conn [211](0) -> [210](0)   # int -> * 0.1
+  conn [213](0) -> [196](0)   # LIRA-8 by Mike Moreno DSP 2020 -> print -n
+  conn [214](0) -> [208](0)   # 1 -> metro 1000
+  conn <sub:prm.hold>(0) -> [183](2)   # <sub:prm.hold> -> lira.voice $0 1 2
+  conn <sub:prm.hold>(0) -> [184](2)   # <sub:prm.hold> -> lira.voice $0 3 4
+  conn <sub:prm.hold>(0) -> [185](2)   # <sub:prm.hold> -> lira.voice $0 5 6
+  conn <sub:prm.hold>(0) -> [186](2)   # <sub:prm.hold> -> lira.voice $0 7 8
+  conn [216](0) -> <sub:delay>(0)   # *~ 0.166667 -> <sub:delay>

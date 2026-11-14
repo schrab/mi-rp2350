@@ -1,0 +1,13 @@
+#N canvas 0 0 450 300 10;
+#X obj 50 50 loadbang;
+#X msg 50 90 \; pd dsp 1;
+#X obj 50 10 loadbang;
+#X obj 50 130 noise~;
+#X obj 50 170 print~ nz;
+#X obj 200 50 loadbang;
+#X obj 200 90 delay 200;
+#X msg 200 130 \; pd quit;
+#X connect 0 0 1 0;
+#X connect 3 0 4 0;
+#X connect 5 0 6 0;
+#X connect 6 0 7 0;
