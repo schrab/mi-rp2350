@@ -156,8 +156,8 @@ class Lira8Engine {
       vp.set_tune(0, (int)params_[p * 2]);
       vp.set_tune(1, (int)params_[p * 2 + 1]);
       vp.set_fast(params_[8 + p] >= 0.5f);
-      vp.set_sharp((int)params_[12 + p]);
-      vp.set_mod((int)params_[16 + p]);
+      vp.set_sharp(params_[12 + p]);
+      vp.set_mod(params_[16 + p]);
       vp.set_pitch((int)params_[24 + p / 2]);
       vp.set_hold((int)params_[26 + p / 2]);
       vp.set_quantize(params_[46] != 0.0f ? 1 : 0);   // CC 53 (was never applied)
@@ -276,8 +276,13 @@ class Lira8Engine {
     const float gate_self = (del_mod_ == 0) ? 0.999f : 0.001f;
     const float gate_lfo = (del_mod_ == 2) ? 0.999f : 0.001f;
     for (int i = 0; i < kBlockSize; ++i) {
-      in_sum[i] = (buses_prev_[0][i] + buses_prev_[1][i] +
-                   buses_prev_[2][i] + buses_prev_[3][i]) * kInv6;
+      // pd: the delay INPUT sums the four voice subpatch OUTLETS = the raw
+      // current-block pair sums (the hip~3'd copy goes only to the s~ del
+      // mod bus). v1 used buses_prev_ -> a 2 ms lag + a 3 Hz HPF in the
+      // dry/feedback path (verified from the voice dump: +~ -> outlet~,
+      // +~ -> hip~3 -> s~ del).
+      in_sum[i] = (blk_[0][i] + blk_[1][i] +
+                   blk_[2][i] + blk_[3][i]) * kInv6;
       // pd: the noise~ joins ONLY at [19] (the write summers) — the dry
       // path takes the clean inlet~ signal (floor measurement 2026-11-15).
       write_sum[i] = in_sum[i] + noise_.next() * 0.001f;
@@ -301,8 +306,14 @@ class Lira8Engine {
         rp[i] = t + (self * gate_self + lfo * gate_lfo) * ma;
       }
       delays_[b].read_block(rp, kBlockSize, vd_out_[b]);
+      // SELF = the SECOND vd~ at MINIMUM delay (unconnected time inlet),
+      // constant across the block; the main vd_out is the wet read, which
+      // can stand hundreds of ms away (v1 used it, so the self-mod followed
+      // the delayed wet instead of the recent buffer). The /2 of pd's
+      // wiring commutes with the linear lop~.
+      const float self_tap = delays_[b].read_min_tap();
       for (int i = 0; i < kBlockSize; ++i)
-        self_next_[b][i] = self_lpf_[b].process(vd_out_[b][i]) * 0.5f;
+        self_next_[b][i] = self_lpf_[b].process(self_tap) * 0.5f;
 
       // chain: hip~1 -> lop~4000 -> comp -> exp
       for (int i = 0; i < kBlockSize; ++i) {

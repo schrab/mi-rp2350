@@ -3138,3 +3138,33 @@ drone-all 0.498→0.536; single-pair 0.748→0.739, flat). On device: max
 Process 1259-1432 us (delay stage +~10 us for the per-sample ramps), i2s
 stalls 0. Batch B (polyBLEP falling edge, delay-input source, SELF tap,
 vd~ tap alignment, expander dB ramp) awaits verification against the Pd dump.
+
+### Rack-lira8 correctness batch B (2026-11-15, review claims verified + fixed)
+
+Each claim was checked against the Pd source/resolved dump before changing:
+1. **vd~ tap window shifted +1**: pd sigvd_perform uses bp = wp - idelsamps and
+   d=bp[-3], c=bp[-2], b=bp[-1], a=bp[0]; the port started at bp[-1] for b
+   (reads landed one sample late, D-1). Taps corrected.
+2. **Delay input source**: the voice subpatch's signal OUTLET is the raw
+   current-block pair sum (+~ -> outlet~); the hip~3'd copy goes only to the
+   s~ del mod bus. The port summed buses_prev_ (hip~3'd, one block late) for
+   the dry/write path -> 2 ms lag + 3 Hz HPF. Now sums blk_ (current raw).
+3. **SELF tap**: pd has a SECOND vd~ per bus with an UNCONNECTED time inlet
+   (minimum delay, output constant across the block) -> /2 -> lop~689.
+   The port fed the main wet vd_out back as SELF. Added ModDelay::read_min_tap()
+   (most recent sample; one block of absolute lag on the mod source only).
+4. **polyBLEP falling-edge term**: the abs patch computes (p-1)/n + 1 = u+1;
+   the port added +1 before the square (=> u+2). Fixed in both edges.
+5. **Expander line~ domain**: pd ramps the dB value over 11 ms then
+   dbtorms~ per sample; the port ramped LINEAR gain from 0 instead of 0 dB =
+   unity. Now a constant per-sample gain ratio (exactly the exponential
+   dB-linear curve, one powf per env~ fire) starting at 1.0.
+6. **Fractional saved defaults**: set_sharp/set_mod take the raw float (pd
+   defaults 14.377/43.132/... were truncated by (int)).
+
+Verification: host tests green; onevoice harmonic table still matches the Pd
+golden within 0.02% per harmonic; Pd 0.5 s RMS-trajectory corr improved
+again: single-pair 0.739->0.838, delay-extremes 0.972->0.985, fuzz-push
+0.998->0.999, transients 0.859 (flat), drone-all 0.536->0.502 (chaotic/
+phase-sensitive; RMS ratio 0.0 dB). On device: max Process 1252-1475 us,
+delay stage +~20 us (SELF tap + dB ramp), i2s stalls 0.

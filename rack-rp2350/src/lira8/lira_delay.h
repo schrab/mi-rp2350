@@ -58,10 +58,13 @@ class ModDelay {
       // bp = write_head − idelsamps (relative to data region [4, 4+nsamps))
       int idx = phase_ - idelsamps;
       if (idx < 4) idx += nsamps_;
-      const float a = s2f(buf_[idx + 1]);
-      const float b = s2f(buf_[idx]);
-      const float c = s2f(buf_[idx - 1]);
-      const float d = s2f(buf_[idx - 2]);
+      // pd sigvd_perform: bp = wp - idelsamps; d = bp[-3], c = bp[-2],
+      // b = bp[-1], a = bp[0]. The v1 port started at bp[-1] for b (window
+      // shifted +1): reads landed one sample late (D-1).
+      const float a = s2f(buf_[idx]);
+      const float b = s2f(buf_[idx - 1]);
+      const float c = s2f(buf_[idx - 2]);
+      const float d = s2f(buf_[idx - 3]);
       const float cminusb = c - b;
       out[i] = b + frac * (cminusb - 0.1666667f * (1.0f - frac) *
                                                ((d - a - 3.0f * cminusb) * frac +
@@ -69,8 +72,16 @@ class ModDelay {
     }
   }
 
-  LIRA8_TC(lira_delay_write)
-  void write_block(const float* in, int n) {
+// pd SELF tap = a SECOND vd~ whose time inlet is UNCONNECTED (time 0 ->
+    // minimum delay); its output is constant across the whole block. This
+    // port reads before writing, so the most recent available sample is the
+    // previous block's last write (one block of absolute lag on a
+    // modulation source only — the audio path keeps its own timing).
+    LIRA8_TC(lira_delay_min_tap)
+    float read_min_tap() const { return s2f(buf_[phase_ - 1]); }
+
+    LIRA8_TC(lira_delay_write)
+    void write_block(const float* in, int n) {
     for (int i = 0; i < n; ++i) {
       buf_[phase_++] = f2s(in[i]);
       if (phase_ == nsamps_ + 4) {  // wrap: copy last 4 to head (pd verbatim)
@@ -149,9 +160,12 @@ class Compander {
 // ---------- expander~ (env~ 512 RMS in dB domain) ----------
 // gain_dB = min(0, (env_dB - thresh_dB) * (1 - 1/ratio)); on each env~ fire
 // the target goes through msg "$1 11" -> line~ (11 ms) -> +100 -> dbtorms~.
+// pd ramps the dB value, so the gain follows an EXPONENTIAL curve; a
+// constant per-sample gain ratio is exactly that curve. v1 ramped the
+// LINEAR gain and started from 0 instead of 0 dB = unity.
 class Expander {
  public:
-  Expander(float sr) : env_(512, 64, sr), line_(sr) {}
+  Expander(float sr) : sr_(sr), env_(512, 64, sr) {}
   void set(float thresh_db, float ratio) {
     thresh_ = thresh_db;
     slope_ = 1.0f - 1.0f / ratio;
@@ -162,15 +176,36 @@ class Expander {
     float db = 0.f;
     if (env_.process_block(in, n, &db)) {   // env~ fires every 256 samples
       const float gdb = std::fmin(0.0f, (db - 100.0f - thresh_) * slope_);
-      line_.set(dbtorms(gdb + 100.0f), 11.0f);
+      const float target = dbtorms(gdb + 100.0f);
+      int ns = static_cast<int>(11.0f * sr_ * 0.001f);   // line~ 11 ms
+      if (ns < 1) ns = 1;
+      target_ = target;
+      if (target <= 0.0f || gain_ <= 0.0f) {
+        gain_ = target;
+        ratio_ = 1.0f;
+        step_left_ = 0;
+      } else {
+        ratio_ = std::pow(target / gain_, 1.0f / static_cast<float>(ns));
+        step_left_ = ns;
+      }
     }
-    for (int i = 0; i < n; ++i) out[i] = in[i] * line_.next();
+    for (int i = 0; i < n; ++i) {
+      out[i] = in[i] * gain_;
+      if (step_left_ > 0) {
+        gain_ *= ratio_;
+        if (--step_left_ == 0) gain_ = target_;
+      }
+    }
   }
 
  private:
+  float sr_;
   EnvRms env_;
-  Ramp line_;
   float thresh_ = -20.0f, slope_ = 0.8f;
+  float gain_ = 1.0f;      // pd line~ starts at 0 dB = unity
+  float ratio_ = 1.0f;
+  float target_ = 1.0f;
+  int step_left_ = 0;
 };
 
 }  // namespace l8pd

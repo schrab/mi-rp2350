@@ -129,8 +129,10 @@ class VoicePair {
     pitch_ = (v / 127.0f) * 1.99f + 0.01f;
   }
   void set_quantize(int v) { quantize_ = (v != 0); }
-  void set_sharp(int v) { sharp_raw_ = (v / 127.0f); sharp_.set(sharp_raw_ * sharp_raw_, 23.22f); }
-  void set_mod(int v) { mod_raw_ = (v / 127.0f); mod_.set(mod_raw_ * mod_raw_ * mod_raw_ * mod_raw_ * 2.0f, 23.22f); }
+  // sharp/mod take the RAW float (pd's saved defaults are fractional:
+// 14.377, 43.132, ...); the v1 (int) cast rounded the initial crossfade.
+  void set_sharp(float v) { sharp_raw_ = (v / 127.0f); sharp_.set(sharp_raw_ * sharp_raw_, 23.22f); }
+  void set_mod(float v) { mod_raw_ = (v / 127.0f); mod_.set(mod_raw_ * mod_raw_ * mod_raw_ * mod_raw_ * 2.0f, 23.22f); }
   void set_hold(int v) { hold_.set((v / 127.0f) * (v / 127.0f), 23.22f); }
   void set_vibrato(int v) { vib_.set(v / 127.0f, 23.22f); }
   void set_sensor(int osc /*0|1*/, bool on) {
