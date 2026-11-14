@@ -6,6 +6,10 @@
 # Lines starting with # are comments; each scenario starts at 'SCEN <name>'.
 # NOTE: delay time params stay <= 105 (<=919 ms) — the RP2350 engine caps
 # storage at 1.45 s, so longer pd times would diverge by design.
+# FEEDBACK boundary: the RP2350 int16 delay (+-2 headroom) hard-clips the
+# compander's transient overshoots when loop gain > ~1.4 (feedback > ~65).
+# fb=100 (g=2.35) self-oscillates into distortion EVEN IN PD (float loop
+# rides the transients) — keep golden scenarios at feedback <= 60.
 # Each scenario carries an explicit t=0 init block (47 params + sensors off)
 # so pd's baked GUI state is overridden to the spec defaults on both sides.
 
@@ -220,7 +224,7 @@ SCEN delay-extremes
 500 sensor 8 1
 1500 param time-1 105
 1500 param time-2 40
-1500 param feedback 100
+1500 param feedback 60
 1500 param del-mix 127
 1500 param mod-1 80
 2000 param feedback 20

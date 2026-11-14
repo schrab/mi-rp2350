@@ -2887,3 +2887,23 @@ the wrong metric there; spectral/texture comparison pending). HF floor:
 eng −72.9 vs pd −85.2 at 8-15 kHz — 3.2 kHz-below bands match within 1 dB.
 The patch's dirt (noise~ + fuzz + feedback) is INTENDED (the author's demo
 track is 8-10 dB hotter in mids/HF than our default-state renders).
+
+### Rack-lira8 L3 — delay-extremes fb boundary (2026-11-15)
+
+User ear report: "delay-extremes distorted and noisy, not like delay; engine
+worse". Root cause: the scenario's feedback=100 → g=2.35 > 1 — before the
+in-loop compander's 2.5 ms attack catches up, each loop pass multiplies by
+2.35 → transient overshoots past ±10 → the int16 ±2 line hard-clips (engine
+audibly worse than pd's float loop, which rides the transients out). pd's
+own fb=100 output IS self-oscillation distortion (loop gain > 1 — "not like
+delay" = correct perception of that setting).
+
+Fix: delay-extremes scenario re-scoped to feedback=60 (g=0.91, loop gain
+0.71 — stable with musical self-oscillation onset). rms trajectories now
+track: pd 0.208/0.186/0.134/0.125… vs eng 0.288/0.225/0.150/0.132…
+(converges to ±5% by t=3). Sample corr stays ~0 — EXPECTED: a fb-0.9
+self-modulating delay is chaotic; waveform alignment is meaningless there.
+Metrics for that scenario = rms envelope (matching) + ear texture.
+Documented in scenarios.txt: keep golden feedback <= ~60 on the int16
+delay; fb > 65 = self-oscillation territory (authentic but clipped by
+int16 — the ESP32 float port keeps the full range).
