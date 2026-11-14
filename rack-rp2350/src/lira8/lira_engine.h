@@ -282,11 +282,19 @@ class Lira8Engine {
       // path takes the clean inlet~ signal (floor measurement 2026-11-15).
       write_sum[i] = in_sum[i] + noise_.next() * 0.001f;
     }
+    // The feedback-gain line~ is ONE signal shared by both write summers
+    // AND the wet divisor (pd: one line~ -> both buses + the monitor).
+    // Advance it per sample, once per block.
+    float fg[kBlockSize];
+    for (int i = 0; i < kBlockSize; ++i) fg[i] = fb_line_.next();
     for (int b = 0; b < 2; ++b) {
-      const float t = time_line_[b].next();
-      const float ma = mod_line_[b].next();
       float rp[kBlockSize];
       for (int i = 0; i < kBlockSize; ++i) {
+        // time_/mod_ line~s are PER-BUS signals — advance them per sample.
+        // The v1 port advanced them once per 64-block: 23.22 ms smoothing
+        // became 1.49 s (feedback 743 ms), so every delay move crawled.
+        const float t = time_line_[b].next();
+        const float ma = mod_line_[b].next();
         const float self = self_prev_[b][i];   // own vd /2, lop~689'd
         const float lfo = (lfo_wav_ == 0) ? buses_prev_[4][i]
                                           : buses_prev_[5][i];
@@ -303,18 +311,21 @@ class Lira8Engine {
       }
       exp_[b].process_block(chain_buf_, kBlockSize, exp_out_[b]);
       // write = [19] + own feedback * shared smoothed gain
-      const float fg = fb_line_.next();
       for (int i = 0; i < kBlockSize; ++i) {
-        write_buf_[b][i] = write_sum[i] + exp_out_[b][i] * fg;
+        write_buf_[b][i] = write_sum[i] + exp_out_[b][i] * fg[i];
       }
       delays_[b].write_block(write_buf_[b], kBlockSize);
     }
     // wet monitor: (exp1+exp2)/2 / max(g,1.5) -> tanh -> mix with dry
-    const float dm = del_mix_line_.next();
-    const float g = fb_line_.value();
-    const float gc = (g > 1.5f) ? g : 1.5f;
     for (int i = 0; i < kBlockSize; ++i) {
-      const float wet = (exp_out_[0][i] + exp_out_[1][i]) * 0.5f / gc;
+      const float dm = del_mix_line_.next();
+      const float g = fg[i];
+      const float gc = (g > 1.5f) ? g : 1.5f;
+      float wet = (exp_out_[0][i] + exp_out_[1][i]) * 0.5f / gc;
+      // ma.tanh~ clips +-3 BEFORE the Pade (the pd object); without it the
+      // wet path can exceed 1.0 and keep growing inside the feedback loop.
+      if (wet > 3.0f) wet = 3.0f;
+      else if (wet < -3.0f) wet = -3.0f;
       const float shaped = wet * (27.0f + wet * wet) /
                            (27.0f + 9.0f * wet * wet);
       delay_out_[i] = shaped * dm + in_sum[i] * (1.0f - dm);

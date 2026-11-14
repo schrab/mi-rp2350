@@ -3110,3 +3110,31 @@ masks) and lira8's 47 params cannot fit two 16-cell pages. Implemented:
   unselectable (bench report "only elements clouds plaits rings"). n is now
   `kModuleCount` (5) and the bar max 4. Sweep check: a continuous turn sends
   0->1->2->3->4 while the pickup is skipped inside the echo window.
+
+### Rack-lira8 correctness batch A (2026-11-15, review-driven)
+
+Two parallel review agents (lira8 internals + optimized-code survey) found
+fidelity bugs; the four confirmed ones are fixed:
+1. **LFO-A was frozen**: `set_rate_a()` stored `ra_` but never called
+   `pa_.set_freq(mtof(ra_))` → the A phasor never advanced (F-A knob inert,
+   `square_a_` pinned +1, del-tri offset/half depth). Now set.
+2. **Delay line~s ran 64x too slow**: `time_line_`/`mod_line_` advanced once
+   per 64-block, `fb_line_` twice, `del_mix_line_` once → 23.22 ms smoothing
+   became 1.49 s (feedback 743 ms). Now per sample, with the feedback-gain
+   line advanced once per block and shared by both write summers + the wet
+   divisor (pd has ONE line~).
+3. **Sensor fast-mode re-ramp on every CC**: `apply_params()` calls
+   `set_fast()`; it re-ramped the attack of held sensors on ANY parameter
+   change. Now only acts when the FAST mode actually changes (and re-emits
+   the stored target for OFF sensors too).
+4. **Wet-monitor tanh missed the ±3 clip**: pd's ma.tanh~ clips before the
+   Pade; without it the wet path could exceed 1.0 and grow in the loop.
+
+Verification: host unit tests green; **onevoice render bit-identical**
+(rmsdiff -213 dB, corr 1.0000 — the spectral-exact gate untouched); vs the Pd
+goldens the 0.5 s RMS-trajectory correlation improved on 4/5 scenarios
+(delay-extremes 0.871→0.972, fuzz-push 0.978→0.998, transients 0.683→0.864,
+drone-all 0.498→0.536; single-pair 0.748→0.739, flat). On device: max
+Process 1259-1432 us (delay stage +~10 us for the per-sample ramps), i2s
+stalls 0. Batch B (polyBLEP falling edge, delay-input source, SELF tap,
+vd~ tap alignment, expander dB ramp) awaits verification against the Pd dump.

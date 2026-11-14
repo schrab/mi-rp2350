@@ -54,11 +54,17 @@ static const float kVibRate[4] = {2.732f, 3.290f, 2.684f, 3.260f};
 class SensorEnv {
  public:
   SensorEnv(float sr) : line_(sr) {}
-  // fast=true: attack/release 100/100 ms; fast=false: 200/8000 ms.
+  // pd's FAST toggle reaches the sensor's $0-trigger, which re-emits the
+  // STORED target with the new A/R times. apply_params() calls this on every
+  // CC, so only act when the mode actually changes — otherwise any knob turn
+  // restarted the attack ramp of every held pad (bench-found: smooth turned
+  // while holding = attack prolongs).
   void set_fast(bool fast) {
+    if (fast == fast_) return;
+    fast_ = fast;
     attack_ms_ = fast ? 100.0f : 200.0f;
     release_ms_ = fast ? 100.0f : 8000.0f;
-    if (on_) line_.set(1.0f, attack_ms_);   // s $0-trigger re-attack
+    line_.set(on_ ? 1.0f : 0.0f, on_ ? attack_ms_ : release_ms_);
   }
   void set(bool on) {
     on_ = on;
@@ -81,6 +87,7 @@ class SensorEnv {
   Ramp line_;
   float attack_ms_ = 100.0f, release_ms_ = 8000.0f;
   bool on_ = false;
+  bool fast_ = false;
 };
 
 class VoicePair {

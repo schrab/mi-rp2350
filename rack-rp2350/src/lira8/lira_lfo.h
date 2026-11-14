@@ -15,7 +15,14 @@ namespace l8pd {
 class HyperLfo {
  public:
   explicit HyperLfo(float sr) : sr_(sr) {}
-  void set_rate_a(int k) { ra_ = 127.0f * (k / 127.0f) * (k / 127.0f) - 75.0f; }
+  void set_rate_a(int k) {
+    ra_ = 127.0f * (k / 127.0f) * (k / 127.0f) - 75.0f;
+    // The v1 port stored ra_ but never set the phasor's frequency, so LFO A
+    // sat frozen at phase 0 (square_a_ pinned +1, del-tri offset, half
+    // depth). pd smooths the rate through line~ 23.22 ms; control-rate
+    // stepping is accepted here (as for B) — the phasor MUST move.
+    pa_.set_freq(mtof(ra_));
+  }
   void set_rate_b(int k) {
     rb_ = 127.0f * (k / 127.0f) * (k / 127.0f) - 75.0f;
     rate_b_hz_ = mtof(rb_);   // rb_ is control-rate: hoist the exp out of the
