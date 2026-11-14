@@ -90,6 +90,11 @@ struct State {
   volatile bool  trig_latched;       // CC 64 pot: false (0) = unpatched, true (127) = patched
   volatile bool  pending_trig_pulse; // pulse trigger on rising edge (from CC 64 or mod)
 
+  // T1 hardware PLAY button: one-pluck window (see button_trig below).
+  volatile bool     pluck_active;    // WE engaged the TRIG-patched window
+  volatile bool     pluck_restore;   // trig_latched value before the button
+  volatile uint32_t pluck_until_ms;  // auto-release deadline (core-1 clock)
+
   volatile int8_t   pending_engine;      // -1 none, 0..97 engine
   volatile int8_t   pending_aux_option;  // -1 none, 0/1/2 aux option
   volatile float    pending_trigger;     // <0 none, else pulse voltage
@@ -125,6 +130,9 @@ void init_at(uint8_t* base) {
   s->active_engine_report = 0;
   s->trig_latched = false;
   s->pending_trig_pulse = false;
+  s->pluck_active = false;
+  s->pluck_restore = false;
+  s->pluck_until_ms = 0;
   s->shared_pitch = 0.0f;
   s->shared_timbre = 0.5f;
   s->shared_morph = 0.5f;
@@ -176,7 +184,12 @@ void init_chain_a(uint8_t* base) {
 // caller buffers as ±1.0 floats (frames are already int16-clipped by Voice;
 // /32768 is the same normalization the I2S write path uses), NO I2S write,
 // NO proc_us_max update (the chain loop times A + route + B together).
+// T1 hardware PLAY button (defined below, after mod_trigger_cc).
+void button_trig(bool down);
+void pluck_poll();
+
 void chain_render_a(float* out_l, float* out_r, size_t n) {
+  pluck_poll();                 // T1: end the button pluck window on time
   if (s->pending_engine >= 0) {
     int engine = s->pending_engine;
     if (engine > plaits::kMaxEngines - 1) engine = plaits::kMaxEngines - 1;
@@ -243,6 +256,7 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
 }
 
 void render() {
+  pluck_poll();                 // T1: end the button pluck window on time
   // Apply pending changes strictly between two Render() calls. Engine
   // changes go through patch.engine; Voice reloads/resets the engine itself
   // at the top of Render (voice.cc:382-489).
@@ -436,6 +450,46 @@ bool mod_trigger_cc(uint8_t cc, bool high) {
     return true;
   }
   return false;
+}
+
+// ===================== T1 hardware PLAY button (core 0 + core 1) ==========
+// "One plucked note" (bench decision 2026-11-14). CC 64 is the TRIG-patched
+// MODE switch, not a play control: with the voice free-running at rest the
+// LPG is bypassed entirely (voice.cc: lpg_bypass = !level_patched &&
+// !trigger_patched), so a bare trigger pulse is inaudible — and holding the
+// patch window made the pluck decay to SILENCE while held and snap the drone
+// back on release (the "reversed" bench report).
+// The button therefore: press -> engage the patched window (the ONLY path to
+// the LPG) + fire ONE full-accent pulse; the window AUTO-releases
+// kPluckWindowMs after the press (or on release, whichever first), so the
+// free-running drone returns by itself right after the pluck — press reads
+// as the note, hold/release add nothing, rest state untouched.
+// pluck_restore preserves a CC 64-patched state: if TRIG was already
+// patched before the button, we engage nothing and never unpatch it.
+// NOTE: the voice has a single LPG path — the pluck REPLACES the drone for
+// its decay (drone cuts on engage, returns on auto-release).
+static const uint32_t kPluckWindowMs = 400;
+
+void button_trig(bool down) {
+  if (down) {
+    s->pluck_restore = s->trig_latched;
+    s->trig_latched = true;
+    s->pending_trig_pulse = true;   // -> pending_trigger 1.0 (accent ceiling)
+    s->pluck_until_ms = millis() + kPluckWindowMs;
+    s->pluck_active = !s->pluck_restore;
+  } else if (s->pluck_active) {
+    s->trig_latched = false;
+    s->pluck_active = false;
+  }
+}
+
+// Core-1 render hook (top of render / chain_render_a): end the pluck window
+// on time — the drone returns without waiting for the button release.
+void pluck_poll() {
+  if (s->pluck_active && millis() >= s->pluck_until_ms) {
+    s->trig_latched = false;
+    s->pluck_active = false;
+  }
 }
 
 }  // namespace mod_plaits

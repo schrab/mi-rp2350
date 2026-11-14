@@ -533,8 +533,14 @@ void rack_module_control_change(uint8_t cc, uint8_t val) {
 // Clouds takes a dedicated twin (mod_clouds::button_trig): CC 66 stays a
 // pure trig for mod routing, but an idle clouds buffer is silent — the
 // button additionally fires the internal exciter burst (what a MIDI note-on
-// does) so a press is audible from idle. Elements/plaits/rings generate
-// sound from their pseudo-CC alone and use the plain registry dispatch.
+// does) so a press is audible from idle.
+// Plaits takes a dedicated twin too (mod_plaits::button_trig): its CC 64 is
+// the TRIG-patched MODE switch, not a play control — the plain registry
+// dispatch made hold decay to silence and release snap the drone back (the
+// bench "reversed" report). The twin does a one-pluck window with
+// auto-release instead.
+// Elements/rings generate sound from their pseudo-CC alone and keep the
+// plain registry dispatch.
 // vel is the T3 piezo slot (adapter paths take no velocity yet).
 static volatile uint32_t button_down_count = 0;   // cumulative, 2 s report
 
@@ -544,6 +550,10 @@ void rack_button_trig(bool down, uint8_t vel = 127) {  // vel: T3 piezo slot
   const uint8_t id = g_active_module;             // core-0 only; single read
   if (id == RACK_MODULE_CLOUDS) {
     rack_modules::mod_clouds::button_trig(down);
+    return;
+  }
+  if (id == RACK_MODULE_PLAITS) {
+    rack_modules::mod_plaits::button_trig(down);
     return;
   }
   rack_module_control_change(64, down ? 127 : 0);
