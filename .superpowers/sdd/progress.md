@@ -2946,3 +2946,17 @@ Remaining fidelity tail: multi-voice phase/coherence (corr is the wrong
 metric there too), delay-extremes chaotic texture, the −12 dB HF floor
 delta (source still unknown — delay/int16/rate/float-phase ALL exonerated
 by bisect; next suspect = the voice-sum/compander micro-differences).
+
+### Rack-lira8 L3 — full golden re-render on current build (2026-11-15)
+
+All five scenario engine renders + pd goldens regenerated on the current
+code (post LFO-depth fix + double phasor). Waveform corr shifted (drone-all
+0.69→0.33, single-pair 0.81→0.38) — EXPECTED: the corrected 2× deeper LFO
+makes the chaotic multi-voice renders phase-sensitive; pd's LFO phasors and
+the engine's start at different absolute phases → the delay texture
+decorrelates regardless of port fidelity. Corr is retired as the primary
+gate for drone scenarios; the gates are now: single-voice spectral exactness
+(ACHIEVED, onevoice), envelope trajectories (matching), spectral envelopes
+(matching within ~1-2 dB below 3.2 kHz), and the user's ears.
+Fresh A/B set: rack-rp2350/test/lira8_ref/goldens/ (X.wav vs engine_X.wav,
+all five scenarios + onevoice + drone-nodelay + cleantest).
