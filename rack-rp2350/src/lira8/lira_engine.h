@@ -160,6 +160,7 @@ class Lira8Engine {
       vp.set_mod((int)params_[16 + p]);
       vp.set_pitch((int)params_[24 + p / 2]);
       vp.set_hold((int)params_[26 + p / 2]);
+      vp.set_quantize(params_[46] != 0.0f ? 1 : 0);   // CC 53 (was never applied)
       vp.set_vibrato(params_[30] >= 0.5f ? 127 : 0);
       vp.refresh_tune();
       src_[p] = (int)params_[20 + p];

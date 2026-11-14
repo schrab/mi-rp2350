@@ -64,9 +64,11 @@ static const uint8_t kPresetVersion = 3;   // rack-lira8: cc arrays grew 4 -> 5 
 //  [6]      chain active (0/1)
 //  [7]      chain pair index (1 elements->clouds / 2 plaits / 3 rings)
 //  [8..348] mod-engine record (341 B: global_clock + bpm f32 + 12x28)
-//  [349..412] cc_seen[5][16] (80 B)  — v3: 5 modules (rack-lira8)
-//  [413..1044] cc_cache[5][128] (640 B)
-//  [1045..1046] crc16-CCITT LE over [0..1044]
+//  [349..428] cc_seen[5][16] (80 B)  — v3: 5 modules (rack-lira8)
+//  [429..1068] cc_cache[5][128] (640 B)
+//  [1069..1070] crc16-CCITT LE over [0..1068]
+// (5-module v3 blob = 1071 B — the old 1024 caps in this file and in the
+// C3's PresetBank overflowed/dropped every legitimate burst; both raised.)
 // Derived from the real record sizes — a hardcoded 301 here once assumed a
 // 293-byte mod record that mod_engine_preset_write never produced (285 B:
 // 1 + 4 + 10x28), shifting the cache/crc down and leaving stack garbage in
@@ -75,13 +77,16 @@ static const uint16_t kPresetOffMod = 8;
 static const uint16_t kPresetModLen =
     5 + MOD_SOURCE_COUNT * kModPresetSrcRecord;                     // 341
 static const uint16_t kPresetOffSeen =
-    kPresetOffMod + kPresetModLen;                                  // 293
+    kPresetOffMod + kPresetModLen;                                  // 349
 static const uint16_t kPresetOffCache =
-    kPresetOffSeen + RACK_MODULE_COUNT * 16;                        // 357
+    kPresetOffSeen + RACK_MODULE_COUNT * 16;                        // 429
 static const uint16_t kPresetOffCrc =
-    kPresetOffCache + RACK_MODULE_COUNT * 128;                      // 869
-static const uint16_t kPresetSize = kPresetOffCrc + 2;              // 871
-static const uint16_t kPresetBlobMax = 1024;
+    kPresetOffCache + RACK_MODULE_COUNT * 128;                      // 1069
+static const uint16_t kPresetSize = kPresetOffCrc + 2;              // 1071
+// v3 (5 modules) is 1071 B — the 1024 cap silently overran on serialize.
+static const uint16_t kPresetBlobMax = 1088;
+static_assert(kPresetSize <= kPresetBlobMax,
+              "preset blob exceeds kPresetBlobMax (raise it)");
 static const uint8_t kPresetChunkData = 252;   // PART payload data cap
 
 // CRC-16/CCITT (poly 0x1021, init 0xFFFF, MSB-first, no xorout) — only

@@ -1346,7 +1346,7 @@ static const uint8_t kConsoleCommandCount =
 static void cmd_switch(const char* args) {
   while (*args == ' ') ++args;
   if (*args == '\0') {
-    Serial.println("usage: switch <0-3|elements|clouds|plaits|rings>");
+    Serial.println("usage: switch <0-4|elements|clouds|plaits|rings|lira8>");
     return;
   }
   int8_t id = -1;
@@ -1362,7 +1362,7 @@ static void cmd_switch(const char* args) {
     }
   }
   if (id < 0) {
-    Serial.println("rack: unknown module (0 elements / 1 clouds / 2 plaits / 3 rings)");
+    Serial.println("rack: unknown module (0 elements / 1 clouds / 2 plaits / 3 rings / 4 lira8)");
     return;
   }
   if (g_chain.active) {
@@ -1927,7 +1927,7 @@ static void cmd_help(const char* args) {
   for (uint8_t i = 0; i < kConsoleCommandCount; ++i) {
     Serial.printf("  %s\r\n", kConsoleCommands[i].name);
   }
-  Serial.println("  switch <0-3|name>  live module swap (also MIDI CC 32, value 0-3)");
+  Serial.println("  switch <0-4|name>  live module swap (also MIDI CC 32, value 0-4)");
   Serial.println("  module             print active module + cc map + mod destinations");
   Serial.println("  chain [a] [b]|off  T6 serial chain (b defaults clouds; B mode clamped");
   Serial.println("                     to granular/looping; CC 23/24/65/66 + grain bank");

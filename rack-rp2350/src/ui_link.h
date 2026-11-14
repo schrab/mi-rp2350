@@ -56,17 +56,18 @@
 //
 // Registry page tables (the design's single source of truth): per module,
 // P1 = the primary cells {cc, label, color class} in pot-row order (6/4/6),
-// built from the four adapters' CC maps + the knob labels/colors of
+// built from the five adapters' CC maps + the knob labels/colors of
 // tools/rack_panel.html (the rack's current recolor; tools/elements_panel.html
 // has the same trio). Color classes: 0 = white (standard params), 1 = red
 // #e6295e group, 2 = teal #17a3bd group; the panels' yellow #f2d21f is a
 // STATE accent, never a param class. P2: elements = CC 28/29 selectors +
 // the alt-layout duplicates of its acoustic params; clouds/plaits/rings =
-// duplicate of P1 (page id differs). MOD-A/B/C: real cells from the mod
-// engine (stage 4) — the C3's pot turns on these pages arrive as MOD_SET
+// duplicate of P1 (page id differs); lira8 = real P2/P3 banks (47 params do
+// not fit one 16-cell page). MOD-A/B/C: real
+// cells from the mod
 // [src][param][value] with the SAME (src, param) map as the tables below
-// (docs/ui-protocol.md §6). SYS: 8 cells (4 modules, chain pair/engage,
-// telem gates); the C3's preset slot is C3-local (T4a).
+// (docs/ui-protocol.md §6). SYS: 8 cells (one module selector over 5 slots,
+// chain pair/engage, telem gates); the C3's preset slot is C3-local (T4a).
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
@@ -119,7 +120,19 @@ static const uint8_t kUiPageSys       = 8;
 // registry table (the alias bank CCs 40-48 + 23/24/65/66 are exactly the
 // B-directed CCs the chain dispatcher accepts while engaged).
 static const uint8_t kUiPageChainB    = 9;
-static const uint8_t kUiPageCount     = 10;
+// Per-module THIRD parameter page (rack-lira8: 47 params > 2 x 16 cells).
+// Id 10 keeps the MOD/SYS/chain ids stable; the C3 lists it only for the
+// modules whose registry row has a P3 table.
+static const uint8_t kUiPageP3        = 10;
+static const uint8_t kUiPageCount     = 11;
+
+// Module-page helpers: a page id that indexes kUiPages[module][0..2].
+static inline bool ui_page_is_module(uint8_t page) {
+  return page == kUiPageP1 || page == kUiPageP2 || page == kUiPageP3;
+}
+static inline uint8_t ui_module_page_idx(uint8_t page) {
+  return (page == kUiPageP3) ? 2 : page;
+}
 
 // TELEM modes: 0 = full snapshot, 1 = single-cell delta (same format).
 static const uint8_t kUiTelemFull  = 0;
@@ -260,9 +273,18 @@ static const UiPageCell kUiPageRingsP1[16] = {
     {19, "POLY",       kUiColorWhite}, // p16
 };
 
-// rack-lira8 page P1 (v1, 2026-11-15): the Lyra-8's 16 physical pots map the
-// main drone controls; the CCs match the adapter's kCcMap. Sensors speak
-// MIDI notes 36-43 (the patch's notemap) and mod triggers 55-62.
+// rack-lira8 pages P1/P2/P3 (v1.1, 2026-11-15): the Lyra-8 has 47 engine
+// params, more than 2x16 cells, so the UI spans THREE banks — the complete
+// voice matrix (8x tune/sharp/mod) on P1+P2, and the routing/sensor-speed/
+// LFO-shape/delay-mod group plus the one spare cell on P3.
+// P1: all 8 tunes + pair-1 tone + the global/delay strip.
+// P2: the other six SHARP/MOD values (the full 8x tune/sharp/mod matrix) +
+// pitch/hold for voices 5-8, drive/dst-mix, delay mix + line mods, switch,
+// total feedback.
+// P3: FAST 1-4, SOURCE 1-4, F-A/F-B, AND/OR, LINK, DEL-MOD, LFO-WAV,
+// QUANTIZE (15) + 1 empty.
+// CCs match the adapter's kCcMap; sensors speak MIDI notes 36-43 (the
+// patch's notemap) and mod triggers 55-62.
 static const UiPageCell kUiPageLira8P1[16] = {
     // Row 0 (pots 0..5 / physical p1..p6):
     {1,  "TUNE 1",     kUiColorWhite}, // p1
@@ -274,26 +296,73 @@ static const UiPageCell kUiPageLira8P1[16] = {
     // Row 1 (pots 6..9 / physical p7..p10):
     {7,  "TUNE 7",     kUiColorWhite}, // p7
     {8,  "TUNE 8",     kUiColorWhite}, // p8
-    {27, "HOLD",       kUiColorWhite}, // p9
+    {27, "HOLD 1-4",   kUiColorWhite}, // p9
     {38, "VOLUME",     kUiColorWhite}, // p10
     // Row 2 (pots 10..15 / physical p11..p16):
-    {13, "SHARP",      kUiColorWhite}, // p11
-    {17, "MOD",        kUiColorWhite}, // p12
+    {13, "SHARP 12",   kUiColorWhite}, // p11
+    {17, "MOD 12",     kUiColorWhite}, // p12
     {31, "VIBRATO",    kUiColorWhite}, // p13
     {44, "TIME 1",     kUiColorWhite}, // p14
     {45, "TIME 2",     kUiColorWhite}, // p15
     {46, "FEEDBACK",   kUiColorWhite}, // p16
 };
 
-// [module][0 = P1, 1 = P2]. Elements has 3 unique params on P2 (MODEL CC 28,
-// PLAY CC 64, VCA CC 7). Clouds, Plaits, and Rings have all parameters on P1, so P2
-// has count = 0 (no duplicate params).
-static const UiPageTable kUiPages[RACK_MODULE_COUNT][2] = {
-    { {kUiPageElementsP1, 16}, {kUiPageElementsP2, 3} },   // elements
-    { {kUiPageCloudsP1, 16},   {nullptr, 0} },             // clouds
-    { {kUiPagePlaitsP1, 11},   {nullptr, 0} },             // plaits
-    { {kUiPageRingsP1, 16},    {nullptr, 0} },             // rings
-    { {kUiPageLira8P1, 16},    {nullptr, 0} },             // lira8
+static const UiPageCell kUiPageLira8P2[16] = {
+    // Row 0 (pots 0..5 / physical p1..p6):
+    {14, "SHARP 34",   kUiColorWhite}, // p1
+    {15, "SHARP 56",   kUiColorWhite}, // p2
+    {16, "SHARP 78",   kUiColorWhite}, // p3
+    {18, "MOD 34",     kUiColorWhite}, // p4
+    {19, "MOD 56",     kUiColorWhite}, // p5
+    {20, "MOD 78",     kUiColorWhite}, // p6
+    // Row 1 (pots 6..9 / physical p7..p10):
+    {25, "PITCH 1-4",  kUiColorWhite}, // p7
+    {26, "PITCH 5-8",  kUiColorWhite}, // p8
+    {28, "HOLD 5-8",   kUiColorWhite}, // p9
+    {36, "DRIVE",      kUiColorWhite}, // p10
+    // Row 2 (pots 10..15 / physical p11..p16):
+    {37, "DST MIX",    kUiColorWhite}, // p11
+    {47, "DEL MIX",    kUiColorWhite}, // p12
+    {48, "MOD D1",     kUiColorWhite}, // p13
+    {49, "MOD D2",     kUiColorWhite}, // p14
+    {29, "SWITCH",     kUiColorWhite}, // p15
+    {30, "TOTAL FB",   kUiColorWhite}, // p16
+};
+
+// P3: the remaining 15 params — the per-pair source routing, sensor speed,
+// the Lyra's own LFO shape/rates and the delay-mod switch. One empty cell.
+static const UiPageCell kUiPageLira8P3[16] = {
+    // Row 0 (pots 0..5 / physical p1..p6):
+    {9,  "FAST 12",    kUiColorWhite}, // p1
+    {10, "FAST 34",    kUiColorWhite}, // p2
+    {11, "FAST 56",    kUiColorWhite}, // p3
+    {12, "FAST 78",    kUiColorWhite}, // p4
+    {21, "SOURCE 12",  kUiColorWhite}, // p5
+    {22, "SOURCE 34",  kUiColorWhite}, // p6
+    // Row 1 (pots 6..9 / physical p7..p10):
+    {23, "SOURCE 56",  kUiColorWhite}, // p7
+    {24, "SOURCE 78",  kUiColorWhite}, // p8
+    {39, "LFO A",      kUiColorWhite}, // p9
+    {41, "LFO B",      kUiColorWhite}, // p10
+    // Row 2 (pots 10..15 / physical p11..p16):
+    {42, "AND/OR",     kUiColorWhite}, // p11
+    {43, "LINK",       kUiColorWhite}, // p12
+    {51, "DEL-MOD",    kUiColorWhite}, // p13
+    {52, "LFO WAV",    kUiColorWhite}, // p14
+    {53, "QUANTIZE",   kUiColorWhite}, // p15
+    {0,  "",           kUiColorWhite}, // p16 (empty)
+};
+
+// [module][0 = P1, 1 = P2, 2 = P3]. Elements has 3 unique params on P2 (MODEL
+// CC 28, PLAY CC 64, VCA CC 7). Clouds, Plaits, and Rings have all parameters
+// on P1, so P2/P3 have count = 0 (no duplicate params). lira8's P2/P3 are REAL
+// banks (its 47 params cannot fit one page).
+static const UiPageTable kUiPages[RACK_MODULE_COUNT][3] = {
+    { {kUiPageElementsP1, 16}, {kUiPageElementsP2, 3}, {nullptr, 0} },  // elements
+    { {kUiPageCloudsP1, 16},   {nullptr, 0},           {nullptr, 0} },  // clouds
+    { {kUiPagePlaitsP1, 11},   {nullptr, 0},           {nullptr, 0} },  // plaits
+    { {kUiPageRingsP1, 16},    {nullptr, 0},           {nullptr, 0} },  // rings
+    { {kUiPageLira8P1, 16},    {kUiPageLira8P2, 16},    {kUiPageLira8P3, 16} },  // lira8
 };
 static const UiPageTable kUiPageEmpty = { nullptr, 0 };   // unused fallback
 
@@ -980,8 +1049,8 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
           col[i] = t.cells[i].color;
         }
       }
-    } else if (page <= kUiPageP2) {
-      const UiPageTable& t = kUiPages[mod][page];
+    } else if (ui_page_is_module(page)) {
+      const UiPageTable& t = kUiPages[mod][ui_module_page_idx(page)];
       count = t.count;
       for (uint8_t i = 0; i < count; ++i) {
         cc[i] = t.cells[i].cc;
@@ -1020,8 +1089,9 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
           ? ((i < 3) ? ""
                      : (i < kUiPages[RACK_MODULE_CLOUDS][kUiPageP1].count
                             ? kUiPages[RACK_MODULE_CLOUDS][kUiPageP1].cells[i].label : ""))
-          : (page <= kUiPageP2)
-          ? (i < kUiPages[mod][page].count ? kUiPages[mod][page].cells[i].label : "")
+          : (ui_page_is_module(page))
+          ? (i < kUiPages[mod][ui_module_page_idx(page)].count
+                 ? kUiPages[mod][ui_module_page_idx(page)].cells[i].label : "")
           : (page == kUiPageModLfo12 ? kUiModLfo12Cells[i].label
          : page == kUiPageModLfo34 ? kUiModLfo34Cells[i].label
          : page == kUiPageModTrig ? kUiModTrigCells[i].label
@@ -1058,8 +1128,8 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
       f = 0;
       k = t.cells[idx].color;
       lab = t.cells[idx].label;
-    } else if (page <= kUiPageP2) {
-      const UiPageTable& t = kUiPages[mod][page];
+    } else if (ui_page_is_module(page)) {
+      const UiPageTable& t = kUiPages[mod][ui_module_page_idx(page)];
       int8_t idx = -1;
       for (uint8_t i = 0; i < t.count; ++i) {
         if (t.cells[i].cc != 0 && t.cells[i].cc == delta_cc) { idx = (int8_t)i; break; }
@@ -1182,10 +1252,11 @@ void ui_link_observe_cc(uint8_t cc, uint8_t val) {
     return;
   }
   if (rack_chain_wants_cc(cc)) return;
-  if (g_ui_active_page > kUiPageP2) return;     // MOD/SYS deltas come from the
-                                                // MOD_SET / gesture ack paths
+  if (!ui_page_is_module(g_ui_active_page)) return;  // MOD/SYS deltas come from the
+                                                     // MOD_SET / gesture ack paths
   if (now - last_delta_ms < 50) return;
-  const UiPageTable& t = kUiPages[mod][g_ui_active_page];
+  const UiPageTable& t =
+      kUiPages[mod][ui_module_page_idx(g_ui_active_page)];
   for (uint8_t i = 0; i < t.count; ++i) {
     if (t.cells[i].cc != 0 && t.cells[i].cc == cc) {
       last_delta_ms = now;
@@ -1371,12 +1442,13 @@ static void ui_link_dispatch() {
           Serial.printf("ui: ASSIGN_CYCLE dir=%u (want 0|1)\r\n", arg2);
           break;
         }
-        if (g_ui_active_page > kUiPageP2) {
+        if (!ui_page_is_module(g_ui_active_page)) {
           Serial.printf("ui: ASSIGN_CYCLE inert on page %u (no CC cells)\r\n",
                         g_ui_active_page);
           break;
         }
-        const UiPageTable& t = kUiPages[g_active_module][g_ui_active_page];
+        const UiPageTable& t =
+            kUiPages[g_active_module][ui_module_page_idx(g_ui_active_page)];
         if (arg >= t.count) {
           Serial.printf("ui: ASSIGN_CYCLE cell %u >= count %u (empty pot)\r\n",
                         arg, t.count);

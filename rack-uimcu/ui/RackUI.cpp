@@ -106,10 +106,10 @@ namespace CTAG {
         }
 
         // ===================== state =====================
-        static uint8_t s_page = 0;            // 0-7
+        static uint8_t s_page = 0;            // 0-10 (module P1/P2/P3, MOD, SYS, chain-B)
         static bool s_assignArmed = false;    // push held (assign/overlay)
         static bool s_overlay = false;        // module-select overlay live
-        static uint8_t s_overlaySel = 0;      // 0-3
+        static uint8_t s_overlaySel = 0;      // 0-4
         static bool s_fullArrived = false;    // TELEM snapshot for s_page
         static uint8_t s_presetSlot = 0;      // SYS: C3-local selection
         static bool s_blinkPhase = false;     // 2 Hz inert-cell blink
@@ -193,8 +193,8 @@ namespace CTAG {
         };
         static CellSnap s_rendered[16];
 
-        static const char *kPageNames[10] = {
-            "P1", "P2", "MOD-LFO 1/2", "MOD-LFO 3/4", "MOD-TRIG", "MOD-GATE", "MOD-ENV", "MOD-ARP", "SYS", "CLOUDS B",
+        static const char *kPageNames[11] = {
+            "P1", "P2", "MOD-LFO 1/2", "MOD-LFO 3/4", "MOD-TRIG", "MOD-GATE", "MOD-ENV", "MOD-ARP", "SYS", "CLOUDS B", "P3",
         };
         // Plaits engine aliases (id order = the catalog order the RP2350's
         // CC 23 uses; names shortened for the cell value font).
@@ -210,7 +210,11 @@ namespace CTAG {
             "DIA", "SSTK", "WTCH", "WTSS", "SHAKER", "BRASS", "HELIX", "SKINS", "CZAP", "MTLW",
             "CLAP", "PERC", "FFRM", "BUBBLE", "ZXPH", "ZXPU", "ACID", "SSAW",
         };
-        static const char *kModNames[4] = { "ELEMENTS", "CLOUDS", "PLAITS", "RINGS" };
+        static const char *kModNames[5] = { "ELEMENTS", "CLOUDS", "PLAITS", "RINGS", "LIRA8" };
+        static const uint8_t kModuleCount = 5;
+        static inline uint8_t ModuleClamp(uint8_t mod) {
+            return mod < kModuleCount ? mod : 0;
+        }
         static const char *kSrcNames[13] = {
             "OFF",  "LFO1", "LFO2", "LFO3", "LFO4",
             "EUC1", "EUC2",
@@ -219,7 +223,16 @@ namespace CTAG {
         };
 
         static inline bool ModuleHasP2(uint8_t mod) {
-            return (mod & 3) == 0; // Only Elements (module 0) has P2
+            return mod == 0 || mod == 4; // Elements + Lira8
+        }
+        static inline bool ModuleHasP3(uint8_t mod) {
+            return mod == 4;             // Lira8 only
+        }
+        // A per-module parameter page (P1 0, P2 1, P3 10) — the pages whose
+        // cells are real CCs of the active module (chain-B page 9 included
+        // separately: its cells are the CLOUDS table).
+        static inline bool PageIsModule(uint8_t page) {
+            return page == 0 || page == 1 || page == 10;
         }
 
         // Return discrete option count N (2..98) if (page, mod, slot, cc) is
@@ -232,7 +245,7 @@ namespace CTAG {
                 // Clouds-B MODE: 2 options (GRANULAR 0, LOOPING 2)
                 return 2;
             }
-            switch (mod & 3) {
+            switch (mod) {
                 case 0: // Elements
                     if (cc == 28) return 4;   // MODEL: 0..3 (MODAL, STRING, STRINGS, OMINOUS)
                     if (cc == 29) return 2;   // OMINOUS: 0..1 (legacy)
@@ -268,6 +281,19 @@ namespace CTAG {
                         return 2;             // STRUM
                     }
                     break;
+                case 4: // Lira8 (P1/P2/P3 tables)
+                    if (cc == 9 || cc == 10 || cc == 11 || cc == 12) {
+                        wireIsBool127 = true;
+                        return 2;             // FAST 12/34/56/78 (sensor speed)
+                    }
+                    if (cc >= 21 && cc <= 24) return 3;  // SOURCE 12/34/56/78 (audio/off/LFO)
+                    if (cc == 29 || cc == 30 || cc == 31) {
+                        wireIsBool127 = true;
+                        return 2;             // SWITCH / TOTAL FB / VIBRATO
+                    }
+                    if (cc == 51) return 3;   // DEL-MOD: 0 free / 1 / 2 LFO-CV
+                    if (cc == 52 || cc == 53) return 2;  // LFO WAV, QUANTIZE (raw 0/1)
+                    break;
             }
             return 0;
         }
@@ -275,7 +301,7 @@ namespace CTAG {
         uint8_t RackUI::WireToPotValue(uint8_t page, uint8_t mod,
                                        uint8_t slot, uint8_t cc,
                                        uint8_t wireVal) {
-            if (page <= 1 || page == 9) {
+            if (PageIsModule(page) || page == 9) {
                 if (page == 9 && (cc == 23 || cc == 49)) {
                     return wireVal >= 2 ? 127 : 0;
                 }
@@ -310,7 +336,7 @@ namespace CTAG {
                                        uint8_t slot, uint8_t cc,
                                        uint8_t potVal) {
             (void)slot;
-            if (page <= 1 || page == 9) {
+            if (PageIsModule(page) || page == 9) {
                 if (page == 9 && (cc == 23 || cc == 49)) {
                     return potVal >= 64 ? 2 : 0;
                 }
@@ -335,7 +361,7 @@ namespace CTAG {
                                      int &barVal, int &barMax) {
             barVal = potVal;
             barMax = 127;
-            if (page <= 1 || page == 9) {
+            if (PageIsModule(page) || page == 9) {
                 if (page == 9 && (cc == 23 || cc == 49)) {
                     int idx = potVal >= 64 ? 1 : 0;
                     barVal = idx;
@@ -352,14 +378,16 @@ namespace CTAG {
                     barMax = n - 1;
                     return idx;
                 }
-                if (cc == 1 || (page == 9 && cc == 42) || ((modForPage & 3) == 1 && cc == 42)) {
+                if ((modForPage != 4 && cc == 1) ||
+                    (page == 9 && cc == 42) ||
+                    (modForPage == 1 && cc == 42)) {
                     // PITCH: -24..+24 st (potVal 64 = 0)
                     int v = ((int)potVal * 48 + 63) / 127 - 24;
                     barVal = potVal;
                     barMax = 127;
                     return v;
                 }
-                if ((modForPage & 3) == 1 && cc == 13) {
+                if (modForPage == 1 && cc == 13) {
                     // Clouds EX SRC: 5 exciter modes (0..4)
                     int idx = ((int)potVal * 5) / 128;
                     if (idx > 4) idx = 4;
@@ -367,7 +395,7 @@ namespace CTAG {
                     barMax = 4;
                     return idx;
                 }
-                if ((modForPage & 3) == 3 && cc == 19) {
+                if (modForPage == 3 && cc == 19) {
                     // Rings POLY: 1..4
                     int idx = potVal / 32;
                     if (idx > 3) idx = 3;
@@ -684,7 +712,7 @@ namespace CTAG {
                 snprintf(buf, sizeof(buf), "%s", kPageNames[s_page]);
             } else if (s_cur.valid) {
                 snprintf(buf, sizeof(buf), "%s %s",
-                         kModNames[s_cur.module & 3], kPageNames[s_page]);
+                         kModNames[ModuleClamp(s_cur.module)], kPageNames[s_page]);
             } else {
                 snprintf(buf, sizeof(buf), "--- %s", kPageNames[s_page]);
             }
@@ -727,7 +755,7 @@ namespace CTAG {
                                         Display::kYellow);
                 }
             } else if (s_overlay) {
-                snprintf(buf, sizeof(buf), ">%s<", kModNames[s_overlaySel & 3]);
+                snprintf(buf, sizeof(buf), ">%s<", kModNames[ModuleClamp(s_overlaySel)]);
                 Display::DrawString(x, 1, buf, Display::FONT_VALUE,
                                     Display::kYellow);
             } else if (s_assignArmed) {
@@ -739,7 +767,7 @@ namespace CTAG {
                 }
                 Display::DrawString(x, 1, buf, Display::FONT_VALUE,
                                     Display::kYellow);
-            } else if ((s_page <= 1 || s_page == 9) && s_activePot < 16 && s_fullArrived) {
+            } else if ((PageIsModule(s_page) || s_page == 9) && s_activePot < 16 && s_fullArrived) {
                 const uint8_t rsrc = (uint8_t)(
                     (s_cur.cell[s_activePot].flags & RackLink::kFlagSrcMask) >>
                     RackLink::kFlagSrcShift);
@@ -819,8 +847,8 @@ namespace CTAG {
                     static const char *const kEnvModeNames[2] = { "GATE", "RTRG" };
                     static const char *const kChainPairNames[3] = { "E>C", "P>C", "R>C" };
 
-                    if (s_page <= 1 || s_page == 9) {
-                        const uint8_t modForPage = (s_page == 9) ? 1 : (s_cur.module & 3);
+                    if (PageIsModule(s_page) || s_page == 9) {
+                        const uint8_t modForPage = (s_page == 9) ? 1 : ModuleClamp(s_cur.module);
                         bool wireBool = false;
                         (void)p1p2DiscreteCount(s_page, modForPage, c.cc, wireBool);
                         if (wireBool) {
@@ -1041,8 +1069,8 @@ namespace CTAG {
                             pName = chained
                                 ? ((dispVal >= 0 && dispVal <= 2)
                                        ? kChainPairNames[dispVal] : "---")
-                                : ((dispVal >= 0 && dispVal <= 3)
-                                       ? kModNames[dispVal & 3] : "---");
+                                : ((dispVal >= 0 && dispVal <= 4)
+                                       ? kModNames[ModuleClamp(dispVal)] : "---");
                         } else if (slot == 5 || slot == 14 || slot == 15) {
                             pName = dispVal ? "ON" : "OFF";
                         } else if (slot == 7) {
@@ -1060,7 +1088,7 @@ namespace CTAG {
                         }
                     }
 
-                    const bool isModRide = (routedSrc > 0 && (s_page <= 1 || s_page == 9));
+                    const bool isModRide = (routedSrc > 0 && (PageIsModule(s_page) || s_page == 9));
                     if (isModRide) {
                         char pBuf[8];
                         char vBuf[16];
@@ -1180,12 +1208,12 @@ namespace CTAG {
             lo = t.value;
             hi = t.value;
             uint8_t n = 0;
-            if (s_page <= 1 || s_page == 9) {
+            if (PageIsModule(s_page) || s_page == 9) {
                 const uint8_t modForPage = (s_page == 9) ? 1 : s_cur.module;
                 bool wireBool = false;
                 n = p1p2DiscreteCount(s_page, modForPage, t.cc, wireBool);
-                if (n == 0 && (modForPage & 3) == 1 && t.cc == 13) n = 5;
-                if (n == 0 && (modForPage & 3) == 3 && t.cc == 19) n = 4;
+                if (n == 0 && modForPage == 1 && t.cc == 13) n = 5;
+                if (n == 0 && modForPage == 3 && t.cc == 19) n = 4;
                 if (n > 12) n = 0; // 98-engine selector behaves as continuous
             } else if (s_page == 2 || s_page == 3) {
                 if (pot == 1 || pot == 11) n = 5;    // LFO WAVE (0..4)
@@ -1218,9 +1246,9 @@ namespace CTAG {
                 else if (algo == 4 && p_idx == 2) n = 4;
             } else if (s_page == 8) {
                 if (pot == 0) {
-                    // ONE selector: 4 slots (modules) when no chain, 3
+                    // ONE selector: 5 slots (modules) when no chain, 3
                     // slots (chain pairs) while engaged.
-                    n = (s_cur.tail_valid && s_cur.chain != 0) ? 3 : 4;
+                    n = (s_cur.tail_valid && s_cur.chain != 0) ? 3 : 5;
                 }
                 else if (pot == 8) n = 16;    // PRESET slot (0..15)
                 else if (pot == 9 || pot == 10) n = 2; // BLE ON (0/1), BLE MODE (PER/CEN)
@@ -1268,7 +1296,7 @@ namespace CTAG {
         }
 
         void RackUI::SetPage(uint8_t page) {
-            if (page > 9 || page == s_page) return;
+            if (page > 10 || page == s_page) return;
             s_page = page;
             s_fullArrived = false;      // dashes until the snapshot lands
             s_activePot = 0xFF;
@@ -1284,7 +1312,7 @@ namespace CTAG {
             out.value = 0;
             out.routedSrc = 0;
             if (pot > 15) return false;
-            if (s_page <= 1 || s_page == 9) {
+            if (PageIsModule(s_page) || s_page == 9) {
                 // P1/P2/CLOUDS B: the ACTIVE page cell's CC (TELEM-driven). routedSrc
                 // rides the TELEM flags bits 3-6 (source id + 1).
                 if (!s_fullArrived || pot >= s_cur.count) return false;
@@ -1406,7 +1434,7 @@ namespace CTAG {
                         if (pot == 0) {
                             // ONE selector pot (dual-purpose, the value text
                             // shows which): not chained = module select over
-                            // 4 slots (ELEMENTS/CLOUDS/PLAITS/RINGS);
+                            // 5 slots (ELEMENTS/CLOUDS/PLAITS/RINGS/LIRA8);
                             // engaged = chain-pair select over 3 slots
                             // (E>C/P>C/R>C) — switching re-engages with the
                             // new pair (off->on, same as the ring action).
@@ -1414,8 +1442,8 @@ namespace CTAG {
                                 s_cur.tail_valid && s_cur.chain != 0;
                             if (!chained) {
                                 uint8_t wantMod =
-                                    (uint8_t)(((uint16_t)potVal * 4) / 128);
-                                if (wantMod > 3) wantMod = 3;
+                                    (uint8_t)(((uint16_t)potVal * 5) / 128);
+                                if (wantMod > 4) wantMod = 4;
                                 RackLink::TelemLocalCellWrite(pot, potVal);
                                 if (s_lastWireSent[pot] != wantMod + 1) {
                                     s_lastWireSent[pot] = wantMod + 1;
@@ -1598,34 +1626,27 @@ namespace CTAG {
                                 // hold + rotate = module-select overlay
                                 s_overlay = true;
                                 s_overlaySel = (uint8_t)(
-                                    (s_overlaySel + ev.delta + 4) & 3);
+                                    (s_overlaySel + ev.delta + 5) % 5);
                                 s_stripDirty = true;
                             } else if (s_page == 8 && pressed) {
                                 // Ignore accidental rotation while holding to save on SYS page
                             } else {
-                                // When chained: Chain-A P1 (0), optionally Chain-A P2 (1 if Elements),
-                                // Chain-B (9), followed by modulations (2-7), and SYS (8) is always last.
+                                // When chained: Chain-A pages (P1, optional P2/P3), Chain-B
+                                // (9), then modulations (2-7), SYS (8) last.
                                 const bool chained =
                                     s_cur.tail_valid && s_cur.chain != 0;
-                                const bool hasP2 = ModuleHasP2(s_cur.module);
-                                static const uint8_t kPagesChainedP2[10] = {
-                                    0, 1, 9, 2, 3, 4, 5, 6, 7, 8
-                                };
-                                static const uint8_t kPagesChained[9] = {
-                                    0, 9, 2, 3, 4, 5, 6, 7, 8
-                                };
-                                static const uint8_t kPagesUnchainedP2[9] = {
-                                    0, 1, 2, 3, 4, 5, 6, 7, 8
-                                };
-                                static const uint8_t kPagesUnchained[8] = {
-                                    0, 2, 3, 4, 5, 6, 7, 8
-                                };
-                                const uint8_t *pageList = chained
-                                    ? (hasP2 ? kPagesChainedP2 : kPagesChained)
-                                    : (hasP2 ? kPagesUnchainedP2 : kPagesUnchained);
-                                const int pageCount = chained
-                                    ? (hasP2 ? 10 : 9)
-                                    : (hasP2 ? 9 : 8);
+                                uint8_t pageList[12];
+                                int pageCount = 0;
+                                pageList[pageCount++] = 0;
+                                if (ModuleHasP2(s_cur.module))
+                                    pageList[pageCount++] = 1;
+                                if (ModuleHasP3(s_cur.module))
+                                    pageList[pageCount++] = 10;
+                                if (chained)
+                                    pageList[pageCount++] = 9;
+                                for (uint8_t p = 2; p <= 7; ++p)
+                                    pageList[pageCount++] = p;
+                                pageList[pageCount++] = 8;
 
                                 int curIdx = 0;
                                 for (int i = 0; i < pageCount; ++i) {
@@ -1675,7 +1696,8 @@ namespace CTAG {
                                     esp_timer_get_time() + 45000;
                                 s_overlay = false;
                                 s_assignArmed = false;
-                                if (s_page == 1 && !ModuleHasP2(s_overlaySel)) {
+                                if ((s_page == 1 && !ModuleHasP2(s_overlaySel)) ||
+                                    (s_page == 10 && !ModuleHasP3(s_overlaySel))) {
                                     SetPage(0);
                                 }
                             } else {
@@ -1715,10 +1737,11 @@ namespace CTAG {
                             tmp.mode == RackLink::kTelemFull;
                         const bool pageOrModChanged =
                             !s_fullArrived || tmp.page != s_cur.page ||
-                            (s_page <= 1 && tmp.module != s_cur.module);
+                            (PageIsModule(s_page) && tmp.module != s_cur.module);
                         if (pageOrModChanged) {
                             s_cur = tmp;
-                            if (s_page == 1 && !ModuleHasP2(s_cur.module)) {
+                            if ((s_page == 1 && !ModuleHasP2(s_cur.module)) ||
+                                (s_page == 10 && !ModuleHasP3(s_cur.module))) {
                                 SetPage(0);
                             }
                             if (wasFull) s_fullArrived = true;

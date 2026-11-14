@@ -131,7 +131,7 @@ namespace CTAG {
             // RP2350 funnels it through the same midiHandleEventPacket the
             // USB device/host/DIN paths use). Stamps the activity dot.
             static bool SendMidi(const uint8_t pkt[4]);
-            // 0x02 SWITCH (module id 0-3 -> the RP2350's console switch path).
+            // 0x02 SWITCH (module id 0-4 -> the RP2350's console switch path).
             static bool SendSwitch(uint8_t module_id);
             // 0x03 MOD_SET [src][param][value] (param ids = the RP2350's
             // kModParamNames indexes; value 0-127, bench-mux quantization).

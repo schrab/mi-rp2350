@@ -238,7 +238,7 @@ namespace CTAG {
                 // Full snapshot: replace the cache wholesale.
                 const bool samePageAndMod =
                     s_telem.valid && s_telem.page == page &&
-                    (page >= 2 || s_telem.module == mod);
+                    ((page >= 2 && page != 10) || s_telem.module == mod);
                 const uint8_t prevModBDiv =
                     (s_telem.valid && s_telem.page == 3) ? s_telem.cell[15].value : 0;
                 s_telem.page = page;
@@ -603,7 +603,7 @@ namespace CTAG {
         }
 
         bool RackLink::SendSwitch(uint8_t module_id) {
-            if (module_id > 3) return false;
+            if (module_id > 4) return false;   // 0-4: elements/clouds/plaits/rings/lira8
             sendFrame(kTypeSwitch, &module_id, 1);
             return true;
         }
@@ -710,12 +710,13 @@ namespace CTAG {
         }
 
         void RackLink::TelemLocalSysSwitch(uint8_t newMod) {
-            if (newMod >= 4) return;
+            if (newMod >= 5) return;
             taskENTER_CRITICAL(&telemMux);
             s_telem.module = newMod;
             if (s_telem.valid && s_telem.page == 8) {
                 if (s_telem.count > 0) {
-                    s_telem.cell[0].value = (uint8_t)(newMod * 32);
+                    // SYS selector value is pot-space 0..127 over 5 slots.
+                    s_telem.cell[0].value = (uint8_t)((uint16_t)newMod * 127 / 4);
                 }
                 for (uint8_t i = 1; i < 5 && i < s_telem.count; ++i) {
                     s_telem.cell[i].value = 0;
