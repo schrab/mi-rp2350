@@ -2744,3 +2744,92 @@ ctag-tbd (ESP32) portability data collected but not focused on.
   sox absent (ffmpeg present); numpy in venv. No test infra existed in the
   repo — host test harness modeled on `EURORACK-STEREO/elements/test/`
   makefile (upstream trees have real host-side test precedent).
+
+### Rack-lira8 L0 — Pd primitive laws verified (probes + source, 2026-11-15)
+
+- **Probe recipe (cost an hour, do not repeat)**: pd -nogui does NOT run DSP
+  unless the PATCH sends `; pd dsp 1(` (loadbang → msg — the `-send` CLI flag
+  never delivers; `-nodac -noadc` alone = silent chain; `-jack` via PipeWire
+  hung the patch entirely). Capture via `snapshot~`+`metro` — pd 0.57
+  `print~` prints NOTHING headless and `snapshot~` has no bang inlet;
+  `bang~` is also silent headless. Probes live in
+  `rack-rp2350/test/lira8_ref/probes/` (self-driving, self-quitting).
+- **Verified empirically @32 kHz**: block 64; `s~/r~` = one-block delay;
+  `vd~` zerodel = one block; pd honors `-r 32000` (env hop cadence).
+- **Verified verbatim from pd source** (d_ctl.c/d_osc.c/d_filter.c) and
+  encoded in `PD-PRIMITIVES.md`: hip~ (`normal=0.5(1+coef)`, out =
+  normal·(x+coef·last−last)), lop~ (coef=2πf/sr plain one-pole), env~
+  (Hann/N window, MAXOVERLAP=4 ring, hop=np/2 block-rounded,
+  powtodb = 100+20·log10, silence→0), osc~/cos~ (2048+1 table, LINEAR
+  interp, quadrant pins), phasor~ (output-then-increment), noise~ (LCG
+  435898247/382842987, per-instance seed 307·1319^k), line~ (per-sample
+  ramp), mtof/ftom/dbtorms exact constants.
+- **delwrite~ size is MILLISECONDS** (take-1 caught it; time law max
+  5944.32 ms ≈ buffer arg confirms) → patch delay = 5.944 s/line, NOT
+  135 ms as first estimated → f32@32k = 1.52 MB impossible on RP2350.
+- **User decision (2026-11-15)**: int16 storage @32 kHz, cap 1.45 s/line
+  (knob top ~12% compresses into cap); ESP32/ctag port keeps 5.944 s via
+  PSRAM. Delay RAM on device ≈ 185 KB of the 192 KiB buffer arena.
+
+### Rack-lira8 L0/L2 — spec cross-validation: three corrections (2026-11-15)
+
+PORTING-SPEC.md landed (790 lines, bus table + per-section wiring + CC map).
+Cross-checking it against take-1 + headless probes re-verified and CORRECTED
+three claims (corrections box prepended to the spec):
+
+1. **delwrite~ 5944 IS msec** — probe: impulse into `delwrite~ bigbuf 5944`,
+   read via `sig~ 2000 → vd~` returns at entry+2000 ms exactly. Spec's
+   "author conflated samples" + "clamped to 134.74 ms" = WRONG; the 5.944 s
+   buffer and the full 1.45→5944 ms time law stand. User's int16@32k/1.45 s
+   cap decision unaffected (it was sized for this reality).
+2. **Delay buffers are PARALLEL with shared write input** (dump: `[19] =
+   inlet~+noise` feeds BOTH write summers; per-bus feedback from its OWN
+   expander × shared gain line~), not series as the spec claims.
+3. **Compressor mux quirk moot** in-patch (attack=release=2.5 ms in both
+   delay paths → both mux branches identical; implement take-1's law).
+
+Also pinned: the four vibrato depth draws are pd's default-PRNG constants
+744/930/728/920 (probe; the $0-seed receiver is dormant) — hard-coded as
+`kVibDraws` in lira_voice.h with a unit test. rlpf "hazards" (44100/22050)
+confirmed overridden by samplerate~ (correction in PD-PRIMITIVES.md).
+
+**Probe gotcha (recurring)**: hand-written probe patches keep silently
+dropping `#X connect 0 0 1 0` (loadbang→`; pd dsp 1`) — always check that
+connect FIRST when a probe prints nothing.
+
+**L2 status**: pd_primitives + voice layer (LiraOsc/SensorEnv/VoicePair)
+TDD GREEN on host (06314cc, 4558005): osc freq tracking/PWM/BLEP bounds,
+probe-exact hip (0.778916), sensor A/R + cos morph, tune table frequencies,
+pair gating, bus DC-block, vib depth constants. Next: L3 engine (buses +
+delays + master) per the corrected topology.
+
+### Rack-lira8 L1/L3 — golden harness live + tune-law bug found (2026-11-15)
+
+- **Golden harness WORKS end-to-end**: vanilla-pd-only bridge
+  (`gen_l8bridge.py` → patch/abs/l8bridge.pd: [netreceive 7001] TCP → route →
+  named sends into `$1`-scoped receivers; udpreceive is an EXTERNAL, not
+  vanilla). Driver `drive_ref.py` (TCP, `;\n` framing), `render_ref.sh`
+  (per-scenario wrapper patch `_LIRA-8-golden.pd` via `gen_golden_patch.py`:
+  pristine patch + writesf~ tap + bridge). pd writesf protocol =
+  **open <file> → start → stop** (not start <file>). compare_wav.py gained
+  --align (cross-correlation lag search).
+- **BUG FOUND & FIXED via goldens**: `VoicePair::pair_` was never initialized
+  from the ctor arg → all four pairs played tune rows 0-1 (voices 3-8 at
+  voice-1/2 pitches). One-line fix (469dfa1).
+- **BUG FOUND & FIXED via goldens: THE TUNE LAW WAS INVERTED.** Empirical:
+  pd at tune-1=127 renders 1838 Hz = mtof(93)·pitch (the HI note); the
+  spec §7.2/take-1 law (hi + k·(lo−hi)) predicted 3.2 Hz. Correct law:
+  **note = lo + (k/127)·(hi − lo)**. With the fix the aligned correlations
+  jumped: drone-all 0.001 → 0.665, single-pair 0.48, delay-extremes 0.36
+  (fuzz-push 0.05 and transients 0.005 still failing).
+- **$0 correction**: the standalone root canvas $0 = **1003**, not the
+  spec's 1001 (probe). Irrelevant in practice — the bridge receives $0 as
+  an abstraction arg.
+- **Remaining fidelity deltas (aligned, corr 0.05-0.67)**: (1) PWM duty —
+  pd's square shows pure odd harmonics (duty locked 0.5) while ours sweeps
+  with the vibrato (PWM = 0.53125 + 0.025·V) — the samphold/PWM path needs
+  re-derivation from the patch; (2) transients scenario envelope timing;
+  (3) fuzz-push (master drive chain). Spectral peak SETS now match
+  (voice pitches correct across all 8 voices).
+- Test suite state: 4 binaries green (primitives/voice/engine/wav_io);
+  golden compare = the new red/green loop for the fidelity tail.

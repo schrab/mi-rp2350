@@ -39,16 +39,39 @@ def main():
     ap.add_argument("got")
     ap.add_argument("--rms-db", type=float, default=-50.0)
     ap.add_argument("--corr", type=float, default=0.99)
+    ap.add_argument("--align", action="store_true")
     args = ap.parse_args()
 
     a, sr_a = read_wav(args.ref)
     b, sr_b = read_wav(args.got)
-    if sr_a != sr_b or len(a) != len(b):
-        print(f"FAIL: length/rate mismatch ref={len(a)}@{sr_a} got={len(b)}@{sr_b}")
+    if sr_a != sr_b:
+        print(f"FAIL: rate mismatch ref={sr_a} got={sr_b}")
         return 1
     if a.shape[1] != b.shape[1]:
         print(f"FAIL: channel mismatch ref={a.shape[1]} got={b.shape[1]}")
         return 1
+
+    # time-alignment: find the lag minimizing rms diff over a 1 s window
+    if getattr(args, "align", False):
+        import numpy as _np
+        w = min(len(a), len(b)) // 3
+        seg_ref = a[len(a)//3:len(a)//3 + w, 0]
+        best = (0, 1e30)
+        for lag in range(-int(sr_a*0.25), int(sr_a*0.25)+1, 16):
+            lo = len(b)//3 + lag
+            if lo < 0 or lo + w > len(b):
+                continue
+            d = float(_np.sqrt(_np.mean((seg_ref - b[lo:lo+w, 0])**2)))
+            if d < best[1]:
+                best = (lag, d)
+        lag = best[0]
+        print(f"align lag: {lag} samples ({lag/sr_a*1000:.1f} ms)")
+        if lag >= 0:
+            b = b[lag:]
+        else:
+            a = a[-lag:]
+        n = min(len(a), len(b))
+        a, b = a[:n], b[:n]
 
     ok = True
     per_ch = []
