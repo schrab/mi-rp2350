@@ -95,6 +95,12 @@ struct State {
   volatile bool     pluck_restore;   // trig_latched value before the button
   volatile uint32_t pluck_until_ms;  // auto-release deadline (core-1 clock)
 
+  // TEMP PROBE (ping-path diagnosis): pulses consumed + max LPG gain since
+  // the last 2 s report. Written by core 1, read by the report (core 0).
+  volatile uint32_t probe_trigs;
+  volatile float    probe_gain_max;
+  volatile uint8_t  probe_opts;      // bit0 gate_response, bit1 velocity_resp
+
   volatile int8_t   pending_engine;      // -1 none, 0..97 engine
   volatile int8_t   pending_aux_option;  // -1 none, 0/1/2 aux option
   volatile float    pending_trigger;     // <0 none, else pulse voltage
@@ -133,6 +139,9 @@ void init_at(uint8_t* base) {
   s->pluck_active = false;
   s->pluck_restore = false;
   s->pluck_until_ms = 0;
+  s->probe_trigs = 0;
+  s->probe_gain_max = 0.0f;
+  s->probe_opts = 0;
   s->shared_pitch = 0.0f;
   s->shared_timbre = 0.5f;
   s->shared_morph = 0.5f;
@@ -204,12 +213,15 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
   if (s->pending_trig_pulse) {
     s->pending_trig_pulse = false;
     s->pending_trigger = 1.0f;
+    ++s->probe_trigs;              // TEMP PROBE: pulse consumed
   }
 
   const bool trig_routed = ::mod_is_dest_routed(64);
   const bool level_routed = ::mod_is_dest_routed(25) || ::mod_is_dest_routed(7);
 
   const bool trig_patched = s->trig_latched || trig_routed;
+  s->probe_opts = (uint8_t)((s->patch.trig_response_option & 3u)  // TEMP PROBE
+                            | (trig_patched ? 4u : 0u));
   const bool level_patched = level_routed;
 
   if (s->pending_trigger > -0.5f) {
@@ -274,12 +286,15 @@ void render() {
   if (s->pending_trig_pulse) {
     s->pending_trig_pulse = false;
     s->pending_trigger = 1.0f;
+    ++s->probe_trigs;              // TEMP PROBE: pulse consumed
   }
 
   const bool trig_routed = ::mod_is_dest_routed(64);
   const bool level_routed = ::mod_is_dest_routed(25) || ::mod_is_dest_routed(7);
 
   const bool trig_patched = s->trig_latched || trig_routed;
+  s->probe_opts = (uint8_t)((s->patch.trig_response_option & 3u)  // TEMP PROBE
+                            | (trig_patched ? 4u : 0u));
   const bool level_patched = level_routed;
 
   // TRIG pulse: one block high at the note-on/pulse velocity, then low so

@@ -2247,8 +2247,18 @@ void loop() {
       budget = m.budget_us;
     }
     if (g_telemetry_enabled) {
+      // TEMP PROBE (plaits ping-path diagnosis): pulses consumed since the
+      // last report + the active articulation bits (bit0 gate_resp, bit1
+      // velocity_resp, bit2 patched). Resets the counter on print.
+      char plaits_tail[24] = "";
+      if (g_active_module == RACK_MODULE_PLAITS) {
+        snprintf(plaits_tail, sizeof(plaits_tail), "tg=%lu go=%u",
+                 (unsigned long)rack_modules::mod_plaits::s->probe_trigs,
+                 rack_modules::mod_plaits::s->probe_opts);
+        rack_modules::mod_plaits::s->probe_trigs = 0;
+      }
 #if RACK_ENABLE_USB_HOST
-      Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s\r\n",
+      Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s | %s\r\n",
                     proc_us_max,
                     (unsigned)budget,
                     stalls, stalls - last_stall_total,
@@ -2262,9 +2272,10 @@ void loop() {
                     (unsigned)host_midi_idx_count,
                     (unsigned)pio_usb_host_get_frame_number(),
                     mod_field,
-                    modeng_tail);
+                    modeng_tail,
+                    plaits_tail);
 #else
-      Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | mod=%s | %s\r\n",
+      Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | mod=%s | %s | %s\r\n",
                     proc_us_max,
                     (unsigned)budget,
                     stalls, stalls - last_stall_total,
@@ -2273,7 +2284,8 @@ void loop() {
                     note_on_count,
                     button_down_count,
                     mod_field,
-                    modeng_tail);
+                    modeng_tail,
+                    plaits_tail);
 #endif
     }
     last_stall_total = stalls;
