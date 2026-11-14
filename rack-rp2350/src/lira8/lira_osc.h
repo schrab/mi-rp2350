@@ -40,11 +40,13 @@ class LiraOsc {
       return;
     }
 
-    // phasor~: output-then-increment, wrap [0,1)
-    const float p = phase_;
-    phase_ += dt;
-    phase_ -= static_cast<float>(static_cast<int>(phase_));  // wrap [0,1)
-    if (phase_ < 0.0f || phase_ >= 1.0f) phase_ = 0.0f;      // numeric guard
+    // phasor~: output-then-increment, wrap [0,1) — DOUBLE phase (pd's
+    // d_osc.c uses double dphase; float accumulation = phase jitter =
+    // broadband HF sidebands, measured 12 dB above pd's floor)
+    const float p = static_cast<float>(phase_);
+    phase_ += static_cast<double>(dt);
+    phase_ -= std::floor(phase_);                            // wrap [0,1)
+    if (phase_ < 0.0 || phase_ >= 1.0) phase_ = 0.0;         // numeric guard
 
     // samphold~: samples the PWM value when the phase control DECREASES,
     // i.e. at the wrap.
@@ -90,8 +92,8 @@ class LiraOsc {
 
  private:
   float sr_;
-  float phase_ = 0.0f;
-  float last_phase_for_sh_ = 0.0f;
+  double phase_ = 0.0;
+  double last_phase_for_sh_ = 0.0;
   float sh_ = 0.0f;
   float lpf_y_ = 0.0f;
 };

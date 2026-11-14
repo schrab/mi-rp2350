@@ -478,3 +478,75 @@ SCEN cleantest
 0 render start
 100 sensor 1 1
 5000 render stop
+
+SCEN drone-nodelay
+0 param tune-1 0
+0 param tune-2 78
+0 param tune-3 74
+0 param tune-4 36
+0 param tune-5 27
+0 param tune-6 57
+0 param tune-7 60
+0 param tune-8 51
+0 param fast-12 1
+0 param fast-34 1
+0 param fast-56 1
+0 param fast-78 1
+0 param sharp-12 14
+0 param sharp-34 43
+0 param sharp-56 103
+0 param sharp-78 72
+0 param mod-12 0
+0 param mod-34 0
+0 param mod-56 0
+0 param mod-78 0
+0 param source-12 0
+0 param source-34 0
+0 param source-56 0
+0 param source-78 0
+0 param pitch-1234 66
+0 param pitch-5678 65
+0 param hold-1234 0
+0 param hold-5678 0
+0 param switch 0
+0 param total-fb 0
+0 param vibrato 1
+0 param drv 86
+0 param dst-mix 69
+0 param vol 127
+0 param f-a 42
+0 param f-b 64
+0 param andor 1
+0 param link 1
+0 param time-1 94
+0 param time-2 57
+0 param feedback 54
+0 param del-mix 0
+0 param mod-1 41
+0 param mod-2 48
+0 param del-mod 2
+0 param lfo-wav 0
+0 param quantize 0
+0 sensor 1 0
+0 sensor 2 0
+0 sensor 3 0
+0 sensor 4 0
+0 sensor 5 0
+0 sensor 6 0
+0 sensor 7 0
+0 sensor 8 0
+0 render open goldens/drone-all.wav
+0 render start
+100 param hold-1234 127
+100 param hold-5678 127
+500 sensor 1 1
+500 sensor 2 1
+500 sensor 3 1
+500 sensor 4 1
+500 sensor 5 1
+500 sensor 6 1
+500 sensor 7 1
+500 sensor 8 1
+
+8000 param vibrato 1
+9000 render stop

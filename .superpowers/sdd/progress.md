@@ -2907,3 +2907,24 @@ Metrics for that scenario = rms envelope (matching) + ear texture.
 Documented in scenarios.txt: keep golden feedback <= ~60 on the int16
 delay; fb > 65 = self-oscillation territory (authentic but clipped by
 int16 — the ESP32 float port keeps the full range).
+
+### Rack-lira8 L3 — harmonic-table diagnosis (2026-11-15, session end state)
+
+Clean-voice (single osc, tri path, drv=40) harmonic table, normalized %:
+pd  [100, 61, 15, 24, 26, 7, 20, 2, 18, 2] vs eng [100, 47, 11, 6, 21, 5, 2, 1, 1, 3]
+→ pd carries strong H4/H7/H9 that the engine lacks — the audible "string vs
+harsh" difference. Hypothesis: the vibrato→PWM depth swing in pd is larger
+than the V ∈ ±1 model (duty ≈ 0.6 excursions → strong even harmonics), i.e.
+take-1's depth reading vs my rate-only reading remains UNRESOLVED — the
+connect list says the random chain feeds osc~'s frequency inlet (rate), but
+pd's measured H4=24% demands more duty swing. NEXT: instrument the pd patch
+(snapshot~ on the PWM signal) to measure the true duty range directly.
+
+Also this session: delay bypass bisect (del-mix=0) — the HF floor (−72 dB)
+is in the VOICES/MASTER, delay/int16 exonerated; LiraOsc phasor moved to
+double (correctness, pd d_osc.c uses double); LFO triangle depth fixed
+(converter = |p−0.5|·4−1, no extra scaling — was halved); delay-extremes
+scenario re-scoped fb=60 (int16 clip boundary); hold law fixed
+(min(e²+hold, 1)); master tanh input clip (fuzz explosion). All tests green.
+Aligned corr: drone-all 0.69, single-pair 0.81, fuzz-push 0.64, transients
+0.37, delay-extremes 0.06 (chaotic loop — use envelope/texture metrics).

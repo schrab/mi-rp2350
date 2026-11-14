@@ -32,9 +32,11 @@ class HyperLfo {
       const float pb = pb_.next();
       const float sb = std::fmax(-1.0f, std::fmin(1.0f,
           cos_lookup(pb * static_cast<float>(kCosTabSize)) * 1000.0f));
-      // triangles: tri(p) = (|p-0.5|*4 - 1)*0.5
-      const float tri = ((std::fabs(pa - 0.5f) * 4.0f - 1.0f) * 0.5f +
-                         (std::fabs(pb - 0.5f) * 4.0f - 1.0f) * 0.5f) * 0.5f;
+      // triangles: converter = |p-0.5|*4 - 1 (in [-1,1], NO extra scaling —
+      // verified against the patch's triangle-lfo canvas); the pair sums
+      // into *~ 0.5 -> del-tri in [-1, +1].
+      const float tri = ((std::fabs(pa - 0.5f) * 4.0f - 1.0f) +
+                         (std::fabs(pb - 0.5f) * 4.0f - 1.0f)) * 0.5f;
       del_tri[i] = tri;
       del_sqr[i] = (square_a_ + sb) * 0.5f;
       sqr_lfo[i] = square_a_ * sb * (1.0f - andor_) +
