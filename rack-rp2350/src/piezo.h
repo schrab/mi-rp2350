@@ -5,38 +5,33 @@
 //   piezo ∥ 1 MΩ bleed → 10 kΩ series → GP26; 1N4148 clamps to 3V3 and GND
 //   at the ADC node (the 10 kΩ limits clamp current to ~2-3 mA).
 //
-// ADC free-run via the ADC FIFO + ONE DMA channel in write-ring mode, ~24 kHz
-// (clk_adc 48 MHz / 2000). The transfer count is effectively infinite and the
-// write address wraps in the ring — no re-arm, no IRQ. Core 0 drains the ring
-// tail in loop() by chasing the live DMA write address. T3 adds the
-// software-Ears pipeline (rectifier → envelope follower → Schmitt gate) on
-// top of this ring. All state here is core-0 only.
+// T2 SAFE MODE: the ADC free-runs at ~24 kHz into its 4-deep FIFO (adc_run),
+// and loop() drains whatever accumulated each pass. Between-pass overflows
+// lose samples (the FIFO is tiny) — fine for the bench read-out: a tap is
+// tens of ms wide, min/max/peak survive drained-rate gaps. The measured
+// rate field (pzr=) reports the DRAINED rate, i.e. the loop() pacing.
+// The 24 kHz DMA-ring version for T3 is pending: the first attempt hung the
+// board at boot (ring config under suspicion) — bisect separately before
+// building the Ears pipeline on it.
 //
 // Digital gain (`piezo gain`, 1..16) stands in for Ears' omitted 40 dB amp:
 // it scales the rectified samples BEFORE the follower in T3; sensitivity
-// sits post-gain.
+// sits post-gain. All state here is core-0 only.
 #pragma once
 #include <stdint.h>
 
 #include "hardware/adc.h"
-#include "hardware/dma.h"
 
 namespace rack_piezo {
 
 static const uint32_t kPinPiezo = 26;        // ADC0
-static const uint32_t kSampleRate = 24000;   // Hz (clk_adc 48 MHz / 2000)
-static const uint16_t kRingSamples = 512;    // ~21 ms at 24 kHz
-static const uint32_t kRingBytes = kRingSamples * sizeof(uint16_t);  // 1024
-
-static int16_t g_dma_ch = -1;
-static __attribute__((aligned(1024))) uint16_t g_ring[kRingSamples];
+static const uint32_t kSampleRate = 24000;   // ADC free-run rate (clk_adc/2000)
 
 // Readout state (max-since-report semantics, like the rack meters).
 static uint16_t g_min = 4095;
 static uint16_t g_max = 0;
 static uint16_t g_peak = 0;                  // max since last report
-static uint16_t g_rd_idx = 0;                // last drained ring position
-static uint32_t g_new_since_report = 0;      // for the measured sample rate
+static uint32_t g_drained = 0;               // samples drained since report
 
 static float g_gain = 1.0f;                  // digital gain (T3 pre-rectifier)
 
@@ -44,58 +39,32 @@ inline void init() {
   adc_init();
   adc_gpio_init(kPinPiezo);
   adc_select_input(0);                       // GP26 = ADC0
-  // Full sample period = div cycles (must stay >= the 96 conversion cycles).
   adc_set_clkdiv(48000000u / kSampleRate - 1u);
   adc_fifo_setup(true,    // enable FIFO
-                 true,    // DREQ while >= threshold
-                 1,       // threshold: 1 sample
+                 false,   // no DREQ (no DMA in safe mode)
+                 0,       // drain regardless of level
                  false,   // no error flag in final entry
-                 true);   // shift: DMA words = clean 12-bit results
+                 false);  // keep the raw FIFO word (mask result in poll)
   adc_fifo_drain();
-
-  g_dma_ch = dma_claim_unused_channel(true);
-  dma_channel_config c = dma_channel_get_default_config(g_dma_ch);
-  channel_config_set_transfer_data_size(&c, DMA_SIZE_16);
-  channel_config_set_dreq(&c, DREQ_ADC);
-  channel_config_set_read_increment(&c, false);
-  channel_config_set_write_increment(&c, true);
-  // Write ring on 10 address bits (1024 B) + an effectively infinite
-  // transfer count: the DMA runs forever, one sample per DREQ, wrapping in
-  // the ring — no re-arm, no IRQ. g_ring is 1024-B aligned for this.
-  channel_config_set_ring(&c, false, 10);
-  dma_channel_configure(g_dma_ch, &c,
-                        g_ring,                       // write (rings)
-                        &adc_hw->fifo,                // read: ADC FIFO
-                        0x0FFFFFFFu,                  // never exhausts
-                        true);                        // start now
-  g_rd_idx = 0;
-  g_new_since_report = 0;
+  adc_run(true);                             // start the free-running conversion
 }
 
-// Drain whatever the DMA has written since the last poll (chase the live
-// write address around the ring), tracking min/max/peak. The T3 pipeline
-// replaces this tracking with the Ears stages.
+// Drain whatever accumulated since the last loop() pass. The FIFO is 4
+// deep; between-pass overflows drop samples (reported in the rate field).
 inline void poll() {
-  if (g_dma_ch < 0) return;
-  const uintptr_t base = (uintptr_t)g_ring;
-  const uint16_t wr_idx = (uint16_t)(
-      ((((uintptr_t)dma_hw->ch[g_dma_ch].write_addr) - base) & (kRingBytes - 1)) >> 1);
-  uint16_t d = (uint16_t)((wr_idx - g_rd_idx + kRingSamples) % kRingSamples);
-  if (d == 0) return;                        // nothing new since last poll
-  for (uint16_t i = 0; i < d; ++i) {
-    const uint16_t s = g_ring[g_rd_idx];
-    g_rd_idx = (uint16_t)((g_rd_idx + 1) % kRingSamples);
-    if (s < g_min) g_min = s;
-    if (s > g_max) g_max = s;
-    if (s > g_peak) g_peak = s;
+  while (adc_fifo_get_level() > 0) {
+    const uint16_t raw = (uint16_t)(adc_fifo_get() & 0xFFFu);  // 12-bit result
+    if (raw < g_min) g_min = raw;
+    if (raw > g_max) g_max = raw;
+    if (raw > g_peak) g_peak = raw;
+    ++g_drained;
   }
-  g_new_since_report += d;
 }
 
 // 2 s report hooks (reset-on-read, like the rack meters).
 inline uint32_t report_sample_rate() {
-  const uint32_t n = g_new_since_report / 2u;  // samples per second
-  g_new_since_report = 0;
+  const uint32_t n = g_drained / 2u;         // drained samples per second
+  g_drained = 0;
   return n;
 }
 inline uint16_t report_peak() { const uint16_t v = g_peak; g_peak = 0; return v; }
