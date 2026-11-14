@@ -80,6 +80,7 @@ bool core1_separate_stack = true;
 #include "din_midi.h"            // T4 DIN 31250 byte parser -> 4-byte packets
 #include "rack_window.h"         // SRAM window copy API
 #include "rack_arena.h"          // T2 module-state arenas (decls)
+#include "piezo.h"               // T2 piezo input (GP26 ADC0, software Ears)
 #include "hardware/gpio.h"       // gpio_pull_up (DIN RX idle mark)
 
 #if RACK_ENABLE_USB_HOST
@@ -1270,6 +1271,7 @@ static void cmd_ui(const char* args);
 static void cmd_uitest(const char* args);
 static void cmd_uisend(const char* args);
 static void cmd_trig(const char* args);
+static void cmd_piezo(const char* args);
 static void cmd_help(const char* args);
 // T3 mod-engine commands (defined in mod_engine.h, core 0 only).
 //   mod <src> <param> <value> | mod? | bpm <20-300> | clock <internal|midi> [src]
@@ -1310,6 +1312,7 @@ static const ConsoleCommand kConsoleCommands[] = {
     {"uisend",    cmd_uisend},
     {"panic",     cmd_panic},
     {"trig",      cmd_trig},
+    {"piezo",     cmd_piezo},
     {"help",      cmd_help},
 };
 static const uint8_t kConsoleCommandCount =
@@ -1716,6 +1719,35 @@ static void cmd_trig(const char* args) {
   Serial.println("usage: trig [down|up]  (bare = press+release pulse)");
 }
 
+// piezo [gain <1-16>] — T2 piezo bench read-out: the live ADC window
+// (min/max/peak since the last 2 s report — tap and read), the measured
+// sample rate and the digital gain. The gain scales the rectified samples
+// before the T3 Ears pipeline (stand-in for Ears' omitted 40 dB amp).
+static void cmd_piezo(const char* args) {
+  while (*args == ' ') ++args;
+  if (strncasecmp(args, "gain", 4) == 0) {
+    const char* v = args + 4;
+    while (*v == ' ') ++v;
+    const float g = atof(v);
+    if (g < 1.0f) {
+      Serial.printf("piezo: gain %.2f (range 1-16)\r\n", rack_piezo::gain());
+      return;
+    }
+    rack_piezo::set_gain(g);
+    Serial.printf("piezo: gain set %.2f\r\n", rack_piezo::gain());
+    return;
+  }
+  if (*args == '\0') {
+    Serial.printf("piezo: rate=%lu Hz min=%u max=%u peak=%u gain=%.2f "
+                  "(GP26/ADC0; tap and re-read)\r\n",
+                  (unsigned long)rack_piezo::report_sample_rate(),
+                  rack_piezo::report_min(), rack_piezo::report_max(),
+                  rack_piezo::report_peak(), rack_piezo::gain());
+    return;
+  }
+  Serial.println("usage: piezo [gain <1-16>]");
+}
+
 // ui — T5 stage 1 link status: frame counters, CRC errors, last RTT. The
 // rtt field is the RP2350's ECHO TURNAROUND (UI_CMD echo received -> echo
 // written); the C3 measures the full wire RTT of its own echo probes.
@@ -1892,8 +1924,10 @@ static void cmd_help(const char* args) {
   Serial.println("  telemetry on|off   mute/unmute the 2 s report (default on)");
   Serial.println("  panic              all notes off (release held notes + clear stack)");
   Serial.println("  trig [down|up]     fire the hardware PLAY button path (GP2 twin;");
-  Serial.println("                     bare = press+release pulse, CC 64/66 to the"); 
+  Serial.println("                     bare = press+release pulse, CC 64/66 to the");
   Serial.println("                     active module)");
+  Serial.println("  piezo [gain 1-16]  T2 piezo read-out: rate/min/max/peak (GP26);");
+  Serial.println("                     tap the piezo and re-read");
   Serial.println("MIDI bench: CC 32 = switch | CC 33/34/35 = mod source/param/value mux");
   Serial.println("web panels drive everything else (per-module CC maps)");
 }
@@ -2021,6 +2055,9 @@ void setup() {
   gpio_init(kPinButton);
   gpio_set_dir(kPinButton, GPIO_IN);
   gpio_pull_up(kPinButton);
+  // T2 piezo (GP26 ADC0): ADC FIFO + one DMA ring — plain peripherals, no
+  // PIO/alarm claims; position unconstrained (same class as DIN/UI/button).
+  rack_piezo::init();
   preset_replay_module(RACK_BOOT_MODULE);
   statusLed.Init();  // 3 white self-test flashes, then dark
 
@@ -2121,6 +2158,9 @@ void loop() {
 
   // --- T1 hardware PLAY button: debounced poll (GP2) ---
   button_poll();
+
+  // --- T2 piezo: drain the ADC ring (GP26) ---
+  rack_piezo::poll();
 
   // --- serial console (non-blocking; T2/T3/T4 table) ---
   pumpConsole();
@@ -2257,8 +2297,11 @@ void loop() {
                  rack_modules::mod_plaits::s->probe_opts);
         rack_modules::mod_plaits::s->probe_trigs = 0;
       }
+      // T2 piezo: peak since last report (raw 0-4095) + measured rate.
+      const uint16_t pz_peak = rack_piezo::report_peak();
+      const uint32_t pz_rate = rack_piezo::report_sample_rate();
 #if RACK_ENABLE_USB_HOST
-      Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s | %s\r\n",
+      Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s | %s\r\n",
                     proc_us_max,
                     (unsigned)budget,
                     stalls, stalls - last_stall_total,
@@ -2266,6 +2309,8 @@ void loop() {
                     (unsigned)(rack_meter_b * 1000.0f),
                     note_on_count,
                     button_down_count,
+                    pz_peak,
+                    (unsigned long)pz_rate,
                     (unsigned)pio_host_connected(),
                     (unsigned)pio_host_line_state(),
                     (unsigned)host_device_mounted,
@@ -2275,7 +2320,7 @@ void loop() {
                     modeng_tail,
                     plaits_tail);
 #else
-      Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | mod=%s | %s | %s\r\n",
+      Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | mod=%s | %s | %s\r\n",
                     proc_us_max,
                     (unsigned)budget,
                     stalls, stalls - last_stall_total,
@@ -2283,6 +2328,8 @@ void loop() {
                     (unsigned)(rack_meter_b * 1000.0f),
                     note_on_count,
                     button_down_count,
+                    pz_peak,
+                    (unsigned long)pz_rate,
                     mod_field,
                     modeng_tail,
                     plaits_tail);
