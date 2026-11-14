@@ -29,6 +29,7 @@
 
 #include "lira8/lira_engine.h"
 #include "lira8/lira8_tc.h"
+#include "lira8_engine_o3.h"     // -O3 Process() wrapper (lib/lira8_engine)
 #include "pico/time.h"           // time_us_32 (static inline in pico-sdk 2.x)
 
 #include "rack_arena.h"
@@ -167,7 +168,7 @@ void render() {
 
   uint32_t t0 = time_us_32();
   float l[kBlockSize], r[kBlockSize];
-  s->eng.Process(l, r, kBlockSize);
+  l8pd::process_block_o3(s->eng, l, r, kBlockSize);
   uint32_t dt = time_us_32() - t0;
   if (dt > proc_us_max) proc_us_max = dt;
 

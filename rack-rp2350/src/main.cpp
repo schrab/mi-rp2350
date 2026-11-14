@@ -2331,12 +2331,20 @@ void loop() {
                  rack_modules::mod_plaits::s->probe_opts);
         rack_modules::mod_plaits::s->probe_trigs = 0;
       }
-      char lira8_tail[16] = "";
+      // STAGE PROFILE (l8 bottlenecks): internal-64-block maxima in us,
+      // params/voices/delay/lfo/master; reset on print.
+      char lira8_tail[64] = "";
       if (g_active_module == RACK_MODULE_LIRA8) {
         uint8_t n = 0;
         for (uint8_t v = 0; v < 8; ++v)
           if (rack_modules::mod_lira8::s->sensor_mask & (1u << v)) ++n;
-        snprintf(lira8_tail, sizeof(lira8_tail), "sens=%u", n);
+        l8pd::Lira8Engine& e = rack_modules::mod_lira8::s->eng;
+        snprintf(lira8_tail, sizeof(lira8_tail),
+                 "sens=%u st=%lu/%lu/%lu/%lu/%lu", n,
+                 (unsigned long)e.dbg_params, (unsigned long)e.dbg_voices,
+                 (unsigned long)e.dbg_delay, (unsigned long)e.dbg_lfo,
+                 (unsigned long)e.dbg_master);
+        e.dbg_params = e.dbg_voices = e.dbg_delay = e.dbg_lfo = e.dbg_master = 0;
       }
       // T2 piezo: peak since last report (raw 0-4095) + measured rate.
       const uint16_t pz_peak = rack_piezo::report_peak();

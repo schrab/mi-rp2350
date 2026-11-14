@@ -30,6 +30,12 @@
 
 #include "pd_primitives.h"
 #include "lira8_tc.h"
+#if defined(RACK_RP2350_TC)
+#include "pico/time.h"           // time_us_32 for the stage probes
+#define L8_TIME_US() time_us_32()
+#else
+#define L8_TIME_US() 0u          // host golden harness: probes inert
+#endif
 #include "lira_osc.h"
 #include "lira_voice.h"
 #include "lira_delay.h"
@@ -89,6 +95,11 @@ class Lira8Engine {
   // 44 del-mod, 45 lfo-wav, 46 quantize.
   static constexpr int kNumParams = 47;
   void set_param(int idx, float v127) { pending_params_[idx] = v127; }
+
+  // Stage-profile maxima (microseconds, max since the last read; the
+  // PORTING-HIGHLIGHTS §6 pattern — on-device only, host ignores them).
+  volatile uint32_t dbg_voices = 0, dbg_delay = 0, dbg_lfo = 0,
+                    dbg_master = 0, dbg_params = 0;
   void set_sensor(int voice /*0..7*/, bool on) { pending_sensors_[voice] = on; }
 
   // Host render: n samples (1..64, normally 16); mono duplicated to L/R.
@@ -192,26 +203,43 @@ class Lira8Engine {
         pairs_[v / 2].set_sensor(v % 2, sensor_state_[v]);
       }
     }
-    if (dirty) apply_params();
+    if (dirty) {
+      uint32_t tp = L8_TIME_US();
+      apply_params();
+      tp = L8_TIME_US() - tp;
+      if (tp > dbg_params) dbg_params = tp;
+    }
 
     // 1) LFO buses (written now, consumed next block via one-block delay)
+    uint32_t t0 = L8_TIME_US();
     lfo_.process_block(kBlockSize, bus_next_[4], bus_next_[5], bus_next_[6]);
+    t0 = L8_TIME_US() - t0;
+    if (t0 > dbg_lfo) dbg_lfo = t0;
 
     // 2) voice pairs (M from PREVIOUS block's buses; soft-gated mux)
+    t0 = L8_TIME_US();
     for (int p = 0; p < 4; ++p) {
       mux_source(p, mux_buf_);
       pairs_[p].process(mux_buf_, kBlockSize, blk_[p], bus_next_[p]);
     }
+    t0 = L8_TIME_US() - t0;
+    if (t0 > dbg_voices) dbg_voices = t0;
 
     // 3) delay section
+    t0 = L8_TIME_US();
     render_delay();
+    t0 = L8_TIME_US() - t0;
+    if (t0 > dbg_delay) dbg_delay = t0;
 
     // 4) master + total-feedback bus
+    t0 = L8_TIME_US();
     for (int i = 0; i < kBlockSize; ++i) {
       float tap;
       master_.process(delay_out_[i], out_buf_[i], tap);
       bus_next_[7][i] = tap;
     }
+    t0 = L8_TIME_US() - t0;
+    if (t0 > dbg_master) dbg_master = t0;
 
     // 5) swap bus rings (one-block delay for ALL s~/r~ buses)
     memcpy(buses_prev_, bus_next_, sizeof(buses_prev_));

@@ -16,7 +16,11 @@ class HyperLfo {
  public:
   explicit HyperLfo(float sr) : sr_(sr) {}
   void set_rate_a(int k) { ra_ = 127.0f * (k / 127.0f) * (k / 127.0f) - 75.0f; }
-  void set_rate_b(int k) { rb_ = 127.0f * (k / 127.0f) * (k / 127.0f) - 75.0f; }
+  void set_rate_b(int k) {
+    rb_ = 127.0f * (k / 127.0f) * (k / 127.0f) - 75.0f;
+    rate_b_hz_ = mtof(rb_);   // rb_ is control-rate: hoist the exp out of the
+                              // per-sample loop (LINK then only scales it)
+  }
   void set_link(float l) { link_ = l; }
   void set_andor(float a) { andor_ = a; }
 
@@ -29,7 +33,7 @@ class HyperLfo {
       square_a_ = std::fmax(-1.0f, std::fmin(1.0f,
           cos_lookup(pa * static_cast<float>(kCosTabSize)) * 1000.0f));
       // B rate FM by A square (link): fb*(1 + squareA/2*link); raw 0/1 gate
-      const float fb = mtof(rb_) * (1.0f + square_a_ * 0.5f * link_);
+      const float fb = rate_b_hz_ * (1.0f + square_a_ * 0.5f * link_);
       pb_.set_freq(fb);
       const float pb = pb_.next();
       const float sb = std::fmax(-1.0f, std::fmin(1.0f,
@@ -50,6 +54,7 @@ class HyperLfo {
  private:
   float sr_;
   float ra_ = 0.f, rb_ = 0.f, link_ = 0.f, andor_ = 0.f;
+  float rate_b_hz_ = 0.f;
   float square_a_ = 0.f;
   Phasor pa_{sr_}, pb_{sr_};
 };

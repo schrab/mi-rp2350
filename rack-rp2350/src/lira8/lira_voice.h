@@ -68,7 +68,13 @@ class SensorEnv {
   inline void process(float& e2, float& cos_term) {
     const float e = line_.next();
     e2 = e * e;
-    cos_term = std::cos(2.0f * kPi * (e - 0.25f)) * 0.5f;
+    // cos~ is pd's TABLE object (2048-entry cosine + linear interp), not a
+    // libm call — the golden reference rendered through the same table. The
+    // per-sample std::cos here was a libm call x2 per voice pair, one of the
+    // voice stage's top costs on the M33.
+    float ph = (e - 0.25f) * static_cast<float>(kCosTabSize);  // cycles
+    if (ph < 0.0f) ph += static_cast<float>(kCosTabSize);
+    cos_term = cos_lookup(ph) * 0.5f;
   }
 
  private:

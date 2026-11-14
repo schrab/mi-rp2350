@@ -3000,3 +3000,56 @@ Fifth module wired end-to-end following the established adapter pattern:
 KNOWN LIMITATION (v1): the C3 display side (rack-uimcu) has no lira8 page
 yet — switching to lira8 from the C3 shows the generic header until the
 rack-uimcu page tables gain the module. Next: on-device flash + ear test.
+
+### Rack-lira8 L4b — on-device performance: 3.1 ms → 1.31 ms per 64-block (2026-11-15)
+
+The first L4 flash booted at max Process 5,100 us (10x over the 496 us host
+budget); the double->float LiraOsc phase revert took it to ~3,400 us. Stage
+probes (dbg_* maxima per engine stage, printed as `st=<params>/<voices>/
+<delay>/<lfo>/<master>`) isolated the cost at idle, per internal 64-sample
+block:
+
+| stage | before (us) | after (us) |
+|---|---|---|
+| voices | 2,414-2,610 | 902-954 |
+| delay | 243-281 | 217-239 |
+| lfo | 201-260 | 157-171 |
+| master | 258-279 | 41 |
+| apply_params | 0 (spikes 134-155 when dirty) | 0 |
+| **max Process** | **3,108-3,272** | **1,303-1,380** |
+
+Root causes and fixes:
+1. **-Os build trap on src/**: main.cpp compiles with the project's -O3 THEN
+   the earlephilhower core's appended -Os (last -O wins) — the header-only
+   engine inlined into src ran at -Os. Fix: `lib/lira8_engine/` (library.json
+   -O3 + `lira8_engine_o3.cpp` wrapper `process_block_o3` carrying its own
+   SRAM token; the adapter calls it and never Process()). Verified: the lib
+   TU's command line is `-O3 -Os -O3`; the wrapper lands in the SRAM window
+   (tc_lira8 grew 4,600 -> 10,352 B, 0x20063000-0x20065870). lib_ldf_mode
+   chain+ needs the include from module_lira8.h (lira8_engine_o3.h) — a
+   symbol-only reference does NOT link the library.
+2. **libm calls per sample**: SensorEnv did 2x std::cos per pair-sample
+   (-> pd's cos~ 2048-entry table, which IS what pd uses; 512 calls/block
+   removed); LiraOsc did std::exp for the tri-filter coefficient
+   (-> exp_neg_range, degree-11 Taylor about -1.6, |rel err| < 1e-6, 512
+   calls/block removed); master did pow(t,31) (-> repeated squaring); the
+   hyper-LFO did mtof(rb_) per sample (-> hoisted into set_rate_b, exact);
+   phasor floor -> while-subtract.
+3. **Double phase kept where it matters**: CosOsc (vibrato) and Phasor
+   (LFOs) stay double — float drifted the single-pair A/B to -16.5 dB rmsdiff
+   / corr 0.989. Audio-rate LiraOsc stays float (that is where the 10x
+   software-double cost lived).
+4. Sensor cos~ and the osc table are pd-faithful (pd's objects are tables).
+
+Fidelity A/B (host; base = handoff state vs optimized): drone-all -52.4 dB /
+corr 0.999997, single-pair -25.6 dB / corr 0.9986 (the divergence starts
+exactly at the t=5 s mod-12 event: audio-rate cross-mod amplifies the -80 dB
+residue into audio phase; harmonic magnitudes identical to 0.00 dB — the
+documented gate), delay-extremes -54.2 dB, fuzz-push -50.8 dB, transients
+-48.8 dB. All host unit tests green.
+
+On device: 1,303-1,380 us per internal 64-sample block = 65% of the 2 ms block
+period. The 4x burst (one internal block per 4 host calls) is the documented
+pd block architecture; the 8x16 I2S bank (4 ms) absorbs it — i2s stalls 0,
+including with sensor 1 plucked (sens=1, non-zero output meter). Next: the
+user's ear test is the acceptance gate.

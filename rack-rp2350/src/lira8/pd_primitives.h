@@ -9,23 +9,53 @@
 #include <cstdint>
 #include <cmath>
 
+#include "lira8_tc.h"
+
 namespace l8pd {
 
 static constexpr float kPi = 3.14159265358979f;
 
+// Fast exp(x) for x in [-3.2, 0] — the rlpf~ coefficient domain
+// (exp(-2*pi*fc/sr), fc in [100, sr/2] at 32 kHz). Degree-11 Taylor about
+// -1.6, |rel err| < 1e-6 (far below the golden gates); replaces one libm
+// expf per sample per oscillator, the voice stage's top per-sample cost on
+// the M33. Outside the domain (unreachable: fc is clamped) -> std::exp.
+LIRA8_TC(pd_exp_neg_range)
+inline float exp_neg_range(float x) {
+  if (x < -3.2f) return std::exp(x);
+  const float y = x + 1.6f;
+  float p = 2.5052108385e-08f;    // 1/11!
+  p = p * y + 2.7557319224e-07f;  // 1/10!
+  p = p * y + 2.7557319224e-06f;  // 1/9!
+  p = p * y + 2.4801587302e-05f;  // 1/8!
+  p = p * y + 1.9841269841e-04f;  // 1/7!
+  p = p * y + 1.3888888889e-03f;  // 1/6!
+  p = p * y + 8.3333333333e-03f;  // 1/5!
+  p = p * y + 4.1666666667e-02f;  // 1/4!
+  p = p * y + 1.6666666667e-01f;  // 1/3!
+  p = p * y + 5.0e-01f;           // 1/2!
+  p = p * y + 1.0f;               // 1/1!
+  p = p * y + 1.0f;               // 1/0!
+  return 0.2018965180f * p;       // e^-1.6
+}
+
 // ---------- control-rate helpers (pd exact constants) ----------
+LIRA8_TC(pd_dbtorms)
 inline float dbtorms(float db) {
   // pd d_osc/m_pd: rms = 10^((db-100)/20); 100 dB = 1.0
   return std::pow(10.0f, (db - 100.0f) / 20.0f);
 }
+LIRA8_TC(pd_mtof)
 inline float mtof(float m) {
   if (m <= -1500.0f) return 0.0f;
   if (m > 1499.0f) m = 1499.0f;
   return 8.17579891564f * std::exp(0.0577622650f * m);
 }
+LIRA8_TC(pd_ftom)
 inline float ftom(float f) {
   return (f > 0.0f ? 17.3123405046f * std::log(0.12231220585f * f) : -1500.0f);
 }
+LIRA8_TC(pd_powtodb)
 inline float powtodb(float p) {
   return (p <= 0.0f ? 0.0f : 100.0f + 20.0f * std::log10(p));
 }
@@ -48,6 +78,7 @@ class Ramp {
     inc_ = (target_ - value_) / static_cast<float>(n);
     remaining_ = n;
   }
+  LIRA8_TC(pd_ramp_next)
   float next() {
     if (remaining_ > 0) {
       value_ += inc_;
@@ -78,6 +109,7 @@ class Hip {
     else if (coef_ > 1.0f) coef_ = 1.0f;
     normal_ = 0.5f * (1.0f + coef_);
   }
+  LIRA8_TC(pd_hip_process)
   float process(float x) {
     if (bypass_) return x;
     float newv = x + coef_ * last_;
@@ -100,6 +132,7 @@ class Lop {
     if (coef_ > 1.0f) coef_ = 1.0f;
     else if (coef_ < 0.0f) coef_ = 0.0f;
   }
+  LIRA8_TC(pd_lop_process)
   float process(float x) {
     last_ = coef_ * x + (1.0f - coef_) * last_;
     return last_;
@@ -112,6 +145,7 @@ class Lop {
 // ---------- rpole~: y = coef*y + x (coef supplied as a signal) ----------
 class Rpole {
  public:
+  LIRA8_TC(pd_rpole_process)
   float process(float x, float coef) {
     last_ = coef * last_ + x;
     return last_;
@@ -136,6 +170,7 @@ struct CosTable {
   }
 };
 
+LIRA8_TC(pd_cos_lookup)
 inline float cos_lookup(float phase /* table units, wrapped [0, N) */) {
   static const CosTable tab;
   int idx = static_cast<int>(phase);
@@ -145,11 +180,16 @@ inline float cos_lookup(float phase /* table units, wrapped [0, N) */) {
   return a + frac * (b - a);
 }
 
-// osc~: double-precision phase, conv = table/sr, linear interp
+// osc~: DOUBLE phase (pd d_osc.c) — this runs ONCE PER VOICE PAIR (the
+// vibrato LFO), not at audio rate: one soft-double add per pair is cheap,
+// and the float alternative drifts ~0.01 cycle over a 9 s drone (measured:
+// single-pair A/B -16.5 dB rmsdiff, corr 0.989 vs double). Audio-rate
+// oscillators (LiraOsc) stay float — that is where the 10x slowdown lived.
 class CosOsc {
  public:
   explicit CosOsc(float sr) : conv_(static_cast<double>(kCosTabSize) / sr) {}
   void set_freq(float f) { inc_ = static_cast<double>(f) * conv_; }
+  LIRA8_TC(pd_cososc_next)
   float next() {
     float out = cos_lookup(static_cast<float>(phase_));
     phase_ += inc_;
@@ -164,11 +204,14 @@ class CosOsc {
   double phase_ = 0.0;
 };
 
-// ---------- phasor~: output-then-increment, double phase, wrap [0,1) ----------
+// ---------- phasor~: output-then-increment, DOUBLE phase, wrap [0,1) ----------
+// Same call: the hyper-LFO phasors run once per sample TOTAL (not per voice),
+// so double costs ~20 us/block while float drifts the delay-LFO phase.
 class Phasor {
  public:
   explicit Phasor(float sr) : conv_(1.0 / sr) {}
   void set_freq(float f) { inc_ = static_cast<double>(f) * conv_; }
+  LIRA8_TC(pd_phasor_next)
   float next() {
     float out = static_cast<float>(phase_);
     phase_ += inc_;
@@ -188,6 +231,7 @@ class Noise {
  public:
   explicit Noise(uint32_t seed) : val_(seed) {}
   static uint32_t first_instance_seed() { return 307u * 1319u; }
+  LIRA8_TC(pd_noise_next)
   float next() {
     float out = static_cast<float>(
                     static_cast<int32_t>(val_ & 0x7fffffffu) - 0x40000000) *
@@ -219,6 +263,7 @@ class EnvRms {
     phase_ = 0;
   }
   // Returns true when env~ fired its output this block (value in *out_db).
+  LIRA8_TC(pd_env_process_block)
   bool process_block(const float* x, int n, float* out_db) {
     int j = 0;
     for (int count = phase_; count < npoints_; count += realperiod_, ++j) {
@@ -252,6 +297,7 @@ class EnvRms {
 // ---------- ma.tanh~: Pade tanh, input clipped +-3 ----------
 class TanhShaper {
  public:
+  LIRA8_TC(pd_tanh_pade)
   float process(float x) {
     if (x > 3.0f) x = 3.0f;
     else if (x < -3.0f) x = -3.0f;

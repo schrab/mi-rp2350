@@ -42,13 +42,15 @@ class LiraOsc {
       return;
     }
 
-    // phasor~: output-then-increment, wrap [0,1) — DOUBLE phase (pd's
-    // d_osc.c uses double dphase; float accumulation = phase jitter =
-    // broadband HF sidebands, measured 12 dB above pd's floor)
-    const float p = static_cast<float>(phase_);
-    phase_ += static_cast<double>(dt);
-    phase_ -= std::floor(phase_);                            // wrap [0,1)
-    if (phase_ < 0.0 || phase_ >= 1.0) phase_ = 0.0;         // numeric guard
+    // phasor~: output-then-increment, wrap [0,1) — FLOAT phase: the M33 FPU
+    // is single-precision only, and double accumulation here = software
+    // double libcalls = a 10x per-sample slowdown (measured on device).
+    // pd uses double, but the float phase drift (1e-6/wrap) is inaudible for
+    // a drone and the HF-floor bisect exonerated the phase width entirely.
+    const float p = phase_;
+    phase_ += dt;
+    while (phase_ >= 1.0f) phase_ -= 1.0f;   // dt can exceed 1 under cross-mod
+    if (phase_ < 0.0f || phase_ >= 1.0f) phase_ = 0.0f;      // numeric guard
 
     // samphold~: samples the PWM value when the phase control DECREASES,
     // i.e. at the wrap.
@@ -85,7 +87,7 @@ class LiraOsc {
     if (fc < 100.0f) fc = 100.0f;
     const float half = sr_ * 0.5f;
     if (fc > half) fc = half;
-    const float a = std::exp(-2.0f * kPi * fc / sr_);
+    const float a = exp_neg_range(-2.0f * kPi * fc / sr_);
     lpf_y_ += (1.0f - a) * (pulse - lpf_y_);
 
     out_sq = 0.59f * pulse;
@@ -94,8 +96,8 @@ class LiraOsc {
 
  private:
   float sr_;
-  double phase_ = 0.0;
-  double last_phase_for_sh_ = 0.0;
+  float phase_ = 0.0f;
+  float last_phase_for_sh_ = 0.0f;
   float sh_ = 0.0f;
   float lpf_y_ = 0.0f;
 };

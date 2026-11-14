@@ -31,7 +31,13 @@ class MasterOut {
     const float g = drive_.next();
     const float t_in = hip20_.process(in * g);
     const float t = tanh_pade(t_in);
-    const float shaped = t + std::pow(t, 31.0f) / 4.0f;  // pow~ 31, /~ 4
+    // pow~ 31 as repeated squaring (t^(16+8+4+2+1)) — same value within a
+    // float ulp or two, minus one libm powf per sample.
+    const float t2 = t * t;
+    const float t4 = t2 * t2;
+    const float t8 = t4 * t4;
+    const float t16 = t8 * t8;
+    const float shaped = t + (t16 * t8 * t4 * t2 * t) * 0.25f;  // /~ 4
     const float shaped10 = hip10_.process(shaped);
     float gc = g;  // clip(g, 1, 4)
     if (gc > 4.0f) gc = 4.0f;
