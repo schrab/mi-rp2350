@@ -1,0 +1,389 @@
+
+### delay[0]  hvcc_objs=120 mine_objs=115 hvcc_edges=134 mine_edges=129
+   type $1: hvcc=0 mine=6
+   type *: hvcc=21 mine=8
+   type *~: hvcc=0 mine=13
+   type +: hvcc=10 mine=0
+   type +~: hvcc=0 mine=10
+   type -: hvcc=1 mine=0
+   type -60: hvcc=0 mine=2
+   type -~: hvcc=0 mine=1
+   type /: hvcc=10 mine=6
+   type /~: hvcc=0 mine=4
+   type 2: hvcc=0 mine=3
+   type 2.5: hvcc=0 mine=2
+   type compressor~: hvcc=0 mine=2
+   type delwrite~: hvcc=0 mine=2
+   type expander~: hvcc=0 mine=2
+   type graph: hvcc=34 mine=0
+   type hip~: hvcc=0 mine=2
+   type inlet: hvcc=1 mine=0
+   type inlet~: hvcc=0 mine=1
+   type line~: hvcc=0 mine=6
+   type loadbang: hvcc=0 mine=4
+   type lop~: hvcc=0 mine=4
+   type ma.tanh~: hvcc=0 mine=1
+   type max: hvcc=1 mine=0
+   type max~: hvcc=0 mine=1
+   type message: hvcc=13 mine=0
+   type noise~: hvcc=0 mine=1
+   type outlet: hvcc=1 mine=0
+   type outlet~: hvcc=0 mine=1
+   type r: hvcc=13 mine=11
+   type r~: hvcc=0 mine=2
+   type sequence: hvcc=1 mine=0
+   type sig~: hvcc=0 mine=2
+   type t: hvcc=0 mine=1
+   type unpack: hvcc=0 mine=4
+   type var: hvcc=5 mine=0
+   type vd~: hvcc=0 mine=4
+   edge ('$1', 0, 'line~', 0): hvcc=0 mine=6
+   edge ('*', 0, '$1', 0): hvcc=0 mine=5
+   edge ('*', 0, '+', 0): hvcc=4 mine=0
+   edge ('*', 0, '+', 1): hvcc=8 mine=0
+   edge ('*', 0, '2', 0): hvcc=0 mine=3
+   edge ('*', 0, 'graph', 0): hvcc=2 mine=0
+   edge ('*', 0, 'message', 0): hvcc=8 mine=0
+   edge ('*~', 0, '+~', 0): hvcc=0 mine=4
+   edge ('*~', 0, '+~', 1): hvcc=0 mine=8
+   edge ('*~', 0, 'lop~', 0): hvcc=0 mine=1
+   edge ('*~', 0, 'ma.tanh~', 0): hvcc=0 mine=1
+   edge ('+', 0, '*', 0): hvcc=3 mine=0
+   edge ('+', 0, '+', 0): hvcc=2 mine=0
+   edge ('+', 0, '/', 0): hvcc=1 mine=0
+   edge ('+', 0, 'graph', 0): hvcc=4 mine=0
+   edge ('+', 0, 'outlet', 0): hvcc=1 mine=0
+   edge ('+~', 0, '*~', 0): hvcc=0 mine=3
+   edge ('+~', 0, '+~', 0): hvcc=0 mine=2
+   edge ('+~', 0, '/~', 0): hvcc=0 mine=1
+   edge ('+~', 0, 'delwrite~', 0): hvcc=0 mine=2
+   edge ('+~', 0, 'outlet~', 0): hvcc=0 mine=1
+   edge ('+~', 0, 'vd~', 0): hvcc=0 mine=2
+   edge ('-', 0, '*', 1): hvcc=1 mine=0
+   edge ('-60', 0, 'unpack', 0): hvcc=0 mine=2
+   edge ('-~', 0, '*~', 1): hvcc=0 mine=1
+   edge ('/', 0, '$1', 0): hvcc=0 mine=1
+   edge ('/', 0, '*', 0): hvcc=4 mine=2
+   edge ('/', 0, '*', 1): hvcc=1 mine=0
+   edge ('/', 0, 'graph', 0): hvcc=1 mine=0
+   edge ('/', 0, 'message', 0): hvcc=1 mine=0
+   edge ('/', 0, 'sequence', 0): hvcc=1 mine=0
+   edge ('/', 0, 't', 0): hvcc=0 mine=1
+   edge ('/~', 0, '*~', 0): hvcc=0 mine=2
+   edge ('/~', 0, '*~', 1): hvcc=0 mine=1
+   edge ('/~', 0, 'lop~', 0): hvcc=0 mine=1
+   edge ('2', 0, 'pow', 0): hvcc=0 mine=3
+   edge ('2.5', 0, 'unpack', 0): hvcc=0 mine=2
+   edge ('==', 0, '*~', 1): hvcc=0 mine=4
+   edge ('==', 0, 'var', 0): hvcc=4 mine=0
+   edge ('compressor~', 0, 'expander~', 0): hvcc=0 mine=2
+   edge ('expander~', 0, '*~', 0): hvcc=0 mine=1
+   edge ('expander~', 0, '*~', 1): hvcc=0 mine=1
+   edge ('expander~', 0, '+~', 0): hvcc=0 mine=1
+   edge ('expander~', 0, '+~', 1): hvcc=0 mine=1
+   edge ('graph', 0, '*', 0): hvcc=5 mine=0
+   edge ('graph', 0, '*', 1): hvcc=5 mine=0
+   edge ('graph', 0, '+', 0): hvcc=3 mine=0
+   edge ('graph', 0, '+', 1): hvcc=2 mine=0
+   edge ('graph', 0, '-', 0): hvcc=1 mine=0
+   edge ('graph', 0, '-', 1): hvcc=1 mine=0
+   edge ('graph', 0, '/', 0): hvcc=3 mine=0
+   edge ('graph', 0, 'graph', 0): hvcc=8 mine=0
+   edge ('graph', 0, 'graph', 1): hvcc=4 mine=0
+   edge ('graph', 0, 'max', 0): hvcc=1 mine=0
+   edge ('graph', 0, 'message', 0): hvcc=4 mine=0
+   edge ('graph', 1, 'graph', 2): hvcc=4 mine=0
+   edge ('graph', 2, 'graph', 3): hvcc=2 mine=0
+   edge ('graph', 3, 'graph', 4): hvcc=2 mine=0
+   edge ('hip~', 0, 'lop~', 0): hvcc=0 mine=2
+   edge ('inlet', 0, '*', 0): hvcc=1 mine=0
+   edge ('inlet', 0, '+', 0): hvcc=1 mine=0
+   edge ('inlet~', 0, '*~', 0): hvcc=0 mine=1
+   edge ('inlet~', 0, '+~', 0): hvcc=0 mine=1
+   edge ('line~', 0, '*~', 0): hvcc=0 mine=2
+   edge ('line~', 0, '*~', 1): hvcc=0 mine=3
+   edge ('line~', 0, '+~', 0): hvcc=0 mine=1
+   edge ('line~', 0, '+~', 1): hvcc=0 mine=1
+   edge ('line~', 0, '-~', 1): hvcc=0 mine=1
+   edge ('line~', 0, 'max~', 0): hvcc=0 mine=1
+   edge ('loadbang', 0, '-60', 0): hvcc=0 mine=2
+   edge ('loadbang', 0, '2.5', 0): hvcc=0 mine=2
+   edge ('lop~', 0, '*~', 0): hvcc=0 mine=1
+   edge ('lop~', 0, '+~', 0): hvcc=0 mine=1
+   edge ('lop~', 0, 'compressor~', 0): hvcc=0 mine=2
+   edge ('ma.tanh~', 0, '*~', 1): hvcc=0 mine=1
+   edge ('max', 0, '/', 1): hvcc=1 mine=0
+   edge ('max~', 0, '/~', 1): hvcc=0 mine=1
+   edge ('message', 0, 'graph', 0): hvcc=10 mine=0
+   edge ('message', 0, 'pow', 0): hvcc=3 mine=0
+   edge ('noise~', 0, '*~', 0): hvcc=0 mine=1
+   edge ('r', 0, '*~', 1): hvcc=0 mine=1
+   edge ('r', 0, '/', 0): hvcc=0 mine=6
+   edge ('r', 0, '==', 0): hvcc=0 mine=4
+   edge ('receive', 0, '*', 0): hvcc=2 mine=0
+   edge ('receive', 0, '/', 0): hvcc=6 mine=0
+   edge ('receive', 0, '==', 0): hvcc=4 mine=0
+   edge ('receive', 0, 'var', 0): hvcc=1 mine=0
+   edge ('r~', 0, '*~', 0): hvcc=0 mine=2
+   edge ('sequence', 0, '*', 0): hvcc=1 mine=0
+   edge ('sequence', 1, '*', 1): hvcc=1 mine=0
+   edge ('sig~', 0, '-~', 0): hvcc=0 mine=1
+   edge ('sig~', 0, '/~', 0): hvcc=0 mine=1
+   edge ('t', 0, '*', 0): hvcc=0 mine=1
+   edge ('t', 1, '*', 1): hvcc=0 mine=1
+   edge ('unpack', 0, 'compressor~', 1): hvcc=0 mine=2
+   edge ('unpack', 0, 'expander~', 1): hvcc=0 mine=2
+   edge ('unpack', 1, 'compressor~', 2): hvcc=0 mine=2
+   edge ('unpack', 1, 'expander~', 2): hvcc=0 mine=2
+   edge ('unpack', 2, 'compressor~', 3): hvcc=0 mine=2
+   edge ('unpack', 3, 'compressor~', 4): hvcc=0 mine=2
+   edge ('var', 0, '*', 1): hvcc=5 mine=0
+   edge ('vd~', 0, '/~', 0): hvcc=0 mine=2
+   edge ('vd~', 0, 'hip~', 0): hvcc=0 mine=2
+
+### gui.link[0]  hvcc_objs=57 mine_objs=57 hvcc_edges=8 mine_edges=8
+   type comment: hvcc=48 mine=0
+   type del: hvcc=0 mine=1
+   type graph: hvcc=2 mine=0
+   type gui.link: hvcc=0 mine=47
+   type loadbang: hvcc=0 mine=1
+   type message: hvcc=2 mine=0
+   type read: hvcc=0 mine=1
+   type sequence: hvcc=1 mine=0
+   type t: hvcc=0 mine=1
+   type text: hvcc=0 mine=1
+   type write: hvcc=0 mine=1
+   edge ('del', 0, 'write', 0): hvcc=0 mine=1
+   edge ('graph', 0, 'message', 0): hvcc=1 mine=0
+   edge ('graph', 0, 'sequence', 0): hvcc=1 mine=0
+   edge ('loadbang', 0, 't', 0): hvcc=0 mine=1
+   edge ('message', 0, 'comment', 0): hvcc=2 mine=0
+   edge ('r', 0, 'del', 0): hvcc=0 mine=1
+   edge ('r', 0, 'read', 0): hvcc=0 mine=1
+   edge ('read', 0, 'text', 0): hvcc=0 mine=1
+   edge ('receive', 0, 'graph', 0): hvcc=1 mine=0
+   edge ('receive', 0, 'message', 0): hvcc=1 mine=0
+   edge ('sequence', 0, 'send', 0): hvcc=1 mine=0
+   edge ('sequence', 1, 'send', 0): hvcc=1 mine=0
+   edge ('t', 0, 's', 0): hvcc=0 mine=1
+   edge ('t', 1, 's', 0): hvcc=0 mine=1
+   edge ('write', 0, 'text', 0): hvcc=0 mine=1
+
+### hyper-lfo[0]  hvcc_objs=28 mine_objs=25 hvcc_edges=30 mine_edges=29
+   type $1: hvcc=0 mine=2
+   type *: hvcc=5 mine=2
+   type *~: hvcc=0 mine=3
+   type /: hvcc=3 mine=2
+   type /~: hvcc=0 mine=1
+   type clip~: hvcc=0 mine=1
+   type cos~: hvcc=0 mine=1
+   type graph: hvcc=10 mine=0
+   type line~: hvcc=0 mine=2
+   type message: hvcc=2 mine=0
+   type mtof: hvcc=0 mine=2
+   type phasor~: hvcc=0 mine=2
+   type var: hvcc=1 mine=0
+   edge ('$1', 0, 'line~', 0): hvcc=0 mine=2
+   edge ('*', 0, '/', 0): hvcc=1 mine=0
+   edge ('*', 0, 'graph', 0): hvcc=2 mine=0
+   edge ('*~', 0, '/~', 0): hvcc=0 mine=1
+   edge ('*~', 0, 'clip~', 0): hvcc=0 mine=1
+   edge ('*~', 0, 'phasor~', 0): hvcc=0 mine=1
+   edge ('-', 0, 'graph', 0): hvcc=2 mine=0
+   edge ('-', 0, 'mtof', 0): hvcc=0 mine=2
+   edge ('/', 0, '*', 0): hvcc=1 mine=0
+   edge ('/~', 0, '*~', 0): hvcc=0 mine=1
+   edge ('clip~', 0, '*~', 0): hvcc=0 mine=1
+   edge ('clip~', 0, 'SUB', 0): hvcc=0 mine=1
+   edge ('cos~', 0, '*~', 0): hvcc=0 mine=1
+   edge ('graph', 0, '*', 0): hvcc=2 mine=0
+   edge ('graph', 0, '*', 1): hvcc=1 mine=0
+   edge ('graph', 0, 'graph', 0): hvcc=5 mine=0
+   edge ('graph', 0, 'graph', 1): hvcc=2 mine=0
+   edge ('graph', 0, 'message', 0): hvcc=2 mine=0
+   edge ('line~', 0, '*~', 1): hvcc=0 mine=1
+   edge ('line~', 0, 'phasor~', 0): hvcc=0 mine=2
+   edge ('message', 0, 'graph', 0): hvcc=2 mine=0
+   edge ('mtof', 0, '$1', 0): hvcc=0 mine=2
+   edge ('phasor~', 0, 'SUB', 0): hvcc=0 mine=1
+   edge ('phasor~', 0, 'SUB', 1): hvcc=0 mine=2
+   edge ('phasor~', 0, 'cos~', 0): hvcc=0 mine=1
+   edge ('r', 0, '*~', 1): hvcc=0 mine=1
+   edge ('r', 0, '/', 0): hvcc=0 mine=2
+   edge ('receive', 0, '/', 0): hvcc=2 mine=0
+   edge ('receive', 0, 'var', 0): hvcc=1 mine=0
+   edge ('var', 0, '*', 1): hvcc=1 mine=0
+
+### keyboard[0]  hvcc_objs=16 mine_objs=16 hvcc_edges=8 mine_edges=8
+   type graph: hvcc=8 mine=0
+   type key.tgl: hvcc=0 mine=8
+   edge ('graph', 0, 'send', 0): hvcc=8 mine=0
+   edge ('key.tgl', 0, 's', 0): hvcc=0 mine=8
+
+### labels[0]  hvcc_objs=72 mine_objs=72 hvcc_edges=51 mine_edges=62
+   type $1: hvcc=0 mine=7
+   type comment: hvcc=18 mine=0
+   type graph: hvcc=11 mine=0
+   type label: hvcc=0 mine=7
+   type label_pos: hvcc=0 mine=5
+   type makefilename: hvcc=0 mine=4
+   type message: hvcc=19 mine=0
+   type route: hvcc=0 mine=4
+   type sequence: hvcc=5 mine=0
+   type symbol: hvcc=0 mine=7
+   type t: hvcc=0 mine=5
+   type text: hvcc=0 mine=14
+   edge ('$1', 0, 'route', 0): hvcc=0 mine=4
+   edge ('$1', 0, 'symbol', 0): hvcc=0 mine=3
+   edge ('graph', 0, 'comment', 0): hvcc=4 mine=0
+   edge ('graph', 0, 'message', 0): hvcc=7 mine=0
+   edge ('graph', 1, 'graph', 0): hvcc=4 mine=0
+   edge ('label', 0, 's', 0): hvcc=0 mine=7
+   edge ('label_pos', 0, 's', 0): hvcc=0 mine=5
+   edge ('makefilename', 0, 'label', 0): hvcc=0 mine=4
+   edge ('message', 0, 'graph', 0): hvcc=7 mine=0
+   edge ('message', 0, 'send', 0): hvcc=12 mine=0
+   edge ('r', 0, 'text', 0): hvcc=0 mine=7
+   edge ('receive', 0, 'comment', 0): hvcc=7 mine=0
+   edge ('route', 0, 'makefilename', 0): hvcc=0 mine=4
+   edge ('route', 1, 'symbol', 0): hvcc=0 mine=4
+   edge ('sequence', 0, 'message', 0): hvcc=5 mine=0
+   edge ('sequence', 1, 'message', 0): hvcc=5 mine=0
+   edge ('symbol', 0, 'label', 0): hvcc=0 mine=7
+   edge ('t', 0, '$1', 0): hvcc=0 mine=5
+   edge ('t', 1, 'label_pos', 0): hvcc=0 mine=5
+   edge ('text', 0, '$1', 0): hvcc=0 mine=2
+   edge ('text', 0, 't', 0): hvcc=0 mine=5
+
+### master_output[0]  hvcc_objs=45 mine_objs=45 hvcc_edges=49 mine_edges=49
+   type $1: hvcc=0 mine=3
+   type *: hvcc=8 mine=2
+   type *~: hvcc=0 mine=6
+   type +: hvcc=6 mine=3
+   type +~: hvcc=0 mine=3
+   type -: hvcc=1 mine=0
+   type -~: hvcc=0 mine=1
+   type /: hvcc=5 mine=3
+   type /~: hvcc=0 mine=2
+   type 3: hvcc=0 mine=1
+   type clip~: hvcc=0 mine=1
+   type dbtorms: hvcc=0 mine=1
+   type graph: hvcc=12 mine=0
+   type hip~: hvcc=0 mine=3
+   type inlet: hvcc=1 mine=0
+   type inlet~: hvcc=0 mine=1
+   type line~: hvcc=0 mine=3
+   type ma.tanh~: hvcc=0 mine=2
+   type message: hvcc=4 mine=0
+   type outlet: hvcc=1 mine=0
+   type outlet~: hvcc=0 mine=1
+   type pow: hvcc=3 mine=2
+   type pow~: hvcc=0 mine=1
+   type s: hvcc=1 mine=0
+   type sig~: hvcc=0 mine=2
+   type s~: hvcc=0 mine=1
+   edge ('$1', 0, 'line~', 0): hvcc=0 mine=3
+   edge ('*', 0, '$1', 0): hvcc=0 mine=1
+   edge ('*', 0, '+', 0): hvcc=3 mine=1
+   edge ('*', 0, '+', 1): hvcc=2 mine=0
+   edge ('*', 0, 'graph', 0): hvcc=1 mine=0
+   edge ('*', 0, 'message', 0): hvcc=1 mine=0
+   edge ('*', 0, 'outlet', 0): hvcc=1 mine=0
+   edge ('*~', 0, '+~', 0): hvcc=0 mine=2
+   edge ('*~', 0, '+~', 1): hvcc=0 mine=2
+   edge ('*~', 0, 'hip~', 0): hvcc=0 mine=1
+   edge ('*~', 0, 'outlet~', 0): hvcc=0 mine=1
+   edge ('+', 0, '*', 0): hvcc=1 mine=0
+   edge ('+', 0, '3', 0): hvcc=0 mine=1
+   edge ('+', 0, 'dbtorms', 0): hvcc=0 mine=1
+   edge ('+', 0, 'graph', 0): hvcc=3 mine=0
+   edge ('+', 0, 'message', 0): hvcc=1 mine=0
+   edge ('+~', 0, '*~', 0): hvcc=0 mine=1
+   edge ('+~', 0, 'hip~', 0): hvcc=0 mine=1
+   edge ('+~', 0, 'ma.tanh~', 0): hvcc=0 mine=1
+   edge ('-', 0, '*', 1): hvcc=1 mine=0
+   edge ('-~', 0, '*~', 1): hvcc=0 mine=1
+   edge ('/', 0, '$1', 0): hvcc=0 mine=1
+   edge ('/', 0, '*', 1): hvcc=1 mine=0
+   edge ('/', 0, '+', 1): hvcc=1 mine=0
+   edge ('/', 0, 'message', 0): hvcc=1 mine=0
+   edge ('/~', 0, '*~', 1): hvcc=0 mine=1
+   edge ('/~', 0, '+~', 1): hvcc=0 mine=1
+   edge ('3', 0, 'pow', 0): hvcc=0 mine=1
+   edge ('clip~', 0, '/~', 1): hvcc=0 mine=1
+   edge ('dbtorms', 0, '$1', 0): hvcc=0 mine=1
+   edge ('graph', 0, '*', 0): hvcc=2 mine=0
+   edge ('graph', 0, '*', 1): hvcc=3 mine=0
+   edge ('graph', 0, '+', 0): hvcc=1 mine=0
+   edge ('graph', 0, '-', 0): hvcc=1 mine=0
+   edge ('graph', 0, '-', 1): hvcc=1 mine=0
+   edge ('graph', 0, '/', 0): hvcc=1 mine=0
+   edge ('graph', 0, '/', 1): hvcc=1 mine=0
+   edge ('graph', 0, 'graph', 0): hvcc=3 mine=0
+   edge ('graph', 0, 'message', 0): hvcc=1 mine=0
+   edge ('graph', 0, 'pow', 0): hvcc=1 mine=0
+   edge ('graph', 0, 'send', 0): hvcc=1 mine=0
+   edge ('hip~', 0, '*~', 0): hvcc=0 mine=1
+   edge ('hip~', 0, 'ma.tanh~', 0): hvcc=0 mine=1
+   edge ('hip~', 0, 's~', 0): hvcc=0 mine=1
+   edge ('inlet', 0, '*', 0): hvcc=3 mine=0
+   edge ('inlet~', 0, '*~', 0): hvcc=0 mine=3
+   edge ('line~', 0, '*~', 1): hvcc=0 mine=3
+   edge ('line~', 0, '-~', 1): hvcc=0 mine=1
+   edge ('line~', 0, 'clip~', 0): hvcc=0 mine=1
+   edge ('ma.tanh~', 0, '*~', 0): hvcc=0 mine=1
+   edge ('ma.tanh~', 0, '+~', 0): hvcc=0 mine=1
+   edge ('ma.tanh~', 0, 'hip~', 0): hvcc=0 mine=1
+   edge ('ma.tanh~', 0, 'pow~', 0): hvcc=0 mine=1
+   edge ('message', 0, 'graph', 0): hvcc=3 mine=0
+   edge ('message', 0, 'pow', 0): hvcc=1 mine=0
+   edge ('pow', 0, '/', 0): hvcc=1 mine=0
+   edge ('pow~', 0, '/~', 0): hvcc=0 mine=1
+   edge ('r', 0, '/', 0): hvcc=0 mine=3
+   edge ('receive', 0, '/', 0): hvcc=3 mine=0
+   edge ('sig~', 0, '-~', 0): hvcc=0 mine=1
+   edge ('sig~', 0, '/~', 0): hvcc=0 mine=1
+
+### prm.hold[0]  hvcc_objs=6 mine_objs=6 hvcc_edges=5 mine_edges=5
+   type $1: hvcc=0 mine=1
+   type graph: hvcc=1 mine=0
+   type line~: hvcc=0 mine=1
+   type message: hvcc=1 mine=0
+   type outlet: hvcc=1 mine=0
+   type outlet~: hvcc=0 mine=1
+   edge ('$1', 0, 'line~', 0): hvcc=0 mine=1
+   edge ('graph', 0, 'outlet', 0): hvcc=1 mine=0
+   edge ('line~', 0, 'outlet~', 0): hvcc=0 mine=1
+   edge ('message', 0, 'graph', 0): hvcc=1 mine=0
+   edge ('pow', 0, '$1', 0): hvcc=0 mine=1
+   edge ('pow', 0, 'message', 0): hvcc=1 mine=0
+   edge ('r', 0, '/', 0): hvcc=0 mine=1
+   edge ('receive', 0, '/', 0): hvcc=1 mine=0
+
+### prm.hold[1]  hvcc_objs=6 mine_objs=6 hvcc_edges=5 mine_edges=5
+   type $1: hvcc=0 mine=1
+   type graph: hvcc=1 mine=0
+   type line~: hvcc=0 mine=1
+   type message: hvcc=1 mine=0
+   type outlet: hvcc=1 mine=0
+   type outlet~: hvcc=0 mine=1
+   edge ('$1', 0, 'line~', 0): hvcc=0 mine=1
+   edge ('graph', 0, 'outlet', 0): hvcc=1 mine=0
+   edge ('line~', 0, 'outlet~', 0): hvcc=0 mine=1
+   edge ('message', 0, 'graph', 0): hvcc=1 mine=0
+   edge ('pow', 0, '$1', 0): hvcc=0 mine=1
+   edge ('pow', 0, 'message', 0): hvcc=1 mine=0
+   edge ('r', 0, '/', 0): hvcc=0 mine=1
+   edge ('receive', 0, '/', 0): hvcc=1 mine=0
+
+### unnamed hvcc graphs: 189
+   by size: {1: 107, 3: 44, 4: 17, 5: 5, 7: 3, 10: 1, 18: 2, 19: 1, 20: 1, 39: 4, 65: 4}
+   lira.voice: mine_objs(non-text)=57
+   prm.source: mine_objs(non-text)=33
+   prm.pitch: mine_objs(non-text)=5
+   os.triangle~: mine_objs(non-text)=23
+   compressor~: mine_objs(non-text)=17
+   expander~: mine_objs(non-text)=19
+   ma.tanh~: mine_objs(non-text)=9
+   key.tgl: mine_objs(non-text)=11
+   notemap: mine_objs(non-text)=7

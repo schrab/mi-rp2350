@@ -8,7 +8,7 @@ BUILD    = build/
 
 ENGINE_SRCS =   # e.g. lira8_engine.cpp
 
-TEST_BINS = test_wav_io
+TEST_BINS = test_wav_io test_pd_primitives
 
 all: $(TEST_BINS)
 
@@ -16,6 +16,9 @@ $(BUILD):
 	mkdir -p $(BUILD)
 
 test_wav_io: test_wav_io.cc wav_io.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
+
+test_pd_primitives: test_pd_primitives.cc ../src/lira8/pd_primitives.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
 
 engine: $(patsubst %.cpp,%.o,$(ENGINE_SRCS))
