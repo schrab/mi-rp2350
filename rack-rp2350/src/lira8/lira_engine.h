@@ -29,6 +29,7 @@
 #include <cstring>
 
 #include "pd_primitives.h"
+#include "lira8_tc.h"
 #include "lira_osc.h"
 #include "lira_voice.h"
 #include "lira_delay.h"
@@ -72,11 +73,11 @@ class Lira8Engine {
     apply_defaults();
   }
 
-  static int nsamps_for(float cap_ms, float sr) {
+  static constexpr int nsamps_for(float cap_ms, float sr) {
     return static_cast<int>(cap_ms * sr / 1000.0f);
   }
   // Bytes of external storage the engine needs for both delay lines.
-  static size_t delay_bytes_for(float cap_ms, float sr) {
+  static constexpr size_t delay_bytes_for(float cap_ms, float sr) {
     return (static_cast<size_t>(nsamps_for(cap_ms, sr)) + 4) * 2 * 2;
   }
 
@@ -91,6 +92,7 @@ class Lira8Engine {
   void set_sensor(int voice /*0..7*/, bool on) { pending_sensors_[voice] = on; }
 
   // Host render: n samples (1..64, normally 16); mono duplicated to L/R.
+  LIRA8_TC(lira_engine_process)
   void Process(float* out_l, float* out_r, int n) {
     int done = 0;
     while (done < n) {
@@ -173,6 +175,7 @@ class Lira8Engine {
     lfo_wav_ = (int)params_[45];
   }
 
+  LIRA8_TC(lira_engine_block)
   void render_internal_block() {
     // apply pending control changes between blocks (rack discipline)
     bool dirty = false;
@@ -214,6 +217,7 @@ class Lira8Engine {
     memcpy(buses_prev_, bus_next_, sizeof(buses_prev_));
   }
 
+  LIRA8_TC(lira_engine_mux)
   void mux_source(int p, float* M) {
     // prm.source (spec §6): srcA/srcB bus indices per pair, SWITCH picks,
     // source 0=audio 1=off 2=LFO-CV; soft gates 0.999/0.001
@@ -235,6 +239,7 @@ class Lira8Engine {
     }
   }
 
+  LIRA8_TC(lira_engine_delay)
   void render_delay() {
     static const float kInv6 = 0.1666667f;
     float in_sum[kBlockSize];    // dry source: voice sum ONLY (no noise!)

@@ -1125,6 +1125,8 @@ static bool mod_write_cc(uint8_t module_id, uint8_t cc, float v) {
       return rack_modules::mod_clouds::mod_set_cc_float(cc, v);
     case RACK_MODULE_PLAITS:
       return rack_modules::mod_plaits::mod_set_cc_float(cc, v);
+    case RACK_MODULE_LIRA8:
+      return rack_modules::mod_lira8::mod_set_cc_float(cc, v);
     default:
       return rack_modules::mod_rings::mod_set_cc_float(cc, v);
   }
@@ -1138,6 +1140,8 @@ static void mod_fire_trigger(uint8_t module_id, uint8_t cc, bool high) {
       rack_modules::mod_clouds::mod_trigger_cc(cc, high); break;
     case RACK_MODULE_PLAITS:
       rack_modules::mod_plaits::mod_trigger_cc(cc, high); break;
+    case RACK_MODULE_LIRA8:
+      rack_modules::mod_lira8::mod_trigger_cc(cc, high); break;
     default:
       rack_modules::mod_rings::mod_trigger_cc(cc, high); break;
   }

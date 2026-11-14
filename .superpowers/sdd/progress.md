@@ -2960,3 +2960,43 @@ gate for drone scenarios; the gates are now: single-voice spectral exactness
 (matching within ~1-2 dB below 3.2 kHz), and the user's ears.
 Fresh A/B set: rack-rp2350/test/lira8_ref/goldens/ (X.wav vs engine_X.wav,
 all five scenarios + onevoice + drone-nodelay + cleantest).
+
+### Rack-lira8 L4 — rack integration complete, all five envs build (2026-11-15)
+
+Fifth module wired end-to-end following the established adapter pattern:
+- **src/module_lira8.h**: the adapter (arena-placed State = Lira8Engine BY
+  VALUE; the int16 delay carve 185,616 B from the BUFFER arena at init —
+  ~96% of the 192 KiB arena, so **chain A rejected by design**, documented in
+  the chain command + the pair validation). CC map remapped off the reserved
+  ranges (32/33-35/40-50/64-66): tune 1-8, fast 9-12, sharp 13-16, mod 17-20,
+  source 21-24, pitch 25-26, hold 27-28, switch 29, total-fb 30, vibrato 31,
+  drv 36, dst-mix 37, vol 38, f-a 39, f-b 41, andor 42, link 43, time-1/2
+  44/45, feedback 46, del-mix 47, mod-1/2 48/49, del-mod 51, lfo-wav 52,
+  quantize 53; **sensors = notes 36-43 (the patch's notemap) + latch triggers
+  CC 55-62**; PLAY button (pseudo-CC 64) = sensor-1 400 ms pluck.
+- **lira8_tc.h** + LIRA8_TC applied to 10 hot functions (osc/voice/env/delay
+  read+write/comp/exp/lfo/master/engine block+mux+delay): nm-verified all in
+  the SRAM window (0x20063000-0x20063ff0, tc_lira8 = 4,080 B = 7% of the A
+  slot). Host tests compile the same headers PLAIN (no RACK_RP2350_TC) —
+  the ctag-tbd portability proof holds.
+- **Engine refactor**: NO heap — ModDelay takes external int16 storage, the
+  engine holds value members, delay_bytes_for/nsamps_for constexpr (the
+  adapter's static_assert pins the carve). Host tests re-verified after the
+  refactor (onevoice corr 0.83 aligned — the plumbing is sound-neutral).
+- **Registry/enum/ld/env**: RACK_MODULE_LIRA8=4 + COUNT=5; the tc_lira8
+  overlay member + flash extents + the window assert in memmap_rack.ld;
+  rack_window.h symbols/table; main.cpp boot-guard 0-4 + the include (no
+  LUT_* collisions — the engine defines none) + the registry row; the chain
+  pair table REJECTS lira8 as A (buffer-arena conflict, honest serial line);
+  mod_engine dispatch cases; ui_link kUiPageLira8P1 (16 cells: tunes 1-8,
+  hold, volume, sharp, mod, vibrato, times, feedback); platformio env
+  rack-lira8 (RACK_BOOT_MODULE=4).
+- **preset.h v2 → v3**: the cc_seen/cc_cache arrays auto-grew 4 → 5 modules
+  (+720 B blob) — the version bump invalidates old C3-side presets cleanly.
+- **2 s report**: a lira8 tail `sens=N` (the requested-on sensor count).
+- ALL FIVE envs build SUCCESS. bss 361,596 B (unchanged accounting — the
+  arenas dominate), heap ≥ the 30 KB gate preserved.
+
+KNOWN LIMITATION (v1): the C3 display side (rack-uimcu) has no lira8 page
+yet — switching to lira8 from the C3 shows the generic header until the
+rack-uimcu page tables gain the module. Next: on-device flash + ear test.

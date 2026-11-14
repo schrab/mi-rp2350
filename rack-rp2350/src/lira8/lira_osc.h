@@ -15,6 +15,7 @@
 #include <cmath>
 
 #include "pd_primitives.h"
+#include "lira8_tc.h"
 
 namespace l8pd {
 
@@ -24,6 +25,7 @@ class LiraOsc {
 
   // pwm: PWM control 0..1 (0.53125 + 0.025*V from the voice); freq: Hz.
   // Returns square via out_sq, triangle via out_tri.
+  LIRA8_TC(lira_osc_process)
   inline void process(float freq, float pwm, float& out_sq, float& out_tri) {
     const float f = std::fabs(freq);
     const float dt = f / sr_;

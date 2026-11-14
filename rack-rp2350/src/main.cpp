@@ -94,8 +94,8 @@ uint8_t pio_host_line_state(void);
 }
 #endif
 
-#if !defined(RACK_BOOT_MODULE) || RACK_BOOT_MODULE < 0 || RACK_BOOT_MODULE > 3
-#error "RACK_BOOT_MODULE must be defined per env as 0 (elements), 1 (clouds), 2 (plaits) or 3 (rings)"
+#if !defined(RACK_BOOT_MODULE) || RACK_BOOT_MODULE < 0 || RACK_BOOT_MODULE > 4
+#error "RACK_BOOT_MODULE must be defined per env as 0 (elements), 1 (clouds), 2 (plaits), 3 (rings) or 4 (lira8)"
 #endif
 
 // The four module adapters — ALL FOUR compile in every env (their state is
@@ -139,6 +139,13 @@ uint8_t pio_host_line_state(void);
 #undef LUT_LPC_EXCITATION_PULSE_SIZE
 
 #include "module_rings.h"
+
+// rack-lira8 (2026-11-15): the hand-ported LIRA-8 (Pure Data -> C++, TDD
+// against headless-pd goldens). Pure C++ engine in src/lira8/ — no MI lib
+// includes, no LUT_* macro collisions. The engine renders pd-style 64-sample
+// blocks internally (the adapter accumulates the 16-sample rack grid; every
+// 4th call bursts ~4x its budget share — the 4 ms I2S bank absorbs it).
+#include "module_lira8.h"
 
 #include "module_registry.h"
 
@@ -214,6 +221,20 @@ const RackModuleInfo kRackModules[RACK_MODULE_COUNT] = {
      rack_modules::mod_rings::note_on,
      rack_modules::mod_rings::note_off,
      rack_modules::mod_rings::control_change},
+    {"lira8", RACK_MODULE_LIRA8,
+     rack_modules::mod_lira8::kSampleRate,
+     (uint32_t)rack_modules::mod_lira8::kBlockSize,
+     rack_modules::mod_lira8::kBudgetUs,
+     rack_modules::mod_lira8::kI2sBuffers,
+     rack_modules::mod_lira8::kI2sWords,
+     rack_modules::mod_lira8::kStallUs,
+     rack_modules::mod_lira8::kCcMap,
+     &rack_modules::mod_lira8::kModDestinations,
+     rack_modules::mod_lira8::init,
+     rack_modules::mod_lira8::render,
+     rack_modules::mod_lira8::note_on,
+     rack_modules::mod_lira8::note_off,
+     rack_modules::mod_lira8::control_change},
 };
 
 // ===================== shared definitions =====================
@@ -354,7 +375,11 @@ static const size_t kChainCloudsSmallBytes = 44032;
 // A carve. Per-A carve size (elements reverb / rings reverb 64 KB, plaits
 // workspace 32 KB).
 static const size_t kChainABufferBytes[RACK_MODULE_COUNT] = {
-    65536, 0, 32768, 65536,   // elements, clouds(-), plaits, rings
+    65536, 0, 32768, 65536,
+    // lira8: the int16 delay carve (2 x 46,404 samples = 185,616 B) takes
+    // ~96% of the buffer arena — chain A rejected by the buf_needed check
+    // (nothing left for a chained clouds-B). Standalone-only module for now.
+    185616,
 };
 
 // Chain render block buffers (24 x 2 floats x 2 = 384 B in .bss — the
@@ -1436,7 +1461,8 @@ static void cmd_chain(const char* args) {
   if (sscanf(args, "%23s", tok) != 1) return;
   int8_t a = -1, b = -1;
   if (!chain_parse_module(tok, &a)) {
-    Serial.println("rack: chain: unknown module (0 elements / 1 clouds / 2 plaits / 3 rings)");
+    Serial.println("rack: chain: unknown module (0 elements / 1 clouds / "
+                   "2 plaits / 3 rings; lira8 not chainable)");
     return;
   }
   const char* rest = args + strlen(tok);
@@ -1457,6 +1483,12 @@ static void cmd_chain(const char* args) {
   }
   if (a == RACK_MODULE_CLOUDS) {
     Serial.println("rack: chain: A cannot be clouds (no clouds->clouds pair)");
+    return;
+  }
+  if (a == RACK_MODULE_LIRA8) {
+    Serial.println("rack: chain: lira8 as A rejected — its int16 delay carve "
+                   "(185.6 KB of the 192 KB buffer arena) leaves nothing for "
+                   "a chained clouds-B (standalone-only module for now)");
     return;
   }
   if (g_chain.active) {
@@ -1490,7 +1522,9 @@ static void cmd_chain(const char* args) {
       ? rack_modules::mod_elements::state_size()
       : (a == RACK_MODULE_PLAITS)
           ? rack_modules::mod_plaits::state_size()
-          : rack_modules::mod_rings::state_size();
+          : (a == RACK_MODULE_LIRA8)
+              ? rack_modules::mod_lira8::state_size()
+              : rack_modules::mod_rings::state_size();
   const size_t b_state = rack_modules::mod_clouds::state_size();
   const size_t obj_needed =
       ((a_state + 7u) & ~(size_t)7u) + b_state;
@@ -2297,6 +2331,13 @@ void loop() {
                  rack_modules::mod_plaits::s->probe_opts);
         rack_modules::mod_plaits::s->probe_trigs = 0;
       }
+      char lira8_tail[16] = "";
+      if (g_active_module == RACK_MODULE_LIRA8) {
+        uint8_t n = 0;
+        for (uint8_t v = 0; v < 8; ++v)
+          if (rack_modules::mod_lira8::s->sensor_mask & (1u << v)) ++n;
+        snprintf(lira8_tail, sizeof(lira8_tail), "sens=%u", n);
+      }
       // T2 piezo: peak since last report (raw 0-4095) + measured rate.
       const uint16_t pz_peak = rack_piezo::report_peak();
       const uint32_t pz_rate = rack_piezo::report_sample_rate();
@@ -2332,7 +2373,8 @@ void loop() {
                     (unsigned long)pz_rate,
                     mod_field,
                     modeng_tail,
-                    plaits_tail);
+                    g_active_module == RACK_MODULE_PLAITS ? plaits_tail
+                        : (g_active_module == RACK_MODULE_LIRA8 ? lira8_tail : ""));
 #endif
     }
     last_stall_total = stalls;

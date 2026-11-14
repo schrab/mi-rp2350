@@ -57,16 +57,16 @@ static void cmd_chain(const char* args);
 
 // ---- format ----
 static const uint8_t kPresetMagic[4] = {'R', 'K', 'P', 'R'};
-static const uint8_t kPresetVersion = 2;
+static const uint8_t kPresetVersion = 3;   // rack-lira8: cc arrays grew 4 -> 5 modules (old C3 presets invalidate cleanly)
 //  [0..3]   magic "RKPR"
 //  [4]      version
 //  [5]      active module id
 //  [6]      chain active (0/1)
 //  [7]      chain pair index (1 elements->clouds / 2 plaits / 3 rings)
 //  [8..348] mod-engine record (341 B: global_clock + bpm f32 + 12x28)
-//  [349..412] cc_seen[4][16] (64 B)
-//  [413..924] cc_cache[4][128] (512 B)
-//  [925..926] crc16-CCITT LE over [0..924]
+//  [349..412] cc_seen[5][16] (80 B)  — v3: 5 modules (rack-lira8)
+//  [413..1044] cc_cache[5][128] (640 B)
+//  [1045..1046] crc16-CCITT LE over [0..1044]
 // Derived from the real record sizes — a hardcoded 301 here once assumed a
 // 293-byte mod record that mod_engine_preset_write never produced (285 B:
 // 1 + 4 + 10x28), shifting the cache/crc down and leaving stack garbage in

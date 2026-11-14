@@ -12,6 +12,7 @@
 #include <cstring>
 
 #include "pd_primitives.h"
+#include "lira8_tc.h"
 
 namespace l8pd {
 
@@ -40,6 +41,7 @@ class ModDelay {
 
   // Reads use the write position BEFORE this block's write (zerodel=block).
   // delay_ms_signal: per-sample delay time in ms; n = block size.
+  LIRA8_TC(lira_delay_read)
   void read_block(const float* delay_ms_signal, int n, float* out) {
     const float limit = static_cast<float>(nsamps_ - n);
     const float sr_ms = sr_ / 1000.0f;
@@ -67,6 +69,7 @@ class ModDelay {
     }
   }
 
+  LIRA8_TC(lira_delay_write)
   void write_block(const float* in, int n) {
     for (int i = 0; i < n; ++i) {
       buf_[phase_++] = f2s(in[i]);
@@ -117,6 +120,7 @@ class Compander {
     thresh_ = dbtorms(thresh_db + 100.0f);
     ratio_ = ratio;
   }
+  LIRA8_TC(lira_comp_process)
   float process(float in) {
     const float temp = std::fabs(in);
     const float c = (temp > env_) ? c_attack_ : c_release_;
@@ -153,6 +157,7 @@ class Expander {
     slope_ = 1.0f - 1.0f / ratio;
   }
   // Per 64-sample block: feed the env, apply the smoothed gain per sample.
+  LIRA8_TC(lira_exp_process_block)
   void process_block(const float* in, int n, float* out) {
     float db = 0.f;
     if (env_.process_block(in, n, &db)) {   // env~ fires every 256 samples

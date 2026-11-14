@@ -260,6 +260,31 @@ static const UiPageCell kUiPageRingsP1[16] = {
     {19, "POLY",       kUiColorWhite}, // p16
 };
 
+// rack-lira8 page P1 (v1, 2026-11-15): the Lyra-8's 16 physical pots map the
+// main drone controls; the CCs match the adapter's kCcMap. Sensors speak
+// MIDI notes 36-43 (the patch's notemap) and mod triggers 55-62.
+static const UiPageCell kUiPageLira8P1[16] = {
+    // Row 0 (pots 0..5 / physical p1..p6):
+    {1,  "TUNE 1",     kUiColorWhite}, // p1
+    {2,  "TUNE 2",     kUiColorWhite}, // p2
+    {3,  "TUNE 3",     kUiColorWhite}, // p3
+    {4,  "TUNE 4",     kUiColorWhite}, // p4
+    {5,  "TUNE 5",     kUiColorWhite}, // p5
+    {6,  "TUNE 6",     kUiColorWhite}, // p6
+    // Row 1 (pots 6..9 / physical p7..p10):
+    {7,  "TUNE 7",     kUiColorWhite}, // p7
+    {8,  "TUNE 8",     kUiColorWhite}, // p8
+    {27, "HOLD",       kUiColorWhite}, // p9
+    {38, "VOLUME",     kUiColorWhite}, // p10
+    // Row 2 (pots 10..15 / physical p11..p16):
+    {13, "SHARP",      kUiColorWhite}, // p11
+    {17, "MOD",        kUiColorWhite}, // p12
+    {31, "VIBRATO",    kUiColorWhite}, // p13
+    {44, "TIME 1",     kUiColorWhite}, // p14
+    {45, "TIME 2",     kUiColorWhite}, // p15
+    {46, "FEEDBACK",   kUiColorWhite}, // p16
+};
+
 // [module][0 = P1, 1 = P2]. Elements has 3 unique params on P2 (MODEL CC 28,
 // PLAY CC 64, VCA CC 7). Clouds, Plaits, and Rings have all parameters on P1, so P2
 // has count = 0 (no duplicate params).
@@ -268,6 +293,7 @@ static const UiPageTable kUiPages[RACK_MODULE_COUNT][2] = {
     { {kUiPageCloudsP1, 16},   {nullptr, 0} },             // clouds
     { {kUiPagePlaitsP1, 11},   {nullptr, 0} },             // plaits
     { {kUiPageRingsP1, 16},    {nullptr, 0} },             // rings
+    { {kUiPageLira8P1, 16},    {nullptr, 0} },             // lira8
 };
 static const UiPageTable kUiPageEmpty = { nullptr, 0 };   // unused fallback
 

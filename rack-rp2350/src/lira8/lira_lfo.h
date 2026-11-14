@@ -8,6 +8,7 @@
 #define RACK_SRC_LIRA8_LIRA_LFO_H_
 
 #include "pd_primitives.h"
+#include "lira8_tc.h"
 
 namespace l8pd {
 
@@ -20,6 +21,7 @@ class HyperLfo {
   void set_andor(float a) { andor_ = a; }
 
   // Per-block: advances phasors, writes the three bus signals.
+  LIRA8_TC(lira_lfo_block)
   void process_block(int n, float* del_tri, float* del_sqr, float* sqr_lfo) {
     for (int i = 0; i < n; ++i) {
       // A phasor + its square

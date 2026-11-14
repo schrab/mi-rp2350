@@ -7,6 +7,7 @@
 #define RACK_SRC_LIRA8_LIRA_MASTER_H_
 
 #include "pd_primitives.h"
+#include "lira8_tc.h"
 
 namespace l8pd {
 
@@ -25,6 +26,7 @@ class MasterOut {
   void set_vol(int k) { vol_.set((k / 127.0f) * (k / 127.0f), 23.22f); }
 
   // Per-sample; feedback_tap receives the hip~3'd pre-volume tanh output.
+  LIRA8_TC(lira_master_process)
   inline void process(float in, float& out, float& feedback_tap) {
     const float g = drive_.next();
     const float t_in = hip20_.process(in * g);

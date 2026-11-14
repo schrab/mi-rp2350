@@ -22,6 +22,7 @@
 
 #include "pd_primitives.h"
 #include "lira_osc.h"
+#include "lira8_tc.h"
 
 namespace l8pd {
 
@@ -63,6 +64,7 @@ class SensorEnv {
     on_ = on;
     line_.set(on ? 1.0f : 0.0f, on ? attack_ms_ : release_ms_);
   }
+  LIRA8_TC(lira_sensor_env)
   inline void process(float& e2, float& cos_term) {
     const float e = line_.next();
     e2 = e * e;
@@ -138,6 +140,7 @@ class VoicePair {
   }
 
   // ---- per-sample render; mod_sig = mod-source signal (other pair bus) ----
+  LIRA8_TC(lira_voice_pair)
   inline void process(const float* mod_sig, int n, float* pair_out,
                       float* bus_send) {
     for (int i = 0; i < n; ++i) {

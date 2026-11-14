@@ -413,6 +413,13 @@ SECTIONS
             . = ALIGN(4);
             __tc_rings_end = .;
         }
+        tc_lira8
+        {
+            __tc_lira8_start = .;
+            KEEP(*(.tc_lira8.*))
+            . = ALIGN(4);
+            __tc_lira8_end = .;
+        }
     } > RACK_WINDOW
 
     /* Flash (LMA) extents of the four hot sections — copy sources for
@@ -425,10 +432,12 @@ SECTIONS
     __rack_flash_plaits_end   = LOADADDR(tc_plaits) + SIZEOF(tc_plaits);
     __rack_flash_rings_start = LOADADDR(tc_rings);
     __rack_flash_rings_end   = LOADADDR(tc_rings) + SIZEOF(tc_rings);
+    __rack_flash_lira8_start = LOADADDR(tc_lira8);
+    __rack_flash_lira8_end   = LOADADDR(tc_lira8) + SIZEOF(tc_lira8);
     /* Last-placed member's flash end = total extent of the reserved
        region's rack content (tc_clouds LMA = region start; the overlay
        members follow it, rings last). */
-    __rack_flash_end = __rack_flash_rings_end;
+    __rack_flash_end = __rack_flash_lira8_end;
 
     /* Every member must fit the ONE shared window. */
     ASSERT(SIZEOF(tc_elements) <= LENGTH(RACK_WINDOW),
@@ -439,6 +448,8 @@ SECTIONS
         "ERROR: plaits hot section exceeds the rack SRAM window")
     ASSERT(SIZEOF(tc_rings) <= LENGTH(RACK_WINDOW),
         "ERROR: rings hot section exceeds the rack SRAM window")
+    ASSERT(SIZEOF(tc_lira8) <= LENGTH(RACK_WINDOW),
+        "ERROR: lira8 hot section exceeds the rack SRAM window")
 
     /* T6 chain-residency invariants (B slot must not reach the A slot, and
        both slots must fit the window). The asserts pin the chain A set to
@@ -451,6 +462,9 @@ SECTIONS
         "ERROR: rings hot section overlaps the chain B slot (raise RACK_CLOUDS_B_OFFSET)")
     ASSERT(SIZEOF(tc_plaits) <= RACK_CLOUDS_B_OFFSET,
         "ERROR: plaits hot section overlaps the chain B slot (raise RACK_CLOUDS_B_OFFSET)")
+    /* lira8's hot CODE fits the A slot, but its BUFFER-arena delay carve
+       (185.6 KB of the 192 KB arena) leaves nothing for a chained clouds-B —
+       the chain pair table in main.cpp must not offer lira8 as chain A. */
     ASSERT(RACK_CLOUDS_B_OFFSET + SIZEOF(tc_clouds) <= LENGTH(RACK_WINDOW),
         "ERROR: chain B slot (clouds) exceeds the rack SRAM window")
     /* The window must end exactly where the core's scratch banks begin —
