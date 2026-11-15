@@ -3311,3 +3311,31 @@ Device: 804-862 us/block, delay 212-218, voices 504-535, i2s stalls 0.
   LIVE in both PickupResync and PickupCellNote: the first movement sends the
   selection (continuous cells keep takeover).
 Device: 805-817 us/block, voices 502-503, delay 216-224, stalls 0.
+
+### Rack-lira8 L5 — documentation wrap-up (2026-11-15)
+
+All rack-facing docs brought in line with the five-module firmware:
+- **rack-rp2350/README.md**: title/intro = five modules; five envs +
+  RACK_BOOT_MODULE 0-4; CC 32 0-4; a full **rack-lira8** section (what it is,
+  module id 4 + standalone-only chain rule, 64-block burst contract, 805-817
+  us measured, the report budget 1984 + `sens=`/`st=` tails, voice/pair/
+  group architecture, the sensor notemap 36-43 + CC 55-62 + PLAY 64, the
+  complete CC map incl. the combined delay mode 51 and 52 override, the 1 s
+  HW delay cap + soft-knee storage, the P1/P2/P3 pot maps, live switch
+  cells); report-format section updated with the lira8 budget/tails.
+- **rack-uimcu/README.md**: a "Rack pages" section (module pages P1/P2/P3,
+  the 5-module selector/overlay, switch labels, lira8's page/pot map),
+  page-cycle gesture, pot behavior (P1/P2/P3 + the real SYS pot mapping),
+  discrete cells LIVE (no takeover) with the FM-STRUCT bench bug, `page
+  <0-10>`.
+- **docs/ui-protocol.md**: §4 page ids corrected to the code (2-7 MOD
+  pages incl. MOD-ARP, 8 SYS, 9 CLOUDS B) + page 10 P3; module id 0-4;
+  5-module CC cache; SWITCH 0-4; preset blob 1071 B (v3).
+- **docs/PORTING-HIGHLIGHTS.md**: new §12 — hand-port rules (verify against
+  the .pd/dump, the -Os trap for header-only engines, fixed-point phases,
+  settled-block fast paths, int16 soft-knee + block-held SELF grit, the
+  hardware manual as the control-semantics authority) + the 805-817 us
+  result.
+- **docs/superpowers/plans/2026-11-15-rack-lira8.md**: L4/L5 status rows.
+Not documented (out of scope): the browser rack_panel.html still has no
+lira8 tab — the C3 is the lira8 control surface.

@@ -61,13 +61,13 @@ Max frame = 259 bytes (`0x7E` + len + type + 255 payload + crc).
 | Type | Name | Direction | Payload |
 |------|------|-----------|---------|
 | `0x01` | MIDI | C3 -> RP2350 | 4-byte USB-MIDI event packet `[CIN<<4|cable, status, d1, d2]` — funneled into `midiHandleEventPacket()` (the SAME entry point the USB device/host/DIN paths use; zero new dispatch semantics). RP2350 rejects wrong lengths with a log line. |
-| `0x02` | SWITCH | C3 -> RP2350 | `[module_id:u8]` (0 elements / 1 clouds / 2 plaits / 3 rings) — routed through the console `switch` path verbatim (acks, chain-slot semantics, self-swap guard). |
+| `0x02` | SWITCH | C3 -> RP2350 | `[module_id:u8]` (0 elements / 1 clouds / 2 plaits / 3 rings / 4 lira8) — routed through the console `switch` path verbatim (acks, chain-slot semantics, self-swap guard). |
 | `0x03` | MOD_SET | C3 -> RP2350 | `[src:u8][param:u8][value:u8]` — applied through the mod engine's bench-mux setter (same validation + 0-127 quantization as the console `mod` command / CC 33-35 mux); one ack log line per set. Param-id table: §3. |
 | `0x04` | UI_CMD | C3 -> RP2350 | `[action:u8][arg:u8][arg2:u8]`: action 1 = page request (arg = page id, §4) -> RP2350 replies a full TELEM snapshot; action 2 = echo (arg/arg2 = 16-bit seq) -> RP2350 echoes the frame back verbatim and records its turnaround (the C3 measures the full wire RTT of its own probes); action 3 = sys toggle (arg = sys item id, semantics = TOGGLE, arg2 reserved 0): id 0 = telemetry-deltas gate on/off, id 1 = RP2350-pushed full-snapshot gate on/off, id 2 = global clock source internal<->midi; other ids are log-only. action 4 = **ASSIGN_CYCLE** `[cell:u8 0-15][dir:u8 1 up / 0 down]` — the RP2350 resolves `cell` against its ACTIVE page: that cell's CC's currently-routed mod source (or none) cycles through `[off, src0..src11]`, applied via `mod_set_dest` (the RP2350 owns the routing table + validation — "the C3 never enforces"; an invalid target for this module is inert and shows as TELEM flags bit2), and the RP2350 replies a full TELEM snapshot so the C3 renders the result. RATIONALE: the gesture sends ASSIGN_CYCLE, not MOD_SET (the plan's original sketch) — MOD_SET `[src][param][value]` would require the C3 to track which source drives each cell off-protocol; only the RP2350 knows. MOD_SET stays for the MOD pages' direct param writes. action 5 = **SET_GLOBAL** `[item:u8][value:u8 0-127]` — global state the C3 pots address but MOD_SET (per-source) cannot express: item 0 = BPM (`bpm = 20 + value*280/127`, the `bpm` console cmd's quantization family); other items log-only. The RP2350 acks with a full TELEM snapshot when the affected cell is on the active page (MOD-C BPM / SYS). |
 | `0x05` | CHAIN_ROUTE | C3 -> RP2350 | `[a:u8][b:u8][engage:u8]`: engage 1 -> console `chain <a> <b>` path (pair validation, window math, acks); engage 0 -> `chain off`. |
 | `0x10` | TELEM | RP2350 -> C3 | telemetry, §5. |
 | `0x11` | PRESET_REQ | C3 -> RP2350 | `[slot:u8]` — "send me your current state part" (the C3 appends its own part and writes its flash bank). `slot` 0-15 = the bank slot the user is saving into (echoed in the PART reply for context); `0xFF` = the pull side of an autosave request. The RP2350 replies with a PRESET_PART burst. |
-| `0x12` | PRESET_PART | RP2350 -> C3 | `[slot:u8][seq:u8][total:u8][data <=252 B]` — chunks of the RP2350's serialized state blob (magic "RKPR", version byte, ~871 B, crc16-CCITT; layout in `rack-rp2350/src/preset.h`). Sent on PRESET_REQ, or **unsolicited with `slot=0xFF` from the RP2350's autosave debounce** (3 s after the last persistent state change; the C3 writes its rotating autosave sectors). The C3 treats the blob as opaque. |
+| `0x12` | PRESET_PART | RP2350 -> C3 | `[slot:u8][seq:u8][total:u8][data <=252 B]` — chunks of the RP2350's serialized state blob (magic "RKPR", version byte, 1071 B (v3, 5 modules), crc16-CCITT; layout in `rack-rp2350/src/preset.h`). Sent on PRESET_REQ, or **unsolicited with `slot=0xFF` from the RP2350's autosave debounce** (3 s after the last persistent state change; the C3 writes its rotating autosave sectors). The C3 treats the blob as opaque. |
 | `0x13` | PRESET_APPLY | C3 -> RP2350 | `[seq:u8][total:u8][data <=252 B]` — chunked blob (read from a bank slot; chunk cap MUST MATCH the RP2350's `kPresetChunkData`). The RP2350 reassembles, validates magic/version/crc, applies (clock bus + mod engine -> CC cache + seen -> module swap via the pending machinery -> chain via the pending machinery) and acks with a full TELEM snapshot. Rejects log a reason and never touch state. |
 
 Unknown types: logged + counted, never crash (both ends tolerate a peer
@@ -102,14 +102,16 @@ and CC 33 use):
 | id | page | contents |
 |----|------|----------|
 | 0 | P1 | the active module's primary 16 pot cells (fully implemented; tables below) |
-| 1 | P2 | elements: CC 28/29/64 (MODEL / OMINOUS / PLAY, count = 3); clouds/plaits/rings: count = 0 (no duplicate params) |
+| 1 | P2 | elements: CC 28/29/64 (MODEL / OMINOUS / PLAY, count = 3); lira8: its second REAL bank (16 cells); clouds/plaits/rings: count = 0 (no duplicate params) |
 | 2 | MOD-LFO 1/2 | LFO 1 (Row 0 pots 0-5) & LFO 2 (Row 2 pots 10-15): 6 params each (RATE, WAVE, PHASE, LEV, MODE, DIV) |
 | 3 | MOD-LFO 3/4 | LFO 3 (Row 0 pots 0-5) & LFO 4 (Row 2 pots 10-15): 6 params each (RATE, WAVE, PHASE, LEV, MODE, DIV) |
 | 4 | MOD-TRIG | 2x Euclidean: EUC 1 (Row 0 pots 0-4) & EUC 2 (Row 2 pots 10-14): 5 params each (STPS, PULS, ROT, CLK, DIV) |
 | 5 | MOD-GATE | 2x Gate: GATE 1 (Row 0 pots 0-4) & GATE 2 (Row 2 pots 10-14): 5 params each (LEN, MASK, GLEN, CLK, DIV) |
 | 6 | MOD-ENV | 2x ADSR: ADSR 1 (Row 0 pots 0-5) & ADSR 2 (Row 2 pots 10-15): 6 params each (ATK, DEC, SUS, REL, MODE, DIV) |
-| 7 | SYSTEM | ONE dual-purpose module/pair selector (pot 0), chain engage (pot 5); BPM (pot 6), CLKSRC (pot 7), preset slot (pot 8); telemetry gates (pots 14/15) — see the SYS table below |
-| 8 | CLOUDS B | the B slot's parameters while a chain is engaged (the CLOUDS P1 registry table with live B values); NOT served when no chain is engaged — see below |
+| 7 | MOD-ARP | 2x ARP (Row 0 pots 0-5 / Row 2 pots 10-15) plus the SHARED NEO-OP/ROOT/SCALE cells (pots 7/8/9); see the ARP tables in rack-rp2350/src/ui_link.h |
+| 8 | SYSTEM | ONE dual-purpose module/pair selector (pot 0), chain engage (pot 5); BPM (pot 6), CLKSRC (pot 7), preset slot (pot 8); telemetry gates (pots 14/15) — see the SYS table below |
+| 9 | CLOUDS B | the B slot's parameters while a chain is engaged (the CLOUDS P1 registry table with live B values); NOT served when no chain is engaged — see below |
+| 10 | P3 | per-module THIRD page: rack-lira8 only (its 47 params do not fit two banks) — the delay/distortion/LFO + global-switch page; other modules: count = 0 |
 
 A page request (`UI_CMD` action 1) sets the RP2350's "active page" — the
 target of the throttled TELEM deltas (§5) — and replies with a full snapshot.
@@ -125,17 +127,19 @@ Payload (v2, stage 2-6):
 [mode 0 only: bpm:u8][clocksrc:u8][chain:u8][link:u8]   (status tail)
 ```
 
-- `page` = page id (§4), `module` = the RP2350's active module id (0-3).
+- `page` = page id (§4), `module` = the RP2350's active module id (0-4:
+  elements / clouds / plaits / rings / lira8).
 - `mode`: 0 = full snapshot (all cells of the page + status tail), 1 =
   single-cell delta — the **same cell/label format** with `count = 1` and
   NO status tail (the C3 keeps its last tail). The delta's `cc` names the
-  cell (a real CC on P1/P2, `200+index` on MOD/SYS pages); the C3 patches
+  cell (a real CC on the module pages P1/P2/P3, `200+index` on MOD/SYS
+  pages); the C3 patches
   the matching cached cell and ignores deltas for pages it does not hold.
 - `color` = the registry color class (0 white / 1 red / 2 teal, §6) — the
   C3 does NOT duplicate the registry; the RP2350 is the single source of
   truth for labels AND colors.
 - `value` = the module's cached CC value (0-127) from the per-module
-  per-CC observation cache (4 modules x 128 CCs, updated at the single
+  per-CC observation cache (5 modules x 128 CCs, updated at the single
   control_change dispatch point). Cache starts zeroed — a cell shows its
   panel value once any controller (web panel / BLE / UI pots) has sent that
   CC since boot. On MOD/SYS pages `value` = the mod engine's / rack state's
@@ -473,10 +477,10 @@ frames take (`switch`/`chain`/`mod`).
 One preset = full rack state, split by ownership (the plan's decision):
 the **RP2350 owns serialization + apply** (it holds the state), the **C3
 owns the flash bank** (its own 4 MB flash — RP2350 flash writes would
-stall XIP audio). The RP2350 blob (`rack-rp2350/src/preset.h`, 871 B,
+stall XIP audio). The RP2350 blob (`rack-rp2350/src/preset.h`, 1071 B,
 versioned + crc16-CCITT) = active module, chain pair/engage, clock bus
 (global source + BPM), the mod engine's 10 persistent source records,
-and all four modules' observed CC values + a seen-bitmap (which CCs a
+and all five modules' observed CC values + a seen-bitmap (which CCs a
 controller ever sent — cache zeros are ambiguous). The C3 part (12 B,
 `PresetStore`) = version, last page, module mirror, slot.
 

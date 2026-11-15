@@ -1,34 +1,36 @@
-# Rack RP2350 — all four MI ports in one firmware, live-switchable
+# Rack RP2350 — five modules in one firmware, live-switchable
 
-ONE firmware running the four accepted ports (Elements, Clouds, Plaits
-98-engine, Rings MiniElements) on the RP2350 nano + PCM5102A, with LIVE
-MODULE SWITCHING (T2 of the combined plan,
+ONE firmware running the four accepted MI ports (Elements, Clouds, Plaits
+98-engine, Rings MiniElements) plus the hand-ported **LIRA-8** (`rack-lira8`,
+a Pure Data patch port — not an MI library) on the RP2350 nano + PCM5102A,
+with LIVE MODULE SWITCHING (T2 of the combined plan,
 `docs/superpowers/plans/2026-11-04-combined-rp2350.md`) and a DIN MIDI input
 + serial bench console (T4).
 
 ## Module selection (T2: boot-select + live swap)
 
-Four PlatformIO envs — they build the SAME unified binary and differ ONLY in
+Five PlatformIO envs — they build the SAME unified binary and differ ONLY in
 which module boots:
 
 ```sh
-pio run -d rack-rp2350 -e rack-elements   # or rack-clouds / rack-plaits / rack-rings
+pio run -d rack-rp2350 -e rack-elements   # or rack-clouds / rack-plaits / rack-rings / rack-lira8
 # → .pio/build/<env>/firmware.uf2
 ```
 
-`RACK_BOOT_MODULE` (0 elements / 1 clouds / 2 plaits / 3 rings) selects the
+`RACK_BOOT_MODULE` (0 elements / 1 clouds / 2 plaits / 3 rings / 4 lira8)
+selects the
 boot module: `setup()` copies that module's flash image into the SRAM window
-(first action, crt0-like) and registry-Inits it. All four adapters compile in
+(first action, crt0-like) and registry-Inits it. All five adapters compile in
 every env (state is arena-placed); the module registry
 (`src/module_registry.h`, table in `src/main.cpp`) dispatches init / render /
 note / CC hooks.
 
 ### Live swap — MIDI CC 32 (Bank Select)
 
-**CC 32, value 0-3 = module id** (0 elements, 1 clouds, 2 plaits, 3 rings;
-other values ignored, same id ignored). CC 32 is verified unused by all four
-modules' CC maps. Core 0 queues the request; core 1 executes the swap at the
-next block boundary (max one per call):
+**CC 32, value 0-4 = module id** (0 elements, 1 clouds, 2 plaits, 3 rings,
+4 lira8; other values ignored, same id ignored). CC 32 is verified unused by
+all five modules' CC maps. Core 0 queues the request; core 1 executes the swap
+at the next block boundary (max one per call):
 
 1. **MUTE** — linear output-gain ramp-down over 4 render blocks, then the
    whole I2S DMA bank is flushed with silence (the AudioBufferManager also
@@ -128,10 +130,62 @@ per-message lines (34 packets + 2 discards), then `52 bytes -> 34 packets
 active module (60/64/67), CC 7 applies, and `mod?` shows midi `ticks +25`
 once core 1 drains the stamp ring (within one audio block).
 
+## rack-lira8 — the fifth module (LIRA-8 hand port)
+
+`rack-lira8` is not a vendored MI library: it is a hand port of Mike Moreno's
+LIRA-8 Pure Data patch (BSD) into `src/lira8/` (pure C++, no MCU headers; the
+host golden harness compiles the same headers — that is also the
+ctag-tbd portability proof). Fidelity is gated against headless-Pd renders
+(`test/lira8_ref/`): the onevoice harmonic table matches Pd exactly and the
+dry path matches within ±0.2 dB in every band; the fully-wet delay is
+documented as ~10 dB brighter at 12.5–16 kHz than Pd (open item).
+
+- **Module id 4**, boot env `rack-lira8`. **Standalone only** — the int16
+  delay carve (128,016 B = 2 × 32,004 samples, the ORIGINAL HARDWARE's 1 s
+  maximum) leaves too little of the buffer arena for a chained clouds-B
+  (128,016 + 87,040 + 44,032 > 192 KiB).
+- **Engine**: Pd-style 64-sample internal blocks at 32 kHz, rendered in bursts
+  of one block per 4 host calls. Device cost: ~805–817 µs per 64-block
+  (40% of the 2 ms period), i2s stalls 0. The 2 s report shows
+  `budget 1984 us` (the internal block, not the 16-sample host grid) and a
+  `sens=N st=<params>/<voices>/<delay>/<lfo>/<master>` tail (active sensors +
+  per-stage maxima, µs, resets on print).
+- **Voice architecture** (from the manual): 8 voices in four pairs (12/34/56/
+  78), pairs in two groups (1234/5678). TUNE per voice; SHARP/MOD/FAST/FM-
+  source per pair; PITCH/HOLD per group; TOTAL FB, VIBRATO and the FM
+  structure switch are global.
+- **MIDI**:
+  - **Sensors**: notes **36–43 (C2–G2)** press/release sensors 1–8 (the
+    patch's own notemap); latch triggers **CC 55–62**; PLAY (pseudo-CC 64)
+    pulses sensor 1 for 400 ms.
+  - **CC map** (`module` prints it): 1–8 tune, 9–12 fast, 13–16 sharp, 17–20
+    mod, 21–24 FM source (0 audio / 1 off / 2 LFO), 25–26 pitch, 27–28 hold,
+    29 FM structure, 30 total-fb, 31 vibrato, 36 drive, 37 dst-mix, 38 vol,
+    39 LFO freq A, 41 LFO freq B, 42 and/or, 43 link, 44–45 time 1/2, 46
+    feedback, 47 delay mix, 48–49 delay mod 1/2, **51 delay mode
+    (0 SELF / 1 LFO-tri / 2 LFO-sqr)**, 52 LFO waveform (direct override),
+    53 quantize.
+  - Delay storage is int16 with a **soft-knee limiter** at the ±2 headroom
+    (linear to ±1.5): at maximum FEEDBACK the self-oscillating loop saturates
+    instead of hard-clipping.
+- **UI pages** (`src/ui_link.h` tables; the C3 renders labels from TELEM):
+  - **P1 = group 1234 + delay line 1** — row0: FAST 12, FM SRC 12, **MOD 1,
+    TIME 1**, FAST 34, FM SRC 34; row1: TUNE 1–4; row2: SHARP/MOD of both
+    pairs + PITCH 1234 + HOLD 1234.
+  - **P2 = group 5678 + delay line 2**, mirrored (MOD 2 / TIME 2 at pots 3/4).
+  - **P3 = shared delay + distortion + LFO + globals** — row0: DEL MODE, FB,
+    MIX, DRIVE, DIST MIX, VOL; row1: FREQ A, FREQ B, TOTAL FB, VIBRATO;
+    row2: FM STRUCT, AND/OR, LINK (+3 spares).
+  - Switch cells are **live** (no soft takeover): SLOW/FAST, FM/OFF/LFO,
+    SELF/TRI/SQR, SPLIT/LOOP, ON/OFF.
+- Chain: lira8 is rejected as chain A (buffer arena) and is not a chain B
+  (clouds only).
+
 ## SRAM architecture (T2 + T6/T6b two-slot window)
 
-- **One window for all four modules**: `memmap_rack.ld` (single script, every
-  env) places the elements/plaits/rings `.tc_<module>.*` hot sets into ONE ld
+- **One window for all five modules**: `memmap_rack.ld` (single script, every
+  env) places the elements/plaits/rings/lira8 `.tc_<module>.*` hot sets into
+  ONE ld
   OVERLAY — same VMA = the window origin (the chain A slot), with clouds in
   its OWN section at origin+0xE400 (the T6 chain B slot; T6b moved it from
   +0x9000 so rings fits the A slot); LMAs are sequential in the reserved
@@ -154,8 +208,8 @@ once core 1 drains the stamp ring (within one audio block).
   Voice 21,748 B + 32 KiB allocator workspace; rings Part 123,352 B +
   StringSynthPart 2,004 B (the object arena's sizing module) + 64 KiB
   reverb. Swaps re-place + re-Init factory defaults; no destructors exist in
-  the four ports' DSP state.
-- **RAM per env** (identical map in all four): static .data + .bss (of which
+  the five modules' DSP state.
+- **RAM per env** (identical map in all five): static .data + .bss (of which
   arenas 332 KB → non-arena static ≈ 35 KB) → heap **33,120 B** below the
   window (T6: 37,640; T6b paid the object-arena bump's 4 KiB from the heap —
   the window itself did not grow); boot heap consumers: core-1 separate
@@ -293,7 +347,7 @@ decides, and any offender gets a one-line token promotion (window slack
   band is always on, so a controller sends 40-48 in both modes with no
   chain-state knowledge; native 14-22 keep their existing meaning everywhere
   (A's panel params while chained — the collision that makes the alias
-  necessary). Free-band check: 36-63 is unused by all four maps + the rack
+  necessary). Free-band check: 36-63 is unused by all five maps + the rack
   system CCs (32 bank, 33-35 mod mux).
 - **Clouds-B mode clamp**: chain mode is granular/looping ONLY. CC 23 = 0
   (granular) / 2 (looping) accepted; **1 (stretch) and 3 (spectral)
@@ -410,7 +464,12 @@ Three real findings from the bring-up:
 
 `max Process: N us (budget B) | i2s stalls: T (+d) | in= out= notes= |
 host: conn= st= dev= midi= frame= | mod=<active module>` — budgets:
-elements 496, clouds 1000, plaits 500 (48 kHz), rings 750 µs; while chained
+elements 496, clouds 1000, plaits 500 (48 kHz), rings 750 µs, **lira8 1984
+µs** (its internal 64-sample block — the engine bursts once per 4 host calls
+and the 4 ms I2S bank absorbs the burst; `in=`/`out=` are max-since-report
+meters ×1000 and lira8 reports its output RMS in `in=`); lira8 appends
+`| sens=N st=<params>/<voices>/<delay>/<lfo>/<master>` (active sensor count +
+per-stage maxima in µs, reset on print). While chained
 the module field reads `mod=<a>><b>` (e.g. `elements>clouds`) and the
 budget is the chain grid's 750 µs with `proc_us_max` = A+route+B. Swap
 lines: `rack: switched to <module> in <ms> ms (window <n> bytes)`; chain

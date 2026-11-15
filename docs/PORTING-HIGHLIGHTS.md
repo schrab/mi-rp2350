@@ -274,7 +274,51 @@ before suspecting anything.
 5. Stage profile per mode; every burst either < block budget or < DMA bank.
 6. User ear check; 30 min soak; ledger + README (CC map + report format).
 
+## 12. rack-lira8 — a Pure Data HAND port (different rules)
+
+LIRA-8 is not an MI library: it is a Pd patch re-implemented by hand in
+`rack-rp2350/src/lira8/` and validated against headless-Pd goldens
+(`test/lira8_ref/`). The rules above still apply, plus these:
+
+1. **Verify the port against the original before optimizing anything.** A
+   review of the finished engine found ten real deviations: LFO-A's phasor
+   never received its rate; delay `line~`s advanced once per 64-block (23 ms
+   became 1.5 s); the `vd~` tap window was shifted one sample; the delay
+   input used the wrong bus; SELF used the main read instead of a min-delay
+   tap; the polyBLEP falling edge was off by +1; the expander ramped linear
+   gain instead of dB; sensor fast-mode re-ramped on every CC; fractional
+   defaults were truncated; the wet tanh lacked its ±3 clip. Each was
+   checked against the .pd source / resolved dump BEFORE fixing — the dump
+   beats memory and an agent's prose.
+2. **Header-only DSP in `src/` is compiled at the core's -Os** even with
+   project `-O3` (see §2). Instantiate the engine in an `-O3` library TU
+   (`lib/<name>/` + library.json) behind a wrapper that carries its own
+   `.tc_*` SRAM token; `lib_ldf_mode = chain+` only links libraries whose
+   headers are `#include`d from src.
+3. **No `double` in per-sample code on the M33** — every double op is a
+   ~50-cycle soft-float libcall (pd's double phasors are the trap). LFO /
+   vibrato phases use a 32-bit FIXED-POINT accumulator (2^32/cycle): exact
+   modulo 2^32 (no drift), one float mul + convert, negative increments wrap.
+4. **Settled-block fast paths pay off**: when the control `line~`s and
+   sensor envelopes are idle (the normal drone) hoist their values and skip
+   the per-sample ramps/lookups — bit-identical output, ~25% of the block.
+5. **int16 delay storage needs a soft-knee limiter**, not a hard clamp: a
+   self-oscillating loop (max feedback) squared off at ±2 and turned gritty.
+   Also: pd's block-held mod sources (an unconnected `vd~` time inlet holds
+   one sample per block — a 500 Hz staircase in the delay time) are a grit
+   source of their own; replaying the block as the SELF signal smooths it.
+6. **The hardware manual is the control-semantics authority** when the patch
+   and the instrument disagree: the Lyra's delay tops out at 1 s (the patch's
+   5.9 s is a patch-ism), the SELF/LFO switch is two-way (the patch's third
+   `del-mod=1` state means "no modulation"), and the hardware's "highs sound
+   softer" voicing is not modelled in pd (a band-limit on the distortion
+   branch restores it).
+
+Result on the RP2350: 3.1 ms → **805-817 µs per 64-sample block** (40% of the
+2 ms period), voices ~502 µs, delay ~220 µs, LFO ~40 µs, stalls 0.
+
 ---
-*Written 2026-11-01 after the Elements + Clouds ports. Full war stories:
+*Written 2026-11-01 after the Elements + Clouds ports; §12 added
+2026-11-15 after the rack-lira8 port. Full war stories:
 `.superpowers/sdd/progress.md`; module-specific handoffs:
 `docs/HANDOFF-usb-host-freeze.md`, plan docs in `docs/superpowers/plans/`.*
