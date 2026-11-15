@@ -3372,3 +3372,61 @@ matches the author's coefficients; the port adapts them from sr).
   43,254 = 184,390 fits, chains keep working) OR shrink the chain window to
   64 KiB (+52 KB arena, 1 s + reverb = 219,670 fits, chains retired).
   Decision pending (user declined the immediate question).
+
+### Rack T8 — unified SRAM pool + lira8→clouds chain (2026-11-15)
+
+User: "why can't all memory be used with single module loaded... make enough
+allocation for Lira8 + Reverb?" — answered WITHOUT a lira8 reverb: clouds-B
+already has the MIT reverb (alias CC 48), so the chain is the better use of
+the fix and costs no new DSP in lira8.
+
+- **Root cause**: the old OBJECT (132 KiB) + BUFFER (192 KiB) arrays were two
+  unions sized by DIFFERENT worst cases. With lira8 active: object 16,080 of
+  135,168 (110 KB idle) while the buffer arena was 62,480 B short for
+  lira8->clouds. Total was enough, the split double-booked.
+- **T8 implementation**: one `g_rack_pool[331,776]` (the arrays were already
+  physically adjacent: buffer @0x20003ee0 + object @0x20033ee0) + a
+  deterministic bump allocator (`rack_mem_reset/alloc`, 8-aligned, loud OOM
+  halt). Each adapter declares `state_size()` + `buf_bytes()` and takes
+  `(obj_base, buf_base)`; `init()` resets+allocates for single-module paths;
+  chain engage resets ONCE and places A state+buf then B state+buf; chain A
+  re-init reuses the deterministic A addresses so clouds-B survives.
+  Worst chain (rings+clouds) 331,520 of 331,776 (same 256 B slack as before).
+- **lira8 as chain A (pair 4)**: `init_chain_a` constructs the engine at
+  32,000 Hz (the chain grid; all rlpf/phasor constants derive from sr) and
+  carves the 1 s int16 delay at 128,016 B vs 176,416 B standalone at 44.1k.
+  `chain_render_a` calls `process_block_o3(.., 24)`; the engine already
+  buffers its internal 64-sample block. Window: tc_lira8 14,680 fits the
+  0xE400 A slot; A+B 71,744 of 118,784.
+- **CC de-collision**: clouds-B owns 40-50 + 65/66 while chained; lira8's
+  delay section was 41-49. Moved to 80-88 (f-b 80, and/or 81, link 82,
+  time-1/2 83/84, feedback 85, mix 86, mod-1/2 87/88). C3 pages get cell CCs
+  from TELEM (no C3-side CC table); preset version 3 -> 4 invalidates old
+  lira8 CC values cleanly. C3 gained a 4th chain-pair slot (L>C) in the SYS
+  selector / strip / kPairA; RP2350 pair index 4 + `kPresetPairA[5]`.
+- **Device verification** (rack-lira8 env, flashed; C3 flashed):
+  - `chain lira8` validated: window 14,680+57,064 of 118,784; pool 283,864
+    of 331,776 (lira8 state 16,080 + buf 128,016, clouds state 8,692 + buf
+    131,072); engaged 24 ms.
+  - chain idle + with a sensor note: max Process 971-988 us (budget 750 —
+    the lira8 64-sample burst; average fits), **i2s stalls +0 over 12 s**,
+    meters live (`in=218 out=276` on note 36).
+  - standalone lira8 still 821-847 us / 1451, stalls 0; all five modules
+    switched through the pool (clouds 33 ms, elements 31, plaits 9) with no
+    crash.
+  - TRANSIENT: right after the C3 reflash, the first chain run accumulated
+    i2s stalls (~435/2 s) for both lira8 and rings pairs; a fresh chain
+    engage after the C3 settled ran +0. Correlates with core-0 UI-link/console
+    activity (the blocking 921600 UART snapshot writes delay the core-0 I2S
+    DMA IRQ), not chain CPU — observed, not yet fixed (T5 ring/IRQ scope).
+- **LEDGER CORRECTION**: the Elements/rings reverb allocation requirement is
+  **64 KiB**, not the 43,254 B "delay-line footprint" recorded above.
+  `elements::FxEngine<32768>::Init` does `std::fill(buffer_[0], buffer_[size])`
+  over the full declared 32,768-token template, i.e. 65,536 B — allocating
+  43.3 KB would let Init corrupt the next 21 KB. (Clouds' reverb is 32,768 B
+  as recorded.) A standalone lira8 + Elements reverb would need 16,080 +
+  176,416 + 65,536 = 258,032 B of the 331,776 pool, so it would fit — but the
+  chain route is the shipped design.
+- Docs: rack README (pool, chain table, lira8 CC map), ui-protocol (chain
+  pair 1-4), C3 README (4 pairs), memmap_rack.ld (lira8 A-slot ASSERT +
+  heap notes).

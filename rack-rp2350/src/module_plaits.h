@@ -7,7 +7,7 @@
 // aux_output_option = 1, raw write16 (Voice clips/limits internally).
 //
 // T2: compiles in EVERY rack env (state is arena-placed, see rack_arena.h);
-// the 32 KiB BufferAllocator workspace carves from the BUFFER arena.
+// the 32 KiB BufferAllocator workspace carves from the T8 unified SRAM pool.
 #pragma once
 
 // Module-library includes UNCONDITIONAL (see module_elements.h): all four
@@ -115,14 +115,17 @@ static State* s = nullptr;   // placement-new'd by init(); arena offset 0
 // single-module path; init_chain_a() re-Inits the slot at the CHAIN rate
 // context (plaits renders at 32 kHz while chained, 48 kHz switched).
 static size_t state_size() { return sizeof(State); }
+// Buffer demand: uint32_t workspace[8192] = 32 KB (Voice's BufferAllocator
+// pool; covers the largest single engine at 16.4 KB with margin).
+static constexpr size_t buf_bytes() { return 32768; }
 
-void init_at(uint8_t* base) {
-  s = new (base) State();
-  // Buffer carve: uint32_t workspace[8192] = 32 KB from the buffer arena.
-  // The arena is alignas(8): Allocate<T> does not adjust alignment.
-  memset(g_rack_buffer_arena, 0, 32768);
+void init_at(uint8_t* obj_base, uint8_t* buf_base) {
+  s = new (obj_base) State();
+  // Buffer carve: uint32_t workspace[8192] = 32 KB from the caller's region.
+  // The pool is 8-aligned: Allocate<T> does not adjust alignment.
+  memset(buf_base, 0, buf_bytes());
   stmlib::BufferAllocator allocator(
-      reinterpret_cast<void*>(g_rack_buffer_arena), 32768);
+      reinterpret_cast<void*>(buf_base), buf_bytes());
   // Rate context (08-plaits-runtime-rate.patch: runtime kSampleRate): the
   // native SWITCHED context is 48 kHz. Engines capture the rate inside their
   // Init() — the setter MUST run before voice.Init(). (Before T6 this was
@@ -169,7 +172,11 @@ void init_at(uint8_t* base) {
   s->patch.freqlock_param = 0.5f;           // unused while locked_frequency=0
 }
 
-void init() { init_at(g_rack_object_arena); }
+void init() {
+  rack_mem_reset();
+  init_at(static_cast<uint8_t*>(rack_mem_alloc(state_size(), 8)),
+          static_cast<uint8_t*>(rack_mem_alloc(buf_bytes(), 8)));
+}
 
 // T6: chain A-slot init — the SAME factory state as init_at, but at the
 // CHAIN rate context (32 kHz). Decision 3: entering/leaving a chain is a
@@ -178,13 +185,13 @@ void init() { init_at(g_rack_object_arena); }
 // build (the pair table rejects plaits as chain A on window capacity — see
 // main.cpp) but kept wired so the runtime-rate mechanism is exercised
 // end-to-end by the state machine the moment the window grows.
-void init_chain_a(uint8_t* base) {
-  init_at(base);
+void init_chain_a(uint8_t* obj_base, uint8_t* buf_base) {
+  init_at(obj_base, buf_base);
   // Re-Init at the chain rate: the whole Init sequence runs again with the
   // 32 kHz context (BufferAllocator state is rebuilt by voice.Init).
-  memset(g_rack_buffer_arena, 0, 32768);
+  memset(buf_base, 0, buf_bytes());
   stmlib::BufferAllocator allocator(
-      reinterpret_cast<void*>(g_rack_buffer_arena), 32768);
+      reinterpret_cast<void*>(buf_base), buf_bytes());
   plaits::SetSampleRate(32000.0f);
   s->voice.Init(&allocator);
 }

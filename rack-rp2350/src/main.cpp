@@ -269,11 +269,32 @@ volatile uint8_t g_mod_chain_rate_khz = 0;
 // are installed by mod_engine_init() in setup().
 ModEngine g_mod_engine;
 
-// T2 arenas (rack_arena.h): the module state unions. .bss-resident (crt0
-// zeroes them; each Init re-zeroes what it needs). alignas(8) for the
-// placement-new alignment + the plaits BufferAllocator workspace.
-alignas(8) uint8_t g_rack_object_arena[kRackObjectArenaBytes];
-alignas(8) uint8_t g_rack_buffer_arena[kRackBufferArenaBytes];
+// T8 unified module pool (rack_arena.h): ONE 324 KiB .bss union replacing
+// the old OBJECT (132 KiB) + BUFFER (192 KiB) arrays. Sized by the
+// rings+clouds chain as before; the bump allocator makes the capacity
+// elastic per resident set. alignas(8) for placement-new + the plaits
+// BufferAllocator workspace.
+alignas(8) uint8_t g_rack_pool[kRackPoolBytes];
+static size_t g_rack_mem_top = 0;
+
+void rack_mem_reset() { g_rack_mem_top = 0; }
+size_t rack_mem_used() { return g_rack_mem_top; }
+
+void* rack_mem_alloc(size_t bytes, size_t align) {
+  if (align == 0) align = 1;
+  const size_t p = (g_rack_mem_top + (align - 1)) & ~(align - 1);
+  if (p + bytes > kRackPoolBytes) {
+    // A silent nullptr would corrupt the DSP loop; a broken resident-set
+    // size must fail here, loudly (boot/swap console is up in every path).
+    Serial.printf("rack: FATAL: module SRAM pool overflow (%u used + %u needed > %u) - halting\r\n",
+                  (unsigned)g_rack_mem_top, (unsigned)bytes,
+                  (unsigned)kRackPoolBytes);
+    while (true) delay(10);
+  }
+  void* out = g_rack_pool + p;
+  g_rack_mem_top = p + bytes;
+  return out;
+}
 
 // Status LED instance — defined here (status_led.h holds only the class).
 StatusLed statusLed;
@@ -360,26 +381,25 @@ static const uint32_t kChainStallUs = 1400; // ~1.8x the 750 us block period
 static const uint32_t kChainI2sBuffers = 32;
 static const uint32_t kChainI2sWords = 16;
 
-// CHAINED CLOUDS BUFFER SPLIT: the buffer arena is exactly full for the
-// elements/rings pairs (chain A carve 65,536 + clouds 131,072 = 196,608).
-// Chained clouds carves large 87,040 B (85 KiB) + small 44,032 B (43 KiB) = 131,072 B.
-// This supports ALL 4 quality settings safely:
+// CHAINED CLOUDS BUFFER SPLIT: clouds-B always takes 131,072 B
+// (large 87,040 B = 85 KiB + small 44,032 B = 43 KiB), carved from the T8
+// unified pool above A's state+buffers. This supports ALL 4 quality settings
+// safely:
 // - Stereo (quality 0 / 2): sample memory = 44,032 B (0.688 s/ch @ 32 kHz),
 //   workspace = large - small = 43,008 B (diffuser 8KB + reverb 32KB + correlator 1.5KB = 42,520 B; fits with 488 B headroom).
 // - Mono (quality 1 / 3): sample memory = 87,040 B (1.36 s @ 32 kHz),
 //   workspace = small = 44,032 B (fits 42,520 B with 1,512 B headroom).
 static const size_t kChainCloudsLargeBytes = 87040;
 static const size_t kChainCloudsSmallBytes = 44032;
-// Chain A slots carve the buffer arena from offset 0 (all three A adapters
-// hard-carve there, same as single-module mode); clouds-B carves above the
-// A carve. Per-A carve size (elements reverb / rings reverb 64 KB, plaits
-// workspace 32 KB).
+// Per-A buffer demand in the unified pool (elements/rings reverb 64 KB,
+// plaits workspace 32 KB, lira8 32 kHz delay 128,016 B).
 static const size_t kChainABufferBytes[RACK_MODULE_COUNT] = {
     65536, 0, 32768, 65536,
-    // lira8: the int16 delay carve (2 x 32,004 samples = 128,016 B) now follows
-    // the ORIGINAL HARDWARE's 1 s delay cap (~65% of the buffer arena). Still
-    // chain-A rejected: clouds-B needs 87,040 + 44,032 B above A, i.e.
-    // 259,088 B > 192 KiB. Standalone-only module.
+    // lira8: 1 s int16 delay at the 32 kHz chain grid = (32000+4)*2*2 =
+    // 128,016 B. With clouds-B's 131,072 B the pair needs 283,872 B of the
+    // 331,776 B unified pool (47,904 spare). T8: the unified pool is what
+    // makes this pair possible — the old 192 KiB buffer arena rejected it
+    // (259,088 B needed) while 110 KB of the object arena sat idle.
     128016,
 };
 
@@ -750,8 +770,8 @@ static const uint32_t kSwapRampSteps = 4;
 //       on both sides; on mismatch the OLD module's image is restored from
 //       its own LMA and the swap aborts with the old module still live (the
 //       failed copy overwrote the window, so restore-or-die is mandatory).
-//   (c) INIT  — the new module placement-news its state into the OBJECT
-//       arena, carves its buffers from the BUFFER arena (both are unions:
+//   (c) INIT  — the new module placement-news its state and carves its
+//       buffers from the T8 unified pool (a bump allocator reset per swap;
 //       the old module's state is simply abandoned; factory defaults via the
 //       adapter's Init()).
 //   (d) I2S   — end() -> setBitsPerSample/setBuffers/setFrequency (per-module
@@ -912,6 +932,10 @@ static void chain_render_block() {
       rack_modules::mod_plaits::chain_render_a(
           chain_a_out_l, chain_a_out_r, kChainBlockSize);
       break;
+    case RACK_MODULE_LIRA8:
+      rack_modules::mod_lira8::chain_render_a(
+          chain_a_out_l, chain_a_out_r, kChainBlockSize);
+      break;
     default:
       rack_modules::mod_rings::chain_render_a(
           chain_a_out_l, chain_a_out_r, kChainBlockSize);
@@ -1062,30 +1086,46 @@ static void do_chain_engage(uint8_t new_a, uint8_t new_b) {
     }
   }
 
-  // (d) INIT both slots at the chain rate context. Object arena: new_a at
-  // offset 0 (its single-module placement), clouds-B AFTER new_a's state; the
-  // buffer arena: new_a's carve at 0 (the adapters' own), clouds-B above it
-  // with the chained split.
+  // (d) INIT both slots at the chain rate context. ONE pool reset for the
+  // whole resident set; the bump allocator places A's state+buffers, then
+  // clouds-B's state+buffers. lira8's chain-A context is 32 kHz, so its
+  // delay carve is 128,016 B (not the standalone 176,416).
+  rack_mem_reset();
   switch (new_a) {
     case RACK_MODULE_ELEMENTS:
-      rack_modules::mod_elements::init_at(g_rack_object_arena);
+      rack_modules::mod_elements::init_at(
+          static_cast<uint8_t*>(
+              rack_mem_alloc(rack_modules::mod_elements::state_size(), 8)),
+          static_cast<uint8_t*>(
+              rack_mem_alloc(rack_modules::mod_elements::buf_bytes(), 8)));
       break;
     case RACK_MODULE_PLAITS:
-      rack_modules::mod_plaits::init_chain_a(g_rack_object_arena);
+      rack_modules::mod_plaits::init_chain_a(
+          static_cast<uint8_t*>(
+              rack_mem_alloc(rack_modules::mod_plaits::state_size(), 8)),
+          static_cast<uint8_t*>(
+              rack_mem_alloc(rack_modules::mod_plaits::buf_bytes(), 8)));
+      break;
+    case RACK_MODULE_LIRA8:
+      rack_modules::mod_lira8::init_chain_a(
+          static_cast<uint8_t*>(
+              rack_mem_alloc(rack_modules::mod_lira8::state_size(), 8)),
+          static_cast<uint8_t*>(
+              rack_mem_alloc(rack_modules::mod_lira8::chain_buf_bytes(), 8)));
       break;
     default:
-      rack_modules::mod_rings::init_at(g_rack_object_arena);
+      rack_modules::mod_rings::init_at(
+          static_cast<uint8_t*>(
+              rack_mem_alloc(rack_modules::mod_rings::state_size(), 8)),
+          static_cast<uint8_t*>(
+              rack_mem_alloc(rack_modules::mod_rings::buf_bytes(), 8)));
       break;
   }
   {
-    const size_t a_state = (new_a == RACK_MODULE_ELEMENTS)
-        ? rack_modules::mod_elements::state_size()
-        : (new_a == RACK_MODULE_PLAITS)
-            ? rack_modules::mod_plaits::state_size()
-            : rack_modules::mod_rings::state_size();
-    uint8_t* b_obj = g_rack_object_arena + ((a_state + 7u) & ~(size_t)7u);
-    uint8_t* b_buf =
-        g_rack_buffer_arena + kChainABufferBytes[new_a];
+    uint8_t* b_obj = static_cast<uint8_t*>(
+        rack_mem_alloc(rack_modules::mod_clouds::state_size(), 8));
+    uint8_t* b_buf = static_cast<uint8_t*>(
+        rack_mem_alloc(kChainCloudsLargeBytes + kChainCloudsSmallBytes, 8));
     rack_modules::mod_clouds::init_chain_b(
         b_obj, b_buf, kChainCloudsLargeBytes,
         b_buf + kChainCloudsLargeBytes, kChainCloudsSmallBytes);
@@ -1148,17 +1188,11 @@ static void do_chain_disengage() {
   // B slot); re-copy defensively anyway — idempotent, covers any future A
   // whose image spans the B-slot region.
   rack_window_copy(a, nullptr, nullptr);
-  switch (a) {
-    case RACK_MODULE_ELEMENTS:
-      rack_modules::mod_elements::init_at(g_rack_object_arena);
-      break;
-    case RACK_MODULE_PLAITS:
-      rack_modules::mod_plaits::init_at(g_rack_object_arena);  // 48 kHz
-      break;
-    default:
-      rack_modules::mod_rings::init_at(g_rack_object_arena);
-      break;
-  }
+  // Re-Init the A slot fresh at its NATIVE rate context through the registry
+  // (the adapter's init() resets the pool and allocates its state+buffers;
+  // plaits returns to 48 kHz, lira8 to 44.1 kHz). This also abandons
+  // clouds-B's state/buffers — the pool union's contract.
+  kRackModules[a].init();
   preset_replay_module(a);       // T4a: restore observed CC values on A
 
   // (d) CHAIN OFF: the mod engine drops the grid override (g_active_module
@@ -1188,23 +1222,37 @@ static void do_chain_disengage() {
 }
 
 // A-slot fresh re-Init while chained (CC 32 == the A slot's id / decision 5):
-// NO window copy, NO I2S change (elements/clouds/rings are all 32k and the
-// chain grid rate is unchanged even for a plaits A), just factory-fresh
-// state; the routing re-patches automatically (persistent state).
+// NO window copy, NO I2S change (the chain grid rate is unchanged even for a
+// plaits/lira8 A), just factory-fresh A state; the routing re-patches
+// automatically (persistent state). T8: clouds-B must SURVIVE this — the
+// deterministic engage layout (A state @pool+0, A buffer @pool+align8(state),
+// B state, B buffers) lets us re-init A in place without resetting the pool;
+// a rack_mem_reset() here would invalidate B's live state/buffers.
 static void do_chain_a_reinit() {
   const uint8_t a = g_chain.a;
   const uint32_t t0 = time_us_32();
   chain_ramp_down_chain();
-  // Fresh state at the SAME chain rate context (plaits stays 32k chained).
+  const size_t a_state = (a == RACK_MODULE_ELEMENTS)
+      ? rack_modules::mod_elements::state_size()
+      : (a == RACK_MODULE_PLAITS)
+          ? rack_modules::mod_plaits::state_size()
+          : (a == RACK_MODULE_LIRA8)
+              ? rack_modules::mod_lira8::state_size()
+              : rack_modules::mod_rings::state_size();
+  uint8_t* a_obj = g_rack_pool;
+  uint8_t* a_buf = g_rack_pool + ((a_state + 7u) & ~(size_t)7u);
   switch (a) {
     case RACK_MODULE_ELEMENTS:
-      rack_modules::mod_elements::init_at(g_rack_object_arena);
+      rack_modules::mod_elements::init_at(a_obj, a_buf);
       break;
     case RACK_MODULE_PLAITS:
-      rack_modules::mod_plaits::init_chain_a(g_rack_object_arena);
+      rack_modules::mod_plaits::init_chain_a(a_obj, a_buf);
+      break;
+    case RACK_MODULE_LIRA8:
+      rack_modules::mod_lira8::init_chain_a(a_obj, a_buf);
       break;
     default:
-      rack_modules::mod_rings::init_at(g_rack_object_arena);
+      rack_modules::mod_rings::init_at(a_obj, a_buf);
       break;
   }
   proc_us_max = 0;
@@ -1399,19 +1447,20 @@ static void cmd_module(const char* args) {
 // chain — T6 bench console: `chain` (status) / `chain <a> [b]` (validate +
 // queue engage; b defaults to clouds) / `chain off`.
 //
-// PAIR VALIDATION (the 3-pair table, user-amended 2026-11-05 — all X->clouds):
-//   elements->clouds, plaits->clouds, rings->clouds
+// PAIR VALIDATION (the 4-pair table — all X->clouds):
+//   elements->clouds, plaits->clouds, rings->clouds, lira8->clouds
 // Engagement additionally requires the CHAIN RESIDENCY invariants (both
-// slots' hot images must fit the two-slot SRAM window, both states must fit
-// the object arena, both buffer carves must fit the buffer arena) — checked
-// here with the REAL linker-symbol sizes, so a reject line carries the
-// exact numbers. Since T6b (tc_clouds dead-mode demotion 79,744 -> 56,992 B
-// paid for the 0xE400 A slot; the object arena grew to 132 KiB) AND the
-// user-approved plaits chain-tier (09-plaits-chain-tier.patch: tc_plaits
-// 108,732 -> ~14.1 KB, voice path + engine 0 + lut_sine only), ALL THREE
-// pairs pass the residency checks: elements->clouds, rings->clouds,
-// plaits->clouds. The chained-plaits BUDGET (flash engines @ 32 kHz) is a
-// separate gate — see the README bench sheet.
+// slots' hot images must fit the two-slot SRAM window, and both slots' state +
+// buffer demand must fit the ONE unified pool) — checked here with the REAL
+// linker-symbol/module sizes, so a reject line carries the exact numbers.
+// Since T6b (tc_clouds dead-mode demotion 79,744 -> 56,992 B paid for the
+// 0xE400 A slot) AND the user-approved plaits chain-tier
+// (09-plaits-chain-tier.patch: tc_plaits 108,732 -> ~14.1 KB, voice path +
+// engine 0 + lut_sine only), all four pairs pass. T8's unified pool is what
+// admits lira8: its 32 kHz delay (128,016 B) + clouds-B (131,072 B) need
+// 283,872 B of 331,776 — the old split rejected it (259,088 > 196,608 buffer)
+// while 110 KB of the object arena sat idle. The chained-plaits/lira8 BUDGET
+// (32 kHz) is a separate gate — see the README bench sheet.
 static bool chain_parse_module(const char* tok, int8_t* out) {
   if (tok[0] >= '0' && tok[0] <= '9') {
     long v = atol(tok);
@@ -1463,7 +1512,7 @@ static void cmd_chain(const char* args) {
   int8_t a = -1, b = -1;
   if (!chain_parse_module(tok, &a)) {
     Serial.println("rack: chain: unknown module (0 elements / 1 clouds / "
-                   "2 plaits / 3 rings; lira8 not chainable)");
+                   "2 plaits / 3 rings / 4 lira8)");
     return;
   }
   const char* rest = args + strlen(tok);
@@ -1478,18 +1527,12 @@ static void cmd_chain(const char* args) {
   }
   // --- pair table + residency validation (all with real numbers) ---
   if (b != RACK_MODULE_CLOUDS) {
-    Serial.println("rack: chain: B must be clouds (T6 pair table: "
-                   "elements|plaits|rings -> clouds)");
+    Serial.println("rack: chain: B must be clouds (pair table: "
+                   "elements|plaits|rings|lira8 -> clouds)");
     return;
   }
   if (a == RACK_MODULE_CLOUDS) {
     Serial.println("rack: chain: A cannot be clouds (no clouds->clouds pair)");
-    return;
-  }
-  if (a == RACK_MODULE_LIRA8) {
-    Serial.println("rack: chain: lira8 as A rejected — its int16 delay carve "
-                   "(185.6 KB of the 192 KB buffer arena) leaves nothing for "
-                   "a chained clouds-B (standalone-only module for now)");
     return;
   }
   if (g_chain.active) {
@@ -1527,20 +1570,19 @@ static void cmd_chain(const char* args) {
               ? rack_modules::mod_lira8::state_size()
               : rack_modules::mod_rings::state_size();
   const size_t b_state = rack_modules::mod_clouds::state_size();
-  const size_t obj_needed =
-      ((a_state + 7u) & ~(size_t)7u) + b_state;
-  if (obj_needed > kRackObjectArenaBytes) {
-    Serial.printf("rack: chain REJECTED: object arena %u B needed (%s %u + "
-                  "clouds %u) > %u B\r\n",
-                  (unsigned)obj_needed, sa.name, (unsigned)a_state,
-                  (unsigned)b_state, (unsigned)kRackObjectArenaBytes);
-    return;
-  }
-  const size_t buf_needed = kChainABufferBytes[static_cast<uint8_t>(a)] +
-                            kChainCloudsLargeBytes + kChainCloudsSmallBytes;
-  if (buf_needed > kRackBufferArenaBytes) {
-    Serial.printf("rack: chain REJECTED: buffer arena %u B needed > %u B\r\n",
-                  (unsigned)buf_needed, (unsigned)kRackBufferArenaBytes);
+  const size_t a_buf = kChainABufferBytes[static_cast<uint8_t>(a)];
+  const size_t b_buf = kChainCloudsLargeBytes + kChainCloudsSmallBytes;
+  // One pool: allocator order = A state, A buffer, B state, B buffer; each
+  // allocation is 8-aligned, so charge the padding after each state.
+  const size_t pool_needed =
+      ((a_state + 7u) & ~(size_t)7u) + a_buf +
+      ((b_state + 7u) & ~(size_t)7u) + b_buf;
+  if (pool_needed > kRackPoolBytes) {
+    Serial.printf("rack: chain REJECTED: pool %u B needed (%s state %u + "
+                  "buffer %u + clouds state %u + buffers %u) > %u B\r\n",
+                  (unsigned)pool_needed, sa.name, (unsigned)a_state,
+                  (unsigned)a_buf, (unsigned)b_state, (unsigned)b_buf,
+                  (unsigned)kRackPoolBytes);
     return;
   }
   g_pending_chain_a = static_cast<int8_t>(a);
@@ -1548,12 +1590,12 @@ static void cmd_chain(const char* args) {
   g_pending_chain = 1;
   preset_mark_dirty();           // T4a: chain state is persistent
   Serial.printf("rack: chain %s->clouds validated (window %u+%u of %u B, "
-                "objects %u of %u B, buffers %u of %u B) — engaging at the "
-                "next block boundary\r\n",
+                "pool %u of %u B: %s state %u + buf %u, clouds state %u + "
+                "buf %u) — engaging at the next block boundary\r\n",
                 sa.name, (unsigned)a_bytes, (unsigned)b_bytes,
-                (unsigned)window_bytes, (unsigned)obj_needed,
-                (unsigned)kRackObjectArenaBytes, (unsigned)buf_needed,
-                (unsigned)kRackBufferArenaBytes);
+                (unsigned)window_bytes, (unsigned)pool_needed,
+                (unsigned)kRackPoolBytes, sa.name, (unsigned)a_state,
+                (unsigned)a_buf, (unsigned)b_state, (unsigned)b_buf);
 }
 
 // route <source> <dest> — pure alias of `mod <src> dest <dest>`: re-tokenize

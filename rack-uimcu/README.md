@@ -70,7 +70,7 @@ All 3V3 logic, no level shifting.
   MOD-ARP -> SYS (wraps).
 - **Five modules** (SYS selector and the hold+rotate overlay): ELEMENTS,
   CLOUDS, PLAITS, RINGS, **LIRA8**. The SYS selector is ONE pot over 5 slots
-  (module ids 0-4; while chained it selects the 3 chain pairs).
+  (module ids 0-4; while chained it selects the 4 chain pairs E>C/P>C/R>C/L>C).
 - Switch cells are **live** (no soft takeover): FAST (SLOW/FAST), FM source
   (FM/OFF/LFO), delay mode (SELF/TRI/SQR), FM structure (SPLIT/LOOP),
   TOTAL FB / VIBRATO (ON/OFF) — the first movement sends the selection.

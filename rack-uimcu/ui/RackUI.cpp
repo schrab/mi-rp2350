@@ -659,14 +659,14 @@ namespace CTAG {
                 return potVal;
             }
             if (page == 8) {
-                // SYS: 0 MODULE (dual-purpose: 5 module slots / 3 chain-pair
+                // SYS: 0 MODULE (dual-purpose: 5 module slots / 4 chain-pair
                 // slots while engaged), 5 CHAIN ON (0..1), 6 BPM (20..300),
                 // 7 CLKSRC (0..1), 8 PRESET (0..15), 9 BLE (0..1),
                 // 10 BLE MOD (0..1), 14 TELEM D (0..1), 15 TELEM F (0..1)
                 if (slot == 0) {
                     const bool chained =
                         s_cur.tail_valid && s_cur.chain != 0;
-                    const int n = chained ? 3 : kModuleCount;
+                    const int n = chained ? 4 : kModuleCount;
                     int v = ((int)potVal * n) / 128;
                     if (v >= n) v = n - 1;
                     barVal = v;
@@ -734,8 +734,9 @@ namespace CTAG {
                                     Display::kTeal);
                 x += Display::StringWidth(buf, Display::FONT_VALUE) + 6;
                 // chain state: off / pair index.
-                const char *pairs[4] = { "OFF", "E>C", "P>C", "R>C" };
-                snprintf(buf, sizeof(buf), "CHN %s", pairs[s_cur.chain & 3]);
+                const char *pairs[5] = { "OFF", "E>C", "P>C", "R>C", "L>C" };
+                snprintf(buf, sizeof(buf), "CHN %s",
+                         pairs[(s_cur.chain <= 4) ? s_cur.chain : 0]);
                 Display::DrawString(x, 1, buf, Display::FONT_VALUE,
                                     s_cur.chain ? Display::kYellow
                                                 : Display::kWhite);
@@ -849,7 +850,7 @@ namespace CTAG {
                         "8/1", "4/1", "2/1", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/4T", "1/8T", "16T", "32T"
                     };
                     static const char *const kEnvModeNames[2] = { "GATE", "RTRG" };
-                    static const char *const kChainPairNames[3] = { "E>C", "P>C", "R>C" };
+                    static const char *const kChainPairNames[4] = { "E>C", "P>C", "R>C", "L>C" };
 
                     if (PageIsModule(s_page) || s_page == 9) {
                         const uint8_t modForPage = (s_page == 9) ? 1 : ModuleClamp(s_cur.module);
@@ -1091,7 +1092,7 @@ namespace CTAG {
                             const bool chained =
                                 s_cur.tail_valid && s_cur.chain != 0;
                             pName = chained
-                                ? ((dispVal >= 0 && dispVal <= 2)
+                                ? ((dispVal >= 0 && dispVal <= 3)
                                        ? kChainPairNames[dispVal] : "---")
                                 : ((dispVal >= 0 && dispVal <= 4)
                                        ? kModNames[ModuleClamp(dispVal)] : "---");
@@ -1224,7 +1225,7 @@ namespace CTAG {
         }
 
         // ===================== page / gesture actions =====================
-        static const uint8_t kPairA[4] = { 0, 0, 2, 3 };  // 1=elem 2=plaits 3=rings
+        static const uint8_t kPairA[5] = { 0, 0, 2, 3, 4 };  // 1=elem 2=plaits 3=rings 4=lira8
         static constexpr uint8_t kChainB = 1;             // clouds in all pairs
 
         void RackUI::GetPotBucketBounds(uint8_t pot, const PotTarget &t,
@@ -1270,9 +1271,9 @@ namespace CTAG {
                 else if (algo == 4 && p_idx == 2) n = 4;
             } else if (s_page == 8) {
                 if (pot == 0) {
-                    // ONE selector: 5 slots (modules) when no chain, 3
+                    // ONE selector: 5 slots (modules) when no chain, 4
                     // slots (chain pairs) while engaged.
-                    n = (s_cur.tail_valid && s_cur.chain != 0) ? 3 : 5;
+                    n = (s_cur.tail_valid && s_cur.chain != 0) ? 4 : 5;
                 }
                 else if (pot == 8) n = 16;    // PRESET slot (0..15)
                 else if (pot == 9 || pot == 10) n = 2; // BLE ON (0/1), BLE MODE (PER/CEN)
@@ -1459,7 +1460,7 @@ namespace CTAG {
                             // ONE selector pot (dual-purpose, the value text
                             // shows which): not chained = module select over
                             // 5 slots (ELEMENTS/CLOUDS/PLAITS/RINGS/LIRA8);
-                            // engaged = chain-pair select over 3 slots
+                            // engaged = chain-pair select over 4 slots
                             // (E>C/P>C/R>C) — switching re-engages with the
                             // new pair (off->on, same as the ring action).
                             const bool chained =
@@ -1480,8 +1481,8 @@ namespace CTAG {
                                 }
                             } else {
                                 uint8_t wantPair = (uint8_t)(
-                                    1 + ((uint16_t)potVal * 3) / 128);
-                                if (wantPair > 3) wantPair = 3;
+                                    1 + ((uint16_t)potVal * 4) / 128);
+                                if (wantPair > 4) wantPair = 4;
                                 RackLink::TelemLocalCellWrite(pot, potVal);
                                 if (s_lastWireSent[pot] != wantPair) {
                                     s_lastWireSent[pot] = wantPair;
@@ -1497,10 +1498,10 @@ namespace CTAG {
                             if (s_lastWireSent[pot] != wantOn) {
                                 s_lastWireSent[pot] = wantOn;
                                 // Pair from the MODULE pot's cached value
-                                // (3 slots while engaged).
+                                // (4 slots while engaged).
                                 uint8_t pair = (uint8_t)(
-                                    1 + ((uint16_t)s_cur.cell[0].value * 3) / 128);
-                                if (pair > 3) pair = 3;
+                                    1 + ((uint16_t)s_cur.cell[0].value * 4) / 128);
+                                if (pair > 4) pair = 4;
                                 RackLink::SendChainRoute(
                                     kPairA[pair], kChainB, wantOn);
                                 s_pendingRefreshUs =

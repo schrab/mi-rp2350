@@ -105,11 +105,15 @@ static State* s = nullptr;   // placement-new'd by init(); arena offset 0
 // clouds-B state live at once). init() stays the single-module path
 // (placement at arena offset 0, exactly as before T6).
 static size_t state_size() { return sizeof(State); }
+// Buffer demand: uint16_t reverb[32768] = 64 KB (FxEngine::Init zero-fills
+// the FULL declared template size, so 64 KiB — not the ~43 KiB the Dattorro
+// lines actually span — is the correct allocation).
+static constexpr size_t buf_bytes() { return 65536; }
 
-void init_at(uint8_t* base) {
-  s = new (base) State();
-  // Buffer carve: uint16_t reverb[32768] = 64 KB from the buffer arena.
-  uint16_t* reverb_buffer = reinterpret_cast<uint16_t*>(g_rack_buffer_arena);
+void init_at(uint8_t* obj_base, uint8_t* buf_base) {
+  s = new (obj_base) State();
+  // Buffer carve: uint16_t reverb[32768] = 64 KB from the caller's region.
+  uint16_t* reverb_buffer = reinterpret_cast<uint16_t*>(buf_base);
   memset(reverb_buffer, 0, 32768 * sizeof(uint16_t));
   memset(s->blow_in, 0, sizeof(s->blow_in));
   memset(s->strike_in, 0, sizeof(s->strike_in));
@@ -151,7 +155,11 @@ void init_at(uint8_t* base) {
   p->space = 0.0f;                    // reverb set to 0
 }
 
-void init() { init_at(g_rack_object_arena); }
+void init() {
+  rack_mem_reset();
+  init_at(static_cast<uint8_t*>(rack_mem_alloc(state_size(), 8)),
+          static_cast<uint8_t*>(rack_mem_alloc(buf_bytes(), 8)));
+}
 
 // T6 chain A-slot render: exactly n samples (n <= 24, the chain grid) into
 // caller buffers, NO I2S write, NO proc_us_max update (the chain loop times

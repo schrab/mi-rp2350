@@ -7,8 +7,8 @@
 // pending-slot discipline, the full CC map and the max-since-report meters.
 //
 // T2: compiles in EVERY rack env (state is arena-placed, see rack_arena.h);
-// the two sample-memory regions carve from the BUFFER arena (128 KiB large
-// + 64 KiB small = the arena's full 192 KiB).
+// the two sample-memory regions carve from the T8 unified SRAM pool (128 KiB
+// large + 64 KiB small = the full standalone partition).
 #pragma once
 
 // Module-library includes UNCONDITIONAL (see module_elements.h): all four
@@ -102,8 +102,8 @@ static State* s = nullptr;   // placement-new'd by init(); arena offset 0
 
 // Buffer carve offsets (the arenas are unions — only the ACTIVE module's
 // carve is live; see rack_arena.h).
-static const size_t kLargeBufferBytes = 131072;   // 32768 uint32
-static const size_t kSmallBufferBytes = 65536;    // 16384 uint32
+static constexpr size_t kLargeBufferBytes = 131072;   // uint32_t[32768]
+static constexpr size_t kSmallBufferBytes = 65536;    // uint32_t[16384]
 
 static inline float ExciterSample(float note_hz) {
   const float level = s->shared_exciter_level;
@@ -138,16 +138,20 @@ static inline float ExciterSample(float note_hz) {
 
 // T6 chain hooks (see module_elements.h + main.cpp): state_size()/init_at()
 // are the single-module path (unchanged placement/split); init_chain_b()
-// places the B-slot State AFTER the chain A state in the object arena and
-// carves the CHAINED buffer split from the caller's buffer-arena region.
+// places the B-slot State in the caller's pool region and carves the CHAINED
+// buffer split from the caller's large/small regions.
 static size_t state_size() { return sizeof(State); }
+// Buffer demand: large + small = the full standalone 192 KiB partition.
+static constexpr size_t buf_bytes() {
+  return kLargeBufferBytes + kSmallBufferBytes;
+}
 
-void init_at(uint8_t* base) {
-  s = new (base) State();
+void init_at(uint8_t* obj_base, uint8_t* buf_base) {
+  s = new (obj_base) State();
   // Buffer carve (rack_arena.h map): large @0, small @131072.
-  uint32_t* large_buffer = reinterpret_cast<uint32_t*>(g_rack_buffer_arena);
+  uint32_t* large_buffer = reinterpret_cast<uint32_t*>(buf_base);
   uint32_t* small_buffer =
-      reinterpret_cast<uint32_t*>(g_rack_buffer_arena + kLargeBufferBytes);
+      reinterpret_cast<uint32_t*>(buf_base + kLargeBufferBytes);
   memset(large_buffer, 0, kLargeBufferBytes);
   memset(small_buffer, 0, kSmallBufferBytes);
   s->chain_b = false;
@@ -184,11 +188,15 @@ void init_at(uint8_t* base) {
   s->processor.Prepare();
 }
 
-void init() { init_at(g_rack_object_arena); }
+void init() {
+  rack_mem_reset();
+  init_at(static_cast<uint8_t*>(rack_mem_alloc(state_size(), 8)),
+          static_cast<uint8_t*>(rack_mem_alloc(buf_bytes(), 8)));
+}
 
-// T6: chain B-slot init. The State goes AFTER the chain A state in the
-// OBJECT arena (offset chosen by the caller); the buffers carve from the
-// CALLER's region of the BUFFER arena (above the chain A carve).
+// T6: chain B-slot init. The caller allocates the State and BOTH buffer
+// regions from the T8 unified pool (rack_arena.h; engage order = A state,
+// A buffer, B state, B buffers) and passes them here.
 //
 // CHAINED SPLIT: caller passes
 //   large = 87,040 B (85 KiB)

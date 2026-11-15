@@ -24,7 +24,7 @@ class ModDelay {
  public:
   // cap_ms = storage cap (1.0 s on RP2350 = the original hardware's max;
   //          5.944 s on ESP32/PSRAM).
-  // mem = EXTERNAL storage (the rack buffer arena / PSRAM on ESP32) —
+  // mem = EXTERNAL storage (the rack SRAM pool / PSRAM on ESP32) —
   // nsamps_+4 int16 samples, caller-owned, zeroed by the caller. No heap.
   ModDelay(float sr, float cap_ms, int block, int16_t* mem)
       : sr_(sr),

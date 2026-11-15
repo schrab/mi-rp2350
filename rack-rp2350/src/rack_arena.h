@@ -1,47 +1,53 @@
-// Rack RP2350 — module state arenas (T2).
+// Rack RP2350 — module memory pool (T2 arenas -> T8 unified pool).
 //
-// The four module adapters no longer hold file-scope state objects: each
-// adapter placement-news ONE state struct into the OBJECT arena at Init time
-// and carves its DSP buffers from the BUFFER arena. The arenas are UNIONS —
-// only the ACTIVE module's carve-out is live; each adapter's offsets are its
-// own and all start at 0 (the previous module's state is abandoned, factory
-// defaults are re-Inited on every swap; no destructors exist anywhere in the
-// four ports' DSP state).
+// HISTORY: until T8 this was TWO arrays, the OBJECT arena (132 KiB, sized by
+// the rings+clouds chain states) and the BUFFER arena (192 KiB, sized by the
+// elements/rings->clouds chain buffers). Both are unions (only the ACTIVE
+// resident set's state is live), but they were sized by DIFFERENT worst
+// cases — so a single module could be short in one pool while the other sat
+// idle. The lira8->clouds chain is the textbook case: object 24,780 of
+// 135,168 used (110 KB idle) while the buffer needed 259,088 of 196,608
+// (62,480 short).
 //
-// Sizing (measured from the T1 rack ELFs, sizeof via nm):
-//   OBJECT arena 132 KiB (T6b, was 128) — largest chain = rings + clouds
-//   (RingsState 126,212 B + CloudsState 8,692 B = 134,908 B; rings Part is
-//   123,352 B + StringSynthPart 2,004 B + block buffers ~0.3 KB); elements
-//   Part is 113,488 B; plaits Voice 21,748 B; clouds processor 8,104 B.
-//   BUFFER arena 192 KiB — clouds large(128 KiB) + small(64 KiB) fill it
-//   exactly; elements/rings reverb 64 KiB; plaits workspace 32 KiB.
+// T8: the two arrays were already physically adjacent in .bss, so they are
+// ONE pool now, served by a deterministic bump allocator:
 //
-// Carve map (offset 0 in each arena unless noted):
-//   elements: object = ElementsState (Part + PerformanceState + scratch)
-//             buffer = uint16_t reverb[32768]              65,536 B
-//   clouds:   object = CloudsState (GranularProcessor + frames)
-//             buffer = large_buffer[32768] uint32          131,072 B
-//                    + small_buffer[16384] uint32 @131072   65,536 B
-//   plaits:   object = PlaitsState (Voice + Patch/Modulations + frames)
-//             buffer = workspace[8192] uint32              32,768 B
-//   rings:    object = RingsState (Part + StringSynthPart + buffers)
-//             buffer = uint16_t reverb[32768]              65,536 B
+//   rack_mem_reset();                                  // once per resident set
+//   uint8_t* obj = rack_mem_alloc(M::state_size(), 8);
+//   uint8_t* buf = rack_mem_alloc(M::buf_bytes(), 8);
+//   M::init_at(obj, buf);
+//
+// A chain places A then B from the SAME reset (see do_chain_engage). No
+// free(), no fragmentation, no heap involvement; every transition re-inits
+// both slots anyway (factory defaults), so nothing survives that would need
+// preserving. The pool is .bss (crt0-zeroed; the adapters still memset the
+// regions they own).
+//
+// Sizing is UNCHANGED (132 + 192 KiB = 331,776 B): today's worst chain
+// (rings+clouds: 134,908 state + 196,608 buffers = 331,516) still fits with
+// the same 260 B slack. Single-module demand is now elastic:
+//   lira8 standalone      16,088 state + 176,416 delay          = 192,504
+//   lira8->clouds chain   16,088 + 128,016 (32 kHz delay)
+//                       +  8,692 + 131,072 (clouds chained)     = 283,872
+//                         -> 47,904 B spare (was REJECTED by the split)
+//
+// ALLOCATION LAW: reset() runs exactly ONCE before the resident set's
+// allocations (boot init, live swap, chain engage/disengage) — never per
+// adapter, or a chain's B allocations would wipe A. alloc() returns 8-aligned
+// memory (Part/Voice states and the plaits BufferAllocator workspace need 8)
+// and HALTS loudly on overflow: a silent nullptr would surface as a crash in
+// the DSP loop instead of a diagnosable boot/swap failure.
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
 
-// alignas(8): stmlib::BufferAllocator::Allocate<T> does not adjust alignment
-// (the plaits workspace requirement) and Part's float members want 4+.
-//
-// T6b: the OBJECT arena grew 128 -> 132 KiB for the rings->clouds chain:
-// sizeof(RingsState) 126,212 + sizeof(CloudsState) 8,692 = 134,908 B needed
-// (align8(rings) + clouds), over the old 131,072 B arena. The buffer arena
-// stays exactly full for every chain (196,608 B); the 4 KiB comes out of the
-// heap (measured 37,216 -> 33,120 B, >= the 30 KiB gate).
-static constexpr size_t kRackObjectArenaBytes = 132 * 1024;
-static constexpr size_t kRackBufferArenaBytes = 192 * 1024;
+static constexpr size_t kRackPoolBytes = 132 * 1024 + 192 * 1024;  // 331,776
 
 // DEFINED in main.cpp (single TU: main.cpp includes this header before the
-// adapters, then defines the arrays).
-extern uint8_t g_rack_object_arena[kRackObjectArenaBytes];
-extern uint8_t g_rack_buffer_arena[kRackBufferArenaBytes];
+// adapters, then defines the array + allocator).
+extern uint8_t g_rack_pool[kRackPoolBytes];
+
+void rack_mem_reset();
+void* rack_mem_alloc(size_t bytes, size_t align = 8);
+size_t rack_mem_used();     // bytes handed out since the last reset
+static constexpr size_t rack_mem_total() { return kRackPoolBytes; }

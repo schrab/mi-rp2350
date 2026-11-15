@@ -141,11 +141,13 @@ ctag-tbd portability proof). Fidelity is gated against headless-Pd renders
 dry path matches within ±0.2 dB in every band; the fully-wet delay is
 documented as ~10 dB brighter at 12.5–16 kHz than Pd (open item).
 
-- **Module id 4**, boot env `rack-lira8`. **44.1 kHz** (user call 2026-11-15;
-  the Pd abstraction's rlpf constants are 44.1k-authored). **Standalone
-  only** — the int16 delay carve (176,416 B = 2 × 44,004 samples, the
-  ORIGINAL HARDWARE's 1 s maximum) leaves far too little of the buffer arena
-  for a chained clouds-B (176,416 + 87,040 + 44,032 ≫ 192 KiB).
+- **Module id 4**, boot env `rack-lira8`. **44.1 kHz standalone** (user call
+  2026-11-15; the Pd abstraction's rlpf constants are 44.1k-authored) and
+  **32 kHz as a chain A** (the chain grid; the engine derives every filter/
+  phasor constant from its construction rate). The int16 delay is 1 s in
+  both contexts: 176,416 B standalone (2 × 44,004 samples), 128,016 B
+  chained (2 × 32,004) — the smaller chain carve is what fits alongside
+  clouds-B in the unified SRAM pool.
 - **Engine**: Pd-style 64-sample internal blocks, rendered in bursts of one
   block per 4 host calls. Device cost at 44.1 kHz: ~812–823 µs per 64-block
   (56% of the 1.451 ms period), i2s stalls 0; the 2.9 ms I2S bank covers the
@@ -164,10 +166,12 @@ documented as ~10 dB brighter at 12.5–16 kHz than Pd (open item).
   - **CC map** (`module` prints it): 1–8 tune, 9–12 fast, 13–16 sharp, 17–20
     mod, 21–24 FM source (0 audio / 1 off / 2 LFO), 25–26 pitch, 27–28 hold,
     29 FM structure, 30 total-fb, 31 vibrato, 36 drive, 37 dst-mix, 38 vol,
-    39 LFO freq A, 41 LFO freq B, 42 and/or, 43 link, 44–45 time 1/2, 46
-    feedback, 47 delay mix, 48–49 delay mod 1/2, **51 delay mode
+    39 LFO freq A, **80 LFO freq B, 81 and/or, 82 link, 83–84 time 1/2, 85
+    feedback, 86 delay mix, 87–88 delay mod 1/2**, **51 delay mode
     (0 SELF / 1 LFO-tri / 2 LFO-sqr)**, 52 LFO waveform (direct override),
-    53 quantize (ON/OFF cell at P3 pot 14).
+    53 quantize (ON/OFF cell at P3 pot 14). T8 moved the delay section
+    41–49 → 80–88 so the clouds-B alias bank (40–50) cannot steal it while
+    lira8 is chain A.
   - Delay storage is int16 with a **soft-knee limiter** at the ±2 headroom
     (linear to ±1.5): at maximum FEEDBACK the self-oscillating loop saturates
     instead of hard-clipping.
@@ -181,8 +185,11 @@ documented as ~10 dB brighter at 12.5–16 kHz than Pd (open item).
     row2: FM STRUCT, AND/OR, LINK, QUANTIZE (+2 spares).
   - Switch cells are **live** (no soft takeover): SLOW/FAST, FM/OFF/LFO,
     SELF/TRI/SQR, SPLIT/LOOP, ON/OFF.
-- Chain: lira8 is rejected as chain A (buffer arena) and is not a chain B
-  (clouds only).
+- Chain: lira8 is **chain A pair 4** (`chain lira8` / C3 SYS pair selector
+  `L>C`): lira8 at the 32 kHz grid → clouds (granular/looping + reverb).
+  Pool demand 283,872 B of 331,776; window demand 71,672 B of 118,784.
+  Standalone lira8 with an added reverb would also fit the pool (16,088 +
+  176,416 + 65,536 = 258,040 B), but clouds-B is the intended effect stage.
 
 ## SRAM architecture (T2 + T6/T6b two-slot window)
 
@@ -197,27 +204,29 @@ documented as ~10 dB brighter at 12.5–16 kHz than Pd (open item).
   79,744), plaits **14,132 B** (T6b chain-tier, was 108,732), rings 58,084 B
   — the window is 0x1D000 (118,784 B; unchanged since T6). The A slot is
   0xE400 = 58,368 B (fits rings with 284 B spare and plaits' chain-tier
-  image with 44 KB spare — all three A members are chain-A-capable); A + B
+  image with 44 KB spare — all four A members are chain-A-capable); A + B
   = 115,360 B → window slack 3,424 B.
   `rack_window_copy(module_id)` copies ANY member into the window (boot or
   swap); in single-module mode the copied image is the only live one, in
   chain mode A + clouds-B are live together (see Chain mode v2).
-- **Arenas** (`src/rack_arena.h`): object arena **132 KiB** (T6b, was 128 —
-  the rings+clouds chain states need 134,908 B: RingsState 126,212 +
-  CloudsState 8,692) + buffer arena 192 KiB, both `alignas(8)`, .bss-
-  resident, used as UNIONS — the active module's placement/carve is the live
-  one: elements Part 113,488 B + 64 KiB reverb; clouds processor 8,104 B +
-  128 KiB large + 64 KiB small (fills the buffer arena exactly); plaits
-  Voice 21,748 B + 32 KiB allocator workspace; rings Part 123,352 B +
-  StringSynthPart 2,004 B (the object arena's sizing module) + 64 KiB
-  reverb. Swaps re-place + re-Init factory defaults; no destructors exist in
-  the five modules' DSP state.
+- **Pool** (`src/rack_arena.h`, T8): ONE unified **331,776 B** .bss pool
+  (was object 132 KiB + buffer 192 KiB as two separately-sized unions),
+  `alignas(8)`, served by a deterministic bump allocator that is reset once
+  per resident set (boot/swap/chain engage/off). Every adapter declares
+  `state_size()` + `buf_bytes()` and takes `(obj, buf)`; a chain places
+  A state+buffers then B state+buffers from the same reset. The module's
+  placement/carve is the live one (UNION discipline; swaps re-place +
+  re-Init factory defaults, no destructors in the five DSP states).
+  Demands: elements Part 113,488 B + 64 KiB reverb; clouds processor
+  8,104 B + 128 KiB large + 64 KiB small; plaits Voice 21,748 B + 32 KiB
+  allocator workspace; rings Part 123,352 B + StringSynthPart 2,004 B +
+  64 KiB reverb; lira8 engine 16,072 B + 176,416 B delay (44.1 kHz) /
+  128,016 B (32 kHz chain). Worst chain (rings+clouds) 331,516 B — the
+  same 260 B slack as before the merge; lira8+clouds 283,872 B.
 - **RAM per env** (identical map in all five): static .data + .bss (of which
-  arenas 332 KB → non-arena static ≈ 35 KB) → heap **33,120 B** below the
-  window (T6: 37,640; T6b paid the object-arena bump's 4 KiB from the heap —
-  the window itself did not grow); boot heap consumers: core-1 separate
-  stack 8 KB, I2S DMA bank 2-3 KB, USB device+host buffers → ≥ ~16 KB
-  headroom maintained.
+  pool 324 KB → non-pool static ≈ 35 KB) → heap **33,744 B** below the
+  window; boot heap consumers: core-1 separate stack 8 KB, I2S DMA bank
+  2-3 KB, USB device+host buffers → ≥ ~16 KB headroom maintained.
 - **Plaits re-tier** (T2 prerequisite; patches `05/06/07`) **+ T6b chain-tier**
   (user-approved; patch `09-plaits-chain-tier.patch`): tc_plaits
   272,564 → 108,732 → **14,132 B** in the rack. KEPT in the window: the
@@ -306,18 +315,21 @@ the window origin = the A slot; clouds' own section at origin+0xE400 = the
 B slot). Engagement is validated at the console against the REAL
 linker-symbol sizes:
 
-| Pair | A hot (B) | B hot | Window need (B offset + B) | Object arena | Verdict in this build |
+| Pair | A hot (B) | B hot | Window need (B offset + B) | Pool need (A state+buf + B state+buf) | Verdict in this build |
 |---|---|---|---|---|---|
-| elements→clouds | 36,752 B | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 113,920+8,692 ≤ 135,168 | **ENGAGEABLE** (benched T6: 373-401 µs) |
-| rings→clouds | 58,084 B | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 126,216+8,692 = 134,908 ≤ 135,168 | **ENGAGEABLE** (T6b; budget clamp below) |
-| plaits→clouds | 14,132 B (chain-tier) | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 21,840+8,692 = 30,532 ≤ 135,168 | **ENGAGEABLE** (T6b chain-tier, user-approved; flash-engine budget = bench gate) |
+| elements→clouds | 36,752 B | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 113,920+65,536+8,696+131,072 = 319,224 ≤ 331,776 | **ENGAGEABLE** (benched T6: 373-401 µs) |
+| rings→clouds | 58,084 B | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 126,216+65,536+8,696+131,072 = 331,520 ≤ 331,776 | **ENGAGEABLE** (T6b; budget clamp below) |
+| plaits→clouds | 14,132 B (chain-tier) | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 21,840+32,768+8,696+131,072 = 194,376 | **ENGAGEABLE** (T6b chain-tier; flash-engine budget = bench gate) |
+| lira8→clouds | 14,680 B | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 16,088+128,016+8,696+131,072 = 283,872 ≤ 331,776 | **ENGAGEABLE** (T8; 32k chain context, 47,904 B pool spare) |
 
 The T6b geometry (clouds dead-mode demotion 79,744 → 56,992 B + 0xE400 A
-slot + 132 KiB object arena) made rings→clouds resident; the user-approved
-plaits chain-tier (09-plaits-chain-tier.patch: tc_plaits 108,732 → 14,132 B
-— the rack's window image keeps ONLY the voice path + engine 0 + lut_sine)
-made plaits→clouds resident. The benches must still measure the engages
-(budgets below).
+slot) made rings→clouds resident; the user-approved plaits chain-tier
+(09-plaits-chain-tier.patch: tc_plaits 108,732 → 14,132 B — the rack's
+window image keeps ONLY the voice path + engine 0 + lut_sine) made
+plaits→clouds resident; T8's unified 331,776 B pool made lira8→clouds
+resident (283,872 B needed — the old split rejected it at 259,088 B of
+buffer while 110 KB of the object arena sat idle). The benches must still
+measure the engages (budgets below).
 
 **Per-pair budget math (standalone numbers, sustained):**
 elements 101-207 µs @16-sample blocks (≈150-310 @24) + clouds granular
@@ -338,11 +350,12 @@ decides, and any offender gets a one-line token promotion (window slack
 
 - **CC routing while chained**: CC 23/24/65/66 AND the clouds grain alias
   bank **CC 40-48 → the B slot** (clouds mode clamp / quality / freeze /
-  trig / grain params — 65/66 are unused by every chain-A map, 40-48 is
-  unused by every map); every other CC → the A slot. CC 23 is dual-mapped in
-  every module's map (elements geometry / plaits engine / rings chord), so
-  while chained it MEANS clouds mode and the A slot loses CC 23/24 (the mod
-  engine can still drive A — destinations bind to A).
+  trig / grain params — 65/66 are unused by every chain-A map, 40-50 is
+  unused by every map after the T8 lira8 remap); every other CC → the A
+  slot. CC 23 is dual-mapped in every module's map (elements geometry /
+  plaits engine / rings chord), so while chained it MEANS clouds mode and
+  the A slot loses CC 23/24 (the mod engine can still drive A —
+  destinations bind to A).
 - **Clouds grain alias bank (v2)**: CC 40-48 always addresses clouds' grain
   parameters 14-22 (position..reverb) whenever clouds is the TARGET —
   single-module clouds via the registry dispatch, the B slot while chained
@@ -350,8 +363,9 @@ decides, and any offender gets a one-line token promotion (window slack
   band is always on, so a controller sends 40-48 in both modes with no
   chain-state knowledge; native 14-22 keep their existing meaning everywhere
   (A's panel params while chained — the collision that makes the alias
-  necessary). Free-band check: 36-63 is unused by all five maps + the rack
-  system CCs (32 bank, 33-35 mod mux).
+  necessary). Free-band check: 40-50 is unused by all five maps + the rack
+  system CCs (32 bank, 33-35 mod mux) — lira8's delay section moved to
+  80-88 in T8 specifically to keep this true.
 - **Clouds-B mode clamp**: chain mode is granular/looping ONLY. CC 23 = 0
   (granular) / 2 (looping) accepted; **1 (stretch) and 3 (spectral)
   REJECTED** with a console line, no crash (belt-and-braces: the adapter's
@@ -383,12 +397,13 @@ decides, and any offender gets a one-line token promotion (window slack
 - **Exciter bypass**: while chained, clouds' test exciter is bypassed
   entirely — the routed frames ARE the exciter input (`parameters.gate`
   stays false; its only consumer is the excluded spectral path).
-- **Chained clouds buffer split** (documented deviation): the buffer arena
-  is exactly full for the elements/rings pairs, so chained clouds runs
-  large 98,304 B (32,768 B sample memory ch0 + 65,536 B FX workspace — the
-  FX depth is IDENTICAL to standalone) + small 32,768 B (ch1) =
-  **0.512 s/channel sample memory vs 1.024 s standalone**. Grain parameters
-  are unaffected; maximum loop length halves.
+- **Chained clouds buffer split** (documented deviation): chained clouds
+  runs large 87,040 B (85 KiB: 44,032 B sample memory in stereo + 43,008 B
+  FX workspace) + small 44,032 B (43 KiB: 87,040 B sample memory in mono /
+  44,032 B workspace) = 131,072 B. Both splits carry ≥488 B workspace
+  headroom over the 42,520 B diffuser+reverb+correlator need. Stereo
+  0.688 s/channel, mono 1.36 s (vs 1.024 s / 2.048 s standalone). Grain
+  parameters are unaffected.
 - **Mod engine in chain mode**: destinations bind to the A slot (the sound
   source; `g_active_module` IS A while chained, and the engine's per-block
   pass runs the chain grid via the additive `g_mod_chain_*` overrides).

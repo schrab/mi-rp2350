@@ -167,8 +167,8 @@ Payload (v2, stage 2-6):
     **0 = external MIDI clock** (the clocksrc byte disambiguates).
   - `clocksrc`: bit0 = 0 internal / 1 MIDI; bit7 (`0x80`) = BPM >= 256 flag
     (unwraps 256..300 BPM cleanly without ambiguity against low 20..44 BPM).
-  - `chain`: 0 off / 1-3 = engaged pair index (1 elements->clouds,
-    2 plaits->clouds, 3 rings->clouds).
+  - `chain`: 0 off / 1-4 = engaged pair index (1 elements->clouds,
+    2 plaits->clouds, 3 rings->clouds, 4 lira8->clouds).
   - `link`: bit0 = the RP2350's DIN parser has seen bytes since boot,
     bit1 = the RP2350 verified a frame on THIS UART link within the last
     3 s. The C3 status strip renders DIN/UART health from this byte.

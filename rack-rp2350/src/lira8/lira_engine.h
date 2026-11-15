@@ -52,7 +52,7 @@ class Lira8Engine {
   // cap_ms: delay storage cap (1000 ms = the ORIGINAL HARDWARE's maximum;
   //         5944 ms on ESP32/PSRAM).
   // delay_mem: EXTERNAL int16 storage for both delay lines, carved from the
-  // rack buffer arena by the adapter (2 x (nsamps+4) samples, contiguous) —
+  // rack SRAM pool by the adapter (2 x (nsamps+4) samples, contiguous) —
   // NO heap anywhere (the rack discipline). Value members throughout.
   explicit Lira8Engine(float sr = 32000.0f, float cap_ms = 1000.0f,
                        int16_t* delay_mem = nullptr)

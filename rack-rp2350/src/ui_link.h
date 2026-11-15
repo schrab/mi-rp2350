@@ -293,8 +293,8 @@ static const UiPageCell kUiPageLira8P1[16] = {
     // (MOD 1 = pot 3, TIME 1 = pot 4 — user)
     {9,  "FAST 12",    kUiColorWhite}, // p1
     {21, "FM SRC 12",  kUiColorWhite}, // p2
-    {48, "MOD 1",      kUiColorWhite}, // p3 (delay line 1)
-    {44, "TIME 1",     kUiColorWhite}, // p4 (delay line 1)
+    {87, "MOD 1",      kUiColorWhite}, // p3 (delay line 1)
+    {83, "TIME 1",     kUiColorWhite}, // p4 (delay line 1)
     {10, "FAST 34",    kUiColorWhite}, // p5
     {22, "FM SRC 34",  kUiColorWhite}, // p6
     // Row 1 (pots 7..10): the four voice tunings
@@ -316,8 +316,8 @@ static const UiPageCell kUiPageLira8P2[16] = {
     // (MOD 2 = pot 3, TIME 2 = pot 4 — user)
     {11, "FAST 56",    kUiColorWhite}, // p1
     {23, "FM SRC 56",  kUiColorWhite}, // p2
-    {49, "MOD 2",      kUiColorWhite}, // p3 (delay line 2)
-    {45, "TIME 2",     kUiColorWhite}, // p4 (delay line 2)
+    {88, "MOD 2",      kUiColorWhite}, // p3 (delay line 2)
+    {84, "TIME 2",     kUiColorWhite}, // p4 (delay line 2)
     {12, "FAST 78",    kUiColorWhite}, // p5
     {24, "FM SRC 78",  kUiColorWhite}, // p6
     // Row 1 (pots 7..10): the four voice tunings
@@ -339,20 +339,20 @@ static const UiPageCell kUiPageLira8P2[16] = {
 static const UiPageCell kUiPageLira8P3[16] = {
     // Row 0 (pots 1..6): MOD DELAY + DISTORTION
     {51, "DEL MODE",   kUiColorWhite}, // p1 (self / lfo-tri / lfo-sqr)
-    {46, "FB",         kUiColorWhite}, // p2
-    {47, "MIX",        kUiColorWhite}, // p3
+    {85, "FB",         kUiColorWhite}, // p2
+    {86, "MIX",        kUiColorWhite}, // p3
     {36, "DRIVE",      kUiColorWhite}, // p4
     {37, "DIST MIX",   kUiColorWhite}, // p5
     {38, "VOL",        kUiColorWhite}, // p6
     // Row 1 (pots 7..10): HYPER LFO + the global voice switches
     {39, "FREQ A",     kUiColorWhite}, // p7
-    {41, "FREQ B",     kUiColorWhite}, // p8
+    {80, "FREQ B",     kUiColorWhite}, // p8
     {30, "TOTAL FB",   kUiColorWhite}, // p9
     {31, "VIBRATO",    kUiColorWhite}, // p10
     // Row 2 (pots 11..16): the remaining switches (+ the patch-only QUANTIZE)
     {29, "FM STRUCT",  kUiColorWhite}, // p11
-    {42, "AND/OR",     kUiColorWhite}, // p12
-    {43, "LINK",       kUiColorWhite}, // p13
+    {81, "AND/OR",     kUiColorWhite}, // p12
+    {82, "LINK",       kUiColorWhite}, // p13
     {53, "QUANTIZE",   kUiColorWhite}, // p14 (Pd-patch extra, OFF/ON)
     {0,  "",           kUiColorWhite}, // p15 (spare)
     {0,  "",           kUiColorWhite}, // p16 (spare)
@@ -955,23 +955,25 @@ static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
       // in its own pot-space bucket (5 modules: 0/31/63/95/127). The old
       // `* 32` spacing wrapped module 4 to 0 in a uint8_t and put rings in
       // the plaits bucket — the C3 selector showed no LIRA8 and jumped.
-      // chained = the engaged PAIR over 3 slots (0/64/127 — the C3 renders
-      // E>C / P>C / R>C from the chain tail and picks the pair with the
-      // same pot).
+      // chained = the engaged PAIR over 4 slots (0/42/85/127 — the C3
+      // renders E>C / P>C / R>C / L>C from the chain tail and picks the
+      // pair with the same pot).
       if (g_chain.active) {
-        if (g_chain.a == RACK_MODULE_PLAITS) return 64;
-        if (g_chain.a == RACK_MODULE_RINGS) return 127;
-        return 0;
+        if (g_chain.a == RACK_MODULE_PLAITS) return 42;
+        if (g_chain.a == RACK_MODULE_RINGS) return 85;
+        if (g_chain.a == RACK_MODULE_LIRA8) return 127;
+        return 0;   // elements->clouds
       }
       return (uint8_t)((uint16_t)g_active_module * 127 /
                        (RACK_MODULE_COUNT - 1));
     case kUiAuxSelChainPair:
       // Configured pair index (1 elements->clouds / 2 plaits->clouds /
-      // 3 rings->clouds) — shown even while disengaged so the C3 knows what
-      // the next engage will do.
+      // 3 rings->clouds / 4 lira8->clouds) — shown even while disengaged so
+      // the C3 knows what the next engage will do.
       if (g_chain.a == RACK_MODULE_ELEMENTS) return 1;
       if (g_chain.a == RACK_MODULE_PLAITS) return 2;
       if (g_chain.a == RACK_MODULE_RINGS) return 3;
+      if (g_chain.a == RACK_MODULE_LIRA8) return 4;
       return 0;
     case kUiAuxSelChainOn: return g_chain.active ? 127 : 0;
     case kUiAuxSelTelemD: return g_ui_telem_deltas_en ? 127 : 0;
@@ -1002,7 +1004,8 @@ static void ui_link_status_tail(uint8_t* out) {
     out[0] = (uint8_t)(b_int & 0xFF);
     out[1] = (b_int >= 256) ? 0x80 : 0x00;
   }
-  // chain: 0 off / 1-3 engaged pair index (elements/plaits/rings -> clouds).
+  // chain: 0 off / 1-4 engaged pair index (elements/plaits/rings/lira8 ->
+  // clouds).
   if (!g_chain.active) {
     out[2] = 0;
   } else if (g_chain.a == RACK_MODULE_ELEMENTS) {
@@ -1011,6 +1014,8 @@ static void ui_link_status_tail(uint8_t* out) {
     out[2] = 2;
   } else if (g_chain.a == RACK_MODULE_RINGS) {
     out[2] = 3;
+  } else if (g_chain.a == RACK_MODULE_LIRA8) {
+    out[2] = 4;
   } else {
     out[2] = 0;                      // not a table pair (cannot happen)
   }

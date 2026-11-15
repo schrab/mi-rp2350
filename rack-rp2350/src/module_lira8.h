@@ -9,15 +9,18 @@
 //
 // Follows the established adapter shape (module_elements.h / module_plaits.h):
 // arena-placed State (engine by value + the delay buffers carved from the
-// BUFFER arena — 2 x 32,004 int16 = 128,016 B of the 192 KiB arena, the
-// ORIGINAL HARDWARE's 1 s delay cap), pending
-// slots for CCs/sensors, the mod-engine hooks, the T1 button twin.
+// T8 unified SRAM pool), pending slots for CCs/sensors, the mod-engine hooks,
+// the T1 button twin. TWO rate contexts: standalone 44.1 kHz (176,416 B
+// delay carve), chain A 32 kHz (128,016 B) — the chain carve is what lets
+// lira8->clouds share the pool with clouds' 128 KiB chained buffers.
 //
-// AUDIO CONTRACT: the engine renders pd-style 64-sample blocks internally;
-// the rack grid is 16 samples — Process() accumulates 4 host blocks per
-// internal block, so every 4th call bursts (up to ~4x its share of the
-// block budget). The I2S DMA bank (8 x 16 frames = 4 ms) absorbs the burst
-// (PORTING-HIGHLIGHTS §5 rule: bank > spike, average < budget).
+// AUDIO CONTRACT: the engine renders pd-style 64-sample blocks internally.
+// Standalone the rack grid is 16 samples — Process() accumulates 4 host
+// blocks per internal block, so every 4th call bursts (up to ~4x its share of
+// the block budget). Chain A calls Process(24) on the 32 kHz grid (bursts
+// every ~2.67 blocks). The I2S DMA bank (8 x 16 frames = 2.9 ms standalone;
+// 32 x 16 chain) absorbs the burst (PORTING-HIGHLIGHTS §5 rule: bank >
+// spike, average < budget).
 //
 // SENSOR SEMANTICS (the Lyra-8's 8 touch pads): MIDI notes 36-43 (C2-G2)
 // gate sensors 1-8 (note-on = press, note-off = release); mod triggers
@@ -43,7 +46,11 @@ namespace rack_modules {
 namespace mod_lira8 {
 
 static const char* const kName = "lira8";
+// Two rate contexts (plaits precedent: 48k switched / 32k chained):
+// standalone runs at 44.1 kHz (the Pd abstraction's rlpf constants are
+// 44.1k-authored); a chain A slot renders at the 32 kHz chain grid.
 static const uint32_t kSampleRate = 44100;
+static constexpr uint32_t kChainSampleRate = 32000;
 static const size_t kBlockSize = 16;     // host grid; the engine bursts 64
 // Report budget = the INTERNAL 64-sample block (1.451 ms at 44.1 kHz), NOT
 // the 16-sample host grid: Process() renders a whole internal block on one
@@ -58,23 +65,33 @@ static const uint32_t kI2sWords = 16;
 static const uint32_t kStallUs = 900;    // >2x the 363 us write period
 
 // Delay storage: the ORIGINAL HARDWARE's delay tops out at 1 SECOND (user,
-// 2026-11-15) — the Pd patch's 5.944 s range is a patch-ism. int16, 2 lines:
-// (44100+4) * 2 * 2 = 176,416 B of the 192 KiB buffer arena. The pd TIME law
-// is kept (2^(12k/127)*1.45125 ms), so the top ~22% of the TIME knob
-// saturates at the cap, like a pot hitting its stop.
+// 2026-11-15) — the Pd patch's 5.944 s range is a patch-ism. int16, 2 lines.
+// Standalone 44.1 kHz: (44100+4) * 2 * 2 = 176,416 B. Chain A runs at the
+// 32 kHz chain grid: (32000+4) * 2 * 2 = 128,016 B — that smaller carve is
+// what lets lira8->clouds fit the pool. The pd TIME law is kept
+// (2^(12k/127)*1.45125 ms at 44.1k; the port derives it from sr), so the top
+// ~22% of the TIME knob saturates at the cap, like a pot hitting its stop.
 static constexpr float kCapMs = 1000.0f;
-static constexpr size_t kDelayBytes = l8pd::Lira8Engine::delay_bytes_for(kCapMs, kSampleRate);
-static_assert(kDelayBytes <= kRackBufferArenaBytes,
-              "lira8 delay carve exceeds the rack buffer arena");
+static constexpr size_t kDelayBytes =
+    l8pd::Lira8Engine::delay_bytes_for(kCapMs, kSampleRate);       // 176,416
+static constexpr size_t kChainDelayBytes =
+    l8pd::Lira8Engine::delay_bytes_for(kCapMs, kChainSampleRate);  // 128,016
+static_assert(kDelayBytes <= kRackPoolBytes,
+              "lira8 delay carve exceeds the rack SRAM pool");
+static_assert(kChainDelayBytes <= kRackPoolBytes,
+              "lira8 chain delay carve exceeds the rack SRAM pool");
 
 // CC map (the spec §12 order, remapped OFF the rack-reserved CCs:
-// 32 = module switch, 33/34/35 = mod mux, 40-50 = clouds alias bank,
-// 64/65/66 = pseudo-CCs). Sensors also speak MIDI notes 36-43.
+// 32 = module switch, 33/34/35 = mod mux, 40-50 + 65/66 = the clouds B-slot
+// intercept while chained, 64 = PLAY pseudo-CC). The delay-line section
+// lives at 80-88 (not 41-49): the clouds-B alias bank owns 40-50 while
+// chained, and lira8->clouds would otherwise lose its delay controls.
+// Sensors also speak MIDI notes 36-43.
 static const char* const kCcMap =
     "1-8 tune, 9-12 fast, 13-16 sharp, 17-20 mod, 21-24 source, "
     "25-26 pitch, 27-28 hold, 29 switch, 30 total-fb, 31 vibrato, "
-    "36 drv, 37 dst-mix, 38 vol, 39 f-a, 41 f-b, 42 andor, 43 link, "
-    "44 time-1, 45 time-2, 46 feedback, 47 del-mix, 48-49 mod-1/2, "
+    "36 drv, 37 dst-mix, 38 vol, 39 f-a, 80 f-b, 81 andor, 82 link, "
+    "83 time-1, 84 time-2, 85 feedback, 86 del-mix, 87-88 mod-1/2, "
     "51 delay-mode (0 self / 1 lfo-tri / 2 lfo-sqr), 52 lfo-wave direct, "
     "53 quantize, 55-62 sensors 1-8 (latch)";
 
@@ -88,8 +105,8 @@ static const uint8_t kModContinuousCcs[] = {
     25, 26,                                 // pitch
     27, 28,                                 // hold
     36, 37, 38,                             // drv, dst-mix, vol
-    39, 41,                                 // f-a, f-b
-    44, 45, 46, 47, 48, 49,                 // time-1/2, feedback, del-mix, mod-1/2
+    39, 80,                                 // f-a, f-b
+    83, 84, 85, 86, 87, 88,                 // time-1/2, feedback, del-mix, mod-1/2
 };
 static const uint8_t kModTriggerCcs[] = {55, 56, 57, 58, 59, 60, 61, 62};
 static const uint8_t kModTriggerKinds[] = {
@@ -98,14 +115,14 @@ static const uint8_t kModTriggerKinds[] = {
 };
 static const RackModDestinations kModDestinations = {
     "lira8: continuous tune 1-8, sharp 13-16, mod 17-20, pitch 25-26, "
-    "hold 27-28, drv/vol 36/38, times 44-45, fb 46 | triggers: 55-62 "
+    "hold 27-28, drv/vol 36/38, times 83-84, fb 85 | triggers: 55-62 "
     "sensors 1-8 (latch); notes 36-43 = sensors (the patch's notemap)",
     sizeof(kModContinuousCcs), kModContinuousCcs,
     8, kModTriggerCcs, kModTriggerKinds,
 };
 
 // --- engine state: arena-placed (the engine BY VALUE; the delay buffers
-// carve from the BUFFER arena at init — 128,016 B of 192 KiB) ---
+// carve from the caller's pool region at init) ---
 struct State {
   l8pd::Lira8Engine eng;
 
@@ -118,8 +135,8 @@ struct State {
   volatile float    out_rms_report;
   volatile uint8_t  sensor_mask;   // bit N = sensor N+1 requested ON
 
-  explicit State(int16_t* delay_mem)
-      : eng(static_cast<float>(kSampleRate), kCapMs, delay_mem),
+  explicit State(int16_t* delay_mem, float sr)
+      : eng(sr, kCapMs, delay_mem),
         pluck_active(false),
         pluck_until_ms(0),
         out_rms_report(0.0f),
@@ -129,15 +146,34 @@ struct State {
 static State* s = nullptr;   // placement-new'd by init(); arena offset 0
 
 static size_t state_size() { return sizeof(State); }
+// Buffer demand: the int16 delay carve at the module's CURRENT rate context.
+static constexpr size_t buf_bytes() { return kDelayBytes; }
+static constexpr size_t chain_buf_bytes() { return kChainDelayBytes; }
 
-void init_at(uint8_t* base) {
-  // Delay carve from the BUFFER arena offset 0 (the union discipline: the
-  // active module owns the arena; a swap re-carves for the next module).
-  memset(g_rack_buffer_arena, 0, kDelayBytes);
-  s = new (base) State(reinterpret_cast<int16_t*>(g_rack_buffer_arena));
+void init_at(uint8_t* obj_base, uint8_t* buf_base) {
+  // Delay carve from the caller's pool region (44.1 kHz standalone context);
+  // the pool union discipline means only the active resident set is live.
+  memset(buf_base, 0, kDelayBytes);
+  s = new (obj_base) State(reinterpret_cast<int16_t*>(buf_base),
+                           static_cast<float>(kSampleRate));
 }
 
-void init() { init_at(g_rack_object_arena); }
+void init() {
+  rack_mem_reset();
+  init_at(static_cast<uint8_t*>(rack_mem_alloc(state_size(), 8)),
+          static_cast<uint8_t*>(rack_mem_alloc(buf_bytes(), 8)));
+}
+
+// T6: chain A-slot init at the 32 kHz chain grid (see module_plaits's
+// init_chain_a — same rate-context contract). The engine captures sr at
+// construction (all rlpf/phasor/line~ constants derive from it), and the
+// smaller 1 s delay carve (128,016 B) is what makes lira8->clouds fit the
+// unified pool alongside clouds' 128 KiB chained buffers.
+void init_chain_a(uint8_t* obj_base, uint8_t* buf_base) {
+  memset(buf_base, 0, kChainDelayBytes);
+  s = new (obj_base) State(reinterpret_cast<int16_t*>(buf_base),
+                           static_cast<float>(kChainSampleRate));
+}
 
 // Every sensor write goes through here so the report mask stays honest.
 static void set_sensor(int8_t idx, bool on) {
@@ -170,10 +206,16 @@ void pluck_poll() {
   }
 }
 
-// T6 chain A-slot render — NOT provided: lira8's delay carve takes ~65% of
-// the BUFFER arena, and a chained clouds-B needs another 131 KiB above it
-// (259,088 B > 192 KiB). The chain pair table in main.cpp must not offer
-// lira8 as chain A (v1: rack-lira8 boots standalone).
+// T6 chain A-slot render — exactly n samples (n <= 24 = the chain grid) into
+// caller buffers, NO I2S write, NO proc_us_max update (the chain loop times
+// A + route + B together; clouds-B also owns the pair meters). The engine's
+// Process() accepts 1..64 and buffers its internal 64-sample block, so the
+// 24-sample grid call pattern just works (a burst lands when the internal
+// block completes).
+void chain_render_a(float* out_l, float* out_r, size_t n) {
+  pluck_poll();
+  l8pd::process_block_o3(s->eng, out_l, out_r, static_cast<int>(n));
+}
 
 void render() {
   pluck_poll();
@@ -217,11 +259,12 @@ void note_off(uint8_t note) {
 }
 
 // CC -> engine param index (the spec §12 order; the CC numbers avoid the
-// rack-reserved ranges). Returns -1 for CCs that are not params.
+// rack-reserved ranges and the clouds-B alias band 40-50). Returns -1 for
+// CCs that are not params.
 static int8_t cc_to_param(uint8_t cc) {
   if (cc >= 1 && cc <= 31) return static_cast<int8_t>(cc - 1);       // 0-30
   if (cc >= 36 && cc <= 39) return static_cast<int8_t>(cc - 5);      // 31-34
-  if (cc >= 41 && cc <= 49) return static_cast<int8_t>(cc - 6);      // 35-43
+  if (cc >= 80 && cc <= 88) return static_cast<int8_t>(cc - 45);     // 35-43
   if (cc >= 51 && cc <= 53) return static_cast<int8_t>(cc - 7);      // 44-46
   return -1;
 }

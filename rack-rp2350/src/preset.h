@@ -57,12 +57,12 @@ static void cmd_chain(const char* args);
 
 // ---- format ----
 static const uint8_t kPresetMagic[4] = {'R', 'K', 'P', 'R'};
-static const uint8_t kPresetVersion = 3;   // rack-lira8: cc arrays grew 4 -> 5 modules (old C3 presets invalidate cleanly)
+static const uint8_t kPresetVersion = 4;   // v4: lira8 delay CCs moved to 80-88 + lira8->clouds is pair 4 (old blobs invalidate cleanly)
 //  [0..3]   magic "RKPR"
 //  [4]      version
 //  [5]      active module id
 //  [6]      chain active (0/1)
-//  [7]      chain pair index (1 elements->clouds / 2 plaits / 3 rings)
+//  [7]      chain pair index (1 elements->clouds / 2 plaits / 3 rings / 4 lira8)
 //  [8..348] mod-engine record (341 B: global_clock + bpm f32 + 12x28)
 //  [349..428] cc_seen[5][16] (80 B)  — v3: 5 modules (rack-lira8)
 //  [429..1068] cc_cache[5][128] (640 B)
@@ -102,7 +102,7 @@ static uint16_t preset_crc16(const uint8_t* d, uint16_t n) {
 }
 
 // Chain pair index <-> A-slot module id (b is clouds in every pair).
-static const uint8_t kPresetPairA[4] = {0, 0, 2, 3};  // [1]=elements [2]=plaits [3]=rings
+static const uint8_t kPresetPairA[5] = {0, 0, 2, 3, 4};  // [1]=elements [2]=plaits [3]=rings [4]=lira8
 
 // ===================== serialize =====================
 static uint16_t preset_serialize(uint8_t* buf) {
@@ -113,7 +113,7 @@ static uint16_t preset_serialize(uint8_t* buf) {
   w[6] = g_chain.active ? 1 : 0;
   uint8_t pair = 0;
   if (g_chain.active) {
-    for (uint8_t p = 1; p <= 3; ++p)
+    for (uint8_t p = 1; p <= 4; ++p)
       if (kPresetPairA[p] == g_chain.a) pair = p;
   }
   w[7] = pair;
@@ -166,7 +166,7 @@ static void preset_apply_blob(const uint8_t* buf) {
   const uint8_t mod = buf[5] < RACK_MODULE_COUNT ? buf[5] : 0;
   const bool chain_active = buf[6] != 0;
   uint8_t pair = buf[7];
-  if (pair < 1 || pair > 3) pair = 1;
+  if (pair < 1 || pair > 4) pair = 1;
 
   // (1) CC cache + seen + mod engine / clock bus.
   memcpy(g_ui_cc_seen, buf + kPresetOffSeen, RACK_MODULE_COUNT * 16);
@@ -366,7 +366,7 @@ static void preset_cmd(const char* args) {
   if (*args == '\0' || strcasecmp(args, "status") == 0) {
     uint8_t pair = 0;
     if (g_chain.active)
-      for (uint8_t p = 1; p <= 3; ++p)
+      for (uint8_t p = 1; p <= 4; ++p)
         if (kPresetPairA[p] == g_chain.a) pair = p;
     Serial.printf("preset: v%u, %u B, module=%s chain=%s pair=%u "
                   "bpm=%lu.%lu clk=%s dirty=%u seen=",

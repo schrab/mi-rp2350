@@ -11,9 +11,9 @@
 // statics; none needed here).
 //
 // T2: compiles in EVERY rack env (state is arena-placed, see rack_arena.h);
-// rings is the OBJECT arena's sizing module (Part 123,352 B +
-// StringSynthPart 2,004 B) and carves its 64 KiB reverb buffer from the
-// BUFFER arena.
+// rings is the pool's state-sizing module (Part 123,352 B +
+// StringSynthPart 2,004 B) and carves its 64 KiB reverb buffer from the T8
+// unified SRAM pool.
 #pragma once
 
 // Module-library includes UNCONDITIONAL (see module_elements.h): all four
@@ -131,11 +131,14 @@ static inline int32_t NumChordsFor(int32_t table, int32_t mode, int32_t polyphon
 // single-module path. Rings is 32k-native — no rate-context hook needed
 // (unlike plaits, whose init_chain_a re-captures the runtime rate).
 static size_t state_size() { return sizeof(State); }
+// Buffer demand: uint16_t reverb[32768] = 64 KB (FxEngine::Init zero-fills
+// the full declared template size, not just the delay-line footprint).
+static constexpr size_t buf_bytes() { return 65536; }
 
-void init_at(uint8_t* base) {
-  s = new (base) State();
-  // Buffer carve: uint16_t reverb[32768] = 64 KB from the buffer arena.
-  uint16_t* reverb_buffer = reinterpret_cast<uint16_t*>(g_rack_buffer_arena);
+void init_at(uint8_t* obj_base, uint8_t* buf_base) {
+  s = new (obj_base) State();
+  // Buffer carve: uint16_t reverb[32768] = 64 KB from the caller's region.
+  uint16_t* reverb_buffer = reinterpret_cast<uint16_t*>(buf_base);
   memset(reverb_buffer, 0, 32768 * sizeof(uint16_t));
 
   s->shared_pitch = 0.0f;
@@ -171,7 +174,11 @@ void init_at(uint8_t* base) {
   s->applied_chord = 0;                              // raw, clamped at fill
 }
 
-void init() { init_at(g_rack_object_arena); }
+void init() {
+  rack_mem_reset();
+  init_at(static_cast<uint8_t*>(rack_mem_alloc(state_size(), 8)),
+          static_cast<uint8_t*>(rack_mem_alloc(buf_bytes(), 8)));
+}
 
 // T6: chain A-slot render — exactly n samples (n <= 24 = kMaxBlockSize) into
 // caller buffers (out/aux = the ODD/EVEN stereo convention), NO I2S write,

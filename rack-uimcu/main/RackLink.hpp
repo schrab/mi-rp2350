@@ -59,7 +59,7 @@ namespace CTAG {
             bool tail_valid;
             uint16_t bpm;      // internal BPM 20-300, 0 = external MIDI clock
             uint8_t clocksrc;  // 0 internal / 1 midi
-            uint8_t chain;     // 0 off / 1-3 engaged pair index
+            uint8_t chain;     // 0 off / 1-4 engaged pair index
             uint8_t link;      // bit0 DIN saw bytes, bit1 UART link fresh
         };
 

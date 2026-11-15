@@ -94,11 +94,11 @@
    is a separate gate (see the README bench sheet).
    The window KEEPS its T6 size 0x1D000: the demotions bought the wider A
    slot without growing the window. The ASSERTs below enforce both slot
-   invariants at link time. Heap accounting: the OBJECT arena grew
-   128 -> 132 KiB (rack_arena.h) for the rings+clouds chain states
-   (126,216 + 8,692 = 134,908 B needed; was over the 128 KiB arena), so the
-   heap pays 4 KiB: measured 37,216 -> 33,120 B (>= the 30 KiB gate with the
-   ~2 KiB I2S DMA bank allocation included in practice). */
+   invariants at link time. Heap accounting: T8 merged the old OBJECT
+   (132 KiB) + BUFFER (192 KiB) arenas into ONE 331,776 B pool
+   (rack_arena.h) — same total, so the heap is unchanged (measured
+   ~33.7 KB, >= the 30 KiB gate with the ~2 KiB I2S DMA bank allocation
+   included in practice). */
 
 MEMORY
 {
@@ -451,20 +451,23 @@ SECTIONS
     ASSERT(SIZEOF(tc_lira8) <= LENGTH(RACK_WINDOW),
         "ERROR: lira8 hot section exceeds the rack SRAM window")
 
-    /* T6 chain-residency invariants (B slot must not reach the A slot, and
+    /* T6/T8 chain-residency invariants (B slot must not reach the A slot, and
        both slots must fit the window). The asserts pin the chain A set to
        modules whose hot image fits below the B slot — today tc_elements
-       36,752, tc_rings 58,084 and tc_plaits ~14.1 KB (chain-tier) are all
-       <= 0xE400. */
+       36,752, tc_rings 58,084, tc_plaits ~14.1 KB (chain-tier) and tc_lira8
+       14,680 are all <= 0xE400. */
     ASSERT(SIZEOF(tc_elements) <= RACK_CLOUDS_B_OFFSET,
         "ERROR: elements hot section overlaps the chain B slot (raise RACK_CLOUDS_B_OFFSET)")
     ASSERT(SIZEOF(tc_rings) <= RACK_CLOUDS_B_OFFSET,
         "ERROR: rings hot section overlaps the chain B slot (raise RACK_CLOUDS_B_OFFSET)")
     ASSERT(SIZEOF(tc_plaits) <= RACK_CLOUDS_B_OFFSET,
         "ERROR: plaits hot section overlaps the chain B slot (raise RACK_CLOUDS_B_OFFSET)")
-    /* lira8's hot CODE fits the A slot, but its BUFFER-arena delay carve
-       (185.6 KB of the 192 KB arena) leaves nothing for a chained clouds-B —
-       the chain pair table in main.cpp must not offer lira8 as chain A. */
+    ASSERT(SIZEOF(tc_lira8) <= RACK_CLOUDS_B_OFFSET,
+        "ERROR: lira8 hot section overlaps the chain B slot (raise RACK_CLOUDS_B_OFFSET)")
+    /* T8: lira8 IS chain-A-capable (lira8->clouds): its hot code fits the A
+       slot and its 32 kHz chain delay (128,016 B) + clouds' 131,072 B fit
+       the unified 331,776 B pool (283,872 needed). The memory gate lives in
+       cmd_chain's pool validation, not here. */
     ASSERT(RACK_CLOUDS_B_OFFSET + SIZEOF(tc_clouds) <= LENGTH(RACK_WINDOW),
         "ERROR: chain B slot (clouds) exceeds the rack SRAM window")
     /* The window must end exactly where the core's scratch banks begin —
