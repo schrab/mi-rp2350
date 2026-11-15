@@ -3422,6 +3422,15 @@ the fix and costs no new DSP in lira8.
   flashed. Lesson: every module-id guard on the UI-link path needs the same
   0..RACK_MODULE_COUNT-1 range — pair selectors are not the only place ids
   travel.
+- **Status LED off the audio-critical path (2026-11-15)**: `showColor` used
+  `delay(1)` after every WS2812 frame — 1 ms of core-0 task time every 20 ms
+  (5%) even when the LED was dark/idle. T8 removes the wait (the 20 ms poll
+  and boot/blink delays already exceed the >50 us reset gap), skips unchanged
+  colors, and adds `led on|off` (default on; off = one black frame then
+  `Poll` no-ops). Measured with `led off`: full-wet lira8->clouds chain, note
+  held, 12 s -> **i2s stalls 0 (+0)**, max 946-984 us. If the long-session
+  bitcrush survives this, the next step is the dual-core chain pipeline
+  (A+B currently sequential on core 1).
 - **UI-link TX ring (2026-11-15, T8 grit ROOT CAUSE + FIX)**: the chain
   "grit at high dry/wet" was NOT clouds' DSP or clipping. `preset_autosave_poll`
   pushes a **1,071 B PART burst 3 s after ANY CC/pot change** (the user turning

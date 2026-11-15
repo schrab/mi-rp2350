@@ -1340,6 +1340,7 @@ static void cmd_status(const char* args);
 static void cmd_din(const char* args);
 static void cmd_dintest(const char* args);
 static void cmd_telemetry(const char* args);
+static void cmd_led(const char* args);
 static void cmd_panic(const char* args);
 static void cmd_ui(const char* args);
 static void cmd_uitest(const char* args);
@@ -1381,6 +1382,7 @@ static const ConsoleCommand kConsoleCommands[] = {
     {"din",       cmd_din},
     {"dintest",   cmd_dintest},
     {"telemetry", cmd_telemetry},
+    {"led",       cmd_led},
     {"ui",        cmd_ui},
     {"uitest",    cmd_uitest},
     {"uisend",    cmd_uisend},
@@ -1635,6 +1637,21 @@ static void cmd_telemetry(const char* args) {
                    "use 'status' for a one-liner)");
   } else {
     Serial.println("usage: telemetry on|off (default on)");
+  }
+}
+
+// led on|off — the WS2812 is a status nicety, not an audio dependency.
+// Off stops all showColor work on core 0 (T8 audio-first option).
+static void cmd_led(const char* args) {
+  while (*args == ' ') ++args;
+  if (!strcasecmp(args, "on")) {
+    statusLed.SetEnabled(true);
+    Serial.println("led: on");
+  } else if (!strcasecmp(args, "off")) {
+    statusLed.SetEnabled(false);
+    Serial.println("led: off (no core-0 LED work)");
+  } else {
+    Serial.println("usage: led on|off");
   }
 }
 

@@ -103,6 +103,7 @@ class StatusLed {
   // original per-sample meters, so the LED inherits their ~31 ms / ~62 ms
   // release tails.
   void Poll(bool gate, float exciter_level, float resonator_level) {
+    if (!enabled_) return;
     const uint32_t now = millis();
     if (now - last_poll_ms_ < status_led::kPollIntervalMs) return;
     last_poll_ms_ = now;
@@ -170,9 +171,12 @@ class StatusLed {
     return value > 255 ? 255 : static_cast<uint8_t>(value);
   }
 
-  // Sends one 24-bit GRB frame, then waits for the WS2812 reset gap
-  // (>50us line-low so the color latches). 1ms is massive overkill but
-  // guaranteed.
+  // Sends one 24-bit GRB frame. NON-BLOCKING (T8): no 1 ms reset wait — the
+// Poll interval (20 ms) and the boot/blink delays already leave the line low
+// far longer than the >50 us WS2812 reset gap. Identical colors are skipped
+// too, so a dark idle LED costs nothing. (The old delay(1) burned 1 ms of
+// core-0 task time every 20 ms; during a 32 kHz chain that is real DMA-IRQ
+// service time.)
   void showColor(uint8_t r, uint8_t g, uint8_t b) {
     // The PIO program is configured with sm_config_set_out_shift(&c, false,
     // true, 24): shift LEFT, autopull at 24 bits. It therefore transmits the
@@ -181,8 +185,9 @@ class StatusLed {
     // [0x00, g, r] instead of [g, r, b] — e.g. white becomes violet and
     // blue-only frames become black.
     const uint32_t grb = ((uint32_t(g) << 16) | (uint32_t(r) << 8) | b) << 8;
+    if (grb == last_grb_) return;
+    last_grb_ = grb;
     pio_sm_put(status_led::kPio, status_led::kSm, grb);
-    delay(1);
   }
 
   uint offset_ = 0;
@@ -190,4 +195,17 @@ class StatusLed {
   bool controller_blink_active_ = false;
   uint32_t controller_blink_start_ms_ = 0;
   uint32_t last_poll_ms_ = 0;
+  uint32_t last_grb_ = 0xFFFFFFFF;
+
+ public:
+  // Audio-first escape hatch (`led off` console command): the LED is a status
+  // nicety, not an audio dependency. Off = one black frame, then Poll no-ops.
+  void SetEnabled(bool on) {
+    enabled_ = on;
+    if (!on) showColor(0, 0, 0);
+  }
+  bool Enabled() const { return enabled_; }
+
+ private:
+  bool enabled_ = true;
 };

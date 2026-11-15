@@ -78,6 +78,7 @@ panel reconnect (T4a presets will restore parameter sets after a swap).
 | `din [clear]` | DIN MIDI counters + last message (+ `clear` resets them) |
 | `dintest` | inject a canned MIDI stream into the DIN parser → funnel (see below) |
 | `telemetry on\|off` | mute/unmute the 2 s report for quiet benching (default on) |
+| `led on\|off` | enable/disable the WS2812 status LED (default on; off removes all core-0 LED work) |
 | `panic` | all notes off: releases held notes on the active module, clears the note stack, forces the gate off |
 | `help` | list commands |
 
