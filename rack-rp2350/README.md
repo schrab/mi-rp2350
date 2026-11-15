@@ -323,10 +323,10 @@ linker-symbol sizes:
 
 | Pair | A hot (B) | B hot | Window need (B offset + B) | Pool need (A state+buf + B state+buf) | Verdict in this build |
 |---|---|---|---|---|---|
-| elements→clouds | 36,752 B | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 113,920+65,536+8,696+131,072 = 319,224 ≤ 331,776 | **ENGAGEABLE** (benched T6: 373-401 µs) |
-| rings→clouds | 58,084 B | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 126,216+65,536+8,696+131,072 = 331,520 ≤ 331,776 | **ENGAGEABLE** (T6b; budget clamp below) |
-| plaits→clouds | 14,132 B (chain-tier) | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 21,840+32,768+8,696+131,072 = 194,376 | **ENGAGEABLE** (T6b chain-tier; flash-engine budget = bench gate) |
-| lira8→clouds | 14,680 B | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 16,088+128,016+8,696+131,072 = 283,872 ≤ 331,776 | **ENGAGEABLE** (T8; 32k chain context, 47,904 B pool spare) |
+| elements→clouds | 36,752 B | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 113,784+65,536+8,692+131,712 = 319,724 ≤ 331,776 | **ENGAGEABLE** (benched T6: 373-401 µs) |
+| rings→clouds | 58,084 B | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 125,708+65,536+8,692+131,712 = 331,648 ≤ 331,776 (128 B spare) | **ENGAGEABLE** (T6b; budget clamp below) |
+| plaits→clouds | 14,132 B (chain-tier) | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 21,856+32,768+8,692+131,712 = 195,028 | **ENGAGEABLE** (T6b chain-tier; flash-engine budget = bench gate) |
+| lira8→clouds | 14,680 B | 56,992 B | 58,368+56,992 = 115,360 ≤ 118,784 | 15,920+128,016+8,692+131,712 = 284,340 ≤ 331,776 | **ENGAGEABLE** (T8; 32k chain context) |
 
 The T6b geometry (clouds dead-mode demotion 79,744 → 56,992 B + 0xE400 A
 slot) made rings→clouds resident; the user-approved plaits chain-tier
@@ -436,12 +436,16 @@ decides, and any offender gets a one-line token promotion (window slack
   entirely — the routed frames ARE the exciter input (`parameters.gate`
   stays false; its only consumer is the excluded spectral path).
 - **Chained clouds buffer split** (documented deviation): chained clouds
-  runs large 87,040 B (85 KiB: 44,032 B sample memory in stereo + 43,008 B
-  FX workspace) + small 44,032 B (43 KiB: 87,040 B sample memory in mono /
-  44,032 B workspace) = 131,072 B. Both splits carry ≥488 B workspace
-  headroom over the 42,520 B diffuser+reverb+correlator need. Stereo
-  0.688 s/channel, mono 1.36 s (vs 1.024 s / 2.048 s standalone). Grain
-  parameters are unaffected.
+  runs large 90,496 B (stereo: 41,216 B sample memory/channel + 49,280 B
+  FX workspace) + small 41,216 B = 131,712 B. The FX workspace must be
+  **≥ 49,152 B** (8,192 diffuser + 32,768 reverb + 8,192 correlator/pitch
+  shifter — the lib patch `clouds-z-pitchshifter-workspace.patch` makes
+  that region cover the pitch shifter's full FxEngine<4096> clear; before
+  it, Prepare() wrote 6.6 KB past the workspace). Stereo 0.64 s/channel.
+  **Mono qualities are coerced to stereo while chained**: they need a
+  49,152 B workspace in the small buffer, and the tightest pair (rings)
+  cannot fit `2*small + 49,152 ≤ 131,840`. Mono stays available in
+  single-module clouds. Grain parameters are unaffected.
 - **Mod engine in chain mode**: destinations bind to the A slot (the sound
   source; `g_active_module` IS A while chained, and the engine's per-block
   pass runs the chain grid via the additive `g_mod_chain_*` overrides).
