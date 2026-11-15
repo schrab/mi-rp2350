@@ -3587,3 +3587,25 @@ the fix and costs no new DSP in lira8.
   chain latency (two 750 us blocks); rack README updated. A stagnation note:
   the lag is a fixed 2 blocks — if core-0 stalls longer than 1.5 ms recur,
   raise kChainPipeLag (latency = lag x 750 us).
+- **CHAIN-B LEVEL: dry passthrough is now unity (2026-11-15; user: "adding
+  clouds to the chain its output is quieter than module alone, even at
+  dry/wet 0")** — not the pipeline: Clouds' float output stage is
+  `SoftLimit(l * 0.5f)` (MI's `SoftConvert` int16 conversion gain) and the
+  equal-power crossfade puts the dry endpoint at fade_out(0) = 0.7071, so a
+  fully-dry chain passed only **0.5 x 0.7071 = 0.3536 (-9.03 dB)** of the A
+  slot. Verified against the MI original (`SoftConvert(x) =
+  Clip16(SoftLimit(x * 0.5f) * 32768)`), so the 0.5 is faithful — the RACK
+  chain just needs its own calibration. Fix: `mod_clouds::chain_render_b`
+  scales the processed output by `kChainBOutputGain = 2.8284272`
+  (= 1/(0.5*0.7071)) AFTER `Process()`, so dry_wet 0 is unity and the wet
+  endpoint carries MI's natural post_gain 1.2. No gain enters the DSP loops
+  (limiter/feedback/reverb keep MI's internal scale). Standalone clouds
+  keeps the raw MI output scale (its own accepted level). **On device:
+  CC45=0 -> in=347, out=345 (unity).** Caveat: at full wet with every
+  clouds parameter at max the summed output can exceed 0 dBFS after the
+  trim (out meter ~1.36 RMS) and `Clip16` hard-clips; a soft knee on the
+  chain output is the follow-up if it ever bothers.
+- **BENCH MIDI GOTCHA**: `aseqsend -p 24:0 "B0 2D 00"` prints
+  "Sent : 3 bytes" but the event NEVER reaches the RP2350 (`preset status`
+  seen-CC count unchanged). `aplaymidi -p 24:0 file.mid` with a generated
+  single-event SMF delivers every time. Use aplaymidi for bench CCs.

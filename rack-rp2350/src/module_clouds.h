@@ -310,17 +310,31 @@ void chain_render_b(const float* in_l, const float* in_r,
   s->processor.Prepare();
   s->processor.Process(s->clouds_in, s->clouds_out, n);
 
+  // CHAIN-B OUTPUT LEVEL. Clouds ends in SoftLimit(l * 0.5f) — MI's
+  // SoftConvert() int16 conversion gain — and the equal-power dry/wet law has
+  // fade_out(dry_wet = 0) = 0.7071, so a chain passthrough is only
+  // 0.5 * 0.7071 = 0.3536x (-9 dB) of the A slot: adding clouds to the chain
+  // made it quieter even at fully dry (user report, 2026-11-15).
+  // As a chain EFFECT, B must be level-transparent: scale the processed output
+  // by 1 / 0.3536 = 2.828 so dry_wet 0 is unity and the wet endpoint carries
+  // MI's natural post_gain 1.2. Applied AFTER Process() — every nonlinearity
+  // (soft limiter, feedback, reverb) has already run at MI's internal scale,
+  // so the character is unchanged and no gain enters the DSP loops.
+  // Standalone clouds keeps the raw MI output scale (its own accepted level).
+  static constexpr float kChainBOutputGain = 2.8284272f;
   for (size_t i = 0; i < n; ++i) {
-    out_l[i] = s->clouds_out[i].l;
-    out_r[i] = s->clouds_out[i].r;
+    out_l[i] = s->clouds_out[i].l * kChainBOutputGain;
+    out_r[i] = s->clouds_out[i].r * kChainBOutputGain;
   }
 
   // Meters: routed-input RMS / output RMS, max since the last 2 s report —
-  // while chained these feed the status LED + report for the PAIR.
+  // while chained these feed the status LED + report for the PAIR. Measured
+  // AFTER the chain-B level trim so `out=` matches the audible output.
   float in_acc = 0.0f, out_acc = 0.0f;
   for (size_t i = 0; i < n; ++i) {
     in_acc += s->clouds_in[i].l * s->clouds_in[i].l;
-    out_acc += s->clouds_out[i].l * s->clouds_out[i].l;
+    out_acc += s->clouds_out[i].l * s->clouds_out[i].l *
+               (kChainBOutputGain * kChainBOutputGain);
   }
   float in_rms = sqrtf(in_acc / n);
   float out_rms = sqrtf(out_acc / n);
