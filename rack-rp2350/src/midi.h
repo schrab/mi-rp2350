@@ -56,6 +56,10 @@ extern volatile float g_render_gain;
 
 extern I2S i2s;                            // defined in main.cpp (OUTPUT)
 
+// Non-blocking diagnostics sink (DEFINED in main.cpp). Declared here because
+// this header's dispatcher can log without risking a CDC stall.
+void dbg_printf(const char* fmt, ...);
+
 // --- module registry dispatch (DEFINED in main.cpp; the registry routes to
 // the ACTIVE adapter's hooks — all four adapters compile in every env) ---
 void rack_module_note_on(uint8_t note, uint8_t vel);

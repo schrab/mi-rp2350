@@ -67,6 +67,39 @@
 // and corrupted core 1).
 bool core1_separate_stack = true;
 #include <Adafruit_TinyUSB.h>
+#include "hardware/structs/scb.h"   // scb_hw: fault-status registers + AIRCR
+#include "hardware/watchdog.h"      // core-0 hang watchdog
+#include "hardware/structs/watchdog.h"  // watchdog_hw->scratch (survives reset)
+#include "hardware/uart.h"          // direct UART1 DIN drain (no core IRQ)
+#include "hardware/structs/dma.h"   // dma_hw (bench dump)
+
+// ===================== core-0 hang watchdog + breadcrumb =====================
+// A hang (not a fault) leaves the board frozen with USB still enumerated: no
+// console, no UI link, no 1200-baud touch path that matters. The 2 s watchdog
+// below reboots it automatically, and the breadcrumb (also .uninitialized_data:
+// survives the reset) records the last loop stage the core reached. It is
+// cleared at the END of every loop pass, so a hang leaves its stage behind.
+// Stage numbers: 1-14 = loop() sections; 40/41 = inside chain_b_worker;
+// 50+ = inside the UI-link frame dispatch (50 + frame type, 60 = page request
+// TELEM build). The stage lives in a WATCHDOG SCRATCH register, not SRAM: the
+// scratch block is exactly what survives a watchdog reset (SRAM contents are
+// not guaranteed across it). The value also lands in every 2 s report as
+// `hang=N` and the reset reason as `wd=1`.
+static constexpr uint32_t kCrumbMagic = 0xC0DE0000u;
+static inline void crumb(uint32_t stage) {
+  watchdog_hw->scratch[0] =
+      (stage == 0) ? 0 : (kCrumbMagic | (stage & 0x3Fu));
+}
+// Core-1 stage in scratch[1] (always visible in the 2 s report as w1=; a
+// frozen value localizes an audio-core hang without any console access).
+static inline void crumb1(uint32_t stage) {
+  watchdog_hw->scratch[1] = 0xB0000000u | (stage & 0x3Fu);
+}
+// Set at boot from a non-zero g_crumb (a hang record that survived the
+// watchdog reset) and shown in every 2 s report until the next clean boot —
+// the boot print itself can be lost while no console reader is attached.
+static uint32_t g_hang_stage = 0;
+static uint8_t g_boot_wd = 0;      // 1 = the last reset was a watchdog timeout
 
 #ifndef RACK_ENABLE_USB_HOST
 #define RACK_ENABLE_USB_HOST 0
@@ -501,30 +534,50 @@ static const uint8_t kPinDinTx = 4;   // UART1 TX — reserved (no DIN OUT in T4
 static DinMidiParser din_parser;      // counters + state (core 0 only)
 
 static void din_uart_init() {
-  // ORDER (all three before begin): FIFO size and pinout only apply when
-  // _running == false. The pinout MUST be overridden: the rpipico2 variant
-  // defaults Serial2 to GP8/GP9 — GP8 is the I2S DOUT pin.
-  Serial2.setFIFOSize(256);           // SW ring: 256 B = 82 ms @ 3125 B/s
-  Serial2.setPinout(kPinDinTx, kPinDinRx);
-  Serial2.begin(31250, SERIAL_8N1);   // MIDI 1.0: 31250 baud 8N1 (divisor is
-                                      // exact at every core clk_peri: 125/150/
-                                      // 240 MHz / (16 * 31250) = 250/300/480)
+  // DIRECT UART1 driver — deliberately NOT the core's Serial2. The core's RX
+  // IRQ handler drains with an UNBOUNDED `while (uart_is_readable())` loop:
+  // on a break condition (RX held low) it never exits and core 0 dies inside
+  // the IRQ. Bench-caught here: no DIN circuit is fitted, GP5 floats, and the
+  // C3's 921600 UI-link burst couples into it — every Clouds page switch
+  // turned into a 2 s break storm and a frozen board (watchdog crumb 16,
+  // inside Serial2::read). A hard-bounded poll in din_pump() cannot hang.
+  uart_init(uart1, 31250);                 // MIDI 1.0: 31250 8N1
+  uart_set_format(uart1, 8, 1, UART_PARITY_NONE);
+  uart_set_fifo_enabled(uart1, true);
+  uart_set_hw_flow(uart1, false, false);
+  gpio_set_function(kPinDinTx, GPIO_FUNC_UART);
+  gpio_set_function(kPinDinRx, GPIO_FUNC_UART);
   gpio_pull_up(kPinDinRx);            // idle = mark (opto off, collector high);
                                       // belt-and-braces vs the external 10k
 }
 
-// Drain the UART ring -> parser -> midiHandleEventPacket (THE funnel — same
-// entry the USB device + PIO-USB host paths use; DIN F8/FA/FB/FC therefore
-// hit the mod engine's sample-stamped clock bus with zero extra code).
+// Drain UART1 -> parser -> midiHandleEventPacket (THE funnel — same entry the
+// USB device + PIO-USB host paths use; DIN F8/FA/FB/FC therefore hit the mod
+// engine's sample-stamped clock bus with zero extra code).
+// HARD CAP of 64 bytes per pass: back-to-back passes drain far faster than
+// 3125 B/s, while a break/framing storm can never monopolize core 0.
 static void din_pump() {
-  if (Serial2.overflow()) ++din_parser.dropped;   // SW ring overflow (IRQ side)
-  int c;
-  while ((c = Serial2.read()) >= 0) {
+  crumb(15);
+  for (int i = 0; i < 64; ++i) {
+    crumb(16);
+    if (!uart_is_readable(uart1)) return;
+    const uint32_t raw = uart_get_hw(uart1)->dr;
+    if (raw & 0x400u) {              // break condition: drop the character
+      ++din_parser.dropped;
+      continue;
+    }
+    if (raw & 0x300u) {              // framing / parity error
+      ++din_parser.dropped;
+      continue;
+    }
     uint8_t pkt[4];
-    if (din_parser.parse(static_cast<uint8_t>(c), pkt)) {
+    if (din_parser.parse(static_cast<uint8_t>(raw & 0xFFu), pkt)) {
+      crumb(18);
       midiHandleEventPacket(pkt);
+      crumb(19);
     }
   }
+  crumb(20);
 }
 
 #if RACK_ENABLE_USB_HOST
@@ -540,12 +593,12 @@ extern "C" {
 // of ANY device on the host port completes / when it is removed.
 void tuh_mount_cb(uint8_t daddr) {
   host_device_mounted = true;
-  Serial.printf("USB device mounted daddr=%u\r\n", daddr);
+  dbg_printf("USB device mounted daddr=%u\r\n", daddr);
 }
 
 void tuh_umount_cb(uint8_t daddr) {
   host_device_mounted = false;
-  Serial.printf("USB device unmounted daddr=%u\r\n", daddr);
+  dbg_printf("USB device unmounted daddr=%u\r\n", daddr);
 }
 
 // Invoked when a device with a MIDI streaming interface is mounted.
@@ -558,7 +611,7 @@ void tuh_midi_mount_cb(uint8_t idx, const tuh_midi_mount_cb_t *mount_cb_data) {
     host_midi_idxs[host_midi_idx_count++] = idx;
     statusLed.NotifyControllerConnected();  // 3 green blinks
   }
-  Serial.printf("Host MIDI mounted idx=%u daddr=%u cables=%u\r\n", idx,
+  dbg_printf("Host MIDI mounted idx=%u daddr=%u cables=%u\r\n", idx,
                 mount_cb_data->daddr, mount_cb_data->rx_cable_count);
 }
 
@@ -570,7 +623,7 @@ void tuh_midi_umount_cb(uint8_t idx) {
       break;
     }
   }
-  Serial.printf("Host MIDI unmounted idx=%u\r\n", idx);
+  dbg_printf("Host MIDI unmounted idx=%u\r\n", idx);
 }
 } // extern "C"
 
@@ -676,7 +729,8 @@ static void button_poll() {
     button_stable = raw;
     if (!raw) ++button_down_count;
     rack_button_trig(!raw);             // raw low = pressed = down
-    Serial.printf("button: %s\r\n", raw ? "up" : "down");
+    // No report line: button presses are not diagnostics anyone reads (user,
+    // 2026-11-16) — and every print on this path is a hang risk.
   }
 }
 
@@ -698,13 +752,13 @@ void rack_request_switch(uint8_t module_id) {
   if (g_chain.active) {
     if (module_id == g_chain.a) {
       g_pending_chain_a_reinit = true;
-      Serial.printf("rack: chain: %s (A slot) fresh re-Init queued\r\n",
+      dbg_printf("rack: chain: %s (A slot) fresh re-Init queued\r\n",
                     kRackModules[module_id].name);
       return;
     }
     if (module_id == g_chain.b) {
-      Serial.println("rack: chain: B swap rejected (clouds is the only B in "
-                     "T6; mode/quality via CC 23/24)");
+      dbg_printf("rack: chain: B swap rejected (clouds is the only B in "
+                     "T6; mode/quality via CC 23/24)\r\n");
       return;
     }
     // Chained module switch requested (e.g. from UI overlay or CC 32):
@@ -763,13 +817,20 @@ void rack_chain_control_change(uint8_t cc, uint8_t val) {
     if (val == 0 || val == 2) {
       rack_modules::mod_clouds::control_change(23, val);
     } else {
-      Serial.printf("rack: chain: clouds-B mode %u rejected while chained "
+      dbg_printf("rack: chain: clouds-B mode %u rejected while chained "
                     "(granular 0 / looping 2 only)\r\n", val);
     }
     return;
   }
   if (cc == kCloudsAliasCcBase + 10) { // 50 -> clouds-B QUALITY (clouds 24)
     if (val <= 3) {
+      if ((val & 1) != 0) {
+        // MONO QUALITY IS CHAIN-FORBIDDEN (adapter clamp is belt-and-braces):
+        // bench-proven audio-core death for the plaits/rings pairs.
+        dbg_printf("rack: chain: clouds-B quality %u rejected while chained "
+                   "(stereo 0/2 only; mono works single-module)\r\n", val);
+        return;
+      }
       rack_modules::mod_clouds::control_change(24, val);
     }
     return;
@@ -1032,6 +1093,7 @@ static void chain_render_block_sync() {
 // pace the loop: one iteration = one 24-frame block, blocks free every
 // 750 us; > 1400 us = stalled.
 static void chain_write_b() {
+  crumb1(20);
   uint32_t w0 = time_us_32();
   const float gain = g_render_gain;
   for (size_t i = 0; i < kChainBlockSize; ++i) {
@@ -1041,6 +1103,7 @@ static void chain_write_b() {
         static_cast<int32_t>(chain_b_out_r[i] * 32768.0f * gain));
     i2s.write16(l, r);
   }
+  crumb1(21);
   if (time_us_32() - w0 > kChainStallUs) {
     ++i2s_stall_count;
   }
@@ -1053,8 +1116,10 @@ static void chain_write_b() {
 // core-0 stall; if that times out the block is silenced and NOT consumed, so
 // the stream resumes in order one block later (no skip, no repeat).
 static void chain_render_block_pipe() {
+  crumb1(10);
   const uint32_t t0 = time_us_32();
   chain_render_a_block();
+  crumb1(11);
   const uint32_t seq = g_chain_pipe_seq;
   if (g_chain_a_head - g_chain_a_tail < kChainPipeSlots) {
     ChainPipeBlock* dst = &g_chain_a_ring[g_chain_a_head % kChainPipeSlots];
@@ -1072,6 +1137,7 @@ static void chain_render_block_pipe() {
   // the oldest is exactly the next block due, so no sequence search is needed.
   const uint32_t w0 = time_us_32();
   bool got = false;
+  crumb1(12);
   for (;;) {
     if (g_chain_b_head != g_chain_b_tail) {
       ChainPipeBlock* src = &g_chain_b_ring[g_chain_b_tail % kChainPipeSlots];
@@ -1096,7 +1162,9 @@ static void chain_render_block_pipe() {
   ++g_chain_pipe_seq;
   const uint32_t dt = time_us_32() - t0;
   if (dt > proc_us_max) proc_us_max = dt;
+  crumb1(13);
   chain_write_b();
+  crumb1(14);
 }
 
 // Dispatcher: transitions run sync (pipeline stopped), normal play pipelined.
@@ -1127,8 +1195,10 @@ static void chain_b_worker() {
   ChainPipeBlock* a = &g_chain_a_ring[g_chain_a_tail % kChainPipeSlots];
   ChainPipeBlock* b = &g_chain_b_ring[g_chain_b_head % kChainPipeSlots];
   __dmb();
+  crumb(40);                     // inside clouds B (hang breadcrumb)
   rack_modules::mod_clouds::chain_render_b(
       a->l, a->r, b->l, b->r, kChainBlockSize);
+  crumb(41);
   b->seq = a->seq;               // B inherits A's block index
   const uint32_t dt = time_us_32() - t0;
   if (dt > g_chain_b_us_max) g_chain_b_us_max = dt;
@@ -1286,6 +1356,7 @@ static void do_chain_engage(uint8_t new_a, uint8_t new_b) {
     g_chain_i2s_words = kChainI2sWords;
     g_chain_i2s_ack = false;
     g_chain_i2s_result = false;
+    crumb1(70);                         // DMA-IRQ teardown window (core 1)
     irq_set_enabled(DMA_IRQ_0, false);  // T8: no core-1 IRQ during teardown
     g_chain_i2s_request = true;
     const uint32_t i2s_t0 = time_us_32();
@@ -1293,6 +1364,7 @@ static void do_chain_engage(uint8_t new_a, uint8_t new_b) {
       delay(1);
     }
     irq_set_enabled(DMA_IRQ_0, true);   // T8: resumed on the audio core
+    crumb1(71);
     const bool i2s_ok = g_chain_i2s_ack && g_chain_i2s_result;
     if (!i2s_ok) {
       g_chain_report_ms = (time_us_32() - t0) / 1000;
@@ -1401,6 +1473,7 @@ static void do_chain_disengage() {
   g_chain_i2s_words = kRackModules[a].i2s_words;
   g_chain_i2s_ack = false;
   g_chain_i2s_result = false;
+  crumb1(70);                          // DMA-IRQ teardown window (core 1)
   irq_set_enabled(DMA_IRQ_0, false);   // T8: no core-1 IRQ during teardown
   g_chain_i2s_request = true;
   const uint32_t i2s_t0 = time_us_32();
@@ -1408,6 +1481,7 @@ static void do_chain_disengage() {
     delay(1);
   }
   irq_set_enabled(DMA_IRQ_0, true);    // T8: resumed on the audio core
+  crumb1(71);
   const bool i2s_ok = g_chain_i2s_ack && g_chain_i2s_result;
 
   // (c) Re-Init the A slot fresh at its native context. Its hot image is
@@ -1545,11 +1619,13 @@ void loop1() {
   // the A slot and the g_mod_chain_* overrides run the 32 kHz / 24-sample
   // chain grid — destinations bind to A (decision 4).
   mod_engine_process_block(g_active_module);
+  crumb1(2);
   if (g_chain.active) {
     chain_render_block();
   } else {
     kRackModules[g_active_module].render();
   }
+  crumb1(3);
 }
 
 // ================= core 0: control =================
@@ -1571,6 +1647,10 @@ static void cmd_dintest(const char* args);
 static void cmd_telemetry(const char* args);
 static void cmd_led(const char* args);
 static void cmd_panic(const char* args);
+static void cmd_dma(const char* args);
+// Bench: reboot the board without BOOTSEL/flash (same AIRCR path as the crash
+// handler). Lets a crashed core-1 state be reset from the console.
+static void cmd_reboot(const char* args);
 static void cmd_ui(const char* args);
 static void cmd_uitest(const char* args);
 static void cmd_uisend(const char* args);
@@ -1616,6 +1696,8 @@ static const ConsoleCommand kConsoleCommands[] = {
     {"uitest",    cmd_uitest},
     {"uisend",    cmd_uisend},
     {"panic",     cmd_panic},
+    {"reboot",    cmd_reboot},
+    {"dma",       cmd_dma},
     {"trig",      cmd_trig},
     {"piezo",     cmd_piezo},
     {"help",      cmd_help},
@@ -1945,7 +2027,8 @@ static void cmd_din(const char* args) {
     Serial.println("din: last: none");
   }
   Serial.printf("din: uart1 @31250 8n1, rx=GP%u (tx GP%u reserved, no DIN OUT "
-                "in T4), irq + 256B ring; 'dintest' injects a test stream\r\n",
+                "in T4), direct poll 64 B/pass (no core IRQ), pull-up; "
+                "'dintest' injects a test stream\r\n",
                 kPinDinRx, kPinDinTx);
 }
 
@@ -2013,6 +2096,37 @@ static void cmd_panic(const char* args) {
   Serial.printf("panic: %u note(s) released on %s, gate forced off, note stack "
                 "cleared\r\n",
                 (unsigned)n, kRackModules[g_active_module].name);
+}
+
+// dma — bench: dump every DMA channel (busy, transfer count, addresses) plus
+// the IRQ status. A halted I2S channel (busy=0 with the ABM starved) proves a
+// DMA-level stop rather than a list/logic stall.
+static void cmd_dma(const char* args) {
+  (void)args;
+  Serial.printf("dma: ints0=0x%08lx ints1=0x%08lx\r\n",
+                (unsigned long)dma_hw->ints0, (unsigned long)dma_hw->ints1);
+  for (int ch = 0; ch < 12; ++ch) {
+    const uint32_t ctrl = dma_hw->ch[ch].ctrl_trig;
+    Serial.printf("dma%2d busy=%u cnt=%lu rd=%08lx wr=%08lx ctrl=%08lx\r\n",
+                  ch, (unsigned)((ctrl >> 24) & 1u),
+                  (unsigned long)dma_hw->ch[ch].transfer_count,
+                  (unsigned long)dma_hw->ch[ch].read_addr,
+                  (unsigned long)dma_hw->ch[ch].write_addr,
+                  (unsigned long)ctrl);
+  }
+}
+
+// Bench: reboot the board without BOOTSEL or a flash write (AIRCR SYSRESETREQ,
+// the same path the HardFault handler uses). Recovers a dead core-1 state.
+static void cmd_reboot(const char* args) {
+  (void)args;
+  Serial.println("reboot: system reset");
+  delay(50);                        // let the CDC drain a few frames
+  scb_hw->aircr = (0x05FAu << 16) | 0x04u;
+  __asm volatile("dsb 0xF" ::: "memory");
+  for (;;) {
+    tight_loop_contents();
+  }
 }
 
 // trig [down|up] — T1 bench twin of the hardware PLAY button (GP2): fires the
@@ -2302,7 +2416,72 @@ static void pumpConsole() {
   }
 }
 
+// ===================== crash diagnostics (HardFault record) =====================
+// A HardFault used to be silent: the USB device stays enumerated (the control
+// transfers are serviced from IRQ context), but core 0's loop dies, so the
+// console, the UI link and the 1200-baud flash touch all stop — the bench saw
+// it as "the board crashed". The handler below saves the exception frame and
+// the fault-status registers to .uninitialized_data (NOLOAD: SRAM survives a
+// warm reset, and crt0 neither loads nor zeroes this section), then resets.
+// setup() prints the record once, after the deferred boot line, so the fault
+// PC can be resolved with `arm-none-eabi-addr2line -e firmware.elf <pc>`.
+struct CrashRecord {
+  uint32_t magic;
+  uint32_t core;
+  uint32_t pc, lr, psr;
+  uint32_t r0, r1, r2, r3, r12;
+  uint32_t cfsr, hfsr, mmfar, bfar;
+};
+static constexpr uint32_t kCrashMagic = 0xC0DE5AFEu;
+__attribute__((section(".uninitialized_data.crash"), used))
+static volatile CrashRecord g_crash;
+
+// Called from isr_hardfault with the exception-frame pointer + EXC_RETURN.
+// Cortex-M33: an FP-extended frame stacks S0-S15 + FPSCR (17 words) BELOW the
+// basic r0..xPSR frame; EXC_RETURN bit 4 clear means the extended frame is
+// present, and the basic frame then starts at sp + 17 words.
+extern "C" void crash_record_c(uint32_t* sp, uint32_t exc_return) {
+  uint32_t* f = ((exc_return & 0x10u) == 0u) ? (sp + 17) : sp;
+  g_crash.core = (uint32_t)get_core_num();
+  g_crash.r0 = f[0];
+  g_crash.r1 = f[1];
+  g_crash.r2 = f[2];
+  g_crash.r3 = f[3];
+  g_crash.r12 = f[4];
+  g_crash.lr = f[5];
+  g_crash.pc = f[6];
+  g_crash.psr = f[7];
+  g_crash.cfsr = scb_hw->cfsr;
+  g_crash.hfsr = scb_hw->hfsr;
+  g_crash.mmfar = scb_hw->mmfar;
+  g_crash.bfar = scb_hw->bfar;
+  __dmb();
+  g_crash.magic = kCrashMagic;
+  __dmb();
+  // NVIC_SystemReset() is not linked in this TU; AIRCR SYSRESETREQ is the same
+  // register write (VECTKEY 0x05FA, then system reset request).
+  scb_hw->aircr = (0x05FAu << 16) | 0x04u;
+  __asm volatile("dsb 0xF" ::: "memory");
+  for (;;) {
+  }
+}
+
+// Strong override of the SDK's weak isr_hardfault (the vector table entry).
+extern "C" __attribute__((naked)) void isr_hardfault(void) {
+  __asm volatile(
+      "tst lr, #4\n"        // EXC_RETURN bit 2: 0 = MSP used, 1 = PSP
+      "ite eq\n"
+      "mrseq r0, msp\n"
+      "mrsne r0, psp\n"
+      "mov r1, lr\n"        // EXC_RETURN (bit 4 -> FP frame)
+      "b crash_record_c\n");
+}
+
 void setup() {
+  // BOOT WATCHDOG FIRST: 8 s covers the window copy + I2S + USB enumeration;
+  // a boot that stalls on a print or a peripheral gets reset instead of
+  // freezing. The loop's 2 s period replaces this at the end of setup.
+  watchdog_enable(8000, false);
   // --- SRAM window: copy the BOOT module's hot section flash -> SRAM ---
   // MUST run before ANY module code executes (module init calls tc_*
   // functions: Part::Init, GranularProcessor::Init, Voice::Init, ...). The
@@ -2428,23 +2607,58 @@ void setup() {
   // the DMA IRQ. setup1() re-enables it on core 1 after audio_ready.
   irq_set_enabled(DMA_IRQ_0, false);
 
-  // Boot diagnostic: confirm I2S did not steal the status LED's PIO2 SM0.
-  // SM0's PC must stay inside the 4-instruction WS2812 program.
-  Serial.printf("PIO2 SM0 claimed=%u pc=%u (ws2812 @%u) | SM1 claimed=%u pc=%u\r\n",
+  // Boot diagnostics are NON-BLOCKING: a console-less boot must never stall on
+  // the USB CDC FIFO (bench-caught: a watchdog reboot with no reader attached
+  // hung in these prints before setup could enable the watchdog).
+  dbg_printf("PIO2 SM0 claimed=%u pc=%u (ws2812 @%u) | SM1 claimed=%u pc=%u\r\n",
                 (unsigned)pio_sm_is_claimed(pio2, 0), (unsigned)pio_sm_get_pc(pio2, 0),
                 (unsigned)statusLed.Offset(),
                 (unsigned)pio_sm_is_claimed(pio2, 1), (unsigned)pio_sm_get_pc(pio2, 1));
 
   audio_ready = true;
-  Serial.println(window_line);                // deferred boot line (see fix note)
+  dbg_printf("%s\r\n", window_line);          // deferred boot line (see fix note)
+  // Crash record from the previous run (isr_hardfault): PC + fault status of
+  // the fault that reset us. One line, then cleared so it prints only once.
+  if (g_crash.magic == kCrashMagic) {
+    Serial.printf("CRASH: core=%lu pc=0x%08lx lr=0x%08lx psr=0x%08lx "
+                  "cfsr=0x%08lx hfsr=0x%08lx mmfar=0x%08lx bfar=0x%08lx "
+                  "r0=0x%08lx r1=0x%08lx r2=0x%08lx r3=0x%08lx r12=0x%08lx\r\n",
+                  (unsigned long)g_crash.core,
+                  (unsigned long)g_crash.pc, (unsigned long)g_crash.lr,
+                  (unsigned long)g_crash.psr,
+                  (unsigned long)g_crash.cfsr, (unsigned long)g_crash.hfsr,
+                  (unsigned long)g_crash.mmfar, (unsigned long)g_crash.bfar,
+                  (unsigned long)g_crash.r0, (unsigned long)g_crash.r1,
+                  (unsigned long)g_crash.r2, (unsigned long)g_crash.r3,
+                  (unsigned long)g_crash.r12);
+    g_crash.magic = 0;
+    __dmb();
+  }
+  // Hang breadcrumb + reset reason from the previous run. The crumb is cleared
+  // at the end of every clean loop pass, so a surviving value is a hang.
+  g_boot_wd = watchdog_enable_caused_reboot() ? 1 : 0;
+  {
+    const uint32_t raw = watchdog_hw->scratch[0];
+    if ((raw & 0xFFFF0000u) == kCrumbMagic) {
+      g_hang_stage = raw & 0x3Fu;
+      Serial.printf("CRUMB: core-0 last stage %lu (watchdog reset)\r\n",
+                    (unsigned long)g_hang_stage);
+    }
+    watchdog_hw->scratch[0] = 0;
+    __dmb();
+  }
+  // 2 s core-0 watchdog: feed at the end of every loop() pass. A hang reboots
+  // 2 s core-0 watchdog: feed at the end of every loop() pass. A hang reboots
+  // the board instead of freezing it, and the crumb above says where it was.
+  watchdog_enable(2000, false);
 #if RACK_ENABLE_USB_HOST
-  Serial.printf("%s up (rack boot module, %lu Hz / %lu-sample blocks, budget %lu us, USB MIDI device + PIO-USB host; CC 32 or serial 'switch' swaps modules; CC 33/34/35 = mod engine source/param/value; console: help)\r\n",
+  dbg_printf("%s up (rack boot module, %lu Hz / %lu-sample blocks, budget %lu us, USB MIDI device + PIO-USB host; CC 32 or serial 'switch' swaps modules; CC 33/34/35 = mod engine source/param/value; console: help)\r\n",
                 boot.name,
                 (unsigned long)boot.sample_rate,
                 (unsigned long)boot.block_size,
                 (unsigned long)boot.budget_us);
 #else
-  Serial.printf("%s up (rack boot module, %lu Hz / %lu-sample blocks, budget %lu us, USB MIDI device; CC 32 or serial 'switch' swaps modules; CC 33/34/35 = mod engine source/param/value; console: help)\r\n",
+  dbg_printf("%s up (rack boot module, %lu Hz / %lu-sample blocks, budget %lu us, USB MIDI device; CC 32 or serial 'switch' swaps modules; CC 33/34/35 = mod engine source/param/value; console: help)\r\n",
                 boot.name,
                 (unsigned long)boot.sample_rate,
                 (unsigned long)boot.block_size,
@@ -2499,24 +2713,31 @@ void loop() {
   const uint32_t loop_t0 = time_us_32();
   // --- I2S reconfig requests from a running swap / chain transition (core 1
   // waits bounded on either) ---
+  crumb(1);
   serviceSwapI2s();
+  crumb(2);
   serviceChainI2s();
 
   // T8 dual-core chain: run clouds B as early as possible on core 0. This is
   // a no-op unless a chain is engaged and the pipeline is enabled; the rest
   // of core-0's work (USB/UI/console) runs after it.
+  crumb(3);
   chain_b_worker();
 
   // Drain queued diagnostics without blocking the USB CDC.
+  crumb(4);
   dbg_pump();
 
 #if RACK_ENABLE_USB_HOST
   // --- USB host: service the host stack, then poll host MIDI ---
+  crumb(5);
   USBHost.task();
+  crumb(6);
   pollHostMidi();
 #endif
 
   // --- USB MIDI device: drain all pending 4-byte event packets ---
+  crumb(7);
   uint8_t pkt[4];
   while (usb_midi.readPacket(pkt)) {
     midiHandleEventPacket(pkt);
@@ -2525,37 +2746,44 @@ void loop() {
   // --- T4 DIN MIDI: drain the UART1 ring -> parser -> the same funnel ---
   // IRQ (core 0) keeps the 256 B ring fed; even at the 31250-baud maximum of
   // 3125 B/s this needs a drain every ~82 ms, and loop() iterates far faster.
+  crumb(8);
   din_pump();
 
   // --- T5 UI-MCU link: drain the UART0 ring -> frame parser -> dispatch ---
   // Same IRQ+ring pattern as DIN; with the C3 absent this is one ring-empty
   // check per loop().
+  crumb(9);
   ui_link_pump();
 
   // --- T4a preset autosave: push the serialized blob to the C3 flash bank
   // once the state has settled (3 s after the last persistent change) ---
+  crumb(10);
   preset_autosave_poll();
 
   // --- T1 hardware PLAY button: debounced poll (GP2) ---
+  crumb(11);
   button_poll();
 
   // --- T2 piezo: drain the ADC ring (GP26) ---
+  crumb(12);
   rack_piezo::poll();
 
   // --- serial console (non-blocking; T2/T3/T4 table) ---
+  crumb(13);
   pumpConsole();
 
   // --- deferred swap print (stats set by core 1, printed here exactly once) ---
+  crumb(14);
   if (g_swap_report_ready) {
     g_swap_report_ready = false;
     ++g_swap_count;    // T4: the `status` swaps counter
     const RackModuleInfo& m = kRackModules[g_swap_to];
     if (g_swap_i2s_ok) {
-      Serial.printf("rack: switched to %s in %lu ms (window %lu bytes)\r\n",
+      dbg_printf("rack: switched to %s in %lu ms (window %lu bytes)\r\n",
                     m.name, (unsigned long)g_swap_duration_ms,
                     (unsigned long)g_swap_copied_bytes);
     } else {
-      Serial.printf("rack: SWITCH FAULT: %s swap failed in %lu ms "
+      dbg_printf("rack: SWITCH FAULT: %s swap failed in %lu ms "
                     "(window %lu bytes, i2s reconfig/copy rejected - audio muted)\r\n",
                     m.name, (unsigned long)g_swap_duration_ms,
                     (unsigned long)g_swap_copied_bytes);
@@ -2570,28 +2798,28 @@ void loop() {
     const uint8_t kind = g_chain_report_kind;
     if (kind == 1) {
       if (g_chain_report_ok) {
-        Serial.printf("rack: chain %s->%s engaged (%lu ms, %lu window bytes)\r\n",
+        dbg_printf("rack: chain %s->%s engaged (%lu ms, %lu window bytes)\r\n",
                       kRackModules[g_chain.a].name,
                       kRackModules[g_chain.b].name,
                       (unsigned long)g_chain_report_ms,
                       (unsigned long)g_chain_report_bytes);
       } else {
-        Serial.printf("rack: CHAIN FAULT: %s->%s engage failed in %lu ms "
+        dbg_printf("rack: CHAIN FAULT: %s->%s engage failed in %lu ms "
                       "(window copy/i2s rejected - single module kept)\r\n",
                       kRackModules[g_chain.a].name,
                       kRackModules[g_chain.b].name,
                       (unsigned long)g_chain_report_ms);
       }
     } else if (kind == 2) {
-      Serial.printf("rack: chain A (%s) re-Init'ed fresh in %lu ms\r\n",
+      dbg_printf("rack: chain A (%s) re-Init'ed fresh in %lu ms\r\n",
                     kRackModules[g_chain.a].name,
                     (unsigned long)g_chain_report_ms);
     } else {
       if (g_chain_report_ok) {
-        Serial.printf("rack: chain off (%lu ms)\r\n",
+        dbg_printf("rack: chain off (%lu ms)\r\n",
                       (unsigned long)g_chain_report_ms);
       } else {
-        Serial.printf("rack: CHAIN FAULT: chain off failed in %lu ms "
+        dbg_printf("rack: CHAIN FAULT: chain off failed in %lu ms "
                       "(i2s reconfig rejected - audio muted)\r\n",
                       (unsigned long)g_chain_report_ms);
       }
@@ -2653,6 +2881,27 @@ void loop() {
     const RackModuleInfo& m = kRackModules[g_active_module];
     static char modeng_tail[64];
     mod_engine_report_tail(modeng_tail, sizeof(modeng_tail));
+    // Hang breadcrumb (watchdog reset) + core-1 stage. `w1=` is scratch[1]:
+  // 2/3 = core-1 loop body, 10-14 = chain render stages, 20/21 = before/after
+  // the I2S write loop. A frozen w1 localizes an audio-core stall.
+  char hang_tail[96];
+  const unsigned w1 = (unsigned)(watchdog_hw->scratch[1] & 0x3Fu);
+  // I2S DMA health: channels 0/1 are the ping-pong pair (busy flag, transfer
+  // count). A halted channel (busy=0 + frozen count) is the audio-death
+  // signature this report is meant to expose.
+  const unsigned d0b = (unsigned)((dma_hw->ch[0].ctrl_trig >> 24) & 1u);
+  const unsigned d1b = (unsigned)((dma_hw->ch[1].ctrl_trig >> 24) & 1u);
+  if (g_boot_wd || g_hang_stage) {
+    snprintf(hang_tail, sizeof(hang_tail),
+             " w1=%u d0=%u/%lu d1=%u/%lu wd=%u hang=%lu", w1, d0b,
+             (unsigned long)dma_hw->ch[0].transfer_count, d1b,
+             (unsigned long)dma_hw->ch[1].transfer_count,
+             (unsigned)g_boot_wd, (unsigned long)g_hang_stage);
+  } else {
+    snprintf(hang_tail, sizeof(hang_tail), " w1=%u d0=%u/%lu d1=%u/%lu", w1,
+             d0b, (unsigned long)dma_hw->ch[0].transfer_count, d1b,
+             (unsigned long)dma_hw->ch[1].transfer_count);
+  }
     // T6: the module field extends honestly to the chain (e.g.
     // mod=elements>clouds); proc_us_max covers A+route+B while chained and
     // the budget is the chain grid's 750 us (incl. the mod engine's u:).
@@ -2700,7 +2949,7 @@ void loop() {
       const uint16_t pz_peak = rack_piezo::report_peak();
       const uint32_t pz_rate = rack_piezo::report_sample_rate();
 #if RACK_ENABLE_USB_HOST
-      dbg_printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s | %s\r\n",
+      dbg_printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s | %s%s\r\n",
                     proc_us_max,
                     (unsigned)budget,
                     stalls, stalls - last_stall_total,
@@ -2717,9 +2966,10 @@ void loop() {
                     (unsigned)pio_usb_host_get_frame_number(),
                     mod_field,
                     modeng_tail,
-                    plaits_tail);
+                    plaits_tail,
+                    hang_tail);
 #else
-      dbg_printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | mod=%s | %s | %s\r\n",
+      dbg_printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | mod=%s | %s | %s%s\r\n",
                     proc_us_max,
                     (unsigned)budget,
                     stalls, stalls - last_stall_total,
@@ -2732,7 +2982,8 @@ void loop() {
                     mod_field,
                     modeng_tail,
                     g_active_module == RACK_MODULE_PLAITS ? plaits_tail
-                        : (g_active_module == RACK_MODULE_LIRA8 ? lira8_tail : ""));
+                        : (g_active_module == RACK_MODULE_LIRA8 ? lira8_tail : ""),
+                    hang_tail);
 #endif
     }
     last_stall_total = stalls;
@@ -2747,4 +2998,8 @@ void loop() {
   }
   const uint32_t loop_dt = time_us_32() - loop_t0;
   if (loop_dt > g_core0_loop_max_us) g_core0_loop_max_us = loop_dt;
+  // Clean pass: clear the breadcrumb, then feed the 2 s watchdog. A hang
+  // leaves the crumb at the stage where it stuck (printed after the reset).
+  crumb(0);
+  watchdog_update();
 }

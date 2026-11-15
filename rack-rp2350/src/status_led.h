@@ -45,6 +45,12 @@ constexpr uint32_t kControllerBlinkOnMs = 150;
 constexpr uint32_t kControllerBlinkOffMs = 150;
 constexpr uint32_t kControllerBlinkCount = 3;
 
+// LED MASTER SWITCH (user, 2026-11-16: "i told you to disable led"). FALSE =
+// no PIO program is loaded, no SM claimed, no frames are pushed — the audio
+// path must never depend on the status LED. PIO2 is still un-reset because
+// the I2S library allocates its SM from PIO2.
+constexpr bool kEnabled = false;
+
 }  // namespace status_led
 
 class StatusLed {
@@ -52,6 +58,11 @@ class StatusLed {
   void Init() {
     // PIO2 starts held in reset on RP2350; un-reset before touching it.
     unreset_block_mask_wait_blocking(1u << RESET_PIO2);
+    if (!status_led::kEnabled) {
+      enabled_ = false;
+      boot_error_ = false;
+      return;
+    }
 
     // Claim SM0 BEFORE loading/enabling the program. The Arduino PIOProgram
     // allocator (used by I2S) scans PIOs from the highest index down and
@@ -185,6 +196,7 @@ class StatusLed {
     // [0x00, g, r] instead of [g, r, b] — e.g. white becomes violet and
     // blue-only frames become black.
     const uint32_t grb = ((uint32_t(g) << 16) | (uint32_t(r) << 8) | b) << 8;
+    if (!status_led::kEnabled || !enabled_) return;
     if (grb == last_grb_) return;
     last_grb_ = grb;
     pio_sm_put(status_led::kPio, status_led::kSm, grb);

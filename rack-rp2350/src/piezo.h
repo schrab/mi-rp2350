@@ -27,6 +27,13 @@
 
 namespace rack_piezo {
 
+// PIEZO MASTER SWITCH (user, 2026-11-16: "piezo is not connected yet"). FALSE
+// = no ADC free-run, NO DMA channel, no ring traffic. The free-running ADC +
+// infinite DMA ring is a prime suspect for the I2S DMA stall (the piezo
+// sample rate collapsed in the report where core 1 died), and nothing is
+// wired to GP26 yet. Re-enable when the input circuit exists.
+static constexpr bool kEnabled = false;
+
 static const uint32_t kPinPiezo = 26;        // ADC0
 static const uint32_t kSampleRate = 24000;   // Hz (clk_adc 48 MHz / 2000)
 static const uint16_t kRingSamples = 512;    // ~21 ms at 24 kHz
@@ -45,6 +52,7 @@ static uint32_t g_new_since_report = 0;      // for the measured sample rate
 static float g_gain = 1.0f;                  // digital gain (T3 pre-rectifier)
 
 inline void init() {
+  if (!kEnabled) return;
   adc_init();
   adc_gpio_init(kPinPiezo);
   adc_select_input(0);                       // GP26 = ADC0
@@ -81,7 +89,7 @@ inline void init() {
 // write address around the ring), tracking min/max/peak. The T3 pipeline
 // replaces this tracking with the Ears stages.
 inline void poll() {
-  if (g_dma_ch < 0) return;
+  if (!kEnabled || g_dma_ch < 0) return;
   const uintptr_t base = (uintptr_t)g_ring;
   const uint16_t wr_idx = (uint16_t)(
       ((((uintptr_t)dma_hw->ch[g_dma_ch].write_addr) - base) & (kRingBytes - 1)) >> 1);
@@ -99,13 +107,23 @@ inline void poll() {
 
 // 2 s report hooks (reset-on-read, like the rack meters).
 inline uint32_t report_sample_rate() {
+  if (!kEnabled) return 0;
   const uint32_t n = g_new_since_report / 2u;  // samples per second
   g_new_since_report = 0;
   return n;
 }
-inline uint16_t report_peak() { const uint16_t v = g_peak; g_peak = 0; return v; }
-inline uint16_t report_min() { const uint16_t v = g_min; g_min = 4095; return v; }
-inline uint16_t report_max() { const uint16_t v = g_max; g_max = 0; return v; }
+inline uint16_t report_peak() {
+  if (!kEnabled) return 0;
+  const uint16_t v = g_peak; g_peak = 0; return v;
+}
+inline uint16_t report_min() {
+  if (!kEnabled) return 4095;
+  const uint16_t v = g_min; g_min = 4095; return v;
+}
+inline uint16_t report_max() {
+  if (!kEnabled) return 0;
+  const uint16_t v = g_max; g_max = 0; return v;
+}
 inline float gain() { return g_gain; }
 inline void set_gain(float g) { g_gain = (g < 1.0f) ? 1.0f : (g > 16.0f ? 16.0f : g); }
 

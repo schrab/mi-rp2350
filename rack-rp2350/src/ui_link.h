@@ -73,8 +73,11 @@
 #include <stddef.h>
 #include <string.h>
 
-#include <Arduino.h>             // Serial1, millis, Serial
+#include <Arduino.h>             // millis, Serial (console)
 #include "pico/time.h"           // time_us_32 (echo turnaround timing)
+#include "hardware/uart.h"       // direct UART0 link driver (see ui_uart_irq)
+#include "hardware/irq.h"        // irq_set_exclusive_handler / irq_set_enabled
+#include "hardware/structs/uart.h"  // uart_hw->icr / dr
 
 // ===================== protocol constants =====================
 static const uint8_t kUiFrameMark = 0x7E;
@@ -670,6 +673,39 @@ static volatile uint32_t g_ui_last_rtt_us = 0;
 static const uint8_t kPinUiTx = 0;    // UART0 TX — valid {0,2,12,14,16,18,28}
 static const uint8_t kPinUiRx = 1;    // UART0 RX — valid {1,3,13,15,17,19,29}
 
+// RX ring between the direct UART0 IRQ and the core-0 pump (single writer /
+// single reader, both core 0; 16-bit indices are atomic on the M33).
+static const uint16_t kUiRxRingSize = 512;
+static uint8_t g_ui_rx_ring[kUiRxRingSize];
+static volatile uint16_t g_ui_rx_head = 0, g_ui_rx_tail = 0;
+static volatile uint32_t g_ui_uart_bad = 0;   // break / framing / parity drop
+
+// UART0 RX interrupt: HARD-CAPPED drain. This replaces the core SerialUART
+// handler, whose `while (uart_is_readable())` loop has no exit condition on a
+// break (RX held low) and can spin forever with core 0 inside the IRQ.
+static void __not_in_flash_func(ui_uart_irq)() {
+  uart_get_hw(uart0)->icr = UART_UARTICR_RTIC_BITS | UART_UARTICR_RXIC_BITS;
+  for (int i = 0; i < 64; ++i) {
+    if (!uart_is_readable(uart0)) return;
+    const uint32_t raw = uart_get_hw(uart0)->dr;
+    if (raw & 0x400u) {              // break condition: drop the character
+      ++g_ui_uart_bad;
+      continue;
+    }
+    if (raw & 0x300u) {              // framing / parity error
+      ++g_ui_uart_bad;
+      continue;
+    }
+    const uint16_t next = (uint16_t)((g_ui_rx_head + 1) % kUiRxRingSize);
+    if (next == g_ui_rx_tail) {      // ring full: drop, count
+      ++g_ui_rx_overflow;
+      continue;
+    }
+    g_ui_rx_ring[g_ui_rx_head] = (uint8_t)(raw & 0xFFu);
+    g_ui_rx_head = next;
+  }
+}
+
 static inline void ui_link_set_cached_cc(uint8_t mod, uint8_t cc, uint8_t val) {
   if (mod < RACK_MODULE_COUNT && cc < 128) {
     g_ui_cc_cache[mod][cc] = val;
@@ -763,13 +799,24 @@ static void ui_link_init_defaults() {
 }
 
 static void ui_link_uart_init() {
-  // ORDER (all three before begin, same as the DIN init): FIFO size + pinout
-  // apply only while _running == false. 512 B SW ring: at 921600 baud max
-  // (~92 KB/s) it rides out ~5.6 ms between drains — far beyond any loop()
-  // stall (swap prints, LED poll ~1 ms, one TELEM write ~2.6 ms).
-  Serial1.setFIFOSize(512);
-  Serial1.setPinout(kPinUiTx, kPinUiRx);
-  Serial1.begin(921600, SERIAL_8N1);
+  // DIRECT UART0 driver, deliberately NOT Serial1. The core's SerialUART RX
+  // IRQ handler drains with an UNBOUNDED `while (uart_is_readable())` loop:
+  // on a break condition (RX held low) it never exits and core 0 is dead
+  // inside the IRQ. Bench-caught here: a break on GP1 during a clouds-page
+  // switch froze the board (watchdog crumb 21, inside the link pump). This
+  // handler drains at most 64 bytes per interrupt and cannot hang.
+  // TX: drained non-blocking (uart_is_writable) from the 4 KiB frame ring.
+  // RX: interrupt-fed into a 512 B ring, parsed by ui_link_pump on core 0.
+  uart_init(uart0, 921600);
+  uart_set_format(uart0, 8, 1, UART_PARITY_NONE);
+  uart_set_fifo_enabled(uart0, true);
+  uart_set_hw_flow(uart0, false, false);
+  gpio_set_function(kPinUiTx, GPIO_FUNC_UART);
+  gpio_set_function(kPinUiRx, GPIO_FUNC_UART);
+  gpio_pull_up(kPinUiRx);             // idle mark if the C3 is unplugged
+  irq_set_exclusive_handler(UART0_IRQ, ui_uart_irq);
+  uart_set_irq_enables(uart0, true, false);
+  irq_set_enabled(UART0_IRQ, true);
   ui_link_init_defaults();
 }
 
@@ -830,20 +877,13 @@ static bool ui_link_send_frame(uint8_t type, const uint8_t* payload,
 // loop iteration (ui_link_pump); 92 KB/s of wire traffic needs only a few
 // hundred bytes per millisecond and the ring holds 4 KiB.
 static void ui_link_tx_pump() {
-  while (g_ui_tx_count > 0) {
-    int space = Serial1.availableForWrite();
-    if (space <= 0) return;
-    // Leave a small margin: the core's TX ring can be drained concurrently
-    // by its IRQ, but never write past what it reported as free.
-    if (space > 8) space -= 8;
-    uint16_t run = (g_ui_tx_tail + g_ui_tx_count > kUiTxRingSize)
-        ? (uint16_t)(kUiTxRingSize - g_ui_tx_tail)
-        : g_ui_tx_count;
-    uint16_t n = (run < (uint16_t)space) ? run : (uint16_t)space;
-    if (n > g_ui_tx_count) n = g_ui_tx_count;
-    Serial1.write(&g_ui_tx_ring[g_ui_tx_tail], n);
-    g_ui_tx_tail = (uint16_t)((g_ui_tx_tail + n) % kUiTxRingSize);
-    g_ui_tx_count = (uint16_t)(g_ui_tx_count - n);
+  // Direct, NON-BLOCKING drain into the UART TX FIFO (uart_is_writable). The
+  // old Serial1.write path went through the core's mutex + uart_write_blocking
+  // and could stall core 0 when the FIFO did not drain.
+  while (g_ui_tx_count > 0 && uart_is_writable(uart0)) {
+    uart_get_hw(uart0)->dr = g_ui_tx_ring[g_ui_tx_tail];
+    g_ui_tx_tail = (uint16_t)((g_ui_tx_tail + 1) % kUiTxRingSize);
+    --g_ui_tx_count;
   }
 }
 
@@ -1370,12 +1410,21 @@ static bool ui_link_step(uint8_t b) {
 }
 
 // ===================== RX dispatch =====================
+// EVERY diagnostic below goes through dbg_printf (the non-blocking 2 KiB ring)
+// and never through Serial.printf: this handler runs on core 0 from the C3's
+// UART traffic, and an unconditional CDC write with no console reader attached
+// BLOCKS FOREVER — the board then looks crashed (audio stops, console dead,
+// UI link dead) while USB stays enumerated. That is the page-switch hang: a
+// C3 frame (page request / preset chunk / mode CC) hit a blocking print.
+// Console-command output (cmd_*, preset load/status) may use Serial — a reader
+// is by definition attached there.
 // Declared later in main.cpp (the data-driven console table's forward-decl
 // block): the SWITCH / CHAIN_ROUTE frames reuse the console paths verbatim
 // — one behavior, two entrances.
 static void ui_link_dispatch() {
   const uint8_t type = g_ui_rx_buf[0];
   const uint8_t* pl = &g_ui_rx_buf[1];
+  crumb(50 + (uint32_t)(type & 0x0F));   // hang breadcrumb (see main.cpp)
   switch (type) {
     case kUiTypeMidi:
       // 4-byte USB-MIDI event packet -> THE funnel (same as USB device/host/
@@ -1383,7 +1432,7 @@ static void ui_link_dispatch() {
       if (g_ui_rx_len == 4) {
         midiHandleEventPacket(pl);
       } else {
-        Serial.printf("ui: MIDI frame bad len %u (want 4) - dropped\r\n",
+        dbg_printf("ui: MIDI frame bad len %u (want 4) - dropped\r\n",
                       g_ui_rx_len);
       }
       break;
@@ -1394,7 +1443,7 @@ static void ui_link_dispatch() {
         char id[2] = { (char)('0' + pl[0]), '\0' };
         cmd_switch(id);
       } else {
-        Serial.printf("ui: SWITCH frame bad (len=%u id=%u)\r\n",
+        dbg_printf("ui: SWITCH frame bad (len=%u id=%u)\r\n",
                       g_ui_rx_len, g_ui_rx_len ? pl[0] : 0);
       }
       break;
@@ -1438,21 +1487,23 @@ static void ui_link_dispatch() {
           }
         }
       } else {
-        Serial.printf("ui: MOD_SET frame bad len %u (want 3)\r\n", g_ui_rx_len);
+        dbg_printf("ui: MOD_SET frame bad len %u (want 3)\r\n", g_ui_rx_len);
       }
       break;
     case kUiTypeUiCmd: {
       if (g_ui_rx_len != 3) {
-        Serial.printf("ui: UI_CMD frame bad len %u (want 3)\r\n", g_ui_rx_len);
+        dbg_printf("ui: UI_CMD frame bad len %u (want 3)\r\n", g_ui_rx_len);
         break;
       }
       const uint8_t action = pl[0], arg = pl[1], arg2 = pl[2];
       if (action == kUiCmdPageRequest) {
         if (arg < kUiPageCount) {
           g_ui_active_page = arg;
+          crumb(60);                            // TELEM build/deliver
           ui_link_send_telem(arg, kUiTelemFull, 0);   // full snapshot reply
+          crumb(61);
         } else {
-          Serial.printf("ui: page request %u out of range (0-%u)\r\n",
+          dbg_printf("ui: page request %u out of range (0-%u)\r\n",
                         arg, kUiPageCount - 1);
         }
       } else if (action == kUiCmdEcho) {
@@ -1471,21 +1522,21 @@ static void ui_link_dispatch() {
         switch (arg) {
           case kUiSysTelemDelta:
             g_ui_telem_deltas_en = !g_ui_telem_deltas_en;
-            Serial.printf("ui: telemetry deltas %s\r\n",
+            dbg_printf("ui: telemetry deltas %s\r\n",
                           g_ui_telem_deltas_en ? "ON" : "OFF");
             break;
           case kUiSysTelemFull:
             g_ui_telem_full_en = !g_ui_telem_full_en;
-            Serial.printf("ui: pushed full snapshots %s\r\n",
+            dbg_printf("ui: pushed full snapshots %s\r\n",
                           g_ui_telem_full_en ? "ON" : "OFF");
             break;
           case kUiSysClockToggle:
             g_mod_engine.global_clock = g_mod_engine.global_clock ? 0 : 1;
-            Serial.printf("ui: global clock = %s\r\n",
+            dbg_printf("ui: global clock = %s\r\n",
                           g_mod_engine.global_clock ? "midi" : "internal");
             break;
           default:
-            Serial.printf("ui: SYS toggle arg=%u arg2=%u (id reserved, "
+            dbg_printf("ui: SYS toggle arg=%u arg2=%u (id reserved, "
                           "log-only)\r\n", arg, arg2);
             handled = false;
             break;
@@ -1504,24 +1555,24 @@ static void ui_link_dispatch() {
         // validation (inert + TELEM flags bit2) and the full-snapshot reply
         // re-renders the result on the C3.
         if (arg2 > 1) {
-          Serial.printf("ui: ASSIGN_CYCLE dir=%u (want 0|1)\r\n", arg2);
+          dbg_printf("ui: ASSIGN_CYCLE dir=%u (want 0|1)\r\n", arg2);
           break;
         }
         if (!ui_page_is_module(g_ui_active_page)) {
-          Serial.printf("ui: ASSIGN_CYCLE inert on page %u (no CC cells)\r\n",
+          dbg_printf("ui: ASSIGN_CYCLE inert on page %u (no CC cells)\r\n",
                         g_ui_active_page);
           break;
         }
         const UiPageTable& t =
             kUiPages[g_active_module][ui_module_page_idx(g_ui_active_page)];
         if (arg >= t.count) {
-          Serial.printf("ui: ASSIGN_CYCLE cell %u >= count %u (empty pot)\r\n",
+          dbg_printf("ui: ASSIGN_CYCLE cell %u >= count %u (empty pot)\r\n",
                         arg, t.count);
           break;
         }
         const uint8_t cc = t.cells[arg].cc;
         if (cc == 0) {
-          Serial.printf("ui: ASSIGN_CYCLE cell %u is empty\r\n", arg);
+          dbg_printf("ui: ASSIGN_CYCLE cell %u is empty\r\n", arg);
           break;
         }
         int8_t cur = -1;                       // first source routing this CC
@@ -1537,7 +1588,7 @@ static void ui_link_dispatch() {
           if (cur >= 0) {
             mod_set_dest((uint8_t)cur, 0);     // unassign (ack log inside)
           } else {
-            Serial.printf("ui: ASSIGN_CYCLE cell %u (CC %u): already off\r\n",
+            dbg_printf("ui: ASSIGN_CYCLE cell %u (CC %u): already off\r\n",
                           arg, cc);
           }
         } else {
@@ -1553,13 +1604,13 @@ static void ui_link_dispatch() {
         if (arg == kUiGlobalBpm) {
           const float bpm = 20.0f + (float)arg2 * 280.0f / 127.0f;
           g_mod_engine.bpm = roundf(bpm * 10.0f) / 10.0f;
-          Serial.printf("ui: bpm <- %.1f (SET_GLOBAL)\r\n", (double)bpm);
+          dbg_printf("ui: bpm <- %.1f (SET_GLOBAL)\r\n", (double)bpm);
           // Omit sending 200-byte full snapshot on every pot step to prevent UART queue backlog!
         } else {
-          Serial.printf("ui: SET_GLOBAL item %u (reserved, log-only)\r\n", arg);
+          dbg_printf("ui: SET_GLOBAL item %u (reserved, log-only)\r\n", arg);
         }
       } else {
-        Serial.printf("ui: UI_CMD unknown action %u\r\n", action);
+        dbg_printf("ui: UI_CMD unknown action %u\r\n", action);
       }
       break;
     }
@@ -1573,21 +1624,21 @@ static void ui_link_dispatch() {
             snprintf(args, sizeof(args), "%u %u", pl[0], pl[1]);
             cmd_chain(args);
           } else {
-            Serial.println("ui: CHAIN_ROUTE module ids out of range");
+            dbg_printf("ui: CHAIN_ROUTE module ids out of range\r\n");
           }
         } else if (pl[2] == 0) {
           cmd_chain("off");
         } else {
-          Serial.printf("ui: CHAIN_ROUTE engage=%u (want 0|1)\r\n", pl[2]);
+          dbg_printf("ui: CHAIN_ROUTE engage=%u (want 0|1)\r\n", pl[2]);
         }
       } else {
-        Serial.printf("ui: CHAIN_ROUTE frame bad len %u (want 3)\r\n",
+        dbg_printf("ui: CHAIN_ROUTE frame bad len %u (want 3)\r\n",
                       g_ui_rx_len);
       }
       break;
     }
     case kUiTypeTelem:
-      Serial.printf("ui: TELEM received (len=%u) - RP2350->C3 only, ignored\r\n",
+      dbg_printf("ui: TELEM received (len=%u) - RP2350->C3 only, ignored\r\n",
                     g_ui_rx_len);
       break;
     case kUiTypePresetReq:
@@ -1596,12 +1647,12 @@ static void ui_link_dispatch() {
       if (g_ui_rx_len == 1) {
         ui_preset_req_reply(pl[0]);
       } else {
-        Serial.printf("ui: PRESET_REQ bad len %u (want 1)\r\n", g_ui_rx_len);
+        dbg_printf("ui: PRESET_REQ bad len %u (want 1)\r\n", g_ui_rx_len);
       }
       break;
     case kUiTypePresetPart:
       // RP2350->C3 direction only — a C3 never has a part we want here.
-      Serial.printf("ui: PRESET_PART received (len=%u) - ignored\r\n",
+      dbg_printf("ui: PRESET_PART received (len=%u) - ignored\r\n",
                     g_ui_rx_len);
       break;
     case kUiTypePresetApply:
@@ -1611,7 +1662,7 @@ static void ui_link_dispatch() {
       ui_preset_apply_chunk(pl, g_ui_rx_len);
       break;
     default:
-      Serial.printf("ui: unknown frame type 0x%02x len=%u\r\n", type,
+      dbg_printf("ui: unknown frame type 0x%02x len=%u\r\n", type,
                     g_ui_rx_len);
       break;
   }
@@ -1621,7 +1672,7 @@ static void ui_link_dispatch() {
 static void ui_link_feed(uint8_t b) {
   if (!ui_link_step(b)) return;
   if (!g_ui_rx_crc_ok) {
-    Serial.printf("ui: CRC FAIL (type=0x%02x len=%u) - frame dropped, "
+    dbg_printf("ui: CRC FAIL (type=0x%02x len=%u) - frame dropped, "
                   "resyncing at the next 0x7E\r\n",
                   g_ui_rx_buf[0], g_ui_rx_len);
     return;
@@ -1634,8 +1685,9 @@ static void ui_link_feed(uint8_t b) {
 // Loop-side pump (core 0, next to the DIN pump): drain the IRQ-fed SW ring.
 // With the link absent this costs one ring-empty check per loop().
 static void ui_link_pump() {
+  crumb(21);                                    // hang probe: TX pump
   ui_link_tx_pump();                            // drain queued TX, never blocks
-  if (Serial1.overflow()) ++g_ui_rx_overflow;   // SW ring overflow (IRQ side)
+  crumb(22);                                    // hang probe: RX ring drain
   // Full-snapshot push on module/chain changes, gated by the C3's
   // full-snapshot toggle (UI_CMD sys id 1): the C3 re-renders without a
   // page request ("the firmware acks drive the UI"). Fires once per change
@@ -1650,9 +1702,13 @@ static void ui_link_pump() {
     last_chain = chain_now;
     ui_link_send_telem(g_ui_active_page, kUiTelemFull, 0);
   }
-  while (Serial1.available() > 0) {
-    const int c = Serial1.read();
-    if (c < 0) break;
-    ui_link_feed((uint8_t)c);
+  crumb(23);
+  for (int guard = 0; guard < 256; ++guard) {   // hard cap, cannot hang
+    crumb(24);
+    if (g_ui_rx_tail == g_ui_rx_head) break;
+    const uint8_t c = g_ui_rx_ring[g_ui_rx_tail];
+    g_ui_rx_tail = (uint16_t)((g_ui_rx_tail + 1) % kUiRxRingSize);
+    ui_link_feed(c);
   }
+  crumb(25);
 }

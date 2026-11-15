@@ -3609,3 +3609,55 @@ the fix and costs no new DSP in lira8.
   "Sent : 3 bytes" but the event NEVER reaches the RP2350 (`preset status`
   seen-CC count unchanged). `aplaymidi -p 24:0 file.mid` with a generated
   single-event SMF delivers every time. Use aplaymidi for bench CCs.
+- **CHAINED CLOUDS-B MONO QUALITY CRASH — ROOT CAUSE FOUND (2026-11-16)**:
+  user: "crashed in rings-clouds chain when switching page from rings to
+  clouds, 1-2 s of audio noise burst". Chain of evidence: (1) page switch →
+  C3 sends its QUALITY pot CC 50 = 3; (2) with host-only CCs, `CC 50 = 1/3`
+  (mono) kills the audio core while `0/2` (stereo) is fine; single-module
+  clouds mono is fine; (3) reports show core 1 blocked in `chain_write_b`'s
+  I2S write (`w1=20`), `bm=0`, then core 0 dies and the watchdog reboots.
+  (4) **ADDRESS-SANITIZER HOST HARness proved the write**: compile the
+  clouds lib on the host + `-fsanitize=address`, Init(87,040/44,032), mono
+  quality → `heap-buffer-overflow WRITE of size 2 at 0 bytes after the
+  87040-byte region` in `clouds::FxEngine<4096>::Clear()` ←
+  `PitchShifter::Init()` ← `GranularProcessor::Prepare()` (line 456).
+  `Prepare()` allocates only **1,560 B** for the correlator
+  (`(kMaxWSOLASize/32)+2)*3*4`) then passes that pointer to
+  `pitch_shifter_.Init()`, whose FxEngine<4096> clears **8,192 B** → a
+  **6,632 B overshoot of the workspace**. In the chained B slot the mono
+  layout puts the workspace at the END of the carve (small buffer), so the
+  overshoot leaves the pool: harmless by luck for elements/lira8/plaits
+  (their pool slack absorbs it) but for rings (768 B slack) it lands past
+  `g_rack_pool` (0x200038f0..0x200548f0) in libc/heap/I2S state → the I2S
+  DMA stops and core 1 blocks. This is why the user saw elements/lira8
+  chains work and plaits/rings crash (same code, different pool layout).
+  FIX NOW: chain-B quality clamp to STEREO modes only (0/2) in the adapter
+  (`chain_b` check) and in the chain CC dispatcher (with a log line).
+  Verified on device: CC 50 = 1/3 rejected, audio stays alive; 0/2 apply;
+  single-module clouds mono unchanged. REAL fix (TODO): allocate
+  `max(correlator_bytes, kMaxWSOLASize * 2)` = 8,192 B for the
+  correlator/pitch-shifter region and enlarge the chained workspace to
+  >= 49,152 B (needs a carve/pool budget change — the 131,072 B chained
+  clouds carve cannot satisfy both mono and stereo layouts at once).
+- **HANG DIAGNOSTICS + HARDENING (2026-11-16)**: the crash looked like a
+  frozen board: 2 s core-0 **hardware watchdog** (`watchdog_enable`, boot
+  8 s) now reboots it, with the last core-0 stage in a watchdog **scratch**
+  register (SRAM does not survive a watchdog reset; scratch[0] does) shown
+  as `hang=N`; core 1's stage in scratch[1] as `w1=` (10-14 chain render,
+  20/21 I2S write, 40/41 clouds-B) plus the I2S DMA channel busy/count
+  `d0=/d1=` in every 2 s report. `reboot` and `dma` console commands added.
+  ALL event-driven core-0 diagnostics now go through the non-blocking
+  `dbg_printf` ring (UI-link RX handler, preset apply/chunk paths, mod
+  engine UI sets, rings clamp, deferred swap/chain reports, USB host
+  callbacks, boot prints) — a blocking CDC write with no console reader was
+  itself a hang class (the boot prints could hang a console-less boot).
+  The DIN and UI-link UARTs now use **direct UART drivers** with hard-capped
+  drains (64 B/IRQ or per pass), replacing the Arduino core's unbounded
+  `while (uart_is_readable())` RX handler (a break on a floating GP5 hung
+  core 0).
+- **LED + PIEZO OFF (user request, 2026-11-16)**: `status_led::kEnabled =
+  false` (no PIO program, no SM claim; PIO2 is still un-reset for I2S) and
+  `rack_piezo::kEnabled = false` (no free-running ADC, no DMA channel — the
+  piezo is not wired yet; its DMA ring was a hang suspect). The button press
+  report line is removed (user: "we dont need to print button presses
+  anymore").

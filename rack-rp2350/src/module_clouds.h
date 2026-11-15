@@ -477,7 +477,15 @@ void control_change(uint8_t cc, uint8_t val) {
     // 3 = 8-bit mono. Changing quality resets the recording buffers in
     // Prepare().
     case 24:
-      if (val <= 3) {
+      // CHAIN-B QUALITY CLAMP (stereo only). The chained carve is
+      // 87,040 B large / 44,032 B small; the mono quality modes (1 = mono
+      // 16-bit, 3 = mono 8-bit) re-init the buffers into the sample/workspace
+      // layout and kill the audio core on device for the plaits/rings chain
+      // pairs (bench: CC 50 = 1/3 while chained -> I2S DMA stops, core 1
+      // blocked in write16; 0/2 fine; single-module clouds mono fine). Until
+      // the chained carve/re-init is proven, clouds-B stays stereo — mono
+      // remains available in single-module clouds.
+      if (val <= 3 && (!s->chain_b || (val & 1) == 0)) {
         s->pending_quality = static_cast<int8_t>(val);
       }
       break;
