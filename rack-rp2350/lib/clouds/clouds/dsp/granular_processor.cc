@@ -63,7 +63,6 @@ void GranularProcessor::Init(
   previous_playback_mode_ = PLAYBACK_MODE_LAST;
   reset_buffers_ = true;
   dry_wet_ = 0.0f;
-  silence_ = false;
     
     sr_ = 48000.f;      // vb, init sample rate
     
@@ -203,13 +202,13 @@ CLOUDS_RAM_CODE(process) void GranularProcessor::Process(
     // vb, we have to copy input signal!
     copy(&in[0], &in[size], &in_[0]);
     
-    // Mix stereo input to mono for 1-channel modes so both L and R (e.g. aux) are recorded.
-    if (num_channels_ == 1) {
-      for (size_t i = 0; i < size; ++i) {
-        in_[i].l = (in_[i].l + in_[i].r) * 0.5f;
-        in_[i].r = in_[i].l;
-      }
-    }
+    // vb, we always use stereo input
+//  if (num_channels_ == 1) {
+//    for (size_t i = 0; i < size; ++i) {
+//      in_[i].l = (in_[i].l + in_[i].r) * 0.5f;
+//      in_[i].r = in_[i].l;
+//    }
+//  }
   
   // Apply feedback, with high-pass filtering to prevent build-ups at very
   // low frequencies (causing large DC swings).
@@ -448,8 +447,22 @@ void GranularProcessor::Prepare() {
     reverb_.Init(allocator.Allocate<uint16_t>(16384));
     
     size_t correlator_block_size = (kMaxWSOLASize / 32) + 2;
+    // The WSOLA correlator and the pitch shifter SHARE this region, but the
+    // pitch shifter is an FxEngine<kMaxWSOLASize> whose Clear() zeroes
+    // kMaxWSOLASize int16 samples (8192 B) - far more than the correlator's
+    // ~1.5 KB. Allocating only the correlator size made Prepare() write
+    // 6.6 KB past the workspace end: harmless on the standalone carve, but in
+    // the rack's chained B slot (smaller carve, workspace at the end) it
+    // escaped into the pool/heap and stopped the audio core.
+    size_t correlator_words = correlator_block_size * 3;
+    const size_t pitch_shifter_words =
+        (kMaxWSOLASize * sizeof(uint16_t) + sizeof(uint32_t) - 1) /
+        sizeof(uint32_t);
+    if (correlator_words < pitch_shifter_words) {
+      correlator_words = pitch_shifter_words;
+    }
     uint32_t* correlator_data = allocator.Allocate<uint32_t>(
-        correlator_block_size * 3);
+        correlator_words);
     correlator_.Init(
         &correlator_data[0],
         &correlator_data[correlator_block_size]);

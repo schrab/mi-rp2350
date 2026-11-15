@@ -3661,3 +3661,19 @@ the fix and costs no new DSP in lira8.
   piezo is not wired yet; its DMA ring was a hang suspect). The button press
   report line is removed (user: "we dont need to print button presses
   anymore").
+- **PROPER FIX for the chained clouds-B workspace overrun (2026-11-16,
+  `clouds-z-pitchshifter-workspace.patch` + split change)**: the clouds lib
+  now allocates `max(correlator 1,560 B, kMaxWSOLASize*2 = 8,192 B)` for the
+  correlator/pitch-shifter region (the pitch shifter's FxEngine<4096> clears
+  8,192 B through that pointer). The FX workspace need is therefore
+  **49,152 B** (8,192 diffuser + 32,768 reverb + 8,192 pitch shifter). New
+  chained split **90,496 large / 41,216 small** (131,712 total): stereo
+  channels 41,216 B (0.64 s/ch @ 32 kHz) and stereo workspace 49,280 B
+  (128 B margin); the rings pair now uses 331,656 of 331,776 B. Mono quality
+  remains impossible for the rings pair by arithmetic
+  (2*small + 49,152 <= 131,840 can't hold with small >= 49,152), so chained
+  clouds-B COERCES mono (1/3) to stereo — adapter clamp + a last-line guard
+  in `chain_render_b`. ASan host proof: clean for stereo 16/8-bit on the new
+  split, clean for ALL four qualities + looping on the standalone split.
+  On device: rings>clouds engage 30 ms, all four CC 50 values alive,
+  stalls 0.

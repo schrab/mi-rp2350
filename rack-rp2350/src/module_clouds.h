@@ -269,7 +269,14 @@ void chain_render_b(const float* in_l, const float* in_r,
     s->pending_playback_mode = -1;
   }
   if (s->pending_quality >= 0) {
-    s->processor.set_quality(s->pending_quality);
+    // LAST-LINE MONO GUARD for the chained carve: mono quality needs a
+    // 49,152 B workspace in the small buffer, which the tightest chain pair
+    // (rings) cannot afford — the CC clamp rejects 1/3, and this covers any
+    // other path (preset replay, future code) so Prepare() can never see a
+    // workspace too small for its corrected pitch-shifter allocation.
+    int8_t q = s->pending_quality;
+    if (s->chain_b && (q & 1)) q = 0;
+    s->processor.set_quality(q);
     s->pending_quality = -1;
   }
   if (s->pending_freeze >= 0) {

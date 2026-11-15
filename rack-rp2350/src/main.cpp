@@ -424,16 +424,22 @@ static const uint32_t kChainStallUs = 1400; // ~1.8x the 750 us block period
 static const uint32_t kChainI2sBuffers = 32;
 static const uint32_t kChainI2sWords = 16;
 
-// CHAINED CLOUDS BUFFER SPLIT: clouds-B always takes 131,072 B
-// (large 87,040 B = 85 KiB + small 44,032 B = 43 KiB), carved from the T8
-// unified pool above A's state+buffers. This supports ALL 4 quality settings
-// safely:
-// - Stereo (quality 0 / 2): sample memory = 44,032 B (0.688 s/ch @ 32 kHz),
-//   workspace = large - small = 43,008 B (diffuser 8KB + reverb 32KB + correlator 1.5KB = 42,520 B; fits with 488 B headroom).
-// - Mono (quality 1 / 3): sample memory = 87,040 B (1.36 s @ 32 kHz),
-//   workspace = small = 44,032 B (fits 42,520 B with 1,512 B headroom).
-static const size_t kChainCloudsLargeBytes = 87040;
-static const size_t kChainCloudsSmallBytes = 44032;
+// CHAINED CLOUDS BUFFER SPLIT — sized for the CORRECTED FX-workspace need.
+// clouds' Prepare() allocates diffuser 8,192 + reverb 32,768 + correlator/
+// pitch-shifter 8,192 (the pitch shifter's FxEngine<4096> clears 4,096 int16
+// samples through the correlator pointer — the old 1,560 B allocation wrote
+// 6.6 KB past the workspace; see tools/patches/clouds/clouds-z-pitchshifter-
+// workspace.patch and the ASan proof in the ledger) = **49,152 B workspace**.
+// - Stereo (quality 0 / 2): per-channel sample memory = small, workspace =
+//   large - small. Needs large - small >= 49,152.
+// - Mono (quality 1 / 3): sample = large, workspace = small >= 49,152 — and
+//   stereo additionally needs 2*small + 49,152 <= carve. For the tightest
+//   pair (rings: carve 131,840 B) that is impossible, so mono quality stays
+//   clamped for chained clouds-B (the adapter + dispatcher reject it); the
+//   stereo split below satisfies its workspace with 128 B margin.
+//   stereo channels = 41,216 B = 0.64 s/ch @ 32 kHz.
+static const size_t kChainCloudsLargeBytes = 90496;   // stereo: workspace 49,280
+static const size_t kChainCloudsSmallBytes = 41216;   // stereo: channel size
 // Per-A buffer demand in the unified pool (elements/rings reverb 64 KB,
 // plaits workspace 32 KB, lira8 32 kHz delay 128,016 B).
 static const size_t kChainABufferBytes[RACK_MODULE_COUNT] = {

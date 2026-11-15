@@ -1,0 +1,26 @@
+--- a/clouds/dsp/granular_processor.cc
++++ b/clouds/dsp/granular_processor.cc
+@@ -447,8 +447,22 @@
+     reverb_.Init(allocator.Allocate<uint16_t>(16384));
+     
+     size_t correlator_block_size = (kMaxWSOLASize / 32) + 2;
++    // The WSOLA correlator and the pitch shifter SHARE this region, but the
++    // pitch shifter is an FxEngine<kMaxWSOLASize> whose Clear() zeroes
++    // kMaxWSOLASize int16 samples (8192 B) - far more than the correlator's
++    // ~1.5 KB. Allocating only the correlator size made Prepare() write
++    // 6.6 KB past the workspace end: harmless on the standalone carve, but in
++    // the rack's chained B slot (smaller carve, workspace at the end) it
++    // escaped into the pool/heap and stopped the audio core.
++    size_t correlator_words = correlator_block_size * 3;
++    const size_t pitch_shifter_words =
++        (kMaxWSOLASize * sizeof(uint16_t) + sizeof(uint32_t) - 1) /
++        sizeof(uint32_t);
++    if (correlator_words < pitch_shifter_words) {
++      correlator_words = pitch_shifter_words;
++    }
+     uint32_t* correlator_data = allocator.Allocate<uint32_t>(
+-        correlator_block_size * 3);
++        correlator_words);
+     correlator_.Init(
+         &correlator_data[0],
+         &correlator_data[correlator_block_size]);
