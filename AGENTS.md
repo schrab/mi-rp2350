@@ -108,8 +108,10 @@ echo "RP2350 port: $RP"
 #    first (a stray `cat` splits the byte stream and blocks the reboot).
 fuser -v "$RP" 2>/dev/null || true
 
-# 2) 1200-baud touch -> reboots into BOOTSEL (no button needed)
-stty -F "$RP" 1200 raw -echo
+# 2) 1200-baud touch -> reboots into BOOTSEL (no button needed).
+#    hupcl is REQUIRED: without it, close leaves DTR asserted, the app never
+#    sees the 1200-baud DTR drop, and nothing reboots (silent no-op).
+stty -F "$RP" 1200 raw -echo hupcl
 
 # 3) Wait for the RP2350 mass-storage drive (label RP2350, usually sdb1)
 for i in $(seq 1 20); do
@@ -135,7 +137,10 @@ udisksctl unmount -b "$DEV"
 ```
 
 If `stty` does not reboot the board (seen when the CDC task is busy / the
-port is stale), use the equivalent pyserial touch:
+port is stale), use the equivalent pyserial touch. The DTR drop must actually
+reach the device — if the ioctl raises `[Errno 71] Protocol error`, check that
+the device *re-enumerated* (device number / product string changes to
+"RP2350 Boot") before assuming it worked:
 
 ```sh
 python3 - <<'PY'
