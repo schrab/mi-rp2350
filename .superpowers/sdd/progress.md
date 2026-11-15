@@ -3262,3 +3262,32 @@ MANUAL's structure.
   (pd exit 124 even for delay-extremes) so a static-wet pd reference could
   not be produced; the port stays int16 (float needs 256 KB at 1 s).
 Device: 803-810 us/block, delay stage 207-222, stalls 0.
+
+### Rack-lira8 SELF grit + drive grit + merged delay-mode switch + user pot map
+
+Bench report: LFO delay modulation (del-mode 2) is clean; SELF (0) is gritty;
+DRIVE at high values is gritty.
+- **SELF grit root cause**: pd's SELF vd~ has an UNCONNECTED time inlet, so it
+  holds ONE sample across each block -> the delay-time modulation is a 500 Hz
+  staircase (a read-position jump of up to |self|*mod_ms per block = clicks +
+  HF). Fixed by replaying the previous block's FLOAT writes (self_buf_) as
+  the SELF source: same "modulated by its own output" law, smooth time
+  signal, and no int16 quantization on the mod source.
+- **DRIVE grit**: one-pole at 7 kHz on the DISTORTION branch only (the
+  manual's "the highs sound softer" hardware voicing; the Pd patch has no
+  such filter). Tames the pow~31 aliasing without darkening the clean path.
+- **Merged delay-mode switch** (the old 3-state CC51 was an artifact: the
+  patch gates ==0 self / ==2 lfo, leaving 1 = no modulation, which the
+  hardware does not have). CC51 is now the manual's SELF/LFO switch merged
+  with the waveform switch: 0 = SELF, 1 = LFO-triangle, 2 = LFO-square.
+  Small values are the C3's discrete states, larger MIDI values map in
+  thirds; CC52 stays a direct MIDI waveform override.
+- **Pot map (user)**: P1/P2 = FAST + FM SRC of both pairs on row0 (2 spares),
+  the four TUNEs on the middle row, SHARP/MOD of both pairs + PITCH + HOLD
+  on row2. P3 = DEL MODE, MOD1, TIME1, TIME2, MOD2, FB (row0) / MIX, DRIVE,
+  DIST MIX, VOL (row1) / FREQ A, FREQ B, TOTAL FB, VIBRATO, FM STRUCT (row2).
+- **C3 switch texts**: FAST -> SLOW/FAST; FM SRC -> FM/OFF/LFO; DEL MODE ->
+  SELF/TRI/SQR; FM STRUCT -> SPLIT/LOOP; TOTAL FB/VIBRATO -> ON/OFF.
+- Engine housekeeping: all delay/audio work arrays memset in the ctor (the
+  SELF float feedback path needs defined initial content).
+Device: 804-862 us/block, delay 212-218, voices 504-535, i2s stalls 0.

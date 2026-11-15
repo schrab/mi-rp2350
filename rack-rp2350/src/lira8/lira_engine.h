@@ -77,6 +77,15 @@ class Lira8Engine {
     memset(buses_prev_, 0, sizeof(buses_prev_));
     memset(bus_next_, 0, sizeof(bus_next_));
     memset(self_prev_, 0, sizeof(self_prev_));
+    memset(self_next_, 0, sizeof(self_next_));
+    memset(self_buf_, 0, sizeof(self_buf_));
+    memset(write_buf_, 0, sizeof(write_buf_));
+    memset(vd_out_, 0, sizeof(vd_out_));
+    memset(exp_out_, 0, sizeof(exp_out_));
+    memset(chain_buf_, 0, sizeof(chain_buf_));
+    memset(delay_out_, 0, sizeof(delay_out_));
+    memset(out_buf_, 0, sizeof(out_buf_));
+    memset(blk_, 0, sizeof(blk_));
     apply_defaults();
   }
 
@@ -325,14 +334,14 @@ class Lira8Engine {
         rp[i] = t + (self * gate_self + lfo * gate_lfo) * ma;
       }
       delays_[b].read_block(rp, kBlockSize, vd_out_[b]);
-      // SELF = the SECOND vd~ at MINIMUM delay (unconnected time inlet),
-      // constant across the block; the main vd_out is the wet read, which
-      // can stand hundreds of ms away (v1 used it, so the self-mod followed
-      // the delayed wet instead of the recent buffer). The /2 of pd's
-      // wiring commutes with the linear lop~.
-      const float self_tap = delays_[b].read_min_tap();
+      // SELF = the recent FLOAT audio (the previous block's writes replayed
+      // per sample). pd's SELF vd~ (unconnected time inlet) holds ONE sample
+      // across the block, so its delay-time modulation is a 500 Hz
+      // staircase — that is the SELF mode's grit. Replaying the block keeps
+      // the "modulated by its own output" law while smoothing the time
+      // signal.
       for (int i = 0; i < kBlockSize; ++i)
-        self_next_[b][i] = self_lpf_[b].process(self_tap) * 0.5f;
+        self_next_[b][i] = self_lpf_[b].process(self_buf_[b][i]) * 0.5f;
 
       // chain: hip~1 -> lop~4000 -> comp -> exp
       for (int i = 0; i < kBlockSize; ++i) {
@@ -345,6 +354,8 @@ class Lira8Engine {
         write_buf_[b][i] = write_sum[i] + exp_out_[b][i] * fg[i];
       }
       delays_[b].write_block(write_buf_[b], kBlockSize);
+      // The SELF source for the NEXT block (float, unquantized).
+      memcpy(self_buf_[b], write_buf_[b], sizeof(self_buf_[b]));
     }
     // wet monitor: (exp1+exp2)/2 / max(g,1.5) -> tanh -> mix with dry
     for (int i = 0; i < kBlockSize; ++i) {
@@ -389,6 +400,7 @@ class Lira8Engine {
   float mux_buf_[64];
   float self_prev_[2][64];
   float self_next_[2][64];
+  float self_buf_[2][64];   // previous block's FLOAT writes (SELF source)
   float vd_out_[2][64];
   float write_buf_[2][64];
   float exp_out_[2][64];

@@ -74,7 +74,8 @@ static const char* const kCcMap =
     "25-26 pitch, 27-28 hold, 29 switch, 30 total-fb, 31 vibrato, "
     "36 drv, 37 dst-mix, 38 vol, 39 f-a, 41 f-b, 42 andor, 43 link, "
     "44 time-1, 45 time-2, 46 feedback, 47 del-mix, 48-49 mod-1/2, "
-    "51 del-mod, 52 lfo-wav, 53 quantize, 55-62 sensors 1-8 (latch)";
+    "51 delay-mode (0 self / 1 lfo-tri / 2 lfo-sqr), 52 lfo-wave direct, "
+    "53 quantize, 55-62 sensors 1-8 (latch)";
 
 // T3 mod destinations: all 47 continuous params (the spec §12 order mapped
 // to the CC numbers above); triggers = the 8 sensors (LATCH — a sensor gate
@@ -235,6 +236,19 @@ void control_change(uint8_t cc, uint8_t val) {
     set_sensor(cc - 55, val >= 64);
     return;
   }
+  // CC 51 = the combined DELAY MODE switch. The hardware has a two-way
+  // SELF/LFO switch plus a separate LFO-waveform switch; since the LFO does
+  // not shape the delay in SELF mode, the UI merges them into one 3-state
+  // selector: 0 = SELF, 1 = LFO triangle, 2 = LFO square. Small values are
+  // the C3's discrete states; larger MIDI values map in thirds.
+  if (cc == 51) {
+    int mode;
+    if (val <= 2) mode = val;
+    else mode = (val < 43) ? 0 : (val < 85 ? 1 : 2);
+    s->eng.set_param(44, (mode == 0) ? 0.0f : 2.0f);        // del-mod
+    if (mode > 0) s->eng.set_param(45, (mode == 2) ? 1.0f : 0.0f);
+    return;
+  }
   const int8_t idx = cc_to_param(cc);
   if (idx >= 0) s->eng.set_param(idx, static_cast<float>(val));
 }
@@ -247,6 +261,12 @@ void control_change(uint8_t cc, uint8_t val) {
 bool mod_set_cc_float(uint8_t cc, float v) {
   if (v < 0.0f) v = 0.0f;
   if (v > 1.0f) v = 1.0f;
+  if (cc == 51) {   // combined delay-mode selector (see control_change)
+    const int mode = (v < 0.34f) ? 0 : (v < 0.67f ? 1 : 2);
+    s->eng.set_param(44, (mode == 0) ? 0.0f : 2.0f);
+    if (mode > 0) s->eng.set_param(45, (mode == 2) ? 1.0f : 0.0f);
+    return true;
+  }
   const int8_t idx = cc_to_param(cc);
   if (idx < 0) return false;
   s->eng.set_param(idx, v * 127.0f);

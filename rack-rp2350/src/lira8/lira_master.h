@@ -15,7 +15,8 @@ class MasterOut {
  public:
   explicit MasterOut(float sr)
       : drive_(sr), dst_mix_(sr), vol_(sr),
-        hip20_(20.0f, sr), hip10_(10.0f, sr), hip3_(3.0f, sr) {}
+        hip20_(20.0f, sr), hip10_(10.0f, sr), hip3_(3.0f, sr),
+        dist_lp_c_(1.0f - std::exp(-2.0f * kPi * 7000.0f / sr)) {}
 
   void set_drv(int k) {
     const float v = 1.0f + 2.0f * (k / 127.0f);
@@ -39,10 +40,15 @@ class MasterOut {
     const float t16 = t8 * t8;
     const float shaped = t + (t16 * t8 * t4 * t2 * t) * 0.25f;  // /~ 4
     const float shaped10 = hip10_.process(shaped);
+    // The manual: the hardware's "highs sound softer" (its distortion stage
+    // is band-limited). One-pole at 7 kHz on the DISTORTION branch only —
+    // tames the pow~31 drive's aliasing/grit without darkening the clean
+    // path. (The Pd patch has no such filter; this is an HW-voicing choice.)
+    dist_lp_y_ += dist_lp_c_ * (shaped10 - dist_lp_y_);
     float gc = g;  // clip(g, 1, 4)
     if (gc > 4.0f) gc = 4.0f;
     if (gc < 1.0f) gc = 1.0f;
-    const float dist = shaped10 / gc;
+    const float dist = dist_lp_y_ / gc;
     const float mix = dst_mix_.next();
     const float wet = in * 0.1f + dist;
     const float out_pre = tanh_pade(wet * mix + in * (1.0f - mix));
@@ -60,6 +66,8 @@ class MasterOut {
     return x * (27.0f + x * x) / (27.0f + 9.0f * x * x);
   }
   Ramp drive_, dst_mix_, vol_;
+  float dist_lp_c_;
+  float dist_lp_y_ = 0.0f;
   float drive_raw_ = 1.f;
   Hip hip20_, hip10_, hip3_;
 };

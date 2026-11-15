@@ -851,7 +851,25 @@ namespace CTAG {
                         const uint8_t modForPage = (s_page == 9) ? 1 : ModuleClamp(s_cur.module);
                         bool wireBool = false;
                         (void)p1p2DiscreteCount(s_page, modForPage, c.cc, wireBool);
-                        if (wireBool) {
+                        if (modForPage == 4) {
+                            // rack-lira8 switch texts (LYRA-8 manual)
+                            if (c.cc >= 9 && c.cc <= 12) {          // FAST
+                                static const char *const kFast[2] = { "SLOW", "FAST" };
+                                pName = (dispVal >= 0 && dispVal < 2) ? kFast[dispVal] : "---";
+                            } else if (c.cc >= 21 && c.cc <= 24) {  // FM source
+                                static const char *const kSrc[3] = { "FM", "OFF", "LFO" };
+                                pName = (dispVal >= 0 && dispVal < 3) ? kSrc[dispVal] : "---";
+                            } else if (c.cc == 51) {                // delay mode
+                                static const char *const kDel[3] = { "SELF", "TRI", "SQR" };
+                                pName = (dispVal >= 0 && dispVal < 3) ? kDel[dispVal] : "---";
+                            } else if (c.cc == 29) {                // FM structure
+                                pName = dispVal ? "LOOP" : "SPLIT";
+                            } else if (c.cc == 30 || c.cc == 31) {  // TOTAL FB / VIBRATO
+                                pName = dispVal ? "ON" : "OFF";
+                            } else if (wireBool) {
+                                pName = dispVal ? "ON" : "OFF";
+                            }
+                        } else if (wireBool) {
                             pName = dispVal ? "ON" : "OFF";
                         } else if (s_page == 9 && (c.cc == 23 || c.cc == 49)) {
                             static const char *const kCloudBModes[2] = { "GRAN", "LOOP" };
