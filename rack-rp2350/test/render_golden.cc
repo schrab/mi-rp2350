@@ -84,9 +84,9 @@ int main(int argc, char** argv) {
   // stop happens at last event + 1000 ms (per scenarios.txt)
   end_ms += 1000;
 
-  static int16_t delay_mem[2 * (46400 + 4)];
+  static int16_t delay_mem[2 * (32000 + 4)];   // HW delay cap = 1 s
   memset(delay_mem, 0, sizeof(delay_mem));
-  l8pd::Lira8Engine eng(32000.0f, 1450.0f, delay_mem);
+  l8pd::Lira8Engine eng(32000.0f, 1000.0f, delay_mem);
   const int kBlock = l8pd::Lira8Engine::kBlockSize;
   size_t evi = 0;
   const int total_blocks = (end_ms * 32 + kBlock - 1) / kBlock;

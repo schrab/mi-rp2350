@@ -3230,3 +3230,35 @@ Verification: host tests green; D2->E renders bit-identical (-213..-227 dB);
 onevoice unchanged. On device: max Process 1123-1159 -> **807-808 us** (40%
 of the 2 ms block), voices 676-687 -> **508-509**, delay 211-212, LFO 40-43,
 master 41-47, params spikes 158-211 -> **0-46**, i2s stalls 0.
+
+### Rack-lira8 HW delay cap + manual-based UI (2026-11-15)
+
+User: the ORIGINAL HARDWARE's delay maximum is **1 second** (the Pd patch's
+5.944 s range is a patch-ism), and the UI should follow the LYRA-8 USER
+MANUAL's structure.
+- **kCapMs 1450 -> 1000**: the int16 carve is now 2 x 32,004 = 128,016 B
+  (~65% of the 192 KiB arena). The pd TIME law is kept, so the top ~22% of
+  the TIME knob saturates at the cap (like a pot hitting its stop). Chain-A
+  still rejected: A + clouds-B needs 128,016+87,040+44,032 = 259,088 B.
+- **UI re-arranged from the manual** (pairs 12/34/56/78, groups 1234/5678):
+  P1 = group 1234 (row0 pair12 TUNE1/2 SHARP/MOD/FAST/FM-SRC; row1 PITCH
+  1234, HOLD 1234, TUNE3/4; row2 SHARP/MOD/FAST/FM-SRC 34 + 2 spare),
+  P2 = group 5678 mirrored, P3 = HYPER LFO (FREQ A/B + the delay TRI/SQR +
+  SELF/LFO) + the three globals (TOTAL FB, VIBRATO, FM STRUCT) on row0,
+  MOD DELAY row1 (TIME1/2, MOD1/2), DELAY+DISTORTION row2 (FB, MIX, DRIVE,
+  DIST MIX, VOL). Naming follows the manual (FM SRC, FM STRUCT, TRI/SQR,
+  SELF/LFO, FB, MIX, DIST MIX, VOL). The manual has 18 controls for P3 and
+  the page holds 16: AND/OR (CC 42) and LINK (CC 43) stay MIDI/preset-only,
+  as does QUANTIZE (a Pd-patch extra not on the hardware).
+- **Harshness investigation (unresolved)**: the dry path matches the Pd
+  golden within +-0.2 dB in every band; the FULLY-WET static delay is ~10 dB
+  brighter at 12.5-16 kHz than the Pd golden while the LF bands match. The
+  wet chain (hip1 -> lop4k -> compressor -> expander -> /max(g,1.5) -> tanh),
+  the vd~ taps, the delay input source and the line~ rates all match the
+  resolved dump. A/Bs: expander bypass = no change (unity gain there),
+  compressor bypass = louder with the tilt intact, drive 0/86 = +-1 dB,
+  int16 headroom +-4 = ~4.5 dB louder (some +-2 clipping) but the tilt
+  persists (~1 dB of it explained). The Pd golden generator now hangs
+  (pd exit 124 even for delay-extremes) so a static-wet pd reference could
+  not be produced; the port stays int16 (float needs 256 KB at 1 s).
+Device: 803-810 us/block, delay stage 207-222, stalls 0.

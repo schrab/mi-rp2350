@@ -376,10 +376,11 @@ static const size_t kChainCloudsSmallBytes = 44032;
 // workspace 32 KB).
 static const size_t kChainABufferBytes[RACK_MODULE_COUNT] = {
     65536, 0, 32768, 65536,
-    // lira8: the int16 delay carve (2 x 46,404 samples = 185,616 B) takes
-    // ~96% of the buffer arena — chain A rejected by the buf_needed check
-    // (nothing left for a chained clouds-B). Standalone-only module for now.
-    185616,
+    // lira8: the int16 delay carve (2 x 32,004 samples = 128,016 B) now follows
+    // the ORIGINAL HARDWARE's 1 s delay cap (~65% of the buffer arena). Still
+    // chain-A rejected: clouds-B needs 87,040 + 44,032 B above A, i.e.
+    // 259,088 B > 192 KiB. Standalone-only module.
+    128016,
 };
 
 // Chain render block buffers (24 x 2 floats x 2 = 384 B in .bss — the

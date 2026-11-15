@@ -9,7 +9,8 @@
 //
 // Follows the established adapter shape (module_elements.h / module_plaits.h):
 // arena-placed State (engine by value + the delay buffers carved from the
-// BUFFER arena — 2 x 46,404 int16 = 185,616 B of the 192 KiB arena), pending
+// BUFFER arena — 2 x 32,004 int16 = 128,016 B of the 192 KiB arena, the
+// ORIGINAL HARDWARE's 1 s delay cap), pending
 // slots for CCs/sensors, the mod-engine hooks, the T1 button twin.
 //
 // AUDIO CONTRACT: the engine renders pd-style 64-sample blocks internally;
@@ -55,8 +56,12 @@ static const uint32_t kI2sBuffers = 8;   // 8 x 16 words = 128 frames (~4 ms)
 static const uint32_t kI2sWords = 16;
 static const uint32_t kStallUs = 900;    // >2x the 500 us block period
 
-// Delay storage: 1.45 s per line, int16, 2 lines — the buffer arena carve.
-static constexpr float kCapMs = 1450.0f;
+// Delay storage: the ORIGINAL HARDWARE's delay tops out at 1 SECOND (user,
+// 2026-11-15) — the Pd patch's 5.944 s range is a patch-ism. int16, 2 lines:
+// (32000+4) * 2 * 2 = 128,016 B of the 192 KiB buffer arena. The pd TIME law
+// is kept (2^(12k/127)*1.45125 ms), so the top ~22% of the TIME knob
+// saturates at the cap, like a pot hitting its stop.
+static constexpr float kCapMs = 1000.0f;
 static constexpr size_t kDelayBytes = l8pd::Lira8Engine::delay_bytes_for(kCapMs, kSampleRate);
 static_assert(kDelayBytes <= kRackBufferArenaBytes,
               "lira8 delay carve exceeds the rack buffer arena");
@@ -98,7 +103,7 @@ static const RackModDestinations kModDestinations = {
 };
 
 // --- engine state: arena-placed (the engine BY VALUE; the delay buffers
-// carve from the BUFFER arena at init — 185,616 B of 192 KiB) ---
+// carve from the BUFFER arena at init — 128,016 B of 192 KiB) ---
 struct State {
   l8pd::Lira8Engine eng;
 
@@ -163,10 +168,10 @@ void pluck_poll() {
   }
 }
 
-// T6 chain A-slot render — NOT provided: lira8's delay carve takes ~96% of
-// the BUFFER arena, leaving nothing for a chained clouds-B. The chain pair
-// table in main.cpp must not offer lira8 as chain A (v1: rack-lira8 boots
-// standalone; chain support would need a smaller delay cap).
+// T6 chain A-slot render — NOT provided: lira8's delay carve takes ~65% of
+// the BUFFER arena, and a chained clouds-B needs another 131 KiB above it
+// (259,088 B > 192 KiB). The chain pair table in main.cpp must not offer
+// lira8 as chain A (v1: rack-lira8 boots standalone).
 
 void render() {
   pluck_poll();

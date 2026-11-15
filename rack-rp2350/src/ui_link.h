@@ -273,84 +273,84 @@ static const UiPageCell kUiPageRingsP1[16] = {
     {19, "POLY",       kUiColorWhite}, // p16
 };
 
-// rack-lira8 pages P1/P2/P3 (v1.1, 2026-11-15): the Lyra-8 has 47 engine
-// params, more than 2x16 cells, so the UI spans THREE banks — the complete
-// voice matrix (8x tune/sharp/mod) on P1+P2, and the routing/sensor-speed/
-// LFO-shape/delay-mod group plus the one spare cell on P3.
-// P1: all 8 tunes + pair-1 tone + the global/delay strip.
-// P2: the other six SHARP/MOD values (the full 8x tune/sharp/mod matrix) +
-// pitch/hold for voices 5-8, drive/dst-mix, delay mix + line mods, switch,
-// total feedback.
-// P3: FAST 1-4, SOURCE 1-4, F-A/F-B, AND/OR, LINK, DEL-MOD, LFO-WAV,
-// QUANTIZE (15) + 1 empty.
-// CCs match the adapter's kCcMap; sensors speak MIDI notes 36-43 (the
-// patch's notemap) and mod triggers 55-62.
+// rack-lira8 pages P1/P2/P3 — arranged from the LYRA-8 USER MANUAL (V2.1):
+// voices in four pairs (12/34/56/78), pairs in two groups (1234/5678).
+// The 16 cells split 8+8: the LEFT half of each voice page is the group's
+// PITCH/HOLD plus its first pair, the RIGHT half the second pair (+2 spares).
+// P1 = group 1234 (voices 1-4), P2 = group 5678 (voices 5-8),
+// P3 = HYPER LFO + MOD DELAY + DISTORTION + the three global switches
+// (FM STRUCT, TOTAL FB, VIBRATO), per the manual's section order.
+// NOT on the pots (manual-external or MIDI-only): AND/OR (CC 42) and LINK
+// (CC 43) LFO synthesis switches, and QUANTIZE (CC 53, a Pd-patch extra the
+// hardware does not have). CCs match the adapter's kCcMap; sensors speak
+// MIDI notes 36-43 (the patch's notemap) and mod triggers 55-62.
 static const UiPageCell kUiPageLira8P1[16] = {
-    // Row 0 (pots 0..5 / physical p1..p6):
+    // Row 0 (pots 0..5 / physical p1..p6): PAIR 12
     {1,  "TUNE 1",     kUiColorWhite}, // p1
     {2,  "TUNE 2",     kUiColorWhite}, // p2
-    {3,  "TUNE 3",     kUiColorWhite}, // p3
-    {4,  "TUNE 4",     kUiColorWhite}, // p4
-    {5,  "TUNE 5",     kUiColorWhite}, // p5
-    {6,  "TUNE 6",     kUiColorWhite}, // p6
-    // Row 1 (pots 6..9 / physical p7..p10):
-    {7,  "TUNE 7",     kUiColorWhite}, // p7
-    {8,  "TUNE 8",     kUiColorWhite}, // p8
-    {27, "HOLD 1-4",   kUiColorWhite}, // p9
-    {38, "VOLUME",     kUiColorWhite}, // p10
-    // Row 2 (pots 10..15 / physical p11..p16):
-    {13, "SHARP 12",   kUiColorWhite}, // p11
-    {17, "MOD 12",     kUiColorWhite}, // p12
-    {31, "VIBRATO",    kUiColorWhite}, // p13
-    {44, "TIME 1",     kUiColorWhite}, // p14
-    {45, "TIME 2",     kUiColorWhite}, // p15
-    {46, "FEEDBACK",   kUiColorWhite}, // p16
+    {13, "SHARP 12",   kUiColorWhite}, // p3
+    {17, "MOD 12",     kUiColorWhite}, // p4
+    {9,  "FAST 12",    kUiColorWhite}, // p5
+    {21, "FM SRC 12",  kUiColorWhite}, // p6
+    // Row 1 (pots 6..9 / physical p7..p10): GROUP 1234 + PAIR 34 tunings
+    {25, "PITCH 1234", kUiColorWhite}, // p7
+    {27, "HOLD 1234",  kUiColorWhite}, // p8
+    {3,  "TUNE 3",     kUiColorWhite}, // p9
+    {4,  "TUNE 4",     kUiColorWhite}, // p10
+    // Row 2 (pots 10..15 / physical p11..p16): PAIR 34
+    {14, "SHARP 34",   kUiColorWhite}, // p11
+    {18, "MOD 34",     kUiColorWhite}, // p12
+    {10, "FAST 34",    kUiColorWhite}, // p13
+    {22, "FM SRC 34",  kUiColorWhite}, // p14
+    {0,  "",           kUiColorWhite}, // p15 (spare)
+    {0,  "",           kUiColorWhite}, // p16 (spare)
 };
 
 static const UiPageCell kUiPageLira8P2[16] = {
-    // Row 0 (pots 0..5 / physical p1..p6):
-    {14, "SHARP 34",   kUiColorWhite}, // p1
-    {15, "SHARP 56",   kUiColorWhite}, // p2
-    {16, "SHARP 78",   kUiColorWhite}, // p3
-    {18, "MOD 34",     kUiColorWhite}, // p4
-    {19, "MOD 56",     kUiColorWhite}, // p5
-    {20, "MOD 78",     kUiColorWhite}, // p6
-    // Row 1 (pots 6..9 / physical p7..p10):
-    {25, "PITCH 1-4",  kUiColorWhite}, // p7
-    {26, "PITCH 5-8",  kUiColorWhite}, // p8
-    {28, "HOLD 5-8",   kUiColorWhite}, // p9
-    {36, "DRIVE",      kUiColorWhite}, // p10
-    // Row 2 (pots 10..15 / physical p11..p16):
-    {37, "DST MIX",    kUiColorWhite}, // p11
-    {47, "DEL MIX",    kUiColorWhite}, // p12
-    {48, "MOD D1",     kUiColorWhite}, // p13
-    {49, "MOD D2",     kUiColorWhite}, // p14
-    {29, "SWITCH",     kUiColorWhite}, // p15
-    {30, "TOTAL FB",   kUiColorWhite}, // p16
+    // Row 0 (pots 0..5 / physical p1..p6): PAIR 56
+    {5,  "TUNE 5",     kUiColorWhite}, // p1
+    {6,  "TUNE 6",     kUiColorWhite}, // p2
+    {15, "SHARP 56",   kUiColorWhite}, // p3
+    {19, "MOD 56",     kUiColorWhite}, // p4
+    {11, "FAST 56",    kUiColorWhite}, // p5
+    {23, "FM SRC 56",  kUiColorWhite}, // p6
+    // Row 1 (pots 6..9 / physical p7..p10): GROUP 5678 + PAIR 78 tunings
+    {26, "PITCH 5678", kUiColorWhite}, // p7
+    {28, "HOLD 5678",  kUiColorWhite}, // p8
+    {7,  "TUNE 7",     kUiColorWhite}, // p9
+    {8,  "TUNE 8",     kUiColorWhite}, // p10
+    // Row 2 (pots 10..15 / physical p11..p16): PAIR 78
+    {16, "SHARP 78",   kUiColorWhite}, // p11
+    {20, "MOD 78",     kUiColorWhite}, // p12
+    {12, "FAST 78",    kUiColorWhite}, // p13
+    {24, "FM SRC 78",  kUiColorWhite}, // p14
+    {0,  "",           kUiColorWhite}, // p15 (spare)
+    {0,  "",           kUiColorWhite}, // p16 (spare)
 };
 
-// P3: the remaining 15 params — the per-pair source routing, sensor speed,
-// the Lyra's own LFO shape/rates and the delay-mod switch. One empty cell.
+// P3: HYPER LFO (top: FREQ A/B + the delay-mod wave/source + the globals),
+// MOD DELAY (middle: TIME/MOD per line), DISTORTION + delay FB/MIX + the
+// FM structure switch (bottom) — the manual's control numbering 9-23.
 static const UiPageCell kUiPageLira8P3[16] = {
-    // Row 0 (pots 0..5 / physical p1..p6):
-    {9,  "FAST 12",    kUiColorWhite}, // p1
-    {10, "FAST 34",    kUiColorWhite}, // p2
-    {11, "FAST 56",    kUiColorWhite}, // p3
-    {12, "FAST 78",    kUiColorWhite}, // p4
-    {21, "SOURCE 12",  kUiColorWhite}, // p5
-    {22, "SOURCE 34",  kUiColorWhite}, // p6
-    // Row 1 (pots 6..9 / physical p7..p10):
-    {23, "SOURCE 56",  kUiColorWhite}, // p7
-    {24, "SOURCE 78",  kUiColorWhite}, // p8
-    {39, "LFO A",      kUiColorWhite}, // p9
-    {41, "LFO B",      kUiColorWhite}, // p10
-    // Row 2 (pots 10..15 / physical p11..p16):
-    {42, "AND/OR",     kUiColorWhite}, // p11
-    {43, "LINK",       kUiColorWhite}, // p12
-    {51, "DEL-MOD",    kUiColorWhite}, // p13
-    {52, "LFO WAV",    kUiColorWhite}, // p14
-    {53, "QUANTIZE",   kUiColorWhite}, // p15
-    {0,  "",           kUiColorWhite}, // p16 (empty)
+    // Row 0 (pots 0..5 / physical p1..p6): LFO + global switches
+    {39, "FREQ A",     kUiColorWhite}, // p1
+    {41, "FREQ B",     kUiColorWhite}, // p2
+    {52, "TRI/SQR",    kUiColorWhite}, // p3  (delay LFO waveform, #18)
+    {51, "SELF/LFO",   kUiColorWhite}, // p4  (delay mod source, #17)
+    {30, "TOTAL FB",   kUiColorWhite}, // p5  (#10)
+    {31, "VIBRATO",    kUiColorWhite}, // p6  (#11)
+    // Row 1 (pots 6..9 / physical p7..p10): MOD DELAY times + depths
+    {44, "TIME 1",     kUiColorWhite}, // p7  (#15)
+    {45, "TIME 2",     kUiColorWhite}, // p8
+    {48, "MOD 1",      kUiColorWhite}, // p9  (#16)
+    {49, "MOD 2",      kUiColorWhite}, // p10
+    // Row 2 (pots 10..15 / physical p11..p16): DELAY + DISTORTION
+    {46, "FB",         kUiColorWhite}, // p11 (#19)
+    {47, "MIX",        kUiColorWhite}, // p12 (#20)
+    {36, "DRIVE",      kUiColorWhite}, // p13 (#21)
+    {37, "DIST MIX",   kUiColorWhite}, // p14 (#22)
+    {38, "VOL",        kUiColorWhite}, // p15 (#23)
+    {29, "FM STRUCT",  kUiColorWhite}, // p16 (#9)
 };
 
 // [module][0 = P1, 1 = P2, 2 = P3]. Elements has 3 unique params on P2 (MODEL

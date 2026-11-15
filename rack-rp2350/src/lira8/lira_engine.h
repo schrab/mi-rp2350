@@ -7,7 +7,7 @@
 //     LFO-CV (sqr-lfo, or total-feedback tap when TOTAL-FB=1); 0.999/0.001 gates
 //   delay input [19] = sum(r~ del-XY * 1/6) + noise~*0.001  (pd LCG, verbatim)
 //   2 PARALLEL ModDelay buses: write = [19] + own-expander-output*fb_gain;
-//     read time = line~(2^(12k/127)*1.45125 ms, cap 1.45 s int16 @32k) +
+//     read time = line~(2^(12k/127)*1.45125 ms, cap 1.0 s int16 @32k — the
 //     mod_amt*((own-vd/2 -> lop~689) gated del-mod==0 | LFO bus gated ==2);
 //     chain hip~1 -> lop~4000 -> compressor(2.5/2.5/-12/5) -> expander(-60,5)
 //     feedback gain g = (k/127)*2^(2k/127) (shared, line~ 23.22 ms);
@@ -49,11 +49,12 @@ class Lira8Engine {
   static constexpr int kBlockSize = 64;   // pd block @ any rate
   static constexpr int kNumBuses = 8;     // del-12/34/56/78, tri, sqr, sqr-lfo, total-fb
 
-  // cap_ms: delay storage cap (1450 ms RP2350 int16; 5944 ms ESP32 PSRAM).
+  // cap_ms: delay storage cap (1000 ms = the ORIGINAL HARDWARE's maximum;
+  //         5944 ms on ESP32/PSRAM).
   // delay_mem: EXTERNAL int16 storage for both delay lines, carved from the
   // rack buffer arena by the adapter (2 x (nsamps+4) samples, contiguous) —
   // NO heap anywhere (the rack discipline). Value members throughout.
-  explicit Lira8Engine(float sr = 32000.0f, float cap_ms = 1450.0f,
+  explicit Lira8Engine(float sr = 32000.0f, float cap_ms = 1000.0f,
                        int16_t* delay_mem = nullptr)
       : sr_(sr),
         pairs_{VoicePair(sr, 0, 0u), VoicePair(sr, 1, 0u),
