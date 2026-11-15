@@ -3422,6 +3422,21 @@ the fix and costs no new DSP in lira8.
   flashed. Lesson: every module-id guard on the UI-link path needs the same
   0..RACK_MODULE_COUNT-1 range — pair selectors are not the only place ids
   travel.
+- **UI-link TX ring (2026-11-15, T8 grit ROOT CAUSE + FIX)**: the chain
+  "grit at high dry/wet" was NOT clouds' DSP or clipping. `preset_autosave_poll`
+  pushes a **1,071 B PART burst 3 s after ANY CC/pot change** (the user turning
+  dry/wet), and `ui_link_send_frame` did a blocking `Serial1.write`: ~10 ms of
+  core-0 spin. The I2S DMA IRQ lives on core 0 and must service the 2-channel
+  ping-pong chain every ~500 us, so the burst caused audio dropouts (grit) and
+  the `i2s stalls` storm; a fresh chain engage (I2S reconfigure) or reload
+  cleared the stale state. User symptoms all fit: grit after a pot move,
+  reverb-off no help, single-mode clean, "like DMA/buffer issue".
+  FIX: `ui_link_send_frame` now enqueues into a 4 KiB TX ring (drop+count on
+  overflow) and `ui_link_tx_pump()` (called from `ui_link_pump` every core-0
+  loop) writes only what `Serial1.availableForWrite()` can take immediately.
+  Verified on device: `chain lira8`, full-wet note, a CC marks dirty, autosave
+  `PART burst sent (1071 B)` lands DURING the chain — **i2s stalls 0 (+0)**
+  across all 2 s reports. `ui` prints `dropped=`.
 - TRANSIENT: right after the C3 reflash, the first chain runs accumulated
     i2s stalls (~435/2 s) for both lira8 and rings pairs AND the user heard
     dirty audio with every chain pair (even clouds dry/wet 0); a fresh chain

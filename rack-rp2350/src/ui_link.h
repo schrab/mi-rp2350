@@ -654,6 +654,7 @@ static uint8_t g_ui_active_page = kUiPageP1;
 
 // Link stats (for `ui`; counters are core-0-only, no cross-core races).
 static volatile uint32_t g_ui_tx_frames = 0;
+static volatile uint32_t g_ui_tx_dropped = 0;
 static volatile uint32_t g_ui_rx_frames = 0;
 static volatile uint32_t g_ui_crc_errors = 0;
 static volatile uint32_t g_ui_rx_overflow = 0;
@@ -776,6 +777,20 @@ static void ui_link_uart_init() {
 static uint8_t g_ui_tx_buf[3 + 255 + 1];  // hdr+type already counted: 0x7E,
                                           // len, type, payload(255), crc
 
+// Non-blocking TX ring (T8 hardening): the old direct Serial1.write blocked
+// core 0 for up to ~10 ms on a 1,071 B preset PART burst (and ~2.6 ms on a
+// TELEM snapshot). The I2S DMA IRQ lives on core 0 and must service the
+// two-channel ping-pong chain every ~500 us, so a blocking UART write caused
+// audible chain dropouts (user: "gritty at high dry/wet" after a pot move
+// triggered autosave). Frames are enqueued here and drained by
+// ui_link_tx_pump() in the loop: it writes ONLY what the UART TX ring can
+// take immediately, so core 0 never spins on the wire.
+static const uint16_t kUiTxRingSize = 4096;   // covers a full 1,071 B burst
+static uint8_t g_ui_tx_ring[kUiTxRingSize];
+static uint16_t g_ui_tx_head = 0;   // write index
+static uint16_t g_ui_tx_tail = 0;   // read index
+static uint16_t g_ui_tx_count = 0;
+
 // Build a complete frame into `out` (needs len + 4 bytes). Returns the frame
 // length in bytes. Separate from the UART write so `uitest` can round-trip
 // frames through the parser in memory.
@@ -790,12 +805,46 @@ static size_t ui_link_build_frame(uint8_t type, const uint8_t* payload,
   return (size_t)len + 4;   // mark + len + type + payload + crc
 }
 
-// Encode + transmit one frame (blocking into the SerialUART TX ring).
-static void ui_link_send_frame(uint8_t type, const uint8_t* payload,
+// Encode + enqueue one frame. Returns false if the ring is full (counted; a
+// dropped TELEM/delta is harmless, a dropped PRESET chunk would corrupt the
+// blob — the 4 KiB ring holds a full burst with >2.9 KiB to spare, and TX
+// drains at 92 KB/s, so this only fires under pathological flooding).
+static bool ui_link_send_frame(uint8_t type, const uint8_t* payload,
                                uint8_t len) {
   const size_t n = ui_link_build_frame(type, payload, len, g_ui_tx_buf);
-  Serial1.write(g_ui_tx_buf, n);
+  if (g_ui_tx_count + n > kUiTxRingSize) {
+    ++g_ui_tx_dropped;
+    return false;
+  }
+  for (size_t i = 0; i < n; ++i) {
+    g_ui_tx_ring[g_ui_tx_head] = g_ui_tx_buf[i];
+    g_ui_tx_head = (uint16_t)((g_ui_tx_head + 1) % kUiTxRingSize);
+  }
+  g_ui_tx_count = (uint16_t)(g_ui_tx_count + n);
   ++g_ui_tx_frames;
+  return true;
+}
+
+// Drain the TX ring into the UART TX ring WITHOUT blocking: write only as
+// many bytes as Serial1.availableForWrite() promises. Called every core-0
+// loop iteration (ui_link_pump); 92 KB/s of wire traffic needs only a few
+// hundred bytes per millisecond and the ring holds 4 KiB.
+static void ui_link_tx_pump() {
+  while (g_ui_tx_count > 0) {
+    int space = Serial1.availableForWrite();
+    if (space <= 0) return;
+    // Leave a small margin: the core's TX ring can be drained concurrently
+    // by its IRQ, but never write past what it reported as free.
+    if (space > 8) space -= 8;
+    uint16_t run = (g_ui_tx_tail + g_ui_tx_count > kUiTxRingSize)
+        ? (uint16_t)(kUiTxRingSize - g_ui_tx_tail)
+        : g_ui_tx_count;
+    uint16_t n = (run < (uint16_t)space) ? run : (uint16_t)space;
+    if (n > g_ui_tx_count) n = g_ui_tx_count;
+    Serial1.write(&g_ui_tx_ring[g_ui_tx_tail], n);
+    g_ui_tx_tail = (uint16_t)((g_ui_tx_tail + n) % kUiTxRingSize);
+    g_ui_tx_count = (uint16_t)(g_ui_tx_count - n);
+  }
 }
 
 // TELEM flags for one cell (see kUiFlag*). Bits 3-6 carry the FIRST routed
@@ -1585,6 +1634,7 @@ static void ui_link_feed(uint8_t b) {
 // Loop-side pump (core 0, next to the DIN pump): drain the IRQ-fed SW ring.
 // With the link absent this costs one ring-empty check per loop().
 static void ui_link_pump() {
+  ui_link_tx_pump();                            // drain queued TX, never blocks
   if (Serial1.overflow()) ++g_ui_rx_overflow;   // SW ring overflow (IRQ side)
   // Full-snapshot push on module/chain changes, gated by the C3's
   // full-snapshot toggle (UI_CMD sys id 1): the C3 re-renders without a

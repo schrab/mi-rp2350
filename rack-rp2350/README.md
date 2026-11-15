@@ -366,6 +366,13 @@ decides, and any offender gets a one-line token promotion (window slack
   necessary). Free-band check: 40-50 is unused by all five maps + the rack
   system CCs (32 bank, 33-35 mod mux) — lira8's delay section moved to
   80-88 in T8 specifically to keep this true.
+- **UI-link TX is non-blocking (T8)**: frames are queued in a 4 KiB ring and
+  drained by `ui_link_tx_pump()` in the core-0 loop, writing only what the
+  UART TX ring can take immediately. The preset autosave PART burst (1,071 B,
+  3 s after any CC) used to block core 0 for ~10 ms, starving the core-0 I2S
+  DMA IRQ and producing audible chain dropouts ("grit at high dry/wet").
+  `ui` prints `dropped=` for ring overflows. Verified: a PART burst landing
+  during a full-wet lira8→clouds chain reports i2s stalls 0.
 - **Clouds-B mode clamp**: chain mode is granular/looping ONLY. CC 23 = 0
   (granular) / 2 (looping) accepted; **1 (stretch) and 3 (spectral)
   REJECTED** with a console line, no crash (belt-and-braces: the adapter's

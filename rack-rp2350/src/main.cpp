@@ -1830,10 +1830,11 @@ static void cmd_piezo(const char* args) {
 // written); the C3 measures the full wire RTT of its own echo probes.
 static void cmd_ui(const char* args) {
   (void)args;
-  Serial.printf("ui: tx=%lu rx=%lu crc_err=%lu rx_overflow=%lu rtt=%lu us "
-                "(echo turnaround) | page=%u | uart0 @921600 8N1: TX GP%u "
-                "(-> C3 RX), RX GP%u (<- C3 TX), irq + 512B ring\r\n",
+  Serial.printf("ui: tx=%lu (dropped=%lu) rx=%lu crc_err=%lu rx_overflow=%lu "
+                "rtt=%lu us (echo turnaround) | page=%u | uart0 @921600 8N1: "
+                "TX GP%u (-> C3 RX), RX GP%u (<- C3 TX), irq + 512B ring\r\n",
                 (unsigned long)g_ui_tx_frames,
+                (unsigned long)g_ui_tx_dropped,
                 (unsigned long)g_ui_rx_frames,
                 (unsigned long)g_ui_crc_errors,
                 (unsigned long)g_ui_rx_overflow,
