@@ -251,7 +251,7 @@ void ui_preset_req_reply(uint8_t slot) {
     memcpy(pl + 3, blob + off, take);
     ui_link_send_frame(kUiTypePresetPart, pl, (uint8_t)(3 + take));
   }
-  Serial.printf("preset: PART burst sent (slot 0x%02x, %u B, %u chunks)\r\n",
+  dbg_printf("preset: PART burst sent (slot 0x%02x, %u B, %u chunks)\r\n",
                 slot, n, total);
 }
 

@@ -288,7 +288,10 @@ void chain_render_b(const float* in_l, const float* in_r,
   clouds::Parameters* p = s->processor.mutable_parameters();
   p->position       = s->shared_position;
   p->size           = s->shared_size;
-  p->pitch          = s->shared_pitch;
+  // Panel value is normalized 0..1 (0.5 = center); Clouds Parameters::pitch is
+  // SEMITONES, hardware range -48..+48 (BraidingCloudsScarp clamps it there).
+  // The old direct copy fed 0..1 as semitones — the pitch knob barely moved.
+  p->pitch          = (s->shared_pitch - 0.5f) * 96.0f;
   p->density        = s->shared_density;
   p->texture        = s->shared_texture;
   p->dry_wet        = s->shared_dry_wet;
@@ -351,7 +354,10 @@ void render() {
   clouds::Parameters* p = s->processor.mutable_parameters();
   p->position       = s->shared_position;
   p->size           = s->shared_size;
-  p->pitch          = s->shared_pitch;
+  // Panel value is normalized 0..1 (0.5 = center); Clouds Parameters::pitch is
+  // SEMITONES, hardware range -48..+48 (BraidingCloudsScarp clamps it there).
+  // The old direct copy fed 0..1 as semitones — the pitch knob barely moved.
+  p->pitch          = (s->shared_pitch - 0.5f) * 96.0f;
   p->density        = s->shared_density;
   p->texture        = s->shared_texture;
   p->dry_wet        = s->shared_dry_wet;

@@ -3422,6 +3422,22 @@ the fix and costs no new DSP in lira8.
   flashed. Lesson: every module-id guard on the UI-link path needs the same
   0..RACK_MODULE_COUNT-1 range — pair selectors are not the only place ids
   travel.
+- **Clouds PITCH mapping FIXED (2026-11-15, user: "clouds pitch is not
+  working")**: the adapter copied the normalized panel value straight into
+  `clouds::Parameters::pitch`, which is in SEMITONES (-48..+48, the hardware
+  range; BraidingCloudsScarp clamps there). PITCH therefore moved by at most
+  one semitone. Both the single-module and chain-B copies now use
+  `(shared_pitch - 0.5f) * 96.0f` (0.5 = 0 st, ends = ±48 st). This bug was
+  inherited from the standalone clouds-rp2350 port.
+- **Non-blocking diagnostic TX (2026-11-15)**: the 2 s report and the preset
+  autosave "PART burst sent" line did blocking USB-CDC `Serial.printf`s
+  (~250-400 B into a 256 B TinyUSB FIFO; no console attached -> core-0
+  stalls). Both now go through a 2 KiB `dbg_printf` ring drained by
+  `dbg_pump()` with `Serial.availableForWrite()` (drops when nobody reads).
+  Result: chain max Process peaks ~1500 -> ~960-1050 us, core-0 loop max
+  typically 330-430 us (occasional 1.2 ms frames still include IRQ service),
+  i2s stalls 0. The remaining >750 peaks are lira8's own 64-sample burst plus
+  a short B ready-wait; no dropouts.
 - **LIRA-8 voice code optimization (2026-11-15, user: "what can be optimized
   in voice... multiplied by 8")**: the voice stage was fully SRAM-resident
   (everything inlined into `render_internal_block`, 11 KB in tc_lira8), so

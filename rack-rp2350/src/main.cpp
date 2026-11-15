@@ -60,6 +60,7 @@
 // multiple of 12 MHz (240 MHz) or PIO-USB timing breaks.
 #include <Arduino.h>
 #include <I2S.h>
+#include <stdarg.h>              // dbg_printf (non-blocking diagnostics TX)
 
 // Give core 1 its own 8 KB stack instead of the default 4 KB/4 KB split with
 // core 0 (the standalone ports' core 0 overran the shared half at USB attach
@@ -98,6 +99,14 @@ uint8_t pio_host_line_state(void);
 #if !defined(RACK_BOOT_MODULE) || RACK_BOOT_MODULE < 0 || RACK_BOOT_MODULE > 4
 #error "RACK_BOOT_MODULE must be defined per env as 0 (elements), 1 (clouds), 2 (plaits), 3 (rings) or 4 (lira8)"
 #endif
+
+// Non-blocking core-0 diagnostic output (defined near loop()). The 2 s
+// report used to do a blocking USB-CDC printf: ~250-400 B into a 256 B
+// TinyUSB FIFO, which blocks for milliseconds when no console is attached.
+// That starved the core-0 chain-B worker and showed up as 1500 us chain
+// peaks. All periodic diagnostics now enqueue here and a loop-side pump
+// writes only what the CDC can take immediately (drops when nobody reads).
+void dbg_printf(const char* fmt, ...);
 
 // The four module adapters — ALL FOUR compile in every env (their state is
 // arena-placed; their hooks are namespaced rack_modules::mod_<module>).
@@ -2411,6 +2420,49 @@ void setup() {
 #endif
 }
 
+// ===================== non-blocking diagnostics TX (core 0) =====================
+// 2 KiB ring, drained by dbg_pump() with Serial.availableForWrite(). Same
+// discipline as the UI-link TX: never spin on the USB CDC. If no host is
+// reading, the ring fills and frames are dropped (counted) — audio first.
+static const uint16_t kDbgRingSize = 2048;
+static uint8_t g_dbg_ring[kDbgRingSize];
+static uint16_t g_dbg_head = 0, g_dbg_tail = 0, g_dbg_count = 0;
+static uint32_t g_dbg_dropped = 0;
+
+void dbg_printf(const char* fmt, ...) {
+  char line[400];
+  va_list ap;
+  va_start(ap, fmt);
+  int n = vsnprintf(line, sizeof(line), fmt, ap);
+  va_end(ap);
+  if (n <= 0) return;
+  if (n > (int)sizeof(line) - 1) n = (int)sizeof(line) - 1;
+  if ((size_t)g_dbg_count + (size_t)n > kDbgRingSize) {
+    ++g_dbg_dropped;                 // no reader: drop rather than block
+    return;
+  }
+  for (int i = 0; i < n; ++i) {
+    g_dbg_ring[g_dbg_head] = (uint8_t)line[i];
+    g_dbg_head = (uint16_t)((g_dbg_head + 1) % kDbgRingSize);
+  }
+  g_dbg_count = (uint16_t)(g_dbg_count + n);
+}
+
+static void dbg_pump() {
+  while (g_dbg_count > 0) {
+    int space = Serial.availableForWrite();
+    if (space <= 8) return;
+    space -= 8;                      // never fill the CDC FIFO exactly
+    uint16_t run = (g_dbg_tail + g_dbg_count > kDbgRingSize)
+        ? (uint16_t)(kDbgRingSize - g_dbg_tail)
+        : g_dbg_count;
+    uint16_t n = (run < (uint16_t)space) ? run : (uint16_t)space;
+    Serial.write(&g_dbg_ring[g_dbg_tail], n);
+    g_dbg_tail = (uint16_t)((g_dbg_tail + n) % kDbgRingSize);
+    g_dbg_count = (uint16_t)(g_dbg_count - n);
+  }
+}
+
 void loop() {
   const uint32_t loop_t0 = time_us_32();
   // --- I2S reconfig requests from a running swap / chain transition (core 1
@@ -2422,6 +2474,9 @@ void loop() {
   // a no-op unless a chain is engaged and the pipeline is enabled; the rest
   // of core-0's work (USB/UI/console) runs after it.
   chain_b_worker();
+
+  // Drain queued diagnostics without blocking the USB CDC.
+  dbg_pump();
 
 #if RACK_ENABLE_USB_HOST
   // --- USB host: service the host stack, then poll host MIDI ---
@@ -2613,7 +2668,7 @@ void loop() {
       const uint16_t pz_peak = rack_piezo::report_peak();
       const uint32_t pz_rate = rack_piezo::report_sample_rate();
 #if RACK_ENABLE_USB_HOST
-      Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s | %s\r\n",
+      dbg_printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s | %s\r\n",
                     proc_us_max,
                     (unsigned)budget,
                     stalls, stalls - last_stall_total,
@@ -2632,7 +2687,7 @@ void loop() {
                     modeng_tail,
                     plaits_tail);
 #else
-      Serial.printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | mod=%s | %s | %s\r\n",
+      dbg_printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | mod=%s | %s | %s\r\n",
                     proc_us_max,
                     (unsigned)budget,
                     stalls, stalls - last_stall_total,

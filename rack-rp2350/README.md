@@ -372,6 +372,9 @@ decides, and any offender gets a one-line token promotion (window slack
   necessary). Free-band check: 40-50 is unused by all five maps + the rack
   system CCs (32 bank, 33-35 mod mux) — lira8's delay section moved to
   80-88 in T8 specifically to keep this true.
+- **Clouds PITCH range (fixed T8)**: the normalized panel value is mapped to
+  **±48 semitones** (Clouds' hardware range), not the raw 0..1 that only
+  moved one semitone. Applies to single-module clouds and the chain B slot.
 - **Dual-core chain render (T8)**: core 1 renders the A slot and writes I2S;
   core 0 renders clouds B one 24-sample block behind through two lock-free
   4-slot SPSC rings. The per-block wall cost becomes A + handoff instead of
