@@ -150,10 +150,15 @@ documented as ~10 dB brighter at 12.5–16 kHz than Pd (open item).
   chained (2 × 32,004) — the smaller chain carve is what fits alongside
   clouds-B in the unified SRAM pool.
 - **Engine**: Pd-style 64-sample internal blocks, rendered in bursts of one
-  block per 4 host calls. Device cost at 44.1 kHz: ~812–823 µs per 64-block
-  (56% of the 1.451 ms period), i2s stalls 0; the 2.9 ms I2S bank covers the
-  ~0.8 ms burst. The 2 s report shows `budget 1451 us` (the internal block,
-  not the 16-sample host grid) and a
+  block per 4 host calls. Device cost at 44.1 kHz: **~663–680 µs per
+  64-block (46% of the 1.451 ms period)** after the T8 voice optimization
+  (voices 360 µs vs 508 before; delay ~220, LFO ~39, master ~42), i2s
+  stalls 0; the 2.9 ms I2S bank covers the burst. The optimization hoists
+  each oscillator's rlpf coefficient to one exp per block when cross-mod is
+  zero (the patch default), keeping per-sample vibrato in `dt`; measured
+  −59…−67 dB RMS vs the pre-change render, correlation 1.0000 (host goldens
+  gate). The 2 s report shows `budget 1451 us` (the internal block, not the
+  16-sample host grid) and a
   `sens=N st=<params>/<voices>/<delay>/<lfo>/<master>` tail (active sensors +
   per-stage maxima, µs, resets on print).
 - **Voice architecture** (from the manual): 8 voices in four pairs (12/34/56/

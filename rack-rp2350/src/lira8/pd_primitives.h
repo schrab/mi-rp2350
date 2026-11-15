@@ -223,6 +223,9 @@ class CosOsc {
  public:
   explicit CosOsc(float sr) : conv_(4294967296.0f / sr) {}
   void set_freq(float f) { inc_ = phase_inc_from_hz(f, conv_); }
+  // Advance without producing samples (vibrato=0 fast path keeps the LFO
+  // phase continuous so re-enabling vibrato does not jump).
+  void skip(int n) { phase_ += inc_ * static_cast<uint32_t>(n); }
   LIRA8_TC(pd_cososc_next)
   float next() {
     const float out = cos_lookup(static_cast<float>(phase_) * kPhaseToTable);

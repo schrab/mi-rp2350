@@ -191,6 +191,53 @@ class VoicePair {
       if (gateA > 1.0f) gateA = 1.0f;
       float gateB = e2b + hold;
       if (gateB > 1.0f) gateB = 1.0f;
+
+      // CONSTANT-FREQUENCY PATH (vibrato == 0 && cross-mod == 0): fA/fB are
+      // tuneA/tuneB for the whole block and pwm is exactly 0.53125. Hoist
+      // each oscillator's dt + rlpf exp coefficient to one per block; skip
+      // the vibrato cos oscillator (advance its phase so re-enabling vibrato
+      // does not jump). Same expressions/mix/gate law as the loop below.
+      if (vib == 0.0f && mod == 0.0f) {
+        osc_a_.prepare(tuneA);
+        osc_b_.prepare(tuneB);
+        osc3_.skip(n);
+        constexpr float kPwm = 0.53125f;
+        for (int i = 0; i < n; ++i) {
+          float sqA, triA, sqB, triB;
+          osc_a_.process_const(kPwm, sqA, triA);
+          osc_b_.process_const(kPwm, sqB, triB);
+          const float mixA = sqA * sharp + triA * (1.0f - sharp) + cosa;
+          const float mixB = sqB * sharp + triB * (1.0f - sharp) + cosb;
+          const float pair = mixA * gateA + mixB * gateB;
+          pair_out[i] = pair;
+          bus_send[i] = hip_.process(pair);
+        }
+        return;
+      }
+
+      // PATCH DEFAULT PATH (cross-mod == 0, vibrato = raw 1/127): keep the
+      // per-sample vibrato in dt, but the rlpf coefficient is block-constant
+      // (prepare_coeff from the tune frequency) => no per-sample exp.
+      if (mod == 0.0f) {
+        osc_a_.prepare_coeff(tuneA);
+        osc_b_.prepare_coeff(tuneB);
+        for (int i = 0; i < n; ++i) {
+          const float V = osc3_.next() * vib;
+          const float pwm = 0.53125f + 0.025f * V;
+          const float fA = tuneA * (1.0f + 0.005f * V);
+          const float fB = tuneB * (1.0f + 0.005f * V);
+          float sqA, triA, sqB, triB;
+          osc_a_.process_freq_prepared(fA, pwm, sqA, triA);
+          osc_b_.process_freq_prepared(fB, pwm, sqB, triB);
+          const float mixA = sqA * sharp + triA * (1.0f - sharp) + cosa;
+          const float mixB = sqB * sharp + triB * (1.0f - sharp) + cosb;
+          const float pair = mixA * gateA + mixB * gateB;
+          pair_out[i] = pair;
+          bus_send[i] = hip_.process(pair);
+        }
+        return;
+      }
+
       for (int i = 0; i < n; ++i) {
         const float V = osc3_.next() * vib;
         const float pwm = 0.53125f + 0.025f * V;
@@ -218,6 +265,64 @@ class VoicePair {
       const float vib = vib_.value();
       const float tuneA = tune_a_.value();
       const float tuneB = tune_b_.value();
+
+      // Same constant-frequency hoist as the settled path, but keep the
+      // per-sample sensor envelope (attack / up-to-8 s release). Covers the
+      // long release tails where the frequencies are still constant.
+      if (vib == 0.0f && mod == 0.0f) {
+        osc_a_.prepare(tuneA);
+        osc_b_.prepare(tuneB);
+        osc3_.skip(n);
+        constexpr float kPwm = 0.53125f;
+        for (int i = 0; i < n; ++i) {
+          float e2a, cosa, e2b, cosb;
+          sensor_a_.process(e2a, cosa);
+          sensor_b_.process(e2b, cosb);
+          float sqA, triA, sqB, triB;
+          osc_a_.process_const(kPwm, sqA, triA);
+          osc_b_.process_const(kPwm, sqB, triB);
+          const float mixA = sqA * sharp + triA * (1.0f - sharp) + cosa;
+          const float mixB = sqB * sharp + triB * (1.0f - sharp) + cosb;
+          float gateA = e2a + hold;
+          if (gateA > 1.0f) gateA = 1.0f;
+          float gateB = e2b + hold;
+          if (gateB > 1.0f) gateB = 1.0f;
+          const float pair = mixA * gateA + mixB * gateB;
+          pair_out[i] = pair;
+          bus_send[i] = hip_.process(pair);
+        }
+        return;
+      }
+
+      // Cross-mod == 0 with moving sensors: same block-constant rlpf
+      // coefficient, exact per-sample vibrato and sensor envelope.
+      if (mod == 0.0f) {
+        osc_a_.prepare_coeff(tuneA);
+        osc_b_.prepare_coeff(tuneB);
+        for (int i = 0; i < n; ++i) {
+          const float V = osc3_.next() * vib;
+          const float pwm = 0.53125f + 0.025f * V;
+          const float fA = tuneA * (1.0f + 0.005f * V);
+          const float fB = tuneB * (1.0f + 0.005f * V);
+          float e2a, cosa, e2b, cosb;
+          sensor_a_.process(e2a, cosa);
+          sensor_b_.process(e2b, cosb);
+          float sqA, triA, sqB, triB;
+          osc_a_.process_freq_prepared(fA, pwm, sqA, triA);
+          osc_b_.process_freq_prepared(fB, pwm, sqB, triB);
+          const float mixA = sqA * sharp + triA * (1.0f - sharp) + cosa;
+          const float mixB = sqB * sharp + triB * (1.0f - sharp) + cosb;
+          float gateA = e2a + hold;
+          if (gateA > 1.0f) gateA = 1.0f;
+          float gateB = e2b + hold;
+          if (gateB > 1.0f) gateB = 1.0f;
+          const float pair = mixA * gateA + mixB * gateB;
+          pair_out[i] = pair;
+          bus_send[i] = hip_.process(pair);
+        }
+        return;
+      }
+
       for (int i = 0; i < n; ++i) {
         const float V = osc3_.next() * vib;
         const float pwm = 0.53125f + 0.025f * V;

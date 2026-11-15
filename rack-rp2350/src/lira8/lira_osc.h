@@ -26,12 +26,69 @@ class LiraOsc {
         inv_sr_(1.0f / sr),
         exp_k_(-2.0f * kPi / sr) {}
 
+  // Block-constant rlpf coefficient for the cross-mod==0 case (the patch's
+  // normal state): the vibrato term moves the cutoff by <0.01% at the patch
+  // default (vib raw 1/127) and <0.5% at full vibrato, so the one-pole
+  // coefficient is computed once from the pair's tune frequency while dt
+  // stays per-sample (pitch/vibrato stay sample-exact). Removes 64 exp
+  // polynomials per oscillator per block in the common path.
+  void prepare_coeff(float tune_freq) {
+    const float f = std::fabs(tune_freq);
+    float fc = f * 0.25f;
+    if (fc < 100.0f) fc = 100.0f;
+    const float half = sr_ * 0.5f;
+    if (fc > half) fc = half;
+    a_ = exp_neg_range(fc * exp_k_);
+  }
+
+  LIRA8_TC(lira_osc_process_freq_prepared)
+  inline void process_freq_prepared(float freq, float pwm,
+                                    float& out_sq, float& out_tri) {
+    const float f = std::fabs(freq);
+    render_sample(f * inv_sr_, a_, pwm, out_sq, out_tri);
+  }
+
+  // Constant-frequency block: fA/fB are fixed for the whole block when
+  // vibrato and cross-mod are both zero (the default drone / held-pad state).
+  // Hoisting dt and the rlpf coefficient removes one 12-term exp polynomial
+  // and the fabs/clamp chain PER SAMPLE per oscillator (~30% of the voice
+  // stage's per-sample math on the M33). The math is identical: fA has no
+  // per-sample term when V=0 and mod=0.
+  void prepare(float freq) {
+    const float f = std::fabs(freq);
+    dt_ = f * inv_sr_;
+    float fc = f * 0.25f;
+    if (fc < 100.0f) fc = 100.0f;
+    const float half = sr_ * 0.5f;
+    if (fc > half) fc = half;
+    a_ = exp_neg_range(fc * exp_k_);
+  }
+
+  LIRA8_TC(lira_osc_process_const)
+  inline void process_const(float pwm, float& out_sq, float& out_tri) {
+    render_sample(dt_, a_, pwm, out_sq, out_tri);
+  }
+
   // pwm: PWM control 0..1 (0.53125 + 0.025*V from the voice); freq: Hz.
   // Returns square via out_sq, triangle via out_tri.
   LIRA8_TC(lira_osc_process)
   inline void process(float freq, float pwm, float& out_sq, float& out_tri) {
     const float f = std::fabs(freq);
     const float dt = f * inv_sr_;      // division hoisted to the ctor
+    // rlpf: fc = clip(max(f/4, 100), 0, sr/2); a = exp(-2*pi*fc/sr)
+    float fc = f * 0.25f;
+    if (fc < 100.0f) fc = 100.0f;
+    const float half = sr_ * 0.5f;
+    if (fc > half) fc = half;
+    const float a = exp_neg_range(fc * exp_k_);   // -2*pi*fc/sr pre-scaled
+    render_sample(dt, a, pwm, out_sq, out_tri);
+  }
+
+ private:
+  // Shared per-sample body: dt and the rlpf coefficient are supplied by the
+  // caller (per-sample when modulated, per-block when constant).
+  inline void render_sample(float dt, float a, float pwm,
+                            float& out_sq, float& out_tri) {
     if (dt < 1e-9f) {
       // pd's phasor freezes at f=0; skip the blep divisions (0/0). The
       // patch never reaches this (tune line~ ramps > 0) but never NaN.
@@ -88,19 +145,13 @@ class LiraOsc {
     const float B = (2.0f * p2 - 1.0f) + blep2;
     const float pulse = A - B + 2.0f * pw - 1.0f;
 
-    // rlpf: fc = clip(max(f/4, 100), 0, sr/2); a = exp(-2*pi*fc/sr)
-    float fc = f * 0.25f;
-    if (fc < 100.0f) fc = 100.0f;
-    const float half = sr_ * 0.5f;
-    if (fc > half) fc = half;
-    const float a = exp_neg_range(fc * exp_k_);   // -2*pi*fc/sr pre-scaled
+    // rlpf: y += (1-a)*(x-y), a supplied (per-sample or per-block).
     lpf_y_ += (1.0f - a) * (pulse - lpf_y_);
 
     out_sq = 0.59f * pulse;
     out_tri = 2.65f * lpf_y_ - 0.145f;
   }
 
- private:
   float sr_;
   float inv_sr_;
   float exp_k_;
@@ -108,6 +159,8 @@ class LiraOsc {
   float last_phase_for_sh_ = 0.0f;
   float sh_ = 0.0f;
   float lpf_y_ = 0.0f;
+  float dt_ = 0.0f;   // prepared constant frequency (process_const)
+  float a_ = 1.0f;    // prepared rlpf coefficient (process_const)
 };
 
 }  // namespace l8pd

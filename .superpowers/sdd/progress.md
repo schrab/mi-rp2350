@@ -3422,6 +3422,26 @@ the fix and costs no new DSP in lira8.
   flashed. Lesson: every module-id guard on the UI-link path needs the same
   0..RACK_MODULE_COUNT-1 range — pair selectors are not the only place ids
   travel.
+- **LIRA-8 voice code optimization (2026-11-15, user: "what can be optimized
+  in voice... multiplied by 8")**: the voice stage was fully SRAM-resident
+  (everything inlined into `render_internal_block`, 11 KB in tc_lira8), so
+  the cost was pure math. The rlpf coefficient `a = exp_neg_range(-2*pi*fc/sr)`
+  ran a 12-term exp polynomial PER SAMPLE per oscillator (512 exps per
+  64-block) even though `fc = f/4` barely moves. New `mod == 0` path (the
+  patch default): `prepare_coeff(tune)` computes `a` once per block;
+  per-sample `dt` still carries the exact vibrato/mod-free frequency. A
+  second `vib==0 && mod==0` path also hoists `dt`/pwm and skips the vibrato
+  cos osc (phase advanced by `CosOsc::skip`). NOTE: the patch default vibrato
+  is raw 1/127, not 0, so the mod==0 path is the one that fires in practice.
+  MEASURED: voices **508 -> 360 us (-148 us, -29%)**, total Process
+  **814-826 -> 663-680 us** of the 1451 budget (46% load), delay/lfo/master
+  unchanged, stalls 0. Fidelity A/B vs the pre-change engine over all seven
+  host scenarios: **-59 to -67 dB RMS, corr 1.0000** (project gate -50 dB),
+  unit tests green. The change is an approximation only in the one-pole
+  coefficient's vibrato term (<0.01% cutoff at default vib, <0.5% at full).
+  Further ideas (not done): block-rate vibrato cos / sensor cos, fusing
+  `mux_source` into the voice loop, `-ffast-math` A/B, dual-core voice-pair
+  split (core 0 now has the chain-B headroom).
 - **I2S DMA IRQ moved to the AUDIO core (2026-11-15, ROOT CAUSE of the
   persistent chain stall storms)**: `AudioBufferManager`'s `_addToList` /
   `_takeFromList` protect themselves with `noInterrupts()`, which is
