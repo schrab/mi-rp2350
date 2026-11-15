@@ -3677,3 +3677,17 @@ the fix and costs no new DSP in lira8.
   split, clean for ALL four qualities + looping on the standalone split.
   On device: rings>clouds engage 30 ms, all four CC 50 values alive,
   stalls 0.
+- **CLEANUP after the clouds investigation (2026-11-16)**: removed the
+  hunt-specific diagnostics — watchdog breadcrumbs (`crumb`/`crumb1`,
+  scratch-register stage numbers), the `w1=/d0=/d1=/wd=/hang=` tail in the
+  2 s report, the `dma` console dump, and the direct UART0/UART1 drivers.
+  The UART-driver rewrites were a MISDIAGNOSIS: the "hangs" at stages 8/9/21
+  were core 0 dying wherever it happened to be once the clouds mono write
+  corrupted the memory after the pool; with the clouds patch in place the
+  stock core Serial1/Serial2 paths (weeks of prior use) are correct and
+  restored. KEPT (genuine): the clouds pitch-shifter patch + split + mono
+  coercion, non-blocking `dbg_printf` for every event-driven diagnostic
+  (boot prints included — a console-less boot could block on the CDC FIFO),
+  the 2 s core-0 hardware watchdog (restarts a frozen board), the `reboot`
+  console command, the HardFault record/reset handler, and the LED/piezo
+  disable + button-print removal requested by the user.
