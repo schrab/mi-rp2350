@@ -108,8 +108,19 @@ class ModDelay {
     return static_cast<float>(s) * kS2f;      // reciprocal (was a divide)
   }
   static inline int16_t f2s(float f) {
-    if (f > 2.0f) f = 2.0f;
-    else if (f < -2.0f) f = -2.0f;
+    // SOFT-KNEE storage limit: linear to +-1.5, then a Pade-tanh shoulder
+    // that asymptotes at +-2. The self-oscillating loop (FB near max) would
+    // otherwise square off at a hard clamp — the "gritty at maximum
+    // feedback" report. Continuous slope at the knee; below 1.5 identical
+    // to the old hard-clamp path.
+    const float a = (f < 0.0f) ? -f : f;
+    if (a > 1.5f) {
+      float x = (a - 1.5f) * 2.0f;
+      if (x > 3.0f) x = 3.0f;
+      const float t = x * (27.0f + x * x) / (27.0f + 9.0f * x * x);
+      const float lim = 1.5f + 0.5f * t;
+      f = (f < 0.0f) ? -lim : lim;
+    }
     return static_cast<int16_t>(f * 32767.0f * kDelayScale);
   }
   float sr_;

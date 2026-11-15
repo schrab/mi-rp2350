@@ -583,6 +583,16 @@ namespace CTAG {
                 }
                 uint8_t bLo = t.value, bHi = t.value;
                 RackUI::GetPotBucketBounds(i, t, bLo, bHi);
+                // Discrete cells (switches / selectors) are LIVE: soft
+                // takeover is meaningless for a switch and made FM STRUCT,
+                // FAST, FM SRC etc. feel dead when the pot sat above the
+                // current bucket. The first movement sends the selection.
+                if (bLo != bHi) {
+                    pickPending[i] = false;
+                    lastSent[i] = 0xFFFF;
+                    lastSentRaw[i] = filtRaw[i];
+                    continue;
+                }
                 const int cur = (int)lastValue[i];
                 if (cur < (int)bLo - PICK_BAND) {
                     pickPending[i] = true;
@@ -615,6 +625,11 @@ namespace CTAG {
             }
             uint8_t bLo = value, bHi = value;
             RackUI::GetPotBucketBounds(pot, t, bLo, bHi);
+            // Discrete cells are live (see PickupResync): never arm pickup.
+            if (bLo != bHi) {
+                pickPending[pot] = false;
+                return;
+            }
             const int cur = (int)lastValue[pot];
 
             if (pickPending[pot]) {

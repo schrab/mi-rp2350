@@ -3291,3 +3291,23 @@ DRIVE at high values is gritty.
 - Engine housekeeping: all delay/audio work arrays memset in the ctor (the
   SELF float feedback path needs defined initial content).
 Device: 804-862 us/block, delay 212-218, voices 504-535, i2s stalls 0.
+
+### Rack-lira8 max-FB grit, delay controls on P1/P2, live switches (2026-11-15)
+
+- **Gritty at maximum FEEDBACK**: the self-oscillating loop (FB 127 -> loop
+  gain 4) squared off at the hard int16 storage clamp. f2s now has a
+  SOFT-KNEE limit: linear to +-1.5, then a Pade-tanh shoulder asymptoting at
+  +-2 (continuous slope; below 1.5 identical to before). The loop now
+  saturates like an analog delay instead of hard-clipping.
+- **Delay line controls moved to the group pages** (user): P1 row0 = FAST 12,
+  MOD 1 (pot2), TIME 1 (pot3), FM SRC 12, FAST 34, FM SRC 34; P2 mirrored
+  with MOD 2/TIME 2. P3 now holds the delay's SHARED controls and the
+  distortion (row0: DEL MODE, FB, MIX, DRIVE, DIST MIX, VOL), LFO + globals
+  (row1: FREQ A, FREQ B, TOTAL FB, VIBRATO) and the remaining switches
+  (row2: FM STRUCT, AND/OR, LINK + 3 spares — AND/OR/LINK are back on the UI).
+- **"FM STRUCT shows SPLIT and can't be edited"**: the C3's soft takeover
+  armed the switch cells against the current bucket, so a pot parked above
+  the value never "crossed" it. Discrete cells (bucket bounds differ) are now
+  LIVE in both PickupResync and PickupCellNote: the first movement sends the
+  selection (continuous cells keep takeover).
+Device: 805-817 us/block, voices 502-503, delay 216-224, stalls 0.
