@@ -314,8 +314,9 @@ LIRA-8 is not an MI library: it is a Pd patch re-implemented by hand in
    softer" voicing is not modelled in pd (a band-limit on the distortion
    branch restores it).
 
-Result on the RP2350: 3.1 ms → **805-817 µs per 64-sample block** (40% of the
-2 ms period), voices ~502 µs, delay ~220 µs, LFO ~40 µs, stalls 0.
+Result on the RP2350 at **44.1 kHz**: 3.1 ms → **812-823 µs per 64-sample
+block** (56% of the 1.451 ms period), voices ~505 µs, delay ~220 µs, LFO
+~40 µs, stalls 0 (it was 805-817 µs / 40% at 32 kHz before the rate switch).
 
 ---
 *Written 2026-11-01 after the Elements + Clouds ports; §12 added

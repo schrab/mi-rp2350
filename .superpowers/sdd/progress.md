@@ -3344,3 +3344,31 @@ lira8 tab — the C3 is the lira8 control surface.
   Pd-patch extra, but the user wants it. P3 pot 14 = QUANTIZE, an ON/OFF cell
   (CC 53 now a bool127 discrete cell; C3 value text ON/OFF); P3 has 2 spares
   left. READMEs (rack + C3) updated.
+
+### Rack-lira8 44.1 kHz switch + RAM/reverb feasibility (2026-11-15)
+
+User call: run lira8 at **44.1 kHz** (the Pd abstraction's rlpf constants are
+44.1k-authored: `os.triangle~` `/~ 44100` + `clip~ 0 22050`, so 44.1k also
+matches the author's coefficients; the port adapts them from sr).
+- module_lira8: kSampleRate 44100, kBudgetUs 1451 (rounded 64-sample period;
+  was 1984 = the floored 32k block), delay carve (44100+4)*2*2 = 176,416 B of
+  the 192 KiB arena (~90%), I2S bank 8x16 = 128 frames = 2.9 ms > the ~0.8 ms
+  burst, kStallUs 900.
+- Device: max Process 812-823 us / 1451 budget (56% load), voices 505,
+  delay 218-231, LFO 39-40, master 42, i2s stalls 0.
+- **RAM answer (user asked why so low)**: the linker's 512 KiB is statically
+  partitioned for the worst case: 116 KiB hot-code window (chain A+B
+  residency; the largest single image is rings 58 KB), 132 KiB object arena
+  (Elements' ~119 KB state), 192 KiB buffer arena (chain elements>clouds =
+  64+87+44 = 195 KB), ~42 KB data/bss, ~30 KB heap gate. Nothing is wasted by
+  lira8; the only large reclaimable block is the 116 KB chain window
+  (standalone needs 64 KB -> +52 KB buffers, chains retired).
+- **Reverb feasibility**: the ctag MIVerb/MIVerb2 *wrappers* are GPL-3.0, but
+  their `mifx/reverb.h` core is MIT (Emilie Gillet 2014) — the same MI reverb
+  already vendored in elements/clouds, and the ctag wrapper allocates a 128 KB
+  FLOAT buffer vs the MI 16-bit reverb's real need: elements 21,617 frames =
+  43,254 B, clouds 16,375 = 32,770 B. At 44.1 kHz the 1 s delay (176,416) +
+  elements reverb = 219,670 > 196,608 -> options: delay cap 0.8 s (141,136 +
+  43,254 = 184,390 fits, chains keep working) OR shrink the chain window to
+  64 KiB (+52 KB arena, 1 s + reverb = 219,670 fits, chains retired).
+  Decision pending (user declined the immediate question).

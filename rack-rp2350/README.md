@@ -44,7 +44,8 @@ at the next block boundary (max one per call):
    and carves its buffers from the buffer arena; factory defaults via its
    `Init()`.
 4. **I2S** — `end()` → bits/buffers/frequency set to the new module's native
-   rate + bank → `begin()` (48 kHz for plaits, 32 kHz for the others).
+   rate + bank → `begin()` (48 kHz for plaits, 44.1 kHz for lira8, 32 kHz for
+the others).
 5. **UNMUTE** — 4-block gain ramp-up on the new module.
 
 One line per swap: `rack: switched to <module> in <ms> ms (window <n> bytes)`
@@ -140,14 +141,16 @@ ctag-tbd portability proof). Fidelity is gated against headless-Pd renders
 dry path matches within ±0.2 dB in every band; the fully-wet delay is
 documented as ~10 dB brighter at 12.5–16 kHz than Pd (open item).
 
-- **Module id 4**, boot env `rack-lira8`. **Standalone only** — the int16
-  delay carve (128,016 B = 2 × 32,004 samples, the ORIGINAL HARDWARE's 1 s
-  maximum) leaves too little of the buffer arena for a chained clouds-B
-  (128,016 + 87,040 + 44,032 > 192 KiB).
-- **Engine**: Pd-style 64-sample internal blocks at 32 kHz, rendered in bursts
-  of one block per 4 host calls. Device cost: ~805–817 µs per 64-block
-  (40% of the 2 ms period), i2s stalls 0. The 2 s report shows
-  `budget 1984 us` (the internal block, not the 16-sample host grid) and a
+- **Module id 4**, boot env `rack-lira8`. **44.1 kHz** (user call 2026-11-15;
+  the Pd abstraction's rlpf constants are 44.1k-authored). **Standalone
+  only** — the int16 delay carve (176,416 B = 2 × 44,004 samples, the
+  ORIGINAL HARDWARE's 1 s maximum) leaves far too little of the buffer arena
+  for a chained clouds-B (176,416 + 87,040 + 44,032 ≫ 192 KiB).
+- **Engine**: Pd-style 64-sample internal blocks, rendered in bursts of one
+  block per 4 host calls. Device cost at 44.1 kHz: ~812–823 µs per 64-block
+  (56% of the 1.451 ms period), i2s stalls 0; the 2.9 ms I2S bank covers the
+  ~0.8 ms burst. The 2 s report shows `budget 1451 us` (the internal block,
+  not the 16-sample host grid) and a
   `sens=N st=<params>/<voices>/<delay>/<lfo>/<master>` tail (active sensors +
   per-stage maxima, µs, resets on print).
 - **Voice architecture** (from the manual): 8 voices in four pairs (12/34/56/
@@ -464,10 +467,10 @@ Three real findings from the bring-up:
 
 `max Process: N us (budget B) | i2s stalls: T (+d) | in= out= notes= |
 host: conn= st= dev= midi= frame= | mod=<active module>` — budgets:
-elements 496, clouds 1000, plaits 500 (48 kHz), rings 750 µs, **lira8 1984
-µs** (its internal 64-sample block — the engine bursts once per 4 host calls
-and the 4 ms I2S bank absorbs the burst; `in=`/`out=` are max-since-report
-meters ×1000 and lira8 reports its output RMS in `in=`); lira8 appends
+elements 496, clouds 1000, plaits 500 (48 kHz), rings 750 µs, **lira8 1451
+µs** (its internal 64-sample block at 44.1 kHz — the engine bursts once per 4
+host calls and the 2.9 ms I2S bank absorbs the burst; `in=`/`out=` are
+max-since-report meters ×1000 and lira8 reports its output RMS in `in=`); lira8 appends
 `| sens=N st=<params>/<voices>/<delay>/<lfo>/<master>` (active sensor count +
 per-stage maxima in µs, reset on print). While chained
 the module field reads `mod=<a>><b>` (e.g. `elements>clouds`) and the

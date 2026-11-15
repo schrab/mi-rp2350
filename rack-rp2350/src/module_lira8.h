@@ -43,22 +43,23 @@ namespace rack_modules {
 namespace mod_lira8 {
 
 static const char* const kName = "lira8";
-static const uint32_t kSampleRate = 32000;
+static const uint32_t kSampleRate = 44100;
 static const size_t kBlockSize = 16;     // host grid; the engine bursts 64
-// Report budget = the INTERNAL 64-sample block (2 ms at 32 kHz), NOT the
-// 16-sample host grid: Process() renders a whole internal block on one call
-// (every 4th), so proc_us_max is a single-block number — compare it against
-// the block period. The 4x burst is absorbed by the 4 ms I2S bank; the
-// per-call stall threshold is kStallUs below.
+// Report budget = the INTERNAL 64-sample block (1.451 ms at 44.1 kHz), NOT
+// the 16-sample host grid: Process() renders a whole internal block on one
+// call (every 4th), so proc_us_max is a single-block number — compare it
+// against the block period. The 4x burst is absorbed by the 2.9 ms I2S bank;
+// the per-call stall threshold is kStallUs below.
 static const uint32_t kBudgetUs =
-    (uint32_t)(1000000UL / kSampleRate * l8pd::Lira8Engine::kBlockSize);  // 2000
-static const uint32_t kI2sBuffers = 8;   // 8 x 16 words = 128 frames (~4 ms)
+    (uint32_t)((1000000ULL * l8pd::Lira8Engine::kBlockSize +
+                kSampleRate / 2) / kSampleRate);  // 1451
+static const uint32_t kI2sBuffers = 8;   // 8 x 16 words = 128 frames (~2.9 ms)
 static const uint32_t kI2sWords = 16;
-static const uint32_t kStallUs = 900;    // >2x the 500 us block period
+static const uint32_t kStallUs = 900;    // >2x the 363 us write period
 
 // Delay storage: the ORIGINAL HARDWARE's delay tops out at 1 SECOND (user,
 // 2026-11-15) — the Pd patch's 5.944 s range is a patch-ism. int16, 2 lines:
-// (32000+4) * 2 * 2 = 128,016 B of the 192 KiB buffer arena. The pd TIME law
+// (44100+4) * 2 * 2 = 176,416 B of the 192 KiB buffer arena. The pd TIME law
 // is kept (2^(12k/127)*1.45125 ms), so the top ~22% of the TIME knob
 // saturates at the cap, like a pot hitting its stop.
 static constexpr float kCapMs = 1000.0f;
@@ -118,7 +119,7 @@ struct State {
   volatile uint8_t  sensor_mask;   // bit N = sensor N+1 requested ON
 
   explicit State(int16_t* delay_mem)
-      : eng(32000.0f, kCapMs, delay_mem),
+      : eng(static_cast<float>(kSampleRate), kCapMs, delay_mem),
         pluck_active(false),
         pluck_until_ms(0),
         out_rms_report(0.0f),
