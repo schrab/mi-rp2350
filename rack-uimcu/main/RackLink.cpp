@@ -634,7 +634,9 @@ namespace CTAG {
         }
 
         bool RackLink::SendChainRoute(uint8_t a, uint8_t b, uint8_t engage) {
-            if (a > 3 || b > 3 || engage > 1) return false;
+            // Module ids are 0-4 (lira8 = 4): the old a > 3 cap silently
+            // dropped every lira8->clouds route (T8 L>C selector no-op).
+            if (a > 4 || b > 4 || engage > 1) return false;
             const uint8_t p[3] = { a, b, engage };
             sendFrame(kTypeChainRoute, p, 3);
             return true;

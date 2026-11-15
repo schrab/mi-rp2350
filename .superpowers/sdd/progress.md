@@ -3414,7 +3414,15 @@ the fix and costs no new DSP in lira8.
   - standalone lira8 still 821-847 us / 1451, stalls 0; all five modules
     switched through the pool (clouds 33 ms, elements 31, plaits 9) with no
     crash.
-  - TRANSIENT: right after the C3 reflash, the first chain runs accumulated
+  - **C3 chain-route guard bug (2026-11-15, user-caught)**: after the C3 gained
+  the 4th pair, selecting `L>C` did nothing — the chain stayed on the
+  previously engaged pair (rings->clouds). Root cause: `RackLink::
+  SendChainRoute` still validated `a > 3` (pre-lira8 module range) and
+  SILENTLY returned false for lira8 id 4. Fixed to `a/b <= 4`; C3 rebuilt +
+  flashed. Lesson: every module-id guard on the UI-link path needs the same
+  0..RACK_MODULE_COUNT-1 range — pair selectors are not the only place ids
+  travel.
+- TRANSIENT: right after the C3 reflash, the first chain runs accumulated
     i2s stalls (~435/2 s) for both lira8 and rings pairs AND the user heard
     dirty audio with every chain pair (even clouds dry/wet 0); a fresh chain
     engage after the C3 settled ran +0. 2026-11-15 follow-up: a C3-side reload
