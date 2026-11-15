@@ -285,7 +285,8 @@ static const UiPageCell kUiPageRingsP1[16] = {
 // 2 LFO-square (the manual's SELF/LFO switch and the delay waveform switch
 // merged — the LFO shape is irrelevant in SELF). CC 52 stays a direct MIDI
 // override of the waveform. NOT on the pots: AND/OR (CC 42) and LINK
-// (CC 43) LFO synthesis switches, QUANTIZE (CC 53, a Pd-patch extra).
+// (CC 43) — see the P3 row2; QUANTIZE (CC 53, a Pd-patch extra) sits at P3
+// pot 14 as an ON/OFF cell.
 // Sensors = MIDI notes 36-43 (the patch's notemap), triggers 55-62.
 static const UiPageCell kUiPageLira8P1[16] = {
     // Row 0 (pots 1..6): pair switches + this group's DELAY line
@@ -348,11 +349,11 @@ static const UiPageCell kUiPageLira8P3[16] = {
     {41, "FREQ B",     kUiColorWhite}, // p8
     {30, "TOTAL FB",   kUiColorWhite}, // p9
     {31, "VIBRATO",    kUiColorWhite}, // p10
-    // Row 2 (pots 11..16): the remaining switches
+    // Row 2 (pots 11..16): the remaining switches (+ the patch-only QUANTIZE)
     {29, "FM STRUCT",  kUiColorWhite}, // p11
     {42, "AND/OR",     kUiColorWhite}, // p12
     {43, "LINK",       kUiColorWhite}, // p13
-    {0,  "",           kUiColorWhite}, // p14 (spare)
+    {53, "QUANTIZE",   kUiColorWhite}, // p14 (Pd-patch extra, OFF/ON)
     {0,  "",           kUiColorWhite}, // p15 (spare)
     {0,  "",           kUiColorWhite}, // p16 (spare)
 };

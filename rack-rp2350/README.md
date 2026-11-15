@@ -164,7 +164,7 @@ documented as ~10 dB brighter at 12.5–16 kHz than Pd (open item).
     39 LFO freq A, 41 LFO freq B, 42 and/or, 43 link, 44–45 time 1/2, 46
     feedback, 47 delay mix, 48–49 delay mod 1/2, **51 delay mode
     (0 SELF / 1 LFO-tri / 2 LFO-sqr)**, 52 LFO waveform (direct override),
-    53 quantize.
+    53 quantize (ON/OFF cell at P3 pot 14).
   - Delay storage is int16 with a **soft-knee limiter** at the ±2 headroom
     (linear to ±1.5): at maximum FEEDBACK the self-oscillating loop saturates
     instead of hard-clipping.
@@ -175,7 +175,7 @@ documented as ~10 dB brighter at 12.5–16 kHz than Pd (open item).
   - **P2 = group 5678 + delay line 2**, mirrored (MOD 2 / TIME 2 at pots 3/4).
   - **P3 = shared delay + distortion + LFO + globals** — row0: DEL MODE, FB,
     MIX, DRIVE, DIST MIX, VOL; row1: FREQ A, FREQ B, TOTAL FB, VIBRATO;
-    row2: FM STRUCT, AND/OR, LINK (+3 spares).
+    row2: FM STRUCT, AND/OR, LINK, QUANTIZE (+2 spares).
   - Switch cells are **live** (no soft takeover): SLOW/FAST, FM/OFF/LFO,
     SELF/TRI/SQR, SPLIT/LOOP, ON/OFF.
 - Chain: lira8 is rejected as chain A (buffer arena) and is not a chain B

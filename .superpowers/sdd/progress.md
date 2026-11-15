@@ -3339,3 +3339,8 @@ All rack-facing docs brought in line with the five-module firmware:
 - **docs/superpowers/plans/2026-11-15-rack-lira8.md**: L4/L5 status rows.
 Not documented (out of scope): the browser rack_panel.html still has no
 lira8 tab — the C3 is the lira8 control surface.
+
+- **QUANTIZE restored on the UI** (user, 2026-11-15): it had been dropped as a
+  Pd-patch extra, but the user wants it. P3 pot 14 = QUANTIZE, an ON/OFF cell
+  (CC 53 now a bool127 discrete cell; C3 value text ON/OFF); P3 has 2 spares
+  left. READMEs (rack + C3) updated.

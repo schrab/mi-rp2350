@@ -292,7 +292,11 @@ namespace CTAG {
                         return 2;             // SWITCH / TOTAL FB / VIBRATO
                     }
                     if (cc == 51) return 3;   // DEL-MOD: 0 free / 1 / 2 LFO-CV
-                    if (cc == 52 || cc == 53) return 2;  // LFO WAV, QUANTIZE (raw 0/1)
+                    if (cc == 52) return 2;  // LFO WAV (raw 0/1, MIDI-only)
+                    if (cc == 53) {           // QUANTIZE: an ON/OFF switch
+                        wireIsBool127 = true;
+                        return 2;
+                    }
                     break;
             }
             return 0;
@@ -865,6 +869,8 @@ namespace CTAG {
                             } else if (c.cc == 29) {                // FM structure
                                 pName = dispVal ? "LOOP" : "SPLIT";
                             } else if (c.cc == 30 || c.cc == 31) {  // TOTAL FB / VIBRATO
+                                pName = dispVal ? "ON" : "OFF";
+                            } else if (c.cc == 53) {                // QUANTIZE
                                 pName = dispVal ? "ON" : "OFF";
                             } else if (wireBool) {
                                 pName = dispVal ? "ON" : "OFF";

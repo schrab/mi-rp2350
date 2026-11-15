@@ -78,7 +78,8 @@ All 3V3 logic, no level shifting.
   delay line 1 (row0 FAST 12, FM SRC 12, MOD 1 p3, TIME 1 p4, FAST 34,
   FM SRC 34; row1 TUNE 1-4; row2 SHARP/MOD both pairs + PITCH 1234 + HOLD
   1234); **P2** = group 5678 + delay line 2; **P3** = DEL MODE/FB/MIX/DRIVE/
-  DIST MIX/VOL, FREQ A/FREQ B/TOTAL FB/VIBRATO, FM STRUCT/AND/OR/LINK.
+  DIST MIX/VOL, FREQ A/FREQ B/TOTAL FB/VIBRATO, FM STRUCT/AND/OR/LINK/
+  QUANTIZE.
 
 ## Gestures (the whole UI: turn pots + one encoder)
 
