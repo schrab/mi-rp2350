@@ -3414,11 +3414,19 @@ the fix and costs no new DSP in lira8.
   - standalone lira8 still 821-847 us / 1451, stalls 0; all five modules
     switched through the pool (clouds 33 ms, elements 31, plaits 9) with no
     crash.
-  - TRANSIENT: right after the C3 reflash, the first chain run accumulated
-    i2s stalls (~435/2 s) for both lira8 and rings pairs; a fresh chain
-    engage after the C3 settled ran +0. Correlates with core-0 UI-link/console
-    activity (the blocking 921600 UART snapshot writes delay the core-0 I2S
-    DMA IRQ), not chain CPU — observed, not yet fixed (T5 ring/IRQ scope).
+  - TRANSIENT: right after the C3 reflash, the first chain runs accumulated
+    i2s stalls (~435/2 s) for both lira8 and rings pairs AND the user heard
+    dirty audio with every chain pair (even clouds dry/wet 0); a fresh chain
+    engage after the C3 settled ran +0. 2026-11-15 follow-up: a C3-side reload
+    cleared the dirt completely while the RP2350's `i2s_stall_count` stayed
+    at 250,783 (so the RP2350 did NOT reboot) — the culprit is the C3/UI-link
+    side (stale post-reflash state or a chain-route/preset reconciliation
+    loop whose blocking 921600 UART bursts delay the core-0 I2S DMA IRQ), not
+    the unified pool or the chain render. If it recurs: capture the console
+    for repeated `chain ... engaged` / `preset: PART burst sent` lines and
+    consider a TX ring for the UI link (core 0 must never block ~9 ms on a
+    1,071 B PART burst while audio runs). Single-module audio was clean
+    throughout; the user can set lira8->clouds from the C3 SYS `L>C` selector.
 - **LEDGER CORRECTION**: the Elements/rings reverb allocation requirement is
   **64 KiB**, not the 43,254 B "delay-line footprint" recorded above.
   `elements::FxEngine<32768>::Init` does `std::fill(buffer_[0], buffer_[size])`
