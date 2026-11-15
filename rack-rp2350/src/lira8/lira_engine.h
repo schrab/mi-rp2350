@@ -240,11 +240,25 @@ class Lira8Engine {
     t0 = L8_TIME_US() - t0;
     if (t0 > dbg_lfo) dbg_lfo = t0;
 
-    // 2) voice pairs (M from PREVIOUS block's buses; soft-gated mux)
+    // 2) voice pairs (M = prm.source mux over the PREVIOUS block's buses;
+    //    the mux arithmetic is FUSED into the voice's cross-mod loops, so the
+    //    patch's default mod=0 state does no mux work at all)
     t0 = L8_TIME_US();
+    static const int kSrcA[4] = {1, 0, 3, 2};
+    static const int kSrcB[4] = {3, 0, 1, 2};
+    // prm.source gates: pd computes (==)*0.999 + 0.001, i.e. EXACTLY 1.0 when
+    // ON and 0.001 when OFF (verified from abs/prm.source.pd).
+    const float ga_audio = (switch_ < 0.5f) ? 1.0f : 0.001f;
+    const float gb_audio = (switch_ < 0.5f) ? 0.001f : 1.0f;
+    const float gl_lfo = (total_fb_ < 0.5f) ? 1.0f : 0.001f;
+    const float gl_fb = (total_fb_ < 0.5f) ? 0.001f : 1.0f;
     for (int p = 0; p < 4; ++p) {
-      mux_source(p, mux_buf_);
-      pairs_[p].process(mux_buf_, kBlockSize, blk_[p], bus_next_[p]);
+      const ModSource mux(buses_prev_[kSrcA[p]], buses_prev_[kSrcB[p]],
+                          buses_prev_[6], buses_prev_[7], ga_audio, gb_audio,
+                          gl_lfo, gl_fb,
+                          (src_[p] == 0) ? 1.0f : 0.001f,
+                          (src_[p] == 2) ? 1.0f : 0.001f);
+      pairs_[p].process(mux, kBlockSize, blk_[p], bus_next_[p]);
     }
     t0 = L8_TIME_US() - t0;
     if (t0 > dbg_voices) dbg_voices = t0;
@@ -267,31 +281,6 @@ class Lira8Engine {
 
     // 5) swap bus rings (one-block delay for ALL s~/r~ buses)
     memcpy(buses_prev_, bus_next_, sizeof(buses_prev_));
-  }
-
-  LIRA8_TC(lira_engine_mux)
-  void mux_source(int p, float* M) {
-    // prm.source (spec §6): srcA/srcB bus indices per pair, SWITCH picks,
-    // source 0=audio 1=off 2=LFO-CV; soft gates 0.999/0.001
-    static const int kSrcA[4] = {1, 0, 3, 2};
-    static const int kSrcB[4] = {3, 0, 1, 2};
-    // prm.source gates: pd computes (==)*0.999 + 0.001, i.e. EXACTLY 1.0 when
-    // ON and 0.001 when OFF (verified from abs/prm.source.pd). v1 used
-    // 0.999 for ON (-0.009 dB on the selected source).
-    const float ga_audio = (switch_ < 0.5f) ? 1.0f : 0.001f;
-    const float gb_audio = (switch_ < 0.5f) ? 0.001f : 1.0f;
-    const float gl_lfo = (total_fb_ < 0.5f) ? 1.0f : 0.001f;
-    const float gl_fb = (total_fb_ < 0.5f) ? 0.001f : 1.0f;
-    const float ga_out = (src_[p] == 0) ? 1.0f : 0.001f;
-    const float gl_out = (src_[p] == 2) ? 1.0f : 0.001f;
-    const int a = kSrcA[p], bidx = kSrcB[p];
-    for (int i = 0; i < kBlockSize; ++i) {
-      const float audio = buses_prev_[a][i] * ga_audio +
-                          buses_prev_[bidx][i] * gb_audio;
-      const float lfo_cv = buses_prev_[6][i] * gl_lfo +
-                           buses_prev_[7][i] * gl_fb;
-      M[i] = audio * ga_out + lfo_cv * gl_out;
-    }
   }
 
   LIRA8_TC(lira_engine_delay)
@@ -397,7 +386,6 @@ class Lira8Engine {
   float buses_prev_[kNumBuses][64];
   float bus_next_[kNumBuses][64];
   float blk_[4][64];
-  float mux_buf_[64];
   float self_prev_[2][64];
   float self_next_[2][64];
   float self_buf_[2][64];   // previous block's FLOAT writes (SELF source)

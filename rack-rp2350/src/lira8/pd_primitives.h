@@ -233,10 +233,34 @@ class CosOsc {
     return out;
   }
 
+  // BLOCK-RATE LFO use (the vibrato osc~, 2.7-3.3 Hz): two EXACT table
+  // samples at the block endpoints, linear interpolation in between. The
+  // full-rate lookups (one per sample) become two per block + one add per
+  // sample. Chord-vs-arc error = (2*pi*f/block_rate)^2/8 <= 2.2e-4 of full
+  // scale at these rates (32 kHz / 64 = 500 Hz blocks); scaled by the 0.5%
+  // FM depth that is a ~1.1e-6 relative frequency error (< -110 dB sidebands
+  // against the carrier). The phase is advanced EXACTLY (integer add), so the
+  // next block starts on the true cosine.
+  void begin_block(int n) {
+    const float p0 = static_cast<float>(phase_) * kPhaseToTable;
+    const uint32_t ph1 = phase_ + inc_ * static_cast<uint32_t>(n);
+    cur_ = cos_lookup(p0);
+    const float end = cos_lookup(static_cast<float>(ph1) * kPhaseToTable);
+    slope_ = (end - cur_) * (1.0f / static_cast<float>(n));
+    phase_ = ph1;
+  }
+  LIRA8_TC(pd_cososc_lerp_next)
+  float next_lerp() {
+    const float out = cur_;
+    cur_ += slope_;
+    return out;
+  }
+
  private:
   float conv_;
   uint32_t inc_ = 0;
   uint32_t phase_ = 0;
+  float cur_ = 0.0f, slope_ = 0.0f;   // begin_block/next_lerp state
 };
 
 // ---------- phasor~: output-then-increment, wrap [0,1) ----------

@@ -101,6 +101,33 @@ class SensorEnv {
   bool fast_ = false;
 };
 
+// prm.source cross-mod mux, evaluated INLINE at the point of use: M feeds
+// only the pair's cross-mod terms, which are all zero in the patch's default
+// state (mod CCs 0). The v1 shape precomputed a 64-sample signal per pair
+// per block — a second pass over four bus arrays — even when nothing
+// consumed it. Same expression and rounding order as that loop, so the
+// mod != 0 result is unchanged.
+struct ModSource {
+  const float* a;
+  const float* b;
+  const float* lfo;
+  const float* fb;
+  float ga, gb, gl, gfb;      // source gates (pd's ==*0.999+0.001)
+  float ga_out, gl_out;       // per-pair audio / LFO-CV output gates
+  ModSource(const float* a_, const float* b_, const float* lfo_,
+            const float* fb_, float ga_, float gb_, float gl_, float gfb_,
+            float ga_out_, float gl_out_)
+      : a(a_), b(b_), lfo(lfo_), fb(fb_),
+        ga(ga_), gb(gb_), gl(gl_), gfb(gfb_),
+        ga_out(ga_out_), gl_out(gl_out_) {}
+  LIRA8_TC(lira_modsource_at)
+  inline float at(int i) const {
+    const float audio = a[i] * ga + b[i] * gb;
+    const float lfo_cv = lfo[i] * gl + fb[i] * gfb;
+    return audio * ga_out + lfo_cv * gl_out;   // v1 mux_source order
+  }
+};
+
 class VoicePair {
  public:
   // pair 0..3 (voices 2i+1 / 2i+2). seed_base kept for API compat: the
@@ -165,9 +192,9 @@ class VoicePair {
     hz(tune_b_, tune_b_hz_);
   }
 
-  // ---- per-sample render; mod_sig = mod-source signal (other pair bus) ----
+  // ---- per-sample render; mux = fused prm.source cross-mod signal ----
   LIRA8_TC(lira_voice_pair)
-  inline void process(const float* mod_sig, int n, float* pair_out,
+  inline void process(const ModSource& mux, int n, float* pair_out,
                       float* bus_send) {
     // SETTLED-BLOCK FAST PATH: with the six control line~s and both sensor
     // envelopes idle (the normal drone / held-pad state) nothing in them can
@@ -221,8 +248,9 @@ class VoicePair {
       if (mod == 0.0f) {
         osc_a_.prepare_coeff(tuneA);
         osc_b_.prepare_coeff(tuneB);
+        osc3_.begin_block(n);   // block-rate vibrato cosine (exact endpoints)
         for (int i = 0; i < n; ++i) {
-          const float V = osc3_.next() * vib;
+          const float V = osc3_.next_lerp() * vib;
           const float pwm = 0.53125f + 0.025f * V;
           const float fA = tuneA * (1.0f + 0.005f * V);
           const float fB = tuneB * (1.0f + 0.005f * V);
@@ -238,13 +266,14 @@ class VoicePair {
         return;
       }
 
+      osc3_.begin_block(n);
       for (int i = 0; i < n; ++i) {
-        const float V = osc3_.next() * vib;
+        const float V = osc3_.next_lerp() * vib;
         const float pwm = 0.53125f + 0.025f * V;
         const float fA = (tuneA * (1.0f + 0.005f * V)) *
-                         (1.0f + mod_sig[i] * mod);
+                         (1.0f + mux.at(i) * mod);
         const float fB = (tuneB * (1.0f + 0.005f * V)) *
-                         (1.0f + mod_sig[i] * mod);
+                         (1.0f + mux.at(i) * mod);
         float sqA, triA, sqB, triB;
         osc_a_.process(fA, pwm, sqA, triA);
         osc_b_.process(fB, pwm, sqB, triB);
@@ -299,8 +328,9 @@ class VoicePair {
       if (mod == 0.0f) {
         osc_a_.prepare_coeff(tuneA);
         osc_b_.prepare_coeff(tuneB);
+        osc3_.begin_block(n);   // block-rate vibrato cosine (exact endpoints)
         for (int i = 0; i < n; ++i) {
-          const float V = osc3_.next() * vib;
+          const float V = osc3_.next_lerp() * vib;
           const float pwm = 0.53125f + 0.025f * V;
           const float fA = tuneA * (1.0f + 0.005f * V);
           const float fB = tuneB * (1.0f + 0.005f * V);
@@ -330,9 +360,9 @@ class VoicePair {
         sensor_a_.process(e2a, cosa);
         sensor_b_.process(e2b, cosb);
         const float fA = (tuneA * (1.0f + 0.005f * V)) *
-                         (1.0f + mod_sig[i] * mod);
+                         (1.0f + mux.at(i) * mod);
         const float fB = (tuneB * (1.0f + 0.005f * V)) *
-                         (1.0f + mod_sig[i] * mod);
+                         (1.0f + mux.at(i) * mod);
         float sqA, triA, sqB, triB;
         osc_a_.process(fA, pwm, sqA, triA);
         osc_b_.process(fB, pwm, sqB, triB);
@@ -348,8 +378,9 @@ class VoicePair {
       }
       return;
     }
+    osc3_.begin_block(n);
     for (int i = 0; i < n; ++i) {
-      const float V = osc3_.next() * vib_.next();
+      const float V = osc3_.next_lerp() * vib_.next();
       const float sharp = sharp_.next();
       const float mod = mod_.next();
       const float hold = hold_.next();
@@ -360,9 +391,9 @@ class VoicePair {
       sensor_b_.process(e2b, cosb);
 
       const float fA = tune_a_.next() * (1.0f + 0.005f * V) *
-                       (1.0f + mod_sig[i] * mod);
+                       (1.0f + mux.at(i) * mod);
       const float fB = tune_b_.next() * (1.0f + 0.005f * V) *
-                       (1.0f + mod_sig[i] * mod);
+                       (1.0f + mux.at(i) * mod);
 
       float sqA, triA, sqB, triB;
       osc_a_.process(fA, pwm, sqA, triA);
@@ -384,6 +415,15 @@ class VoicePair {
       pair_out[i] = pair;
       bus_send[i] = hip_.process(pair);
     }
+  }
+
+  // Direct stimulus (host harness / tests): `sig` IS the mux output. Ga/gb/
+  // lfo/fb gates are degenerate so ModSource::at() reduces to sig exactly
+  // (x*1 + x*0; the lfo path is +0).
+  inline void process(const float* sig, int n, float* pair_out,
+                      float* bus_send) {
+    process(ModSource(sig, sig, sig, sig, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f),
+            n, pair_out, bus_send);
   }
 
  private:

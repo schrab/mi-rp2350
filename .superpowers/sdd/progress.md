@@ -3538,3 +3538,31 @@ the fix and costs no new DSP in lira8.
 - Docs: rack README (pool, chain table, lira8 CC map), ui-protocol (chain
   pair 1-4), C3 README (4 pairs), memmap_rack.ld (lira8 A-slot ASSERT +
   heap notes).
+- **VOICE STAGE: block-rate vibrato cos + fused prm.source mux (2026-11-15)**:
+  two micro-optimizations in `src/lira8/` (host harness + on-device verified).
+  1) The vibrato osc~ (2.7-3.3 Hz, per-sample cos table lookup x 4 pairs) now
+  evaluates the cosine at the block endpoints and lerps in between
+  (`CosOsc::begin_block/next_lerp`); the phase advances EXACTLY (integer add),
+  so blocks always start on the true cosine. 2) `prm.source`'s 64-sample mux
+  buffer pass is gone: `ModSource::at(i)` is evaluated inline only in the
+  voice's mod != 0 loops, so the patch-default mod=0 drone state does zero mux
+  work. HOST A/B (old vs new render_golden, all 14 scenarios): worst delta
+  **-63.9 dB RMS / corr 1.0000** (single-pair), -69.6 pairfm, -72..-82 the
+  others; **bit-identical wherever vibrato=0** (onevoice/pitch0/pitch127/
+  onecyc). Two NEW isolation scenarios (mod=64, vibrato=0, switch+total-fb
+  flipped and source-12/34=2 LFO-CV) are **bit-identical old vs new**, proving
+  the mux fusion is exact — the -64 dB delta is entirely the vibrato chord
+  interpolation, which integrates into oscillator phase (same class as the
+  accepted rlpf-hoist optimization, -59..-67 dB). ON DEVICE (same bench,
+  back-to-back old/new builds, chain off, settled state): standalone voices
+  **361 -> 301-307 us**, max Process **665-680 -> 590-632/1451**; chained
+  lira8>clouds with a note held 12 s: settle max **758-769 us**, bm=153-156,
+  c0=355-379, **u=0**, **i2s stalls 0 (+0)**. Fidelity ceiling deliberately
+  kept at the linear interp (quadratic would cost an extra lookup/mul-add per
+  block for no audible gain).
+- **FLASH TRAP**: the documented 1200-baud touch silently no-ops without
+  `hupcl` — stty closes with DTR still asserted, so the firmware never sees
+  the 1200-baud DTR drop and stays in the app (device number unchanged, no
+  BOOTSEL drive). `stty -F "$RP" 1200 raw -echo hupcl` reboots every time;
+  AGENTS.md now says so. (The pyserial fallback's `dtr=False` can raise
+  Errno 71 — verify re-enumeration to "RP2350 Boot" before trusting it.)
