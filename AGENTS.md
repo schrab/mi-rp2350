@@ -6,10 +6,10 @@ Guide for coding agents working in this repository.
 
 Monorepo of Mutable Instruments eurorack DSP ports to Arduino RP2040/RP2350
 (upstream project by poetaster — see `README.md`). The **active project** is
-`elements-rp2350/`: a Mutable Instruments **Elements** clone on an RP2350
-"nano" board + PCM5102A I2S DAC, driven over MIDI from both a USB device port
-(native USB-C) and a USB host port (PIO-USB bit-banged on a USB-A socket), with
-a WS2812 status LED on GP22.
+`rack-rp2350/`: the five-module rack (Elements, Clouds, Plaits, Rings,
+LIRA-8) on an RP2350 "nano" board + PCM5102A I2S DAC, with native USB MIDI
+device, PIO-USB host MIDI, DIN MIDI, an ESP32-C3 UI link and a WS2812 status
+LED on GP22. `elements-rp2350/` is the legacy Elements standalone build.
 
 Everything else at the top level (BRAIDS, CLOUDS, ELEMENTS, STMLIB, PLAITS,
 RINGS, TIDES, the `*Engines*`/`*Scarp*` sketch folders, MMM, marvelousMI) is
@@ -23,7 +23,9 @@ consumes copies, not the originals.
 | [`docs/superpowers/plans/2026-10-30-elements-rp2350.md`](docs/superpowers/plans/2026-10-30-elements-rp2350.md) | The SDD plan: tasks T1–T6, wiring, acceptance criteria |
 | [`.superpowers/sdd/progress.md`](.superpowers/sdd/progress.md) | **The ledger** — task status, commit hashes, and the authoritative investigation findings (build quirks, TinyUSB API facts, LED bugs, BOW audit). Read this before debugging anything |
 | [`docs/PORTING-HIGHLIGHTS.md`](docs/PORTING-HIGHLIGHTS.md) | **START HERE for new module ports** — distilled Elements+Clouds porting experience: SRAM/XIP law, build rules, profiling pattern, RINGS/PLAITS prep, acceptance checklist |
-| [`elements-rp2350/README.md`](elements-rp2350/README.md) | Firmware-facing docs: wiring tables, MIDI behavior + CC map, status-LED legend, serial diagnostics format, build/upload procedures, soak-test checklist |
+| [`elements-rp2350/README.md`](elements-rp2350/README.md) | Legacy Elements standalone firmware docs |
+| [`rack-rp2350/README.md`](rack-rp2350/README.md) | **Active rack firmware docs**: five modules, chain mode, SRAM pool, wiring, MIDI/CC maps, console, soak checklist |
+| [`rack-uimcu/README.md`](rack-uimcu/README.md) | ESP32-C3 UI firmware: pages, gestures, link protocol, build/flash |
 | [`README.md`](README.md) | Upstream repo context (Arduino MI ports, engine status per chip) |
 | [`tools/elements_panel.html`](tools/elements_panel.html) | Browser Web-MIDI control panel for the device port |
 | [`tools/clouds_panel.html`](tools/clouds_panel.html) | Browser Web-MIDI control panel for the Clouds port (modes, quality, freeze, trigger; jacks omitted) |
@@ -31,7 +33,28 @@ consumes copies, not the originals.
 | [`tools/sync_pio_libs.sh`](tools/sync_pio_libs.sh) | Regenerates `elements-rp2350/lib/` from upstream sources (STMLIB, ELEMENTS) and re-applies `tools/patches/elements/*.patch` — run after submodule updates |
 | [`tools/syx2array.py`](tools/syx2array.py) | SysEx → C array converter |
 
-## Active project layout
+## Project layout
+
+### Active: `rack-rp2350/`
+
+```
+rack-rp2350/
+├── platformio.ini        # 5 envs: rack-elements/clouds/plaits/rings/lira8
+├── memmap_rack.ld        # unified two-slot hot-code window + RACK_LMA region
+├── src/
+│   ├── main.cpp          # core 0 control + core 1 audio/swap/chain pipeline
+│   ├── rack_arena.h      # unified 331,776 B SRAM pool + bump allocator
+│   ├── rack_window.h     # flash -> SRAM hot-code window copy
+│   ├── module_*.h        # five module adapters (elements/clouds/plaits/rings/lira8)
+│   ├── lira8/            # hand-ported LIRA-8 engine (pure C++, host-testable)
+│   ├── ui_link.h         # ESP32-C3 UI link (non-blocking TX ring)
+│   ├── preset.h          # T4a presets / autosave
+│   └── ...
+└── lib/                  # elements clouds plaits rings stmlib cmsis_dsp
+                          # lira8_engine pio_usb (synced/vendored)
+```
+
+### Legacy standalone: `elements-rp2350/`
 
 ```
 elements-rp2350/
@@ -50,26 +73,108 @@ elements-rp2350/
 
 ## Build, flash, monitor
 
+### Build
+
 ```sh
-# build → elements-rp2350/.pio/build/elements-rp2350/firmware.uf2
+# Rack (ACTIVE target, five modules + unified firmware)
+pio run -d rack-rp2350                  # all five envs
+pio run -d rack-rp2350 -e rack-lira8    # one env
+# → rack-rp2350/.pio/build/<env>/firmware.uf2
+
+# Legacy Elements standalone (kept for reference)
 pio run -d elements-rp2350
-
-# flash from a running board (no BOOTSEL button needed): 1200-baud touch
-# reboots into BOOTSEL mass-storage, then copy the UF2
-stty -F /dev/ttyACM0 1200 raw -echo
-# → /dev/sdb1 labeled RP2350 appears; mount (udisksctl) and copy firmware.uf2, then sync
-
-# serial monitoring works IN PARALLEL with MIDI and host traffic
-stty -F /dev/ttyACM0 115200 raw -echo
-cat /dev/ttyACM0          # boot log + 2 s report: max Process | i2s stalls | host flags
+# → elements-rp2350/.pio/build/elements-rp2350/firmware.uf2
 ```
 
-The 2 s report: `max Process: N us (budget 496 us) | i2s stalls: T (+d) | host:
-conn=… idle=… dev=… midi=…`. Mount/umount events and the re-enumeration
-watchdog print their own lines.
+### RP2350 flash — 1200-baud touch → BOOTSEL mass storage → UF2
+
+**/dev/ttyACM* numbering is NOT stable.** Two USB devices can be attached:
+the RP2350 app CDC and the ESP32-C3's USB-Serial-JTAG (the C3 can take
+`ttyACM0` and push the RP2350 to `ttyACM1`, or vice versa). Always resolve
+the board by `/dev/serial/by-id/`, never by number:
+
+- RP2350: `usb-Raspberry_Pi_Rack_RP2350_<serial>-if00`
+  (the legacy Elements board enumerates as `Elements RP2350`)
+- C3: `usb-Espressif_USB_JTAG_serial_debug_unit_<mac>-if00`
+
+```sh
+# Run from the repo root. ENV selects the UF2 (one env is enough: the envs
+# differ only in the boot module).
+ENV=${ENV:-rack-lira8}
+RP=$(readlink -f /dev/serial/by-id/usb-Raspberry_Pi_Rack_RP2350_*-if00)
+echo "RP2350 port: $RP"
+
+# 1) The 1200-baud touch wedges while ANY process holds DTR. Kill readers
+#    first (a stray `cat` splits the byte stream and blocks the reboot).
+fuser -v "$RP" 2>/dev/null || true
+
+# 2) 1200-baud touch -> reboots into BOOTSEL (no button needed)
+stty -F "$RP" 1200 raw -echo
+
+# 3) Wait for the RP2350 mass-storage drive (label RP2350, usually sdb1)
+for i in $(seq 1 20); do
+  DEV=$(lsblk -no NAME,LABEL | awk '$2=="RP2350"{print "/dev/"$1; exit}')
+  [ -n "$DEV" ] && break
+  sleep 1
+done
+echo "BOOTSEL drive: $DEV"
+
+# 4) Mount if not auto-mounted, copy the UF2, sync, unmount
+MOUNT=$(lsblk -no MOUNTPOINT "$DEV")
+if [ -z "$MOUNT" ]; then
+  udisksctl mount -b "$DEV"
+  MOUNT=$(lsblk -no MOUNTPOINT "$DEV")
+fi
+[ -n "$MOUNT" ] || { echo "mount failed"; exit 1; }
+cp "rack-rp2350/.pio/build/$ENV/firmware.uf2" "$MOUNT"/
+sync
+udisksctl unmount -b "$DEV"
+
+# 5) The board reboots into the app; the ACM number may change again —
+#    re-resolve by-id for the console.
+```
+
+If `stty` does not reboot the board (seen when the CDC task is busy / the
+port is stale), use the equivalent pyserial touch:
+
+```sh
+python3 - <<'PY'
+import glob, serial, time
+p = glob.glob('/dev/serial/by-id/usb-Raspberry_Pi_Rack_RP2350_*-if00')[0]
+s = serial.Serial(p, 1200, timeout=0)
+time.sleep(0.2)
+s.dtr = False          # 1200 baud + DTR drop = bootloader reset
+time.sleep(0.2)
+s.close()
+PY
+```
+
+Rules:
+
+- Copy **firmware.uf2** only — the BOOTSEL drive does not accept `.bin`.
+- Do **not** flash the C3 by copying a UF2 to that drive; C3 updates are
+  `idf.py` (Espressif USB-JTAG by-id):
+  `cd rack-uimcu && . /home/schrab/esp/esp-idf-v5.5.4/export.sh && idf.py -p <C3-ACM> flash`.
+- After a BOOTSEL flash the first console command can be garbled by stale
+  bytes; send a newline (or retry `status`) before trusting the reply.
+- `stty` needs the port opened exclusively: one reader per port, ever.
+
+### Monitor (RP2350 console)
+
+```sh
+RP=$(readlink -f /dev/serial/by-id/usb-Raspberry_Pi_Rack_RP2350_*-if00)
+stty -F "$RP" 115200 raw -echo
+cat "$RP"     # boot log + 2 s report; kill stray readers with pkill cat
+```
+
+The 2 s report while standalone: `max Process: N us (budget N us) | i2s
+stalls: T (+d) | in=… out=… notes=… | … mod=<module> | modeng=…`; while
+chained it extends the module field with `bm=` (core-0 clouds-B cost), `c0=`
+(core-0 loop max) and `u=` (B-not-ready underruns). Mount/umount events and
+the re-enumeration watchdog print their own lines.
 
 Desktop MIDI check (PipeWire holds raw ports, so avoid `amidi -p hw:…`): use
-`aseqdump -l` to confirm "Elements RP2350" and the host controller appear.
+`aseqdump -l` to confirm "Rack RP2350" and the host controller appear.
 
 ## Hard-won constraints (details in the ledger)
 
@@ -90,8 +195,9 @@ Desktop MIDI check (PipeWire holds raw ports, so avoid `amidi -p hw:…`): use
   never retries; `usb_host_watchdog.c` + `main.cpp` force a reconnect when the
   bus is idle but nothing is mounted (controllers that power-cycle while
   attached).
-- `Serial` is USB CDC on `/dev/ttyACM0` and tolerates concurrent MIDI/host
-  traffic — use it for all diagnostics.
+- `Serial` is USB CDC and tolerates concurrent MIDI/host traffic — use it
+  for all diagnostics. **Address it via `/dev/serial/by-id/`**: ttyACM
+  numbering is not stable and the C3's USB-JTAG can take ACM0.
 - Hot per-sample DSP must run from **SRAM, not flash**: XIP cache misses cost
   more than the entire 496 µs block budget. Mark hot functions/data with
   `ELEMENTS_RAM_CODE(token)` (`.time_critical` sections, see
