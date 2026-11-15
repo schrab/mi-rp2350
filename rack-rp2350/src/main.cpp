@@ -82,6 +82,7 @@ bool core1_separate_stack = true;
 #include "rack_arena.h"          // T2 module-state arenas (decls)
 #include "piezo.h"               // T2 piezo input (GP26 ADC0, software Ears)
 #include "hardware/gpio.h"       // gpio_pull_up (DIN RX idle mark)
+#include "hardware/irq.h"        // DMA_IRQ_0 / irq_set_enabled (I2S IRQ handoff)
 
 #if RACK_ENABLE_USB_HOST
 // PIO-USB root-port accessors for the re-enumeration watchdog (C side,
@@ -781,6 +782,13 @@ void setup1() {
 #endif
 
   while (!audio_ready) { delay(1); }
+  // T8: take the I2S DMA IRQ on the AUDIO core. The AudioBufferManager's
+  // list helpers use noInterrupts(), which is per-core: with the writer on
+  // core 1 and the DMA IRQ on core 0 they were racing on _empty/_filled, and
+  // the lists eventually corrupted (persistent i2s stall storms that only a
+  // reload/reconfigure cleared). core 0 disables DMA_IRQ_0 right after
+  // i2s.begin(); core 1 enables it here and around every runtime reconfig.
+  irq_set_enabled(DMA_IRQ_0, true);
 }
 
 // Swap-mute ramp depth: kSwapRampSteps render blocks with a linear gain ramp
@@ -813,14 +821,16 @@ static const uint32_t kSwapRampSteps = 4;
 //       module, then normal 1.0 rendering.
 // One stats line is handed to core 0 (printed once, from loop()).
 
-// I2S reconfig handshake (core 1 requests, core 0 performs): the I2S object's
-// DMA transmit IRQ fires on CORE 0 (i2s.begin() ran there in setup; RP2350
-// routes enabled IRQs to the enabling core). Tearing the manager down from
-// core 1 races that ISR mid-flight — bench-verified hard fault (reports die,
-// DMA clocks out freed buffers = noise burst, board needs a power cycle).
-// Core 1: id -> request -> wait (bounded); core 0: end/config/begin -> result
-// -> ack. Ordering: result is written before ack; request is cleared before
-// ack. No other concurrent I2S access exists during the swap window.
+// I2S reconfig handshake (core 1 requests, core 0 performs): T8 moved the
+// DMA transmit IRQ to the AUDIO core (core 1) — the AudioBufferManager's
+// noInterrupts() is per-core, so a core-0 ISR raced core-1's _empty/_filled
+// list writes and eventually corrupted them. The I2S OBJECT is still
+// configured on core 0 (the old bench hard fault came from tearing the
+// manager down while a core-0 ISR was live; core 1 now masks DMA_IRQ_0 across
+// the whole handshake and re-enables it afterward). Core 1: id -> request ->
+// wait (bounded); core 0: end/config/begin -> result -> ack. Ordering:
+// result is written before ack; request is cleared before ack. No other
+// concurrent I2S access exists during the swap window.
 static volatile bool g_swap_i2s_request = false;
 static volatile bool g_swap_i2s_ack = false;
 static volatile bool g_swap_i2s_result = false;
@@ -835,6 +845,8 @@ static void serviceSwapI2s() {
                   i2s.setBuffers(m.i2s_buffers, m.i2s_words) &&
                   i2s.setFrequency(m.sample_rate) &&
                   i2s.begin();
+  // T8: keep the DMA IRQ on the audio core (begin() enabled it here).
+  irq_set_enabled(DMA_IRQ_0, false);
   g_swap_i2s_result = ok;
   g_swap_i2s_request = false;
   g_swap_i2s_ack = true;
@@ -887,11 +899,13 @@ static void do_module_swap(uint8_t new_id) {
   g_swap_i2s_id = new_id;
   g_swap_i2s_ack = false;
   g_swap_i2s_result = false;
+  irq_set_enabled(DMA_IRQ_0, false);   // T8: no core-1 IRQ during teardown
   g_swap_i2s_request = true;
   const uint32_t i2s_t0 = time_us_32();
   while (!g_swap_i2s_ack && time_us_32() - i2s_t0 < 1000000UL) {
     delay(1);
   }
+  irq_set_enabled(DMA_IRQ_0, true);    // T8: resumed on the audio core
   const bool i2s_ok = g_swap_i2s_ack && g_swap_i2s_result;
 
   g_active_module = new_id;
@@ -940,6 +954,8 @@ static void serviceChainI2s() {
                   i2s.setBuffers(g_chain_i2s_buffers, g_chain_i2s_words) &&
                   i2s.setFrequency(g_chain_i2s_rate) &&
                   i2s.begin();
+  // T8: keep the DMA IRQ on the audio core (begin() enabled it here).
+  irq_set_enabled(DMA_IRQ_0, false);
   g_chain_i2s_result = ok;
   g_chain_i2s_request = false;
   g_chain_i2s_ack = true;
@@ -1229,11 +1245,13 @@ static void do_chain_engage(uint8_t new_a, uint8_t new_b) {
     g_chain_i2s_words = kChainI2sWords;
     g_chain_i2s_ack = false;
     g_chain_i2s_result = false;
+    irq_set_enabled(DMA_IRQ_0, false);  // T8: no core-1 IRQ during teardown
     g_chain_i2s_request = true;
     const uint32_t i2s_t0 = time_us_32();
     while (!g_chain_i2s_ack && time_us_32() - i2s_t0 < 1000000UL) {
       delay(1);
     }
+    irq_set_enabled(DMA_IRQ_0, true);   // T8: resumed on the audio core
     const bool i2s_ok = g_chain_i2s_ack && g_chain_i2s_result;
     if (!i2s_ok) {
       g_chain_report_ms = (time_us_32() - t0) / 1000;
@@ -1342,11 +1360,13 @@ static void do_chain_disengage() {
   g_chain_i2s_words = kRackModules[a].i2s_words;
   g_chain_i2s_ack = false;
   g_chain_i2s_result = false;
+  irq_set_enabled(DMA_IRQ_0, false);   // T8: no core-1 IRQ during teardown
   g_chain_i2s_request = true;
   const uint32_t i2s_t0 = time_us_32();
   while (!g_chain_i2s_ack && time_us_32() - i2s_t0 < 1000000UL) {
     delay(1);
   }
+  irq_set_enabled(DMA_IRQ_0, true);    // T8: resumed on the audio core
   const bool i2s_ok = g_chain_i2s_ack && g_chain_i2s_result;
 
   // (c) Re-Init the A slot fresh at its native context. Its hot image is
@@ -2362,6 +2382,10 @@ void setup() {
   } else {
     Serial.println("I2S up");
   }
+  // T8: i2s.begin() enabled DMA_IRQ_0 on THIS core; hand it to core 1 (the
+  // audio writer) so the AudioBufferManager's noInterrupts() actually covers
+  // the DMA IRQ. setup1() re-enables it on core 1 after audio_ready.
+  irq_set_enabled(DMA_IRQ_0, false);
 
   // Boot diagnostic: confirm I2S did not steal the status LED's PIO2 SM0.
   // SM0's PC must stay inside the 4-instruction WS2812 program.

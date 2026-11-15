@@ -3422,6 +3422,22 @@ the fix and costs no new DSP in lira8.
   flashed. Lesson: every module-id guard on the UI-link path needs the same
   0..RACK_MODULE_COUNT-1 range — pair selectors are not the only place ids
   travel.
+- **I2S DMA IRQ moved to the AUDIO core (2026-11-15, ROOT CAUSE of the
+  persistent chain stall storms)**: `AudioBufferManager`'s `_addToList` /
+  `_takeFromList` protect themselves with `noInterrupts()`, which is
+  PER-CORE. The rack wrote from core 1 while `i2s.begin()` enabled the DMA
+  IRQ on core 0, so the IRQ and the writer raced on `_empty`/`_filled`; the
+  lists eventually corrupted — the stall storm appeared after minutes,
+  survived DSP/parameter changes, and only a reload/I2S reconfigure cleared
+  it. FIX: core 0 disables `DMA_IRQ_0` immediately after every
+  `i2s.begin()`; core 1 enables it in `setup1()` and masks it across every
+  runtime reconfig handshake (swap / engage / disengage). 60 s soak with
+  note on/off + clouds feedback/reverb CC changes (autosave 1,071 B PART
+  bursts landing live): **i2s stalls 0 (+0) throughout**, `in` up to 439
+  (0.44 RMS), B cost up to 443 us, core-0 loop up to 1,369 us, underruns 0.
+  This supersedes the earlier UI-TX / LED / C3-side theories — those were
+  real secondary contributors, but this is the one that corrupted the DMA
+  ring until reload.
 - **Dual-core chain pipeline (2026-11-15, user directive "optimize for
   dualcore")**: chain A render + I2S write stay on core 1; clouds B runs on
   core 0 ONE 24-sample block behind through two 4-slot SPSC float rings

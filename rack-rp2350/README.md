@@ -376,6 +376,13 @@ decides, and any offender gets a one-line token promotion (window slack
   ramp-up. Extra latency: one chain block (750 µs). While chained the 2 s
   report shows `bm=` (B cost), `c0=` (core-0 loop max) and `u=` (B-not-ready
   underruns).
+- **The I2S DMA IRQ lives on the AUDIO core (core 1)**: the
+  AudioBufferManager's list helpers use `noInterrupts()`, which is per-core;
+  with the writer on core 1 and the IRQ on core 0 the `_empty/_filled` lists
+  raced and eventually corrupted (persistent stall storms that only a reload
+  cleared). Core 0 disables `DMA_IRQ_0` after every `i2s.begin()`; core 1
+  enables it in `setup1()` and masks it across each runtime reconfig. Never
+  enable the I2S DMA IRQ on core 0 again.
 - **UI-link TX is non-blocking (T8)**: frames are queued in a 4 KiB ring and
   drained by `ui_link_tx_pump()` in the core-0 loop, writing only what the
   UART TX ring can take immediately. The preset autosave PART burst (1,071 B,
