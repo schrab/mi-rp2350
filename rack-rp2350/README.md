@@ -376,12 +376,18 @@ decides, and any offender gets a one-line token promotion (window slack
   **±48 semitones** (Clouds' hardware range), not the raw 0..1 that only
   moved one semitone. Applies to single-module clouds and the chain B slot.
 - **Dual-core chain render (T8)**: core 1 renders the A slot and writes I2S;
-  core 0 renders clouds B one 24-sample block behind through two lock-free
-  4-slot SPSC rings. The per-block wall cost becomes A + handoff instead of
-  A + B; the A slot's burst no longer delays clouds. Transitions (mute ramp,
+  core 0 renders clouds B through two lock-free 4-slot SPSC rings. The
+  per-block wall cost becomes A + handoff instead of A + B; the A slot's
+  burst no longer delays clouds. Blocks carry a sequence number and core 1
+  consumes `B(n-2)` — a depth-aware lag, not "whatever is newest": core 0
+  gets two block periods (1.5 ms) to finish, which absorbs its 350-1200 µs
+  loop-latency outliers, so core 1 does not wait in steady state. The B ring
+  is primed with two sync-rendered blocks at pipeline start (the first
+  pipelined block finds its B already waiting; an underrun is silenced and
+  NOT consumed, so the stream resumes in order). Transitions (mute ramp,
   window copy, init) run the synchronous path with the B worker paused
   (`pipe_run` gate + busy handshake), then re-enable the pipeline after the
-  ramp-up. Extra latency: one chain block (750 µs). While chained the 2 s
+  ramp-up. Extra latency: two chain blocks (1.5 ms). While chained the 2 s
   report shows `bm=` (B cost), `c0=` (core-0 loop max) and `u=` (B-not-ready
   underruns).
 - **The I2S DMA IRQ lives on the AUDIO core (core 1)**: the

@@ -3566,3 +3566,24 @@ the fix and costs no new DSP in lira8.
   BOOTSEL drive). `stty -F "$RP" 1200 raw -echo hupcl` reboots every time;
   AGENTS.md now says so. (The pyserial fallback's `dtr=False` can raise
   Errno 71 — verify re-enumeration to "RP2350 Boot" before trusting it.)
+- **CHAIN PIPELINE v2: depth-aware lag (2026-11-15)** — the ec48013 pipeline
+  kept a 1:1 handshake: core 1 pushed A(n), then waited for the B ring, and in
+  steady state the block it got was B(A(n)) — so it waited out the ENTIRE B
+  render every block. That is why chain max Process stayed 755-769 us (A + B
+  wait) despite the two cores. Fix: every block now carries a SEQUENCE number;
+  core 1 consumes **B(n - kChainPipeLag)** with `kChainPipeLag = 2`, never
+  "whatever is newest", and `chain_pipe_start()` PRIMES the B ring with two
+  sync-rendered blocks (the first pipelined block finds its B already
+  waiting). A ring DEPTH alone cannot do this — the producer is paced by the
+  audio clock, so a 1:1 producer/consumer ring never fills; the consumer must
+  ask for an OLD block. On a real core-0 stall the block is silenced and NOT
+  consumed (u++), so the stream resumes in order (no skip/repeat).
+  **Measured**: idle chained **624-657 us** (was 755-769), note held
+  **603-641 us** (was 758-769), bm=157-201, c0=302-761, **u=0, stalls 0**
+  (14 s runs). Five engage/off cycles + rings/elements A slots: all engage
+  (rings 35 ms, elements 48 ms, lira8 28-29 ms — priming adds the 2 blocks),
+  **u=0, stalls 0**. The remaining >750 lines are CC-application transients
+  (`st=29-89`, voices slow path 466-670), not the pipeline. **Cost**: +1.5 ms
+  chain latency (two 750 us blocks); rack README updated. A stagnation note:
+  the lag is a fixed 2 blocks — if core-0 stalls longer than 1.5 ms recur,
+  raise kChainPipeLag (latency = lag x 750 us).

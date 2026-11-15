@@ -422,20 +422,31 @@ static float chain_b_out_r[kChainBlockSize];
 
 // ===================== T8 dual-core chain pipeline =====================
 // Core 1 (audio) renders A + writes I2S; core 0 (control, idle DSP-wise)
-// renders clouds B ONE BLOCK BEHIND. The serial dependency A->B remains, but
-// the wall time per block becomes max(A, B) instead of A + B: A's ~830 us
-// lira8 burst no longer sits in front of clouds on the same core. The cost is
-// one chain block of latency (24 samples @ 32 kHz = 750 us).
+// renders clouds B BEHIND by a fixed kChainPipeLag chain blocks (2 = 1.5 ms).
+// The serial dependency A->B remains, but the wall time per block becomes
+// max(A, B) instead of A + B: A's ~830 us lira8 burst no longer sits in front
+// of clouds on the same core.
 //
-// Two SPSC rings, each kChainPipeSlots deep (4 blocks = 3 ms of jitter
-// slack), float L/R blocks. Core 1 is the sole producer of A-ring / consumer
-// of B-ring; core 0 is the mirror. Volatile indices + __dmb() around slot
-// data are enough: the RP2350 M33 is single-issue in-order, and each slot has
-// one writer/one reader at a time. `g_chain_pipe_run` gates the whole path:
-// transitions (mute/ramp/copy/init) run the SYNC render on core 1 with the
-// worker paused, so no module state is touched across cores mid-transition.
+// LAG-DEPTH LAW (the second attempt; the first kept a 1:1 handshake and so got
+// no benefit): every block carries a SEQUENCE number, core 1 consumes the B
+// block for (current - kChainPipeLag), and the B ring is PRIMED with that many
+// sync-rendered blocks in chain_pipe_start(). So in steady state core 1 never
+// waits at all — core 0 has had kChainPipeLag x 750 us to finish B, which
+// absorbs its 350-1200 us loop-latency outliers. A ring depth alone is not
+// enough: the producer is paced by the audio clock, so the ring never fills
+// on its own (1:1 producer/consumer); the consumer must ask for an OLD block.
+//
+// Two SPSC rings, each kChainPipeSlots deep, float L/R blocks. Core 1 is the
+// sole producer of A-ring / consumer of B-ring; core 0 is the mirror.
+// Volatile indices + __dmb() around slot data are enough: the RP2350 M33 is
+// single-issue in-order, and each slot has one writer/one reader at a time.
+// `g_chain_pipe_run` gates the whole path: transitions (mute/ramp/copy/init)
+// run the SYNC render on core 1 with the worker paused, so no module state is
+// touched across cores mid-transition.
 static const uint32_t kChainPipeSlots = 4;
+static const uint32_t kChainPipeLag = 2;   // blocks of A->B lag = 1.5 ms
 struct ChainPipeBlock {
+  uint32_t seq;              // block index (core 1's g_chain_pipe_seq)
   float l[kChainBlockSize];
   float r[kChainBlockSize];
 };
@@ -445,6 +456,7 @@ static volatile uint32_t g_chain_a_head = 0;   // written by core 1
 static volatile uint32_t g_chain_a_tail = 0;   // written by core 0
 static volatile uint32_t g_chain_b_head = 0;   // written by core 0
 static volatile uint32_t g_chain_b_tail = 0;   // written by core 1
+static volatile uint32_t g_chain_pipe_seq = 0; // core 1's next block index
 static volatile bool g_chain_pipe_run = false;
 static volatile bool g_chain_b_worker_busy = false;
 static volatile uint32_t g_chain_pipe_underruns = 0;  // B not ready in time
@@ -970,16 +982,9 @@ static void serviceChainI2s() {
   g_chain_i2s_ack = true;
 }
 
-// The SYNC chain render (core 1): A.Process(24) -> ROUTE -> B.Process(24) ->
-// B out -> I2S, all in one call. Used by transitions (mute ramps, init,
-// re-init) with the pipeline stopped, and as a fallback whenever
-// g_chain_pipe_run is false.
-static void chain_write_b();
-
-static void chain_render_block_sync() {
-  const uint32_t t0 = time_us_32();
-  // A slot (the sound source; its hook applies pending slots + fills
-  // perf/patch state exactly like its single-module render does).
+// Sync A-stage render into chain_a_out_l/r (shared by the sync render, the
+// pipelined render and chain_pipe_start's priming loop).
+static void chain_render_a_block() {
   switch (g_chain.a) {
     case RACK_MODULE_ELEMENTS:
       rack_modules::mod_elements::chain_render_a(
@@ -998,6 +1003,19 @@ static void chain_render_block_sync() {
           chain_a_out_l, chain_a_out_r, kChainBlockSize);
       break;
   }
+}
+
+// The SYNC chain render (core 1): A.Process(24) -> ROUTE -> B.Process(24) ->
+// B out -> I2S, all in one call. Used by transitions (mute ramps, init,
+// re-init) with the pipeline stopped, and as a fallback whenever
+// g_chain_pipe_run is false.
+static void chain_write_b();
+
+static void chain_render_block_sync() {
+  const uint32_t t0 = time_us_32();
+  // A slot (the sound source; its hook applies pending slots + fills
+  // perf/patch state exactly like its single-module render does).
+  chain_render_a_block();
   // ROUTE + B (clouds — the effect stage; chain_render_b fills its
   // FloatFrame input from the routed buffers, Prepares, Processes, and
   // meters the pair).
@@ -1028,33 +1046,19 @@ static void chain_write_b() {
   }
 }
 
-// Core 1, pipelined: render A(N) into the A ring, then consume B(N-1) from
-// the B ring and write it. A's burst no longer delays clouds; core 0 fills
-// the B ring one block behind. The bounded wait covers core 0 finishing the
-// FIRST block after a transition (and any scheduling jitter); on timeout the
-// output is silenced rather than hanging, and the underrun is counted.
+// Core 1, pipelined: render A(N) into the A ring, then consume B(N-L) from
+// the B ring and write it. A's burst no longer delays clouds, and the L-block
+// lag means clouds has that many block periods to finish before its output is
+// due — no wait in steady state. The bounded wait only covers an actual
+// core-0 stall; if that times out the block is silenced and NOT consumed, so
+// the stream resumes in order one block later (no skip, no repeat).
 static void chain_render_block_pipe() {
   const uint32_t t0 = time_us_32();
-  switch (g_chain.a) {
-    case RACK_MODULE_ELEMENTS:
-      rack_modules::mod_elements::chain_render_a(
-          chain_a_out_l, chain_a_out_r, kChainBlockSize);
-      break;
-    case RACK_MODULE_PLAITS:
-      rack_modules::mod_plaits::chain_render_a(
-          chain_a_out_l, chain_a_out_r, kChainBlockSize);
-      break;
-    case RACK_MODULE_LIRA8:
-      rack_modules::mod_lira8::chain_render_a(
-          chain_a_out_l, chain_a_out_r, kChainBlockSize);
-      break;
-    default:
-      rack_modules::mod_rings::chain_render_a(
-          chain_a_out_l, chain_a_out_r, kChainBlockSize);
-      break;
-  }
+  chain_render_a_block();
+  const uint32_t seq = g_chain_pipe_seq;
   if (g_chain_a_head - g_chain_a_tail < kChainPipeSlots) {
     ChainPipeBlock* dst = &g_chain_a_ring[g_chain_a_head % kChainPipeSlots];
+    dst->seq = seq;
     memcpy(dst->l, chain_a_out_l, sizeof(chain_a_out_l));
     memcpy(dst->r, chain_a_out_r, sizeof(chain_a_out_r));
     __dmb();
@@ -1063,27 +1067,33 @@ static void chain_render_block_pipe() {
     ++g_chain_pipe_underruns;   // core 0 not consuming: drop this A block
   }
 
-  // Consume the oldest ready B block. One block of lag (=750 us) is enough:
-// clouds B measured 148-222 us on core 0, and the bounded wait covers core-0
-// loop-latency outliers (469-1189 us) plus the first block after a
-// transition. If no B arrives within 3 ms, output silence (counted) rather
-// than hang the audio loop.
+  // Consume the OLDEST ready B block once it is at least kChainPipeLag blocks
+  // old — i.e. B(seq - lag), primed during chain_pipe_start. FIFO order means
+  // the oldest is exactly the next block due, so no sequence search is needed.
   const uint32_t w0 = time_us_32();
-  while (g_chain_b_head == g_chain_b_tail &&
-         time_us_32() - w0 < 3000UL) {
+  bool got = false;
+  for (;;) {
+    if (g_chain_b_head != g_chain_b_tail) {
+      ChainPipeBlock* src = &g_chain_b_ring[g_chain_b_tail % kChainPipeSlots];
+      __dmb();
+      if ((uint32_t)(seq - src->seq) >= kChainPipeLag) {
+        memcpy(chain_b_out_l, src->l, sizeof(chain_b_out_l));
+        memcpy(chain_b_out_r, src->r, sizeof(chain_b_out_r));
+        __dmb();
+        ++g_chain_b_tail;
+        got = true;
+        break;
+      }
+    }
+    if (time_us_32() - w0 >= 3000UL) break;
     tight_loop_contents();
   }
-  if (g_chain_b_head != g_chain_b_tail) {
-    ChainPipeBlock* src = &g_chain_b_ring[g_chain_b_tail % kChainPipeSlots];
-    __dmb();
-    memcpy(chain_b_out_l, src->l, sizeof(chain_b_out_l));
-    memcpy(chain_b_out_r, src->r, sizeof(chain_b_out_r));
-    ++g_chain_b_tail;
-  } else {
+  if (!got) {
     ++g_chain_pipe_underruns;   // B not ready: one silent block, no hang
     memset(chain_b_out_l, 0, sizeof(chain_b_out_l));
     memset(chain_b_out_r, 0, sizeof(chain_b_out_r));
   }
+  ++g_chain_pipe_seq;
   const uint32_t dt = time_us_32() - t0;
   if (dt > proc_us_max) proc_us_max = dt;
   chain_write_b();
@@ -1119,6 +1129,7 @@ static void chain_b_worker() {
   __dmb();
   rack_modules::mod_clouds::chain_render_b(
       a->l, a->r, b->l, b->r, kChainBlockSize);
+  b->seq = a->seq;               // B inherits A's block index
   const uint32_t dt = time_us_32() - t0;
   if (dt > g_chain_b_us_max) g_chain_b_us_max = dt;
   __dmb();
@@ -1144,6 +1155,27 @@ static void chain_pipe_start() {
   g_chain_a_head = 0;
   g_chain_a_tail = 0;
   g_chain_b_head = 0;
+  g_chain_b_tail = 0;
+  // PRIME the B ring with kChainPipeLag sync-rendered blocks: the first
+  // pipelined block (seq = lag) then finds B(0) already waiting instead of
+  // waiting out a timeout for a block that cannot exist yet. Same module
+  // calls as the sync render, so A/B state advance in lockstep with the audio
+  // that the pipeline is about to emit (the lag is pure output latency).
+  g_chain_pipe_seq = kChainPipeLag;
+  for (uint32_t i = 0; i < kChainPipeLag; ++i) {
+    chain_render_a_block();
+    rack_modules::mod_clouds::chain_render_b(
+        chain_a_out_l, chain_a_out_r, chain_b_out_l, chain_b_out_r,
+        kChainBlockSize);
+    ChainPipeBlock* b = &g_chain_b_ring[g_chain_b_head % kChainPipeSlots];
+    b->seq = i;
+    memcpy(b->l, chain_b_out_l, sizeof(chain_b_out_l));
+    memcpy(b->r, chain_b_out_r, sizeof(chain_b_out_r));
+    __dmb();
+    ++g_chain_b_head;
+  }
+  g_chain_a_head = 0;
+  g_chain_a_tail = 0;
   g_chain_b_tail = 0;
   __dmb();
   g_chain_pipe_run = true;
