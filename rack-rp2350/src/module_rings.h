@@ -492,7 +492,7 @@ bool chain_rejects_cc(uint8_t cc, uint8_t val) {
   const bool sympathetic =
       part_mode && (s->applied_model == 1 || s->applied_model == 4);
   if (cc == 19 && sympathetic && (1 + val / 32) > 2) {
-    Serial.printf("rack: chain: rings poly %u rejected while chained "
+    dbg_printf("rack: chain: rings poly %u rejected while chained "
                   "(sympathetic pair = 692 us at poly 1; budget 750 us "
                   "incl. clouds+mod)\r\n", (unsigned)(1 + val / 32));
     return true;

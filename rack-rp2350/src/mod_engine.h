@@ -1763,7 +1763,7 @@ static void mod_set_dest(uint8_t src_idx, uint8_t cc) {
   }
 
   if (cc == 0) {
-    Serial.printf("mod: %s destination cleared (panel regains the parameter)\r\n",
+    dbg_printf("mod: %s destination cleared (panel regains the parameter)\r\n",
                   mod_src_name(src_idx));
     return;
   }
@@ -1778,7 +1778,7 @@ static void mod_set_dest(uint8_t src_idx, uint8_t cc) {
   }
   const bool is_voice_pitch = (cc == 1 || cc == 42 || cc == MOD_DEST_VOICE);
   if (s.type == MOD_ARP && (trigger_ok || is_voice_pitch || continuous_ok)) {
-    Serial.printf("mod: %s -> %s CC %u (%s)\r\n", mod_src_name(src_idx), m.name,
+    dbg_printf("mod: %s -> %s CC %u (%s)\r\n", mod_src_name(src_idx), m.name,
                   cc, (trigger_ok || is_voice_pitch) ? "voice pitch+gate+trig" : "slewed gate CV");
     return;
   }
@@ -1787,14 +1787,14 @@ static void mod_set_dest(uint8_t src_idx, uint8_t cc) {
   const bool can_trigger = (s.type == MOD_EUCLID || s.type == MOD_GATE);
 
   if (can_continuous && continuous_ok) {
-    Serial.printf("mod: %s -> %s CC %u (continuous): the panel's static value "
+    dbg_printf("mod: %s -> %s CC %u (continuous): the panel's static value "
                   "is overridden while routed\r\n",
                   mod_src_name(src_idx), m.name, cc);
   } else if (can_trigger && trigger_ok) {
-    Serial.printf("mod: %s -> %s CC %u (trigger)\r\n",
+    dbg_printf("mod: %s -> %s CC %u (trigger)\r\n",
                   mod_src_name(src_idx), m.name, cc);
   } else {
-    Serial.printf("mod: WARNING: %s -> CC %u is INERT on %s (%s source cannot drive %s)\r\n",
+    dbg_printf("mod: WARNING: %s -> CC %u is INERT on %s (%s source cannot drive %s)\r\n",
                   mod_src_name(src_idx), cc, m.name, mod_src_name(src_idx),
                   (continuous_ok ? "continuous CC" : (trigger_ok ? "trigger input" : "unknown CC")));
   }
@@ -1966,22 +1966,22 @@ void rack_mod_bench_cc(uint8_t cc, uint8_t val) {
 // and the acks are the stage-1 bring-up evidence.
 void mod_engine_apply_ui_set(uint8_t src, uint8_t param, uint8_t val) {
   if (src >= MOD_SOURCE_COUNT) {
-    Serial.printf("mod: ui set REJECTED (source %u >= %u)\r\n", src,
+    dbg_printf("mod: ui set REJECTED (source %u >= %u)\r\n", src,
                   MOD_SOURCE_COUNT);
     return;
   }
   if (g_mod_engine.src[src].type == MOD_ARP && (param == 10 || param == 11 || param == 12)) {
-    Serial.printf("mod: ui set %s %s <- %u\r\n", mod_src_name(src),
+    dbg_printf("mod: ui set %s %s <- %u\r\n", mod_src_name(src),
                   param == 10 ? "shared root" : (param == 11 ? "shared scale" : "neo op"), val);
     mod_apply_cc_value(src, param, val);
     return;
   }
   if (param >= mod_param_count_of(g_mod_engine.src[src].type)) {
-    Serial.printf("mod: ui set REJECTED (%s has no param %u; see 'mod?')\r\n",
+    dbg_printf("mod: ui set REJECTED (%s has no param %u; see 'mod?')\r\n",
                   mod_src_name(src), param);
     return;
   }
-  Serial.printf("mod: ui set %s param %u <- %u\r\n", mod_src_name(src), param,
+  dbg_printf("mod: ui set %s param %u <- %u\r\n", mod_src_name(src), param,
                 val);
   mod_apply_cc_value(src, param, val);
 }

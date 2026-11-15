@@ -172,7 +172,7 @@ static void preset_apply_blob(const uint8_t* buf) {
   memcpy(g_ui_cc_seen, buf + kPresetOffSeen, RACK_MODULE_COUNT * 16);
   memcpy(g_ui_cc_cache, buf + kPresetOffCache, RACK_MODULE_COUNT * 128);
   mod_engine_preset_read(buf + kPresetOffMod);
-  Serial.printf("preset: applied clock (%s, %lu.%lu bpm) + 12 mod sources + "
+  dbg_printf("preset: applied clock (%s, %lu.%lu bpm) + 12 mod sources + "
                 "4-module CC cache\r\n",
                 g_mod_engine.global_clock ? "midi" : "internal",
                 (unsigned long)(int)g_mod_engine.bpm,
@@ -187,24 +187,24 @@ static void preset_apply_blob(const uint8_t* buf) {
       g_pending_chain_a = static_cast<int8_t>(a);
       g_pending_chain_b = static_cast<int8_t>(RACK_MODULE_CLOUDS);
       g_pending_chain = 1;
-      Serial.printf("preset: chain %s->clouds queued (pair %u)\r\n",
+      dbg_printf("preset: chain %s->clouds queued (pair %u)\r\n",
                     kRackModules[a].name, pair);
     }
   } else if (g_chain.active) {
     g_pending_chain = 0;
-    Serial.println("preset: chain off queued");
+    dbg_printf("preset: chain off queued\r\n");
   }
 
   // (3) Module swap (single-module only; while chained the A slot IS the
   // active module and step (2) re-Inits it).
   if (!want_chain && !g_chain.active && mod != g_active_module) {
     g_pending_module = static_cast<int8_t>(mod);   // core 1 swaps + replays
-    Serial.printf("preset: module swap to %s queued\r\n",
+    dbg_printf("preset: module swap to %s queued\r\n",
                   kRackModules[mod].name);
   } else if (!want_chain && !g_chain.active) {
     // Same module, no chain change: no swap will run — replay directly.
     preset_replay_module(g_active_module);
-    Serial.println("preset: CC cache replayed (no swap needed)");
+    dbg_printf("preset: CC cache replayed (no swap needed)\r\n");
   }
 }
 
@@ -262,12 +262,12 @@ static uint8_t g_preset_rx_have = 0;
 
 void ui_preset_apply_chunk(const uint8_t* pl, uint8_t len) {
   if (len < 2) {
-    Serial.println("preset: APPLY chunk too short");
+    dbg_printf("preset: APPLY chunk too short\r\n");
     return;
   }
   const uint8_t seq = pl[0], total = pl[1];
   if (total == 0 || total > 8 || seq >= total) {
-    Serial.printf("preset: APPLY chunk bad seq/total %u/%u - dropped\r\n",
+    dbg_printf("preset: APPLY chunk bad seq/total %u/%u - dropped\r\n",
                   seq, total);
     g_preset_rx_total = 0;
     g_preset_rx_have = 0;
@@ -278,14 +278,14 @@ void ui_preset_apply_chunk(const uint8_t* pl, uint8_t len) {
     g_preset_rx_have = 0;
   }
   if (seq != g_preset_rx_have) {             // hole: restart (UART is in-order;
-    Serial.printf("preset: APPLY hole (want %u got %u) - restarting\r\n",
+    dbg_printf("preset: APPLY hole (want %u got %u) - restarting\r\n",
                   g_preset_rx_have, seq);    // a restart is the only failure
     g_preset_rx_have = 0;
     if (seq != 0) return;
   }
   const uint8_t take = (uint8_t)(len - 2);
   if ((uint32_t)seq * kPresetChunkData + take > kPresetBlobMax) {
-    Serial.println("preset: APPLY overflow - dropped");
+    dbg_printf("preset: APPLY overflow - dropped\r\n");
     g_preset_rx_total = 0;
     g_preset_rx_have = 0;
     return;
@@ -299,11 +299,11 @@ void ui_preset_apply_chunk(const uint8_t* pl, uint8_t len) {
   g_preset_rx_have = 0;
   char why[64];
   if (!preset_validate(g_preset_rx, kPresetSize, why, sizeof(why))) {
-    Serial.printf("preset: APPLY REJECTED (%s)\r\n", why);
+    dbg_printf("preset: APPLY REJECTED (%s)\r\n", why);
     return;
   }
   preset_apply_blob(g_preset_rx);
-  Serial.println("preset: APPLY done (bank load) - full TELEM acked");
+  dbg_printf("preset: APPLY done (bank load) - full TELEM acked\r\n");
   ui_link_send_telem(g_ui_active_page, kUiTelemFull, 0);
 }
 
