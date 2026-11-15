@@ -288,12 +288,12 @@ static const UiPageCell kUiPageRingsP1[16] = {
 // (CC 43) LFO synthesis switches, QUANTIZE (CC 53, a Pd-patch extra).
 // Sensors = MIDI notes 36-43 (the patch's notemap), triggers 55-62.
 static const UiPageCell kUiPageLira8P1[16] = {
-    // Row 0 (pots 1..6): pair switches + this group's DELAY line (MOD1 = pot 2,
-    // TIME1 = pot 3, per the user; FM SRC 12 sits between TIME1 and pair 34)
+    // Row 0 (pots 1..6): pair switches + this group's DELAY line
+    // (MOD 1 = pot 3, TIME 1 = pot 4 — user)
     {9,  "FAST 12",    kUiColorWhite}, // p1
-    {48, "MOD 1",      kUiColorWhite}, // p2 (delay line 1)
-    {44, "TIME 1",     kUiColorWhite}, // p3 (delay line 1)
-    {21, "FM SRC 12",  kUiColorWhite}, // p4
+    {21, "FM SRC 12",  kUiColorWhite}, // p2
+    {48, "MOD 1",      kUiColorWhite}, // p3 (delay line 1)
+    {44, "TIME 1",     kUiColorWhite}, // p4 (delay line 1)
     {10, "FAST 34",    kUiColorWhite}, // p5
     {22, "FM SRC 34",  kUiColorWhite}, // p6
     // Row 1 (pots 7..10): the four voice tunings
@@ -311,12 +311,12 @@ static const UiPageCell kUiPageLira8P1[16] = {
 };
 
 static const UiPageCell kUiPageLira8P2[16] = {
-    // Row 0 (pots 1..6): pair switches + this group's DELAY line (MOD2 = pot 2,
-    // TIME2 = pot 3)
+    // Row 0 (pots 1..6): pair switches + this group's DELAY line
+    // (MOD 2 = pot 3, TIME 2 = pot 4 — user)
     {11, "FAST 56",    kUiColorWhite}, // p1
-    {49, "MOD 2",      kUiColorWhite}, // p2 (delay line 2)
-    {45, "TIME 2",     kUiColorWhite}, // p3 (delay line 2)
-    {23, "FM SRC 56",  kUiColorWhite}, // p4
+    {23, "FM SRC 56",  kUiColorWhite}, // p2
+    {49, "MOD 2",      kUiColorWhite}, // p3 (delay line 2)
+    {45, "TIME 2",     kUiColorWhite}, // p4 (delay line 2)
     {12, "FAST 78",    kUiColorWhite}, // p5
     {24, "FM SRC 78",  kUiColorWhite}, // p6
     // Row 1 (pots 7..10): the four voice tunings
