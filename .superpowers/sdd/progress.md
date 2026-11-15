@@ -3422,6 +3422,22 @@ the fix and costs no new DSP in lira8.
   flashed. Lesson: every module-id guard on the UI-link path needs the same
   0..RACK_MODULE_COUNT-1 range — pair selectors are not the only place ids
   travel.
+- **Dual-core chain pipeline (2026-11-15, user directive "optimize for
+  dualcore")**: chain A render + I2S write stay on core 1; clouds B runs on
+  core 0 ONE 24-sample block behind through two 4-slot SPSC float rings
+  (`g_chain_a_ring` core1->core0, `g_chain_b_ring` core0->core1, volatile
+  head/tail + __dmb). Per-block cost is A + handoff instead of A+B.
+  Transitions (mute ramp, window copy, init, A re-init) set `pipe_run=false`,
+  wait for the `chain_b_worker_busy` handshake, and run the SYNC render on
+  core 1; normal play re-enables the pipeline after the ramp-up. Measured
+  full-wet lira8->clouds: B cost **bm=148-222 us**, core-0 loop
+  **c0=469-1185 us**, underruns **u=0**, max Process 949-1281 us (A burst +
+  core-0 jitter; B is no longer in that sum), **i2s stalls 0 over 12 s**.
+  A 2-block pipeline depth was tried and REVERTED: producer/consumer are 1:1,
+  so the ring never reached 2 and every block waited out its 3 ms timeout
+  (max 3.8 ms). One block of lag = 0.75 ms extra latency is the operating
+  point. The 2 s report now extends `mod=<a>><b>` with `bm=/c0=/u=`
+  diagnostics.
 - **Status LED off the audio-critical path (2026-11-15)**: `showColor` used
   `delay(1)` after every WS2812 frame — 1 ms of core-0 task time every 20 ms
   (5%) even when the LED was dark/idle. T8 removes the wait (the 20 ms poll

@@ -367,6 +367,15 @@ decides, and any offender gets a one-line token promotion (window slack
   necessary). Free-band check: 40-50 is unused by all five maps + the rack
   system CCs (32 bank, 33-35 mod mux) — lira8's delay section moved to
   80-88 in T8 specifically to keep this true.
+- **Dual-core chain render (T8)**: core 1 renders the A slot and writes I2S;
+  core 0 renders clouds B one 24-sample block behind through two lock-free
+  4-slot SPSC rings. The per-block wall cost becomes A + handoff instead of
+  A + B; the A slot's burst no longer delays clouds. Transitions (mute ramp,
+  window copy, init) run the synchronous path with the B worker paused
+  (`pipe_run` gate + busy handshake), then re-enable the pipeline after the
+  ramp-up. Extra latency: one chain block (750 µs). While chained the 2 s
+  report shows `bm=` (B cost), `c0=` (core-0 loop max) and `u=` (B-not-ready
+  underruns).
 - **UI-link TX is non-blocking (T8)**: frames are queued in a 4 KiB ring and
   drained by `ui_link_tx_pump()` in the core-0 loop, writing only what the
   UART TX ring can take immediately. The preset autosave PART burst (1,071 B,

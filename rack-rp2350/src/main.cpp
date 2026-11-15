@@ -410,6 +410,37 @@ static float chain_a_out_r[kChainBlockSize];
 static float chain_b_out_l[kChainBlockSize];
 static float chain_b_out_r[kChainBlockSize];
 
+// ===================== T8 dual-core chain pipeline =====================
+// Core 1 (audio) renders A + writes I2S; core 0 (control, idle DSP-wise)
+// renders clouds B ONE BLOCK BEHIND. The serial dependency A->B remains, but
+// the wall time per block becomes max(A, B) instead of A + B: A's ~830 us
+// lira8 burst no longer sits in front of clouds on the same core. The cost is
+// one chain block of latency (24 samples @ 32 kHz = 750 us).
+//
+// Two SPSC rings, each kChainPipeSlots deep (4 blocks = 3 ms of jitter
+// slack), float L/R blocks. Core 1 is the sole producer of A-ring / consumer
+// of B-ring; core 0 is the mirror. Volatile indices + __dmb() around slot
+// data are enough: the RP2350 M33 is single-issue in-order, and each slot has
+// one writer/one reader at a time. `g_chain_pipe_run` gates the whole path:
+// transitions (mute/ramp/copy/init) run the SYNC render on core 1 with the
+// worker paused, so no module state is touched across cores mid-transition.
+static const uint32_t kChainPipeSlots = 4;
+struct ChainPipeBlock {
+  float l[kChainBlockSize];
+  float r[kChainBlockSize];
+};
+static ChainPipeBlock g_chain_a_ring[kChainPipeSlots];  // core 1 -> core 0
+static ChainPipeBlock g_chain_b_ring[kChainPipeSlots];  // core 0 -> core 1
+static volatile uint32_t g_chain_a_head = 0;   // written by core 1
+static volatile uint32_t g_chain_a_tail = 0;   // written by core 0
+static volatile uint32_t g_chain_b_head = 0;   // written by core 0
+static volatile uint32_t g_chain_b_tail = 0;   // written by core 1
+static volatile bool g_chain_pipe_run = false;
+static volatile bool g_chain_b_worker_busy = false;
+static volatile uint32_t g_chain_pipe_underruns = 0;  // B not ready in time
+static volatile uint32_t g_chain_b_us_max = 0;         // core-0 B cost (diag)
+static volatile uint32_t g_core0_loop_max_us = 0;      // core-0 loop period (diag)
+
 // --- USB MIDI device (core 0) ---
 Adafruit_USBD_MIDI usb_midi;
 
@@ -914,12 +945,13 @@ static void serviceChainI2s() {
   g_chain_i2s_ack = true;
 }
 
-// The CHAIN RENDER BLOCK (core 1, while g_chain.active): A.Process(24) ->
-// ROUTE (A out/aux -> clouds FloatFrame in, gain 1.0) -> B.Process(24) ->
-// B out -> I2S. proc_us_max times A + route + B HONESTLY (decision 6) — the
-// adapters' chain hooks do not touch it. The mod engine ran BEFORE this at
-// loop-top (its u: is measured separately in g_mod_engine.mod_us_max).
-static void chain_render_block() {
+// The SYNC chain render (core 1): A.Process(24) -> ROUTE -> B.Process(24) ->
+// B out -> I2S, all in one call. Used by transitions (mute ramps, init,
+// re-init) with the pipeline stopped, and as a fallback whenever
+// g_chain_pipe_run is false.
+static void chain_write_b();
+
+static void chain_render_block_sync() {
   const uint32_t t0 = time_us_32();
   // A slot (the sound source; its hook applies pending slots + fills
   // perf/patch state exactly like its single-module render does).
@@ -949,11 +981,14 @@ static void chain_render_block() {
       kChainBlockSize);
   const uint32_t dt = time_us_32() - t0;
   if (dt > proc_us_max) proc_us_max = dt;
+  chain_write_b();
+}
 
-  // Write stage: the chain OUTPUT is B's output; g_render_gain (swap-mute
-  // ramps) applies here exactly as in the single-module adapters. The
-  // writes pace the loop: one iteration = one 24-frame block, blocks free
-  // every 750 us; > 1400 us = stalled.
+// Write stage: the chain OUTPUT is B's output; g_render_gain (swap-mute
+// ramps) applies here exactly as in the single-module adapters. The writes
+// pace the loop: one iteration = one 24-frame block, blocks free every
+// 750 us; > 1400 us = stalled.
+static void chain_write_b() {
   uint32_t w0 = time_us_32();
   const float gain = g_render_gain;
   for (size_t i = 0; i < kChainBlockSize; ++i) {
@@ -966,6 +1001,127 @@ static void chain_render_block() {
   if (time_us_32() - w0 > kChainStallUs) {
     ++i2s_stall_count;
   }
+}
+
+// Core 1, pipelined: render A(N) into the A ring, then consume B(N-1) from
+// the B ring and write it. A's burst no longer delays clouds; core 0 fills
+// the B ring one block behind. The bounded wait covers core 0 finishing the
+// FIRST block after a transition (and any scheduling jitter); on timeout the
+// output is silenced rather than hanging, and the underrun is counted.
+static void chain_render_block_pipe() {
+  const uint32_t t0 = time_us_32();
+  switch (g_chain.a) {
+    case RACK_MODULE_ELEMENTS:
+      rack_modules::mod_elements::chain_render_a(
+          chain_a_out_l, chain_a_out_r, kChainBlockSize);
+      break;
+    case RACK_MODULE_PLAITS:
+      rack_modules::mod_plaits::chain_render_a(
+          chain_a_out_l, chain_a_out_r, kChainBlockSize);
+      break;
+    case RACK_MODULE_LIRA8:
+      rack_modules::mod_lira8::chain_render_a(
+          chain_a_out_l, chain_a_out_r, kChainBlockSize);
+      break;
+    default:
+      rack_modules::mod_rings::chain_render_a(
+          chain_a_out_l, chain_a_out_r, kChainBlockSize);
+      break;
+  }
+  if (g_chain_a_head - g_chain_a_tail < kChainPipeSlots) {
+    ChainPipeBlock* dst = &g_chain_a_ring[g_chain_a_head % kChainPipeSlots];
+    memcpy(dst->l, chain_a_out_l, sizeof(chain_a_out_l));
+    memcpy(dst->r, chain_a_out_r, sizeof(chain_a_out_r));
+    __dmb();
+    ++g_chain_a_head;
+  } else {
+    ++g_chain_pipe_underruns;   // core 0 not consuming: drop this A block
+  }
+
+  // Consume the oldest ready B block. One block of lag (=750 us) is enough:
+// clouds B measured 148-222 us on core 0, and the bounded wait covers core-0
+// loop-latency outliers (469-1189 us) plus the first block after a
+// transition. If no B arrives within 3 ms, output silence (counted) rather
+// than hang the audio loop.
+  const uint32_t w0 = time_us_32();
+  while (g_chain_b_head == g_chain_b_tail &&
+         time_us_32() - w0 < 3000UL) {
+    tight_loop_contents();
+  }
+  if (g_chain_b_head != g_chain_b_tail) {
+    ChainPipeBlock* src = &g_chain_b_ring[g_chain_b_tail % kChainPipeSlots];
+    __dmb();
+    memcpy(chain_b_out_l, src->l, sizeof(chain_b_out_l));
+    memcpy(chain_b_out_r, src->r, sizeof(chain_b_out_r));
+    ++g_chain_b_tail;
+  } else {
+    ++g_chain_pipe_underruns;   // B not ready: one silent block, no hang
+    memset(chain_b_out_l, 0, sizeof(chain_b_out_l));
+    memset(chain_b_out_r, 0, sizeof(chain_b_out_r));
+  }
+  const uint32_t dt = time_us_32() - t0;
+  if (dt > proc_us_max) proc_us_max = dt;
+  chain_write_b();
+}
+
+// Dispatcher: transitions run sync (pipeline stopped), normal play pipelined.
+static void chain_render_block() {
+  if (g_chain_pipe_run && g_chain.active) {
+    chain_render_block_pipe();
+  } else {
+    chain_render_block_sync();
+  }
+}
+
+// Core 0 worker: consume one A block, run clouds B, publish the B block.
+// Called at the TOP of loop() before USB/UI/console work, so B is never
+// behind the audio ring. The double-check on g_chain_pipe_run closes the
+// stop-vs-start race with a transition on core 1.
+static void chain_b_worker() {
+  if (!g_chain_pipe_run) return;
+  if (g_chain_a_head == g_chain_a_tail) return;
+  if (g_chain_b_head - g_chain_b_tail >= kChainPipeSlots) return;
+
+  g_chain_b_worker_busy = true;
+  __dmb();
+  if (!g_chain_pipe_run) {        // transition started while we armed
+    g_chain_b_worker_busy = false;
+    return;
+  }
+  const uint32_t t0 = time_us_32();
+  ChainPipeBlock* a = &g_chain_a_ring[g_chain_a_tail % kChainPipeSlots];
+  ChainPipeBlock* b = &g_chain_b_ring[g_chain_b_head % kChainPipeSlots];
+  __dmb();
+  rack_modules::mod_clouds::chain_render_b(
+      a->l, a->r, b->l, b->r, kChainBlockSize);
+  const uint32_t dt = time_us_32() - t0;
+  if (dt > g_chain_b_us_max) g_chain_b_us_max = dt;
+  __dmb();
+  ++g_chain_a_tail;
+  ++g_chain_b_head;
+  g_chain_b_worker_busy = false;
+}
+
+// Transition helpers (core 1): pause the worker and wait until it is not
+// inside clouds B before touching/replacing B state; start resets the rings
+// and enables the pipeline.
+static void chain_pipe_stop() {
+  g_chain_pipe_run = false;
+  __dmb();
+  const uint32_t t0 = time_us_32();
+  while (g_chain_b_worker_busy && time_us_32() - t0 < 5000UL) {
+    tight_loop_contents();
+  }
+  __dmb();
+}
+static void chain_pipe_start() {
+  chain_pipe_stop();
+  g_chain_a_head = 0;
+  g_chain_a_tail = 0;
+  g_chain_b_head = 0;
+  g_chain_b_tail = 0;
+  __dmb();
+  g_chain_pipe_run = true;
 }
 
 // Silence flush of the CURRENT DMA bank (same pacing argument as the swap's
@@ -1019,6 +1175,10 @@ static void do_chain_engage(uint8_t new_a, uint8_t new_b) {
   const uint8_t old_chain_a = g_chain.a;
   const bool already_chained = g_chain.active;
   const uint32_t t0 = time_us_32();
+
+  // T8: pause the dual-core pipeline BEFORE the mute ramp; the ramp and the
+  // whole transition run the sync render on core 1 with the B worker idle.
+  chain_pipe_stop();
 
   // (a) MUTE through the current render + silence flush.
   if (already_chained) {
@@ -1150,6 +1310,10 @@ static void do_chain_engage(uint8_t new_a, uint8_t new_b) {
   // (f) UNMUTE through the chain render.
   chain_ramp_up(chain_render_block);
 
+  // (g) GO PIPELINED: rings reset, core 0 starts rendering B one block
+  // behind core 1's A. The first pipelined block waits (bounded) for B.
+  chain_pipe_start();
+
   // (g) Stats for core 0's deferred print.
   g_chain_report_ms = (time_us_32() - t0) / 1000;
   g_chain_report_bytes = copied_a + copied_b;
@@ -1165,6 +1329,8 @@ static void do_chain_engage(uint8_t new_a, uint8_t new_b) {
 static void do_chain_disengage() {
   const uint8_t a = g_chain.a;
   const uint32_t t0 = time_us_32();
+
+  chain_pipe_stop();             // T8: sync ramp + reinit, worker paused
 
   // (a) MUTE through the chain render + silence flush (chain bank).
   chain_ramp_down_chain();
@@ -1231,6 +1397,7 @@ static void do_chain_disengage() {
 static void do_chain_a_reinit() {
   const uint8_t a = g_chain.a;
   const uint32_t t0 = time_us_32();
+  chain_pipe_stop();             // T8: sync ramp + A init, worker paused
   chain_ramp_down_chain();
   const size_t a_state = (a == RACK_MODULE_ELEMENTS)
       ? rack_modules::mod_elements::state_size()
@@ -1260,6 +1427,7 @@ static void do_chain_a_reinit() {
   rack_meter_b = 0.0f;
   preset_replay_module(a);       // T4a: restore observed CC values on A
   chain_ramp_up(chain_render_block);
+  chain_pipe_start();            // T8: back to the dual-core pipeline
   g_chain_report_ms = (time_us_32() - t0) / 1000;
   g_chain_report_bytes = 0;
   g_chain_report_kind = 2;
@@ -2220,10 +2388,16 @@ void setup() {
 }
 
 void loop() {
+  const uint32_t loop_t0 = time_us_32();
   // --- I2S reconfig requests from a running swap / chain transition (core 1
   // waits bounded on either) ---
   serviceSwapI2s();
   serviceChainI2s();
+
+  // T8 dual-core chain: run clouds B as early as possible on core 0. This is
+  // a no-op unless a chain is engaged and the pipeline is enabled; the rest
+  // of core-0's work (USB/UI/console) runs after it.
+  chain_b_worker();
 
 #if RACK_ENABLE_USB_HOST
   // --- USB host: service the host stack, then poll host MIDI ---
@@ -2371,11 +2545,15 @@ void loop() {
     // T6: the module field extends honestly to the chain (e.g.
     // mod=elements>clouds); proc_us_max covers A+route+B while chained and
     // the budget is the chain grid's 750 us (incl. the mod engine's u:).
-    char mod_field[28];
+    char mod_field[64];
     uint32_t budget;
     if (g_chain.active) {
-      snprintf(mod_field, sizeof(mod_field), "%s>%s",
-               kRackModules[g_chain.a].name, kRackModules[g_chain.b].name);
+      // T8 pipeline diagnostics: bm = core-0 clouds-B cost, c0 = core-0 loop
+      // period, u = B-not-ready underruns (all max/sum since the last print).
+      snprintf(mod_field, sizeof(mod_field), "%s>%s bm=%u c0=%u u=%lu",
+               kRackModules[g_chain.a].name, kRackModules[g_chain.b].name,
+               (unsigned)g_chain_b_us_max, (unsigned)g_core0_loop_max_us,
+               (unsigned long)g_chain_pipe_underruns);
       budget = kChainBudgetUs;
     } else {
       snprintf(mod_field, sizeof(mod_field), "%s", m.name);
@@ -2452,5 +2630,10 @@ void loop() {
     g_mod_engine.telem_midi_ticks = 0;
     rack_meter_a = 0.0f;            // max-since-report meters (see adapters)
     rack_meter_b = 0.0f;
+    g_chain_b_us_max = 0;           // core-0 pipeline diagnostics
+    g_core0_loop_max_us = 0;
+    g_chain_pipe_underruns = 0;
   }
+  const uint32_t loop_dt = time_us_32() - loop_t0;
+  if (loop_dt > g_core0_loop_max_us) g_core0_loop_max_us = loop_dt;
 }
