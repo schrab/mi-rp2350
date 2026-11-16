@@ -3817,3 +3817,83 @@ the fix and costs no new DSP in lira8.
   gesture table (also corrected: HOLD = 350 ms, not 600).
   Console/link path unchanged (T8c cloud destinations still verified).
   Hardware gesture test = user's hands; old flow is unrecoverable by design.
+
+## T9 — Elements × Warps internal stage (2026-11-17)
+
+Owner decisions (from the ctag-tbd plan, re-derived for this architecture):
+modulator = raw exciter (`raw_buffer_`); **vocoder excluded** (memory law —
+see findings); carrier = **main only** (rack default space=0 puts the raw
+exciter on aux); C3 UI via the RP2350 TELEM tables (no rack-uimcu change).
+Plan: `docs/superpowers/plans/2026-11-17-elements-warps.md`.
+
+| Task | Status | Committed | Notes |
+|---|---|---|---|
+| T9a Vendor warps DSP + sync step + rack-port patch + host tests | done (build-verified) | 030a719 | pristine `WARPS/` from ctag-tbd eurorack → `lib/elements/warps/` via a new sync-script step + `tools/patches/warps/rack-port.patch`; deltas: vocoder + easter-egg strip, debug_pin include removal, `kMaxBlockSize` 96→16, `warps_lut_xfade_in/out` rename (clouds collision), `WARPS_RAM_CODE` → `.tc_elements.warps_*` markers; host test `test_warps.cc` (RED watched: sizeof 73,192 B / kMaxBlockSize 96 / egg present) |
+| T9b Reverb engine sized to its true span | done (build-verified) | 342fd43 | `FxEngine<32768>` → `<21632>` under RACK_RP2350_TC (Dattorro Reserve sum = 21,617 frames, ledger-documented 43,254 B); elements carve 65,536 → 43,264 B frees the warps room; canary host test `test_reverb.cc` RED (upstream Init zeroes the guard zone) → GREEN |
+| T9c Warps stage inside Part + CCs 36-40 | done (build-verified) | 7619ca5 | stage in `part.inc` after metering/panic, before `reverb_.Process`; carrier = main, modulator = `raw_buffer_`, mono into main (aux untouched); algorithm clamped 0.625 (comparator; vocoder zone excluded); `Part::Init(reverb_buffer, warps*)`; Modulator pool-placed behind the reverb carve (`static_assert` ≤ 4096 — actual **2,312 B**); CCs 36-40 in `control_change` + `mod_set_cc_float`, kModContinuousCcs 17→22; stage host tests: bypass bit-exact vs nullptr-warp Part, aux untouched, alg 1.0 ≡ 0.625, silent-mod mix 0.5 = exact halving |
+| T9d UI surfaces (P2 cells + panel + README) | done (build-verified) | 9df714f | `kUiPageElementsP2` +5 cells (`W ALGO/TIMBRE/MOD/CAR/MIX`) — C3 renders pages from TELEM, **no rack-uimcu change, no C3 reflash**; `rack_panel.html` knobs/ccMap/MOD_DESTS; README "Elements × Warps stage (T9)" section |
+| T9e Flash + per-algorithm bench + user acceptance + push | pending hardware | — | gates: max Process ≤ 460 µs of 496 in the worst combo (ominous dwell + warps), i2s stalls 0, chain elements→clouds `u= 0`; per-algorithm µs table into this ledger; user ears per algorithm |
+
+Findings (T9):
+
+### Rack T9a — warps memory truth + ctag-plan bugs (2026-11-17)
+
+- **`sizeof(warps::Modulator)` is ~68-73 KB WITH the vocoder, not the
+  8-12 KB the ctag plan estimated**: `Vocoder` holds two `FilterBank`s, each
+  with `delay_buffer_[6144]` floats (24,576 B) + `samples_[960]` (3,840 B).
+  Host-measured pristine: **73,192 B**. The rack cannot host that (RAM is
+  statically partitioned to ~zero slack; no PSRAM; heap gate ~30 KiB taken)
+  — hence the owner decision to strip the vocoder. Stripped + `kMaxBlockSize`
+  16: **2,312 B** (host-measured; `static_assert` ≤ 4096 in
+  `module_elements.h`).
+- **ctag-plan bug 1 — `modulation_algorithm` scale**: warps' parameter is
+  **0..1** (internally `min(alg*8, 5.999)`; vocoder from 0.675; the
+  `skewed_modulation_parameter()` 1..5 branches are vestigial). The plan's
+  `val/4095*5` mapping would land every position > ~0.125 in the vocoder
+  zone. Rack mapping: CC byte/127 → algorithm, clamped ≤ 0.625 = pure
+  comparator (knob zones: 0 xfade, 0.125 fold, 0.25 diode RM, 0.375 digital
+  RM, 0.5 XOR, 0.625 comparator).
+- **ctag-plan bug 2 — vocoder SRC divisibility**: `SampleRateConverter
+  <SRC_DOWN>::Process` **returns without processing** when
+  `input_size % ratio != 0` — the mid band needs size divisible by 3, low by
+  4. ctag's Part block 32 and the rack's 16 both fail → their vocoder path
+  would be silently broken. Any future vocoder phase needs 48-sample burst
+  staging (48 % 3 = 0, 48 % 4 = 0, ~150 µs latency) plus a measured
+  `kDelayLineSize` shrink (Init caps per-band delays at 256 samples — the
+  6,144-float pool is heavily over-provisioned).
+- **LUT collisions**: warps' `lut_xfade_in/out` collide with clouds' kept
+  (referenced, `.tc_clouds`-sectioned) symbols → renamed
+  `warps_lut_xfade_in/out` in the vendored copy. `lut_sin` does NOT collide
+  despite clouds defining the same name: warps' definition is unreferenced
+  after the easter-egg strip and gc-sections drops it (the same mechanism
+  that keeps clouds' and plaits' `lookup_table_table` coexisting).
+- **Patch-generation levels**: the warps patch applies at `-p1 -d
+  lib/elements/warps`, so its labels are `a/dsp/...` `a/resources.h` (module
+  subtree stripped) — NOT `a/warps/dsp/...`; the elements patches apply at
+  `-p1 -d lib/elements` with `a/elements/...` labels (`git -C <lib> diff
+  --relative`).
+- **Sync-script caveat**: the full sync aborts when `EURORACK-STEREO/` is
+  not checked out (pre-existing; it exited before the rack line, and one
+  aborted run left CRLF churn in `clouds-rp2350/lib` — restored). The warps
+  step was verified standalone (copy + `patch -p1` reproduction); re-run the
+  full sync only with all submodules present.
+- **Host-test harness extended** (`rack-rp2350/test/Makefile`): new
+  `WARPSFLAGS` (-I lib/elements + lib/stmlib) and `RACKFLAGS` (+ -D
+  RACK_RP2350_TC) test targets `test_warps`, `test_reverb`,
+  `test_warps_stage`; stmlib's class-static tables come from including
+  `stmlib/dsp/{atan,units}.inc` + `stmlib/utils/random.inc` (mirroring
+  `stmlib_all.cpp`), and `elements::Dsp::kSampleRate/kSrFactor/
+  kIntervalCorrection` are defined in the test TU exactly as
+  `module_elements.h` does. `test_warps_stage` compiles the elements lib
+  single-TU style (all 8 `.inc` + `elements/resources.inc` + `part.inc`).
+- **Window budget**: `tc_elements` 36,752 → **50,824 B** (warps hot set
+  14,072 B: mod_process, xmod_process ×6 COMDAT, 7 Xmod specializations,
+  Diode, SaturatingAmplifier, both SRC Processes) — A slot 58,368 B →
+  **7,544 B slack**; tc_clouds unchanged (57,008 at B slot; window slack
+  3,424 B). All five rack envs + the standalone build green; the stage is
+  RACK_RP2350_TC-guarded so the standalone object code is unchanged.
+- **Pool math**: elements→clouds chain now demands obj ~128 K (Part +24 B
+  patch floats + 4 B pointer; clouds 8,692) + buf 43,264 + 2,312 + 131,072 ≈
+  305 K ≤ 331,776 — ~26 K headroom; rings→clouds worst case untouched
+  (331,516, 260 B slack). Init zero-fill shrank 64 KB → 43 KB (faster
+  boot/swap as a side effect).
