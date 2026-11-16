@@ -614,6 +614,16 @@ void rack_module_note_off(uint8_t note) {
   kRackModules[g_active_module].note_off(note);
 }
 
+// T8b: the lira8 ARP-pitch hooks midi.h uses to keep pad notes out of the
+// ARP's MIDI-follow hijack (see midiNoteOn / midiNoteOff).
+bool rack_lira8_arp_pitch_on() {
+  return g_active_module == RACK_MODULE_LIRA8 && !g_swapping &&
+         rack_modules::mod_lira8::arp_pitch_active();
+}
+bool rack_lira8_sensor_note(uint8_t note) {
+  return rack_modules::mod_lira8::is_sensor_note(note);
+}
+
 void rack_module_control_change(uint8_t cc, uint8_t val) {
   if (g_swapping) return;
   // T6b chained-A budget clamp: rings->clouds shares the 750 us pair budget

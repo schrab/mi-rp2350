@@ -22,10 +22,17 @@
 // 32 x 16 chain) absorbs the burst (PORTING-HIGHLIGHTS §5 rule: bank >
 // spike, average < budget).
 //
-// SENSOR SEMANTICS (the Lyra-8's 8 touch pads): MIDI notes 36-43 (C2-G2)
-// gate sensors 1-8 (note-on = press, note-off = release); mod triggers
-// CC 55-62 (LATCH: the sensor follows the source level); the PLAY button
-// pulses sensor 1 for 400 ms (the "press a pad" feel).
+// SENSOR SEMANTICS (the Lyra-8's 8 touch pads): MIDI notes 24-31 (C1-G1, one
+// octave below the Pd patch's notemap) gate sensors 1-8 (note-on = press with
+// velocity -> envelope peak, note-off = release); mod triggers CC 55-62
+// (LATCH: the sensor follows the source level); the PLAY button pulses
+// sensor 1 for 400 ms (the "press a pad" feel).
+//
+// ARP PITCH (T8b, 2026-11-16): CC 54 (P3 "ARP HARM") retunes all eight voices
+// from the routed MOD-ARP's harmony (scale/root/chord: low group = perfect
+// bass stack, high group = scale chord); routing an ARP to PITCH 1234/5678
+// (CC 25/26) instead makes that group play the ARP's exact step notes as its
+// root. Both paths live in lira8/lira_harmony.h (pure, host-tested).
 #pragma once
 
 #include <new>                   // placement-new into the arenas
@@ -33,6 +40,7 @@
 
 #include "lira8/lira_engine.h"
 #include "lira8/lira8_tc.h"
+#include "lira8/lira_harmony.h"  // ARP-driven voice pitch (T8b)
 #include "lira8_engine_o3.h"     // -O3 Process() wrapper (lib/lira8_engine)
 #include "pico/time.h"           // time_us_32 (static inline in pico-sdk 2.x)
 
@@ -86,14 +94,15 @@ static_assert(kChainDelayBytes <= kRackPoolBytes,
 // intercept while chained, 64 = PLAY pseudo-CC). The delay-line section
 // lives at 80-88 (not 41-49): the clouds-B alias bank owns 40-50 while
 // chained, and lira8->clouds would otherwise lose its delay controls.
-// Sensors also speak MIDI notes 36-43.
+// Sensors also speak MIDI notes 24-31 (C1-G1).
 static const char* const kCcMap =
     "1-8 tune, 9-12 fast, 13-16 sharp, 17-20 mod, 21-24 source, "
     "25-26 pitch, 27-28 hold, 29 switch, 30 total-fb, 31 vibrato, "
     "36 drv, 37 dst-mix, 38 vol, 39 f-a, 80 f-b, 81 andor, 82 link, "
     "83 time-1, 84 time-2, 85 feedback, 86 del-mix, 87-88 mod-1/2, "
     "51 delay-mode (0 self / 1 lfo-tri / 2 lfo-sqr), 52 lfo-wave direct, "
-    "53 quantize, 55-62 sensors 1-8 (latch)";
+    "53 quantize, 54 arp-harm (voices follow the routed ARP's scale/root), "
+    "55-62 sensors 1-8 (latch)";
 
 // T3 mod destinations: all 47 continuous params (the spec §12 order mapped
 // to the CC numbers above); triggers = the 8 sensors (LATCH — a sensor gate
@@ -116,7 +125,8 @@ static const uint8_t kModTriggerKinds[] = {
 static const RackModDestinations kModDestinations = {
     "lira8: continuous tune 1-8, sharp 13-16, mod 17-20, pitch 25-26, "
     "hold 27-28, drv/vol 36/38, times 83-84, fb 85 | triggers: 55-62 "
-    "sensors 1-8 (latch); notes 36-43 = sensors (the patch's notemap)",
+    "sensors 1-8 (latch); notes 24-31 = sensors; ARP -> 25/26 = group "
+    "pitch (exact ARP notes)",
     sizeof(kModContinuousCcs), kModContinuousCcs,
     8, kModTriggerCcs, kModTriggerKinds,
 };
@@ -135,12 +145,25 @@ struct State {
   volatile float    out_rms_report;
   volatile uint8_t  sensor_mask;   // bit N = sensor N+1 requested ON
 
+  // T8b ARP-driven pitch. arp_pitch_mode = CC 54 (core 0 write); the group
+  // mask/seq/override are audio-core state (apply_arp_pitch); the override
+  // flag is the core-0-visible "pads must reach the adapter" signal used by
+  // the MIDI ARP-hijack bypass.
+  volatile bool     arp_pitch_mode;
+  uint8_t           arp_group_mask;    // bit 0 = voices 1-4, bit 1 = 5-8
+  uint32_t          arp_seq_seen;
+  volatile bool     arp_pitch_override;
+
   explicit State(int16_t* delay_mem, float sr)
       : eng(sr, kCapMs, delay_mem),
         pluck_active(false),
         pluck_until_ms(0),
         out_rms_report(0.0f),
-        sensor_mask(0) {}
+        sensor_mask(0),
+        arp_pitch_mode(false),
+        arp_group_mask(0),
+        arp_seq_seen(0),
+        arp_pitch_override(false) {}
 };
 
 static State* s = nullptr;   // placement-new'd by init(); arena offset 0
@@ -175,9 +198,16 @@ void init_chain_a(uint8_t* obj_base, uint8_t* buf_base) {
                            static_cast<float>(kChainSampleRate));
 }
 
+// Sensor note range: C1-G1 (24-31) — the Pd patch's notemap (36-43) shifted
+// one octave down by request (2026-11-16). Velocity scales the press peak.
+static const uint8_t kSensorBaseNote = 24;
+static inline bool is_sensor_note(uint8_t note) {
+  return note >= kSensorBaseNote && note < kSensorBaseNote + 8;
+}
+
 // Every sensor write goes through here so the report mask stays honest.
-static void set_sensor(int8_t idx, bool on) {
-  s->eng.set_sensor(idx, on);
+static void set_sensor(int8_t idx, bool on, float level = 1.0f) {
+  s->eng.set_sensor(idx, on, level);
   if (idx >= 0 && idx < 8) {
     if (on) s->sensor_mask |= (1u << idx);
     else    s->sensor_mask &= ~(1u << idx);
@@ -206,6 +236,55 @@ void pluck_poll() {
   }
 }
 
+// ===================== T8b: ARP-driven voice pitch =====================
+// Called between engine blocks on the audio core. The mod engine published
+// the snapshot earlier in the same block (mod_engine_process_block runs
+// before the module render). Group 0 = voices 1-4 (pairs 0/1, P1), group 1 =
+// voices 5-8 (pairs 2/3, P2):
+//   - mapped ARP (CC 25 low / CC 26 high) -> that group's root is the ARP's
+//     exact current step note, always (the switch is irrelevant);
+//   - otherwise the ARP HARM switch (CC 54) makes both groups follow the
+//     ARP's harmonic state (root folded to C3..B3).
+// Voices leave the override (and return to their TUNE knobs) when the source
+// goes away. Recomputes only when the snapshot's seq or the group mask moves.
+static void apply_arp_pitch() {
+  const l8harmony::Snapshot& h = l8harmony::g_lira_harmony;
+  const bool mode = s->arp_pitch_mode;
+  uint8_t want = 0;
+  if (h.lo_mapped || (mode && h.harmony_valid)) want |= 1u;
+  if (h.hi_mapped || (mode && h.harmony_valid)) want |= 2u;
+  if (h.seq == s->arp_seq_seen && want == s->arp_group_mask) {
+    s->arp_pitch_override = (want != 0);
+    return;
+  }
+  s->arp_seq_seen = h.seq;
+  for (int grp = 0; grp < 2; ++grp) {
+    const bool on = ((want >> grp) & 1u) != 0;
+    const bool was = ((s->arp_group_mask >> grp) & 1u) != 0;
+    if (!on) {
+      if (was) {
+        for (int k = 0; k < 4; ++k) s->eng.clear_voice_note_hz(grp * 4 + k);
+      }
+      continue;
+    }
+    const l8harmony::GroupCtx* ctx =
+        (grp == 0) ? (h.lo_mapped ? &h.lo_ctx : &h.harmony)
+                   : (h.hi_mapped ? &h.hi_ctx : &h.harmony);
+    int8_t off[l8harmony::kGroupVoices];
+    l8harmony::group_offsets(*ctx, grp, off);
+    for (int k = 0; k < l8harmony::kGroupVoices; ++k) {
+      const int note = static_cast<int>(ctx->root) + off[k];
+      s->eng.set_voice_note_hz(grp * 4 + k, l8harmony::note_hz(note));
+    }
+  }
+  s->arp_group_mask = want;
+  s->arp_pitch_override = (want != 0);
+}
+
+// Core-0 hook (midi.h ARP-hijack bypass): true while any group is being
+// driven by the ARP/harmony and sensor notes must reach this adapter.
+bool arp_pitch_active() { return s != nullptr && s->arp_pitch_override; }
+
 // T6 chain A-slot render — exactly n samples (n <= 24 = the chain grid) into
 // caller buffers, NO I2S write, NO proc_us_max update (the chain loop times
 // A + route + B together; clouds-B also owns the pair meters). The engine's
@@ -214,11 +293,13 @@ void pluck_poll() {
 // block completes).
 void chain_render_a(float* out_l, float* out_r, size_t n) {
   pluck_poll();
+  apply_arp_pitch();
   l8pd::process_block_o3(s->eng, out_l, out_r, static_cast<int>(n));
 }
 
 void render() {
   pluck_poll();
+  apply_arp_pitch();
 
   uint32_t t0 = time_us_32();
   float l[kBlockSize], r[kBlockSize];
@@ -249,13 +330,16 @@ void render() {
 }
 
 void note_on(uint8_t note, uint8_t vel) {
-  (void)vel;
-  // The patch's notemap: notes 36-43 (C2-G2) = sensors 1-8, note-on = press.
-  if (note >= 36 && note <= 43) set_sensor(note - 36, true);
+  // The pad notemap (shifted one octave below the Pd patch's 36-43):
+  // note-on = press, velocity = envelope peak (gate law e^2 keeps the
+  // hardware's touch curve).
+  if (is_sensor_note(note)) {
+    set_sensor(note - kSensorBaseNote, true, static_cast<float>(vel) / 127.0f);
+  }
 }
 
 void note_off(uint8_t note) {
-  if (note >= 36 && note <= 43) set_sensor(note - 36, false);
+  if (is_sensor_note(note)) set_sensor(note - kSensorBaseNote, false);
 }
 
 // CC -> engine param index (the spec §12 order; the CC numbers avoid the
@@ -269,10 +353,20 @@ static int8_t cc_to_param(uint8_t cc) {
   return -1;
 }
 
+// T8b ARP HARM switch (P3 p15): ON = the eight voices follow the routed
+// ARP's scale/root/chord (lira8/lira_harmony.h). The audio core applies /
+// restores the pitch overrides at the next block.
+static const uint8_t kArpPitchCc = 54;
+
 void control_change(uint8_t cc, uint8_t val) {
   // PLAY pseudo-CC (64, the registry button path): pulse sensor 1.
   if (cc == 64) {
     button_trig(val >= 64);
+    return;
+  }
+  // ARP HARM switch (54): ON/OFF.
+  if (cc == kArpPitchCc) {
+    s->arp_pitch_mode = (val >= 64);
     return;
   }
   // Sensor latch CCs 55-62 (also reachable as mod triggers).

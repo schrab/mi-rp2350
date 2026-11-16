@@ -286,8 +286,9 @@ static const UiPageCell kUiPageRingsP1[16] = {
 // merged — the LFO shape is irrelevant in SELF). CC 52 stays a direct MIDI
 // override of the waveform. NOT on the pots: AND/OR (CC 42) and LINK
 // (CC 43) — see the P3 row2; QUANTIZE (CC 53, a Pd-patch extra) sits at P3
-// pot 14 as an ON/OFF cell.
-// Sensors = MIDI notes 36-43 (the patch's notemap), triggers 55-62.
+// pot 14 as an ON/OFF cell, ARP HARM (CC 54, T8b) at pot 15.
+// Sensors = MIDI notes 24-31 (the patch's notemap shifted one octave down),
+// triggers 55-62.
 static const UiPageCell kUiPageLira8P1[16] = {
     // Row 0 (pots 1..6): pair switches + this group's DELAY line
     // (MOD 1 = pot 3, TIME 1 = pot 4 — user)
@@ -354,7 +355,7 @@ static const UiPageCell kUiPageLira8P3[16] = {
     {81, "AND/OR",     kUiColorWhite}, // p12
     {82, "LINK",       kUiColorWhite}, // p13
     {53, "QUANTIZE",   kUiColorWhite}, // p14 (Pd-patch extra, OFF/ON)
-    {0,  "",           kUiColorWhite}, // p15 (spare)
+    {54, "ARP HARM",   kUiColorWhite}, // p15 (T8b: voices follow the ARP)
     {0,  "",           kUiColorWhite}, // p16 (spare)
 };
 
@@ -642,11 +643,14 @@ void ui_preset_req_reply(uint8_t slot);              // PRESET_REQ -> PART burst
 void ui_preset_apply_chunk(const uint8_t* pl, uint8_t len);  // APPLY reassembly
 void preset_autosave_poll();                         // core-0 loop debounce push
 
-// Restore cached parameter value to module (used by mod_set_dest on unassign)
+// Restore cached parameter value to module (used by mod_set_dest on unassign).
+// Only a value the panel actually SET may be restored: an unseen CC's cache is
+// 0, and writing it would overwrite a module default (e.g. the lira8 pitch
+// multiplier slamming to 0.01 when an ARP is unassigned from PITCH — T8b).
 void ui_link_restore_cached_cc(uint8_t mod, uint8_t cc) {
-  if (mod < RACK_MODULE_COUNT && cc < 128) {
-    kRackModules[mod].control_change(cc, g_ui_cc_cache[mod][cc]);
-  }
+  if (mod >= RACK_MODULE_COUNT || cc >= 128) return;
+  if (!(g_ui_cc_seen[mod][cc >> 4] & (uint16_t)(1u << (cc & 15)))) return;
+  kRackModules[mod].control_change(cc, g_ui_cc_cache[mod][cc]);
 }
 
 // Last page the C3 requested (delta policy target; default P1).
@@ -1110,7 +1114,11 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
         } else {
           cc[i] = t.cells[i].cc;
           val[i] = g_ui_cc_cache[RACK_MODULE_CLOUDS][t.cells[i].cc];
-          flg[i] = 0;
+          // T8c: routed/inert/source bits so the C3 shows B-slot mappings
+          // (strip the chain-B dim bit — this IS the B page).
+          flg[i] = (uint8_t)(ui_link_cell_flags(t.cells[i].cc,
+                                                RACK_MODULE_CLOUDS) &
+                             (uint8_t)~kUiFlagChainB);
           col[i] = t.cells[i].color;
         }
       }

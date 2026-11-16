@@ -90,6 +90,10 @@ Scoping rules that were verified empirically in headless `pd` (see §14 item 1):
 | `$0-s-source-12/34/56/78` | 4 × `hradio 0..2` (gui 24,74,75,76) | `r` ×2 in prm.source of the pair |
 | `$0-s-fast-12/34/56/78` | 4 × `tgl` (gui 5,37,38,39) | `r` in lira.voice [obj 45] |
 | `$0-s-sensor-1..8` | 8 × `tgl` (gui 7–21) **and** 8 × notemap clone instances (MIDI notes 36–43) | `r` in prm.sensor of matching voice |
+
+> Port deviation (T8b, 2026-11-16): the rack build triggers the sensors from
+> MIDI notes **24–31** (one octave below the patch's notemap) and uses the
+> note velocity as the press peak. The Pd reference above keeps 36–43.
 | `$0-s-pitch-1234 / -5678` | 2 × `hsl 0..127` (gui 22,23) | `r` in prm.pitch quad |
 | `$0-s-hold-1234 / -5678` | 2 × `hsl 0..127` (gui 77,55) | `r` in prm.hold quad |
 | `$0-s-switch` | `tgl` (gui 56) | `r` ×2 in each of the 4 prm.source |

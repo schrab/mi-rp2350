@@ -64,11 +64,19 @@ class SensorEnv {
     fast_ = fast;
     attack_ms_ = fast ? 100.0f : 200.0f;
     release_ms_ = fast ? 100.0f : 8000.0f;
-    line_.set(on_ ? 1.0f : 0.0f, on_ ? attack_ms_ : release_ms_);
+    line_.set(on_ ? level_ : 0.0f, on_ ? attack_ms_ : release_ms_);
   }
-  void set(bool on) {
+  // level = the press peak (1.0 = pad hit / CC latch / PLAY button; MIDI
+  // velocity / 127 for note presses). The patch's gate law squares it
+  // (e^2), i.e. amplitude follows the hardware's touch curve; a re-press at
+  // the SAME level stays a no-op (Ramp's zero-delta rule), so sequencer
+  // re-triggers cannot restart the attack ramp.
+  void set(bool on, float level = 1.0f) {
+    if (on) {
+      level_ = level < 0.0f ? 0.0f : (level > 1.0f ? 1.0f : level);
+    }
     on_ = on;
-    line_.set(on ? 1.0f : 0.0f, on ? attack_ms_ : release_ms_);
+    line_.set(on_ ? level_ : 0.0f, on_ ? attack_ms_ : release_ms_);
   }
   LIRA8_TC(lira_sensor_env)
   inline void process(float& e2, float& cos_term) {
@@ -97,6 +105,7 @@ class SensorEnv {
  private:
   Ramp line_;
   float attack_ms_ = 100.0f, release_ms_ = 8000.0f;
+  float level_ = 1.0f;     // press peak (MIDI velocity / 127)
   bool on_ = false;
   bool fast_ = false;
 };
@@ -173,8 +182,8 @@ class VoicePair {
   void set_mod(float v) { mod_raw_ = (v / 127.0f); mod_.set(mod_raw_ * mod_raw_ * mod_raw_ * mod_raw_ * 2.0f, 23.22f); }
   void set_hold(int v) { hold_.set((v / 127.0f) * (v / 127.0f), 23.22f); }
   void set_vibrato(int v) { vib_.set(v / 127.0f, 23.22f); }
-  void set_sensor(int osc /*0|1*/, bool on) {
-    (osc == 0 ? sensor_a_ : sensor_b_).set(on);
+  void set_sensor(int osc, bool on, float level = 1.0f) {
+    (osc == 0 ? sensor_a_ : sensor_b_).set(on, level);
   }
   void set_fast(bool fast) {
     sensor_a_.set_fast(fast);
@@ -182,14 +191,31 @@ class VoicePair {
   }
 
   // Apply tune/pitch/quantize -> Hz (recomputed at control rate, feeds line~).
+  // An oscillator under an ARP note override keeps the external target: its
+  // knob-derived base stays stored in tune_*_hz_ and is re-applied by
+  // clear_note_override() when the ARP lets go.
   void refresh_tune() {
-    auto hz = [&](Ramp& line, float base_hz) {
+    auto hz = [&](Ramp& line, float base_hz, int osc) {
+      if (note_override_ & (1u << osc)) return;
       float h = base_hz * pitch_;
       if (quantize_) h = mtof(std::round(ftom(h)));
       line.set(h, 23.22f);
     };
-    hz(tune_a_, tune_a_hz_);
-    hz(tune_b_, tune_b_hz_);
+    hz(tune_a_, tune_a_hz_, 0);
+    hz(tune_b_, tune_b_hz_, 1);
+  }
+
+  // ARP-driven pitch: set this oscillator straight to a frequency, bypassing
+  // the pitch multiplier and the quantize snap (the ARP's notes are already
+  // exact scale notes; the default pitch multiplier would detune them).
+  void set_note_hz(int osc, float hz) {
+    note_override_ |= static_cast<uint8_t>(1u << osc);
+    (osc == 0 ? tune_a_ : tune_b_).set(hz, 23.22f);
+  }
+  void clear_note_override(int osc) {
+    if (!(note_override_ & (1u << osc))) return;
+    note_override_ &= static_cast<uint8_t>(~(1u << osc));
+    refresh_tune();   // restore the knob pitch for this oscillator
   }
 
   // ---- per-sample render; mux = fused prm.source cross-mod signal ----
@@ -437,6 +463,7 @@ class VoicePair {
   bool quantize_ = false;
   Ramp sharp_, mod_, hold_, vib_;
   float sharp_raw_ = 0.f, mod_raw_ = 0.f;
+  uint8_t note_override_ = 0;   // bit 0 = osc A, bit 1 = osc B (ARP pitch)
   CosOsc osc3_;
   Hip hip_;
 };

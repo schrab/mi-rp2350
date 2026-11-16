@@ -126,6 +126,13 @@ void rack_mod_clock_realtime(uint8_t status);
 bool mod_arp_wants_midi_notes();
 void mod_arp_note_transpose(uint8_t note);
 
+// T8b: lira8 ARP-driven pitch. While it is active, notes in the lira8 sensor
+// range bypass the ARP's MIDI-note hijack (pads stay MIDI-triggered; only the
+// remaining notes transpose the ARP root). Defined in main.cpp after the
+// adapters.
+bool rack_lira8_arp_pitch_on();
+bool rack_lira8_sensor_note(uint8_t note);
+
 // T5 UI-link CC-value observer (defined in ui_link.h, main.cpp TU): records
 // the wire CC under the active module for the TELEM value cache and, when
 // the CC is a cell of the C3's active page, emits a throttled TELEM delta.
@@ -190,7 +197,13 @@ inline void midiNoteOn(uint8_t note, uint8_t vel) {
   ++note_on_count;
   last_note_event_ms = millis();
   if (mod_arp_wants_midi_notes()) {
-    mod_arp_note_transpose(note);
+    // T8b: a pad-range note on the ARP-pitch lira8 must still gate its
+    // sensor; everything else only transposes the ARP root.
+    if (rack_lira8_arp_pitch_on() && rack_lira8_sensor_note(note)) {
+      rack_module_note_on(note, vel);
+    } else {
+      mod_arp_note_transpose(note);
+    }
   } else {
     applyNote();
     shared_gate = true;
@@ -202,7 +215,9 @@ inline void midiNoteOff(uint8_t note) {
   note_stack.remove(note);
   last_note_event_ms = millis();
   if (mod_arp_wants_midi_notes()) {
-    if (note_stack.size > 0) {
+    if (rack_lira8_arp_pitch_on() && rack_lira8_sensor_note(note)) {
+      rack_module_note_off(note);
+    } else if (note_stack.size > 0) {
       mod_arp_note_transpose(note_stack.top());
     }
   } else {

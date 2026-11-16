@@ -110,7 +110,23 @@ class Lira8Engine {
   // PORTING-HIGHLIGHTS §6 pattern — on-device only, host ignores them).
   volatile uint32_t dbg_voices = 0, dbg_delay = 0, dbg_lfo = 0,
                     dbg_master = 0, dbg_params = 0;
-  void set_sensor(int voice /*0..7*/, bool on) { pending_sensors_[voice] = on; }
+  // level = the press peak (1.0 for latches / PLAY, vel/127 for MIDI notes).
+  void set_sensor(int voice /*0..7*/, bool on, float level = 1.0f) {
+    pending_sensors_[voice] = on;
+    pending_sensor_levels_[voice] = level;
+  }
+
+  // ARP-driven voice pitch (adapter side, between blocks): force one voice's
+  // oscillator to a frequency / hand it back to the tune knobs. Bypasses the
+  // pitch multiplier and quantize (see VoicePair::set_note_hz).
+  void set_voice_note_hz(int voice, float hz) {
+    if (voice < 0 || voice >= 8) return;
+    pairs_[voice >> 1].set_note_hz(voice & 1, hz);
+  }
+  void clear_voice_note_hz(int voice) {
+    if (voice < 0 || voice >= 8) return;
+    pairs_[voice >> 1].clear_note_override(voice & 1);
+  }
 
   // Host render: n samples (1..64, normally 16); mono duplicated to L/R.
   LIRA8_TC(lira_engine_process)
@@ -155,7 +171,9 @@ class Lira8Engine {
     }
     for (int i = 0; i < 8; ++i) {
       sensor_state_[i] = false;
+      sensor_levels_[i] = 1.0f;
       pending_sensors_[i] = false;
+      pending_sensor_levels_[i] = 1.0f;
     }
     apply_params();
   }
@@ -222,9 +240,11 @@ class Lira8Engine {
       }
     }
     for (int v = 0; v < 8; ++v) {
-      if (pending_sensors_[v] != sensor_state_[v]) {
+      if (pending_sensors_[v] != sensor_state_[v] ||
+          pending_sensor_levels_[v] != sensor_levels_[v]) {
         sensor_state_[v] = pending_sensors_[v];
-        pairs_[v / 2].set_sensor(v % 2, sensor_state_[v]);
+        sensor_levels_[v] = pending_sensor_levels_[v];
+        pairs_[v / 2].set_sensor(v % 2, sensor_state_[v], sensor_levels_[v]);
       }
     }
     if (dirty) {
@@ -377,6 +397,8 @@ class Lira8Engine {
   float pending_params_[kNumParams];
   bool pending_sensors_[8];
   bool sensor_state_[8];
+  float pending_sensor_levels_[8];
+  float sensor_levels_[8];
   int src_[4];
   float switch_ = 0.f, total_fb_ = 0.f;
   int del_mod_ = 2, lfo_wav_ = 0;
