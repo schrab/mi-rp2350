@@ -208,6 +208,40 @@ documented as ~10 dB brighter at 12.5–16 kHz than Pd (open item).
   Standalone lira8 with an added reverb would also fit the pool (16,088 +
   176,416 + 65,536 = 258,040 B), but clouds-B is the intended effect stage.
 
+## Elements × Warps stage (T9, internal cross-modulation)
+
+The Elements module carries a Mutable **Warps** cross-modulation stage
+between the resonator mixdown and the reverb — the canonical hardware patch
+(Elements MAIN → Warps CARRIER, AUX → MODULATOR) rendered internally:
+
+    exciter → resonator → mixdown → Warps (carrier = main, mod = raw exciter)
+             → reverb → out
+
+- **Carrier** = the resonator main output (post-SoftLimit); **modulator** =
+  the raw exciter (`Part`'s `raw_buffer_`, the AUX-out signal at space 0).
+  Output is mono into `main` (`aux` untouched); `warps_mix` 0 = untouched
+  stereo, and **algorithm 0 = bypass with zero cost** (no Process call).
+- **CC map additions** (all continuous mod-engine destinations; P2 page):
+  **36 warps-algo** (0..1 — 0 bypass, 0.125 fold, 0.25 diode RM, 0.375
+  digital RM, 0.5 XOR, 0.625 comparator; the DSP clamps there — the vocoder
+  zone is excluded), **37 warps-timbre**, **38 warps-mod** (modulator LEVEL
+  knob — the top end is the manual's warm overdrive via warps' own
+  SaturatingAmplifier), **39 warps-car**, **40 warps-mix**.
+- **Memory**: the `warps::Modulator` (~2 KB after stripping the vocoder and
+  easter egg, `kMaxBlockSize` 16) is pool-placed behind the reverb buffer,
+  whose engine was sized down to its true 21,617-frame Dattorro span
+  (65,536 → 43,264 B carve) — no new static .bss, no pool growth.
+- **Sources**: vendored under `WARPS/` (pristine pichenettes eurorack warps
+  via the ctag-tbd fork) → `rack-rp2350/lib/elements/warps/` by
+  `tools/sync_pio_libs.sh` + `tools/patches/warps/rack-port.patch`; the
+  stage itself is `tools/patches/elements/elements-warps-stage.patch`
+  (RACK_RP2350_TC-guarded — the standalone builds stay byte-identical).
+  Hot code rides the `.tc_elements.warps_*` sections (window A slot).
+- **Excluded on this build**: the vocoder algorithm (its filter-bank SRCs
+  silently drop block sizes not divisible by 3/4 — a 48-sample burst scheme
+  would be needed; revisit as a phase-2 plan) and the easter-egg frequency
+  shifter.
+
 ## SRAM architecture (T2 + T6/T6b two-slot window)
 
 - **One window for all five modules**: `memmap_rack.ld` (single script, every

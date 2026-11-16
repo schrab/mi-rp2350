@@ -209,11 +209,17 @@ static const UiPageCell kUiPageElementsP1[] = {
     {26, "POSITION",   kUiColorWhite},
     {27, "SPACE",      kUiColorWhite},
 };
-// elements — P2: selectors (CC 28) + PLAY trigger (CC 64) + VCA (CC 7).
+// elements — P2: selectors (CC 28) + PLAY trigger (CC 64) + VCA (CC 7)
+// + T9 warps stage (CC 36-40; algorithm 0 = bypass).
 static const UiPageCell kUiPageElementsP2[] = {
     {28, "MODEL",      kUiColorWhite},
     {64, "PLAY",       kUiColorWhite},
     {7,  "VCA",        kUiColorWhite},
+    {36, "W ALGO",     kUiColorWhite},
+    {37, "W TIMBRE",   kUiColorWhite},
+    {38, "W MOD",      kUiColorWhite},
+    {39, "W CAR",      kUiColorWhite},
+    {40, "W MIX",      kUiColorWhite},
 };
 // clouds — P1: SIZE/TEXTURE teal, POSITION/DENSITY pink, rest white.
 static const UiPageCell kUiPageCloudsP1[] = {
