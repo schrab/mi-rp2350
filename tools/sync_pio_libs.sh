@@ -152,6 +152,29 @@ sync_project rack-rp2350    "STMLIB:stmlib" "ELEMENTS:elements" "CLOUDS:clouds:c
              "EURORACK-STEREO/plaits:plaits:cc:plaits" \
              "EURORACK-STEREO/rings:rings:cc:rings"
 
+# Warps DSP (T9, rack-only, rides the elements lib): pristine copy from
+# top-level WARPS/ (pichenettes eurorack warps, via the ctag-tbd fork
+# checkout), then this port's deltas from tools/patches/warps/ (vocoder +
+# easter-egg strip, debug_pin removal, kMaxBlockSize 16, lut_xfade rename,
+# RAM_CODE markers). The warps stage in elements/dsp/part.inc is guarded by
+# RACK_RP2350_TC, so the standalone projects never compile warps.
+WARPS_SRC="$REPO_ROOT/WARPS/warps"
+WARPS_DST="$REPO_ROOT/rack-rp2350/lib/elements/warps"
+if [ ! -d "$WARPS_SRC" ]; then
+  echo "error: $WARPS_SRC not found — vendor the warps sources first (T9)" >&2
+  exit 1
+fi
+rm -rf "$WARPS_DST"
+mkdir -p "$WARPS_DST"
+cp -R "$WARPS_SRC/." "$WARPS_DST/"
+for p in "$REPO_ROOT/tools/patches/warps"/*.patch; do
+  if [ -e "$p" ]; then
+    patch --forward --fuzz=0 -p1 -d "$WARPS_DST" < "$p" \
+      || { echo "error: $p no longer applies to warps — regenerate it" >&2; exit 1; }
+    echo "applied $(basename "$p") to rack-rp2350/lib/elements/warps"
+  fi
+done
+
 # Vendored (NOT submodule-derived) library copies for the rack project:
 # mirrored verbatim from the standalone projects, then re-patched from
 # tools/patches/<name>/ (rack-only deltas). The library.json of a vendored dir

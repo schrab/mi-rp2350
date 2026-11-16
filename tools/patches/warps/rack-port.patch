@@ -1,0 +1,428 @@
+--- a/dsp/modulator.h
++++ b/dsp/modulator.h
+@@ -38,12 +38,18 @@
+ #include "warps/dsp/quadrature_oscillator.h"
+ #include "warps/dsp/quadrature_transform.h"
+ #include "warps/dsp/sample_rate_converter.h"
+-#include "warps/dsp/vocoder.h"
++#include "warps/dsp/ram_code.h"
+ #include "warps/resources.h"
+ 
+ namespace warps {
+ 
+-const size_t kMaxBlockSize = 96;
++// Rack (T9): our Part block is 16 (elements kMaxBlockSize). 96 was the
++// upstream firmware block; nothing in the stripped Modulator requires it and
++// the member buffers below shrink accordingly (73 KB -> ~2 KB object). The
++// vocoder's filter bank — whose SRCs silently DROP block sizes not divisible
++// by their band ratios (3/4), the reason 96/48 were sacred upstream — is
++// stripped; the xmod SRCs only need size*6 % 6 == 0.
++const size_t kMaxBlockSize = 16;
+ const size_t kOversampling = 6;
+ const size_t kNumOscillators = 1;
+ 
+@@ -58,7 +64,7 @@
+     drive_ = 0.0f;
+   }
+   
+-  void Process(
++  WARPS_RAM_CODE(amp_process) void Process(
+       float drive,
+       float limit,
+       short* in,
+@@ -142,19 +148,15 @@
+ 
+   void Init(float sample_rate);
+   void Process(ShortFrame* input, ShortFrame* output, size_t size);
+-  void ProcessEasterEgg(ShortFrame* input, ShortFrame* output, size_t size);
+   inline Parameters* mutable_parameters() { return &parameters_; }
+   inline const Parameters& parameters() { return parameters_; }
+-  
++
+   inline bool bypass() const { return bypass_; }
+   inline void set_bypass(bool bypass) { bypass_ = bypass; }
+ 
+-  inline bool easter_egg() const { return easter_egg_; }
+-  inline void set_easter_egg(bool easter_egg) { easter_egg_ = easter_egg; }
+-  
+  private:
+   template<XmodAlgorithm algorithm_1, XmodAlgorithm algorithm_2>
+-  void ProcessXmod(
++  WARPS_RAM_CODE(xmod_process) void ProcessXmod(
+       float balance,
+       float balance_end,
+       float parameter,
+@@ -206,8 +208,7 @@
+   static float Diode(float x);
+   
+   bool bypass_;
+-  bool easter_egg_;
+-  
++
+   Parameters parameters_;
+   Parameters previous_parameters_;
+   
+@@ -219,7 +220,6 @@
+   SampleRateConverter<SRC_UP, kOversampling, 48> src_up_[2];
+   SampleRateConverter<SRC_DOWN, kOversampling, 48> src_down_;
+ 
+-  Vocoder vocoder_;
+   QuadratureTransform quadrature_transform_[2];
+   
+   float internal_modulation_[kMaxBlockSize];
+--- a/dsp/modulator.cc
++++ b/dsp/modulator.cc
+@@ -32,7 +32,6 @@
+ 
+ #include "stmlib/dsp/units.h"
+ 
+-#include "warps/drivers/debug_pin.h"
+ #include "warps/resources.h"
+ 
+ namespace warps {
+@@ -42,8 +41,7 @@
+ 
+ void Modulator::Init(float sample_rate) {
+   bypass_ = false;
+-  easter_egg_ = false;
+-  
++
+   for (int32_t i = 0; i < 2; ++i) {
+     amplifier_[i].Init();
+     src_up_[i].Init();
+@@ -54,7 +52,6 @@
+   xmod_oscillator_.Init(sample_rate);
+   vocoder_oscillator_.Init(sample_rate);
+   quadrature_oscillator_.Init(sample_rate);
+-  vocoder_.Init(sample_rate);
+   
+   previous_parameters_.carrier_shape = 0;
+   previous_parameters_.channel_drive[0] = 0.0f;
+@@ -66,132 +63,10 @@
+   feedback_sample_ = 0.0f;
+ }
+ 
+-void Modulator::ProcessEasterEgg(
+-    ShortFrame* input,
+-    ShortFrame* output,
+-    size_t size) {
+-  float* carrier = buffer_[0];
+-  float* carrier_i = &src_buffer_[0][0];
+-  float* carrier_q = &src_buffer_[0][size];
+-  
+-  // Generate the I/Q components.
+-  if (parameters_.carrier_shape) {
+-    float d = parameters_.frequency_shift_pot - 0.5f;
+-    float linear_modulation_amount = 1.0f - 14.0f * d * d;
+-    if (linear_modulation_amount < 0.0f) {
+-      linear_modulation_amount = 0.0f;
+-    }
+-    float frequency = parameters_.frequency_shift_pot;
+-    frequency += linear_modulation_amount * parameters_.frequency_shift_cv;
+-    
+-    float direction = frequency >= 0.5f ? 1.0f : -1.0f;
+-    frequency = 2.0f * fabs(frequency - 0.5f);
+-    frequency = frequency <= 0.4f
+-        ? frequency * frequency * frequency * 62.5f
+-        : 4.0f * SemitonesToRatio(180.0f * (frequency - 0.4f));
+-    frequency *= SemitonesToRatio(
+-        parameters_.frequency_shift_cv * 60.0f * \
+-            (1.0f - linear_modulation_amount) * direction);
+-    frequency *= direction;
+-    
+-    float shape = static_cast<float>(parameters_.carrier_shape - 1) * 0.5f;
+-    quadrature_oscillator_.Render(shape, frequency, carrier_i, carrier_q, size);
+-  } else {
+-    for (size_t i = 0; i < size; ++i) {
+-      carrier[i] = static_cast<float>(input[i].l) / 32768.0f;
+-    }
+-    quadrature_transform_[0].Process(carrier, carrier_i, carrier_q, size);
+-    
+-    ParameterInterpolator phase_shift(
+-        &previous_parameters_.phase_shift,
+-        parameters_.phase_shift,
+-        size);
+-  
+-    for (size_t i = 0; i < size; ++i) {
+-      float x_i = carrier_i[i];
+-      float x_q = carrier_q[i];
+-      float angle = phase_shift.Next();
+-      float r_sin = Interpolate(lut_sin, angle, 1024.0f);
+-      float r_cos = Interpolate(lut_sin + 256, angle, 1024.0f);
+-      carrier_i[i] = r_sin * x_i + r_cos * x_q;
+-      carrier_q[i] = r_sin * x_q - r_cos * x_i;
+-    }
+-  }
+-
+-  // Setup parameter interpolation.
+-  ParameterInterpolator mix(
+-      &previous_parameters_.modulation_parameter,
+-      parameters_.modulation_parameter,
+-      size);
+-  ParameterInterpolator feedback_amount(
+-      &previous_parameters_.channel_drive[0],
+-      parameters_.channel_drive[0],
+-      size);
+-  ParameterInterpolator dry_wet(
+-      &previous_parameters_.channel_drive[1],
+-      parameters_.channel_drive[1],
+-      size);
+-  
+-  float feedback_sample = feedback_sample_;
+-  for (size_t i = 0; i < size; ++i) {
+-    float timbre = mix.Next();
+-    float modulator_i, modulator_q;
+-
+-    // Start from the signal from input 2, with non-linear gain.
+-    float in = static_cast<float>(input->r) / 32768.0f;
+-    
+-    if (parameters_.carrier_shape) {
+-      in += static_cast<float>(input->l) / 32768.0f;
+-    }
+-    
+-    float modulator = in;
+-    
+-    // Apply feedback if necessary, and soft limit.
+-    float amount = feedback_amount.Next();
+-    amount *= (2.0f - amount);
+-    amount *= (2.0f - amount);
+-    
+-    // mic.w feedback amount tweak.
+-    float max_fb = 1.0f + 2.0f * (timbre - 0.5f) * (timbre - 0.5f);
+-    modulator += amount * (
+-        SoftClip(modulator + max_fb * feedback_sample * amount) - modulator);
+-
+-    quadrature_transform_[1].Process(modulator, &modulator_i, &modulator_q);
+-
+-    // Modulate!
+-    float a = *carrier_i++ * modulator_i;
+-    float b = *carrier_q++ * modulator_q;
+-    float up = a - b;
+-    float down = a + b;
+-    float lut_index = timbre;
+-    float fade_in = Interpolate(lut_xfade_in, lut_index, 256.0f);
+-    float fade_out = Interpolate(lut_xfade_out, lut_index, 256.0f);
+-    float main = up * fade_in + down * fade_out;
+-    float aux = down * fade_in + up * fade_out;
+-    
+-    // Simple LP to prevent feedback of high-frequencies.
+-    ONE_POLE(feedback_sample, main, 0.2f);
+-
+-    float wet_dry = 1.0f - dry_wet.Next();
+-    main += wet_dry * (in - main);
+-    aux += wet_dry * (in - aux);
+-    
+-    output->l = Clip16(static_cast<int32_t>(main * 32768.0f));
+-    output->r = Clip16(static_cast<int32_t>(aux * 32768.0f));
+-    ++output;
+-    ++input;
+-  }
+-  feedback_sample_ = feedback_sample;
+-  previous_parameters_ = parameters_;
+-}
+-
+-void Modulator::Process(ShortFrame* input, ShortFrame* output, size_t size) {
++WARPS_RAM_CODE(mod_process) void Modulator::Process(ShortFrame* input, ShortFrame* output, size_t size) {
+   if (bypass_) {
+     copy(&input[0], &input[size], &output[0]);
+     return;
+-  } else if (easter_egg_) {
+-    ProcessEasterEgg(input, output, size);
+-    return;
+   }
+   float* carrier = buffer_[0];
+   float* modulator = buffer_[1];
+@@ -311,14 +186,9 @@
+         size * kOversampling);
+ 
+     src_down_.Process(oversampled_output, main_output, size * kOversampling);
+-  } else {
+-    float release_time = 4.0f * (parameters_.modulation_algorithm - 0.75f);
+-    CONSTRAIN(release_time, 0.0f, 1.0f);
+-    
+-    vocoder_.set_release_time(release_time * (2.0f - release_time));
+-    vocoder_.set_formant_shift(parameters_.modulation_parameter);
+-    vocoder_.Process(modulator, carrier, main_output, size);
+   }
++  // (vocoder branch removed — vocoder stripped from the rack copy; the stage
++  // clamps modulation_algorithm <= 0.625 so vocoder_amount is always 0.)
+   
+   // Cross-fade to raw modulator for the transition between cross-modulation
+   // algorithms and vocoding algorithms.
+@@ -344,7 +214,7 @@
+ 
+ 
+ /* static */
+-inline float Modulator::Diode(float x) {
++WARPS_RAM_CODE(xmod_diode_fn) inline float Modulator::Diode(float x) {
+   // Approximation of diode non-linearity from:
+   // Julian Parker - "A simple Digital model of the diode-based ring-modulator."
+   // Proc. DAFx-11
+@@ -357,16 +227,16 @@
+ 
+ /* static */
+ template<>
+-inline float Modulator::Xmod<ALGORITHM_XFADE>(
++WARPS_RAM_CODE(xmod_xfade) inline float Modulator::Xmod<ALGORITHM_XFADE>(
+     float x_1, float x_2, float parameter) {
+-  float fade_in = Interpolate(lut_xfade_in, parameter, 256.0f);
+-  float fade_out = Interpolate(lut_xfade_out, parameter, 256.0f);
++  float fade_in = Interpolate(warps_lut_xfade_in, parameter, 256.0f);
++  float fade_out = Interpolate(warps_lut_xfade_out, parameter, 256.0f);
+   return x_1 * fade_in + x_2 * fade_out;
+ }
+ 
+ /* static */
+ template<>
+-inline float Modulator::Xmod<ALGORITHM_FOLD>(
++WARPS_RAM_CODE(xmod_fold) inline float Modulator::Xmod<ALGORITHM_FOLD>(
+     float x_1, float x_2, float parameter) {
+   float sum = 0.0f;
+   sum += x_1;
+@@ -379,7 +249,7 @@
+ 
+ /* static */
+ template<>
+-inline float Modulator::Xmod<ALGORITHM_ANALOG_RING_MODULATION>(
++WARPS_RAM_CODE(xmod_diode) inline float Modulator::Xmod<ALGORITHM_ANALOG_RING_MODULATION>(
+     float modulator, float carrier, float parameter) {
+   carrier *= 2.0f;
+   float ring = Diode(modulator + carrier) + Diode(modulator - carrier);
+@@ -389,7 +259,7 @@
+ 
+ /* static */
+ template<>
+-inline float Modulator::Xmod<ALGORITHM_DIGITAL_RING_MODULATION>(
++WARPS_RAM_CODE(xmod_digital) inline float Modulator::Xmod<ALGORITHM_DIGITAL_RING_MODULATION>(
+     float x_1, float x_2, float parameter) {
+   float ring = 4.0f * x_1 * x_2 * (1.0f + parameter * 8.0f);
+   return ring / (1.0f + fabs(ring));
+@@ -397,7 +267,7 @@
+ 
+ /* static */
+ template<>
+-inline float Modulator::Xmod<ALGORITHM_XOR>(
++WARPS_RAM_CODE(xmod_xor) inline float Modulator::Xmod<ALGORITHM_XOR>(
+     float x_1, float x_2, float parameter) {
+   short x_1_short = Clip16(static_cast<int32_t>(x_1 * 32768.0f));
+   short x_2_short = Clip16(static_cast<int32_t>(x_2 * 32768.0f));
+@@ -408,7 +278,7 @@
+ 
+ /* static */
+ template<>
+-inline float Modulator::Xmod<ALGORITHM_COMPARATOR>(
++WARPS_RAM_CODE(xmod_comparator) inline float Modulator::Xmod<ALGORITHM_COMPARATOR>(
+     float modulator, float carrier, float parameter) {
+   float x = parameter * 2.995f;
+   MAKE_INTEGRAL_FRACTIONAL(x)
+@@ -429,7 +299,7 @@
+ 
+ /* static */
+ template<>
+-inline float Modulator::Xmod<ALGORITHM_NOP>(
++WARPS_RAM_CODE(xmod_nop) inline float Modulator::Xmod<ALGORITHM_NOP>(
+     float modulator, float carrier, float parameter) {
+   return modulator;
+ }
+--- a/dsp/sample_rate_converter.h
++++ b/dsp/sample_rate_converter.h
+@@ -33,6 +33,8 @@
+ 
+ #include <algorithm>
+ 
++#include "warps/dsp/ram_code.h"
++
+ namespace warps {
+ 
+ enum SampleRateConversionDirection {
+@@ -178,7 +180,7 @@
+ 
+   inline int32_t delay() const { return filter_size / ratio / 2; }
+ 
+-  inline void Process(const float* in, float* out, size_t input_size) {
++  WARPS_RAM_CODE(src_up_process) inline void Process(const float* in, float* out, size_t input_size) {
+     SRC_FIR<SRC_UP, ratio, filter_size> ir;
+     FilterState<N> x;
+     x.Load(x_);
+@@ -215,7 +217,7 @@
+ 
+   inline int32_t delay() const { return filter_size / 2; }
+ 
+-  inline void Process(const float* in, float* out, size_t input_size) {
++  WARPS_RAM_CODE(src_down_process) inline void Process(const float* in, float* out, size_t input_size) {
+     // When downsampling, the number of input samples must be a multiple
+     // of the downsampling ratio.
+     if ((input_size % ratio) != 0) {
+--- a/resources.h
++++ b/resources.h
+@@ -69,8 +69,10 @@
+ extern const float fb_5588_32000[];
+ extern const float fb_7040_96000[];
+ extern const float lut_sin[];
+-extern const float lut_xfade_in[];
+-extern const float lut_xfade_out[];
++// T9: renamed — clouds keeps the originals (granular_processor.cc references
++// them through clouds/resources.h).
++extern const float warps_lut_xfade_in[];
++extern const float warps_lut_xfade_out[];
+ extern const float lut_bipolar_fold[];
+ extern const float lut_midi_to_f_high[];
+ extern const float lut_midi_to_f_low[];
+--- a/resources.cc
++++ b/resources.cc
+@@ -462,7 +462,7 @@
+    9.996988187e-01,  9.998305818e-01,  9.999247018e-01,  9.999811753e-01,
+    1.000000000e+00,
+ };
+-const float lut_xfade_in[] = {
++const float warps_lut_xfade_in[] = {
+    0.000000000e+00,  0.000000000e+00,  0.000000000e+00,  0.000000000e+00,
+    0.000000000e+00,  2.593122279e-04,  4.754021803e-03,  9.248539291e-03,
+    1.374268309e-02,  1.823627161e-02,  2.272912328e-02,  2.722105658e-02,
+@@ -529,7 +529,7 @@
+    7.071067336e-01,  7.071067812e-01,  7.071067812e-01,  7.071067812e-01,
+    7.071067812e-01,
+ };
+-const float lut_xfade_out[] = {
++const float warps_lut_xfade_out[] = {
+    7.071067812e-01,  7.071067812e-01,  7.071067812e-01,  7.071067812e-01,
+    7.071067812e-01,  7.071067336e-01,  7.070907999e-01,  7.070462959e-01,
+    7.069732234e-01,  7.068715855e-01,  7.067413862e-01,  7.065826308e-01,
+@@ -1897,8 +1897,8 @@
+ 
+ const float* lookup_table_table[] = {
+   lut_sin,
+-  lut_xfade_in,
+-  lut_xfade_out,
++  warps_lut_xfade_in,
++  warps_lut_xfade_out,
+   lut_bipolar_fold,
+   lut_midi_to_f_high,
+   lut_midi_to_f_low,
+--- /dev/null
++++ b/dsp/ram_code.h
+@@ -0,0 +1,24 @@
++// Copyright 2014 Emilie Gillet.
++//
++// Rack RP2350 addition (NOT upstream warps): marker for warps' per-sample DSP
++// hot paths, mirroring elements/dsp/ram_code.h. Under RACK_RP2350_TC the
++// sections are renamed .tc_elements.warps_<token> so warps' hot code is
++// collected into the tc_elements output section (the rack SRAM hot-code
++// window's A slot — warps rides the elements module; no new overlay member).
++// Everywhere else (standalone builds, host tools) it is a no-op.
++//
++// Usage: WARPS_RAM_CODE(unique_token) void Foo::Process(...) { ... }
++// Tokens must be unique per function (inline/COMDAT and plain copies of one
++// shared section name collide at link time).
++#ifndef WARPS_DSP_RAM_CODE_H_
++#define WARPS_DSP_RAM_CODE_H_
++
++#if defined(ARDUINO_ARCH_RP2040) && defined(RACK_RP2350_TC)
++#define WARPS_RAM_CODE_PREFIX ".tc_elements.warps_"
++#define WARPS_RAM_CODE(token) \
++  __attribute__((section(WARPS_RAM_CODE_PREFIX #token)))
++#else
++#define WARPS_RAM_CODE(token)
++#endif
++
++#endif  // WARPS_DSP_RAM_CODE_H_

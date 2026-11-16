@@ -8,7 +8,14 @@ BUILD    = build/
 
 ENGINE_SRCS =   # e.g. lira8_engine.cpp
 
-TEST_BINS = test_wav_io test_pd_primitives test_voice test_engine test_harmony
+# T9 warps/reverb/stage host tests: compile against the vendored lib copies
+# (the same include roots the firmware uses). WARPSFLAGS add the elements
+# library roots; -DRACK_RP2350_TC selects the rack-guarded arms of the lib
+# patches (the RAM_CODE markers still no-op: no ARDUINO_ARCH_RP2040).
+WARPSFLAGS ?= -O2 -g -std=c++17 -Wall -Wextra -I../lib/elements -I../lib/stmlib -I.
+RACKFLAGS  ?= $(WARPSFLAGS) -DRACK_RP2350_TC
+
+TEST_BINS = test_wav_io test_pd_primitives test_voice test_engine test_harmony test_warps test_reverb test_warps_stage
 GOLDEN_BIN = render_golden
 
 all: $(TEST_BINS) $(GOLDEN_BIN)
@@ -30,6 +37,18 @@ test_engine: test_engine.cc ../src/lira8/lira_engine.h ../src/lira8/lira_delay.h
 
 test_harmony: test_harmony.cc ../src/lira8/lira_harmony.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
+
+# T9: warps vendored copy (rack deltas under test), reverb engine size, and
+# the Part warps stage. The .inc/.cc TUs are compiled in (mirroring
+# elements_all.cpp) so no firmware build is needed to run these.
+test_warps: test_warps.cc ../lib/elements/warps/dsp/modulator.h ../lib/elements/warps/dsp/parameters.h | $(BUILD)
+	$(CXX) $(WARPSFLAGS) $< ../lib/elements/warps/dsp/modulator.cc ../lib/elements/warps/dsp/oscillator.cc ../lib/elements/warps/resources.cc -o $(BUILD)$@
+
+test_reverb: test_reverb.cc ../lib/elements/elements/dsp/fx/reverb.h ../lib/elements/elements/dsp/fx/fx_engine.h | $(BUILD)
+	$(CXX) $(RACKFLAGS) $< -o $(BUILD)$@
+
+test_warps_stage: test_warps_stage.cc ../lib/elements/elements/dsp/part.h ../lib/elements/warps/dsp/modulator.h | $(BUILD)
+	$(CXX) $(RACKFLAGS) $< ../lib/elements/warps/dsp/modulator.cc ../lib/elements/warps/dsp/oscillator.cc ../lib/elements/warps/resources.cc -o $(BUILD)$@
 
 render_golden: render_golden.cc wav_io.h ../src/lira8/lira_engine.h ../src/lira8/lira_delay.h ../src/lira8/lira_lfo.h ../src/lira8/lira_master.h ../src/lira8/lira_voice.h ../src/lira8/lira_osc.h ../src/lira8/pd_primitives.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
