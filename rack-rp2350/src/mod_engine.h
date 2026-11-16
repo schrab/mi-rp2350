@@ -106,6 +106,7 @@ extern volatile uint8_t g_mod_chain_grid;       // 0 = off, else block size
 extern volatile uint8_t g_mod_chain_rate_khz;   // 0 = off, else rate/1000
 
 #include "gen_tables.h"
+#include "lira8/lira_harmony.h"   // T8b: ARP -> lira8 voice-pitch snapshot
 
 // ===================== source taxonomy =====================
 enum ModSourceType : uint8_t {
@@ -1061,6 +1062,9 @@ static uint8_t mod_arp_calc_note(const ModSource& s, const ModArpExt& ext,
 // Check if destination CC targets voice pitch on the active module or chain
 static inline bool mod_is_pitch_dest(uint8_t cc) {
   if (cc == MOD_DEST_VOICE) return true;
+  if (g_active_module == RACK_MODULE_LIRA8 && (cc == 25 || cc == 26)) {
+    return true;   // T8b: group pitch (exact ARP notes)
+  }
   if (g_mod_chain_grid != 0) {
     return (cc == 1 || cc == 42 || cc == 16);
   } else {
@@ -1114,10 +1118,101 @@ void mod_arp_note_transpose(uint8_t note) {
   }
 }
 
+// ===================== T8b: lira8 ARP voice-pitch snapshot =====================
+// Published once per block (before the module render) so the lira8 adapter can
+// retune its eight voices without reaching into engine state. Group sources:
+//   - harmony: the first ROUTED ARP (else arp1) — root folded to C3..B3;
+//   - CC 25 / CC 26 destinations: the mapped ARP's EXACT current step note.
+static uint8_t mod_arp_base_root_note(const ModSource& s) {
+  return (s.p.arp.root_param <= 3)
+      ? (s.p.arp.midi_root ? s.p.arp.midi_root : 48u)
+      : (uint8_t)(48u + ((s.p.arp.root_param - 4) % 12u));
+}
+
+static void mod_lira_fill_ctx(l8harmony::GroupCtx& g, const ModArpExt& ext,
+                              uint8_t root) {
+  g.root = root;
+  g.nsteps = ext.nsteps;
+  g.chord_deg = ext.deg;
+  g.chord_nt = ext.chord_nt;
+  for (uint8_t i = 0; i < 12; ++i) g.scale_st[i] = ext.scale_st[i];
+}
+
+static bool mod_lira_ctx_equal(const l8harmony::GroupCtx& a,
+                               const l8harmony::GroupCtx& b) {
+  return memcmp(&a, &b, sizeof(a)) == 0;   // byte-only struct, no padding
+}
+
+static void mod_lira_harmony_publish() {
+  l8harmony::Snapshot next{};
+  // Harmony source: first routed ARP, else arp1 (dormant-generator case).
+  uint8_t src_idx = MOD_SRC_ARP_FIRST;
+  for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
+    if (g_mod_engine.src[MOD_SRC_ARP_FIRST + k].dest_cc != 0) {
+      src_idx = (uint8_t)(MOD_SRC_ARP_FIRST + k);
+      break;
+    }
+  }
+  {
+    const ModSource& s = g_mod_engine.src[src_idx];
+    const ModArpExt& ext = g_mod_engine.arp_ext[s.p.arp.ext_idx];
+    if (ext.nsteps > 0) {
+      const uint8_t base = mod_arp_base_root_note(s);
+      const uint8_t deg =
+          (ext.deg >= 0 && ext.deg < ext.nsteps) ? (uint8_t)ext.deg : 0;
+      next.harmony_valid = 1;
+      mod_lira_fill_ctx(next.harmony, ext,
+                        l8harmony::fold_root((uint8_t)(base + ext.scale_st[deg])));
+    }
+  }
+  // Exact-note group mappings: ARP -> CC 25 (low) / CC 26 (high).
+  for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
+    const ModSource& s = g_mod_engine.src[MOD_SRC_ARP_FIRST + k];
+    const ModArpExt& ext = g_mod_engine.arp_ext[s.p.arp.ext_idx];
+    if (ext.nsteps == 0) continue;
+    if (s.dest_cc == 25) {
+      next.lo_mapped = 1;
+      mod_lira_fill_ctx(next.lo_ctx, ext, s.p.arp.cur_note);
+    } else if (s.dest_cc == 26) {
+      next.hi_mapped = 1;
+      mod_lira_fill_ctx(next.hi_ctx, ext, s.p.arp.cur_note);
+    }
+  }
+  l8harmony::Snapshot& cur = l8harmony::g_lira_harmony;
+  const bool changed =
+      next.harmony_valid != cur.harmony_valid ||
+      (next.harmony_valid && !mod_lira_ctx_equal(next.harmony, cur.harmony)) ||
+      next.lo_mapped != cur.lo_mapped ||
+      (next.lo_mapped && !mod_lira_ctx_equal(next.lo_ctx, cur.lo_ctx)) ||
+      next.hi_mapped != cur.hi_mapped ||
+      (next.hi_mapped && !mod_lira_ctx_equal(next.hi_ctx, cur.hi_ctx));
+  if (changed) {
+    next.seq = cur.seq + 1;
+    cur = next;
+  }
+}
+
 // ===================== engine -> adapter dispatch =====================
+// T8c: while a chain is engaged, clouds-B's grain alias bank (CC 40-48) and
+// freeze/trig (65/66) are valid mod destinations even though the engine's
+// binding module is the A slot. Everything routes through the same
+// rack_chain_control_change the MIDI chain intercept uses (mode/quality
+// selectors 49/50 stay panel-only — they are not mod destinations).
+static inline bool mod_is_chain_b_dest(uint8_t cc) {
+  return g_mod_chain_grid != 0 &&
+         ((cc >= 40 && cc <= 48) || cc == 65 || cc == 66);
+}
+
 // Continuous destination write (active module only — its adapter state is the
 // live one). Returns false when the CC is not a continuous destination there.
 static bool mod_write_cc(uint8_t module_id, uint8_t cc, float v) {
+  if (mod_is_chain_b_dest(cc) && cc <= 48) {
+    int val = (int)(v * 127.0f + 0.5f);
+    if (val < 0) val = 0;
+    if (val > 127) val = 127;
+    rack_chain_control_change(cc, (uint8_t)val);
+    return true;
+  }
   switch (module_id) {
     case RACK_MODULE_ELEMENTS:
       return rack_modules::mod_elements::mod_set_cc_float(cc, v);
@@ -1133,6 +1228,11 @@ static bool mod_write_cc(uint8_t module_id, uint8_t cc, float v) {
 }
 
 static void mod_fire_trigger(uint8_t module_id, uint8_t cc, bool high) {
+  // T8c: chain-B freeze (65) / trig (66) ride the same dispatcher as MIDI.
+  if (mod_is_chain_b_dest(cc) && cc >= 65) {
+    rack_chain_control_change(cc, high ? 127 : 0);
+    return;
+  }
   switch (module_id) {
     case RACK_MODULE_ELEMENTS:
       rack_modules::mod_elements::mod_trigger_cc(cc, high); break;
@@ -1150,6 +1250,10 @@ static void mod_fire_trigger(uint8_t module_id, uint8_t cc, bool high) {
 // Trigger-kind of a destination CC on a module (-1 = not a trigger there).
 static int8_t mod_trigger_kind(uint8_t module_id, uint8_t cc) {
   if (cc == MOD_DEST_VOICE) return RACK_TRIG_PULSE; // universal voice pitch+gate target
+  // T8c: chain-B trigger destinations.
+  if (g_mod_chain_grid != 0 && (cc == 65 || cc == 66)) {
+    return (cc == 65) ? RACK_TRIG_LATCH : RACK_TRIG_PULSE;
+  }
   const RackModDestinations* d = kRackModules[module_id].mod_destinations;
   for (uint8_t i = 0; i < d->trigger_count; ++i) {
     if (d->trigger_cc[i] == cc) return static_cast<int8_t>(d->trigger_kind[i]);
@@ -1159,6 +1263,8 @@ static int8_t mod_trigger_kind(uint8_t module_id, uint8_t cc) {
 
 // Check if a destination CC is continuous on a module.
 static bool mod_is_continuous(uint8_t module_id, uint8_t cc) {
+  // T8c: chain-B grain alias bank.
+  if (g_mod_chain_grid != 0 && cc >= 40 && cc <= 48) return true;
   const RackModDestinations* d = kRackModules[module_id].mod_destinations;
   for (uint8_t i = 0; i < d->continuous_count; ++i) {
     if (d->continuous[i] == cc) return true;
@@ -1608,6 +1714,14 @@ void mod_engine_process_block(uint8_t active_module) {
       }
     } else if (s.type == MOD_ARP) {
       ModArpExt& ext = e.arp_ext[s.p.arp.ext_idx];
+      // T8b: lira8 group pitch (CC 25 = voices 1-4, CC 26 = 5-8). The exact
+      // step note is published by mod_lira_harmony_publish() below — no CC
+      // write, no shared voice pitch/gate, no trigger side effects (the pads
+      // stay MIDI-triggered).
+      if (active_module == RACK_MODULE_LIRA8 && (dest == 25 || dest == 26)) {
+        s.was_high = 0;
+        continue;
+      }
       const int8_t trig_kind = mod_trigger_kind(active_module, dest);
       const bool is_voice_pitch = (dest == 1 || dest == 42 || dest == MOD_DEST_VOICE);
       if (trig_kind >= 0 || is_voice_pitch) {
@@ -1672,6 +1786,10 @@ void mod_engine_process_block(uint8_t active_module) {
       }
     }
   }
+
+  // T8b: publish the lira8 voice-pitch snapshot (the adapter's render runs
+  // right after this pass — same core, no locking).
+  if (active_module == RACK_MODULE_LIRA8) mod_lira_harmony_publish();
 
   // Counter publish LAST (see the ordering note at the top).
   e.sample_counter += bs;
@@ -1758,7 +1876,11 @@ static void mod_set_dest(uint8_t src_idx, uint8_t cc) {
       if (i != src_idx && e.src[i].dest_cc == old_cc) { other_routed = true; break; }
     }
     if (!other_routed) {
-      ui_link_restore_cached_cc(g_active_module, old_cc);
+      // T8c: a chain-B destination restores from the CLOUDS cache (the MIDI
+      // observe hook stores B-directed CCs there while chained).
+      ui_link_restore_cached_cc(
+          mod_is_chain_b_dest(old_cc) ? RACK_MODULE_CLOUDS : g_active_module,
+          old_cc);
     }
   }
 
@@ -1767,7 +1889,10 @@ static void mod_set_dest(uint8_t src_idx, uint8_t cc) {
                   mod_src_name(src_idx));
     return;
   }
-  const RackModuleInfo& m = kRackModules[g_active_module];
+  // T8c: chain-B destinations validate against the clouds table.
+  const uint8_t dest_module =
+      mod_is_chain_b_dest(cc) ? RACK_MODULE_CLOUDS : g_active_module;
+  const RackModuleInfo& m = kRackModules[dest_module];
   const RackModDestinations* d = m.mod_destinations;
   bool continuous_ok = false, trigger_ok = (cc == MOD_DEST_VOICE && s.type == MOD_ARP);
   for (uint8_t i = 0; i < d->continuous_count; ++i) {
@@ -1777,6 +1902,14 @@ static void mod_set_dest(uint8_t src_idx, uint8_t cc) {
     if (d->trigger_cc[i] == cc) { trigger_ok = true; break; }
   }
   const bool is_voice_pitch = (cc == 1 || cc == 42 || cc == MOD_DEST_VOICE);
+  // T8b: lira8 group pitch — the ARP's exact step note becomes the group root
+  // (CC 25 = voices 1-4, CC 26 = 5-8; see lira8/lira_harmony.h).
+  if (s.type == MOD_ARP && g_active_module == RACK_MODULE_LIRA8 &&
+      (cc == 25 || cc == 26)) {
+    dbg_printf("mod: %s -> %s CC %u (lira8 group %s pitch: exact ARP notes)\r\n",
+                  mod_src_name(src_idx), m.name, cc, cc == 25 ? "low" : "high");
+    return;
+  }
   if (s.type == MOD_ARP && (trigger_ok || is_voice_pitch || continuous_ok)) {
     dbg_printf("mod: %s -> %s CC %u (%s)\r\n", mod_src_name(src_idx), m.name,
                   cc, (trigger_ok || is_voice_pitch) ? "voice pitch+gate+trig" : "slewed gate CV");
@@ -2353,6 +2486,15 @@ static void mod_print_dest_state(uint8_t src_idx) {
   const RackModDestinations* d = m.mod_destinations;
   if (s.dest_cc == MOD_DEST_VOICE) {
     Serial.printf("dest=127(voice on %s)", m.name);
+    return;
+  }
+  if (g_active_module == RACK_MODULE_LIRA8 && (s.dest_cc == 25 || s.dest_cc == 26)) {
+    Serial.printf("dest=%u(lira8 group %s pitch on %s)", s.dest_cc,
+                  s.dest_cc == 25 ? "low" : "high", m.name);
+    return;
+  }
+  if (mod_is_chain_b_dest(s.dest_cc)) {
+    Serial.printf("dest=%u(chain-B clouds on %s)", s.dest_cc, m.name);
     return;
   }
   const bool is_voice_pitch = (s.dest_cc == 1 || s.dest_cc == 42);

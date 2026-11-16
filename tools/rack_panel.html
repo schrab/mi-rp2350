@@ -524,7 +524,10 @@ const MODULES = [
 /* mod-engine destination tables (the adapters' kModDestinations) */
 const MOD_DESTS = {
   elements: { cont: [1,11,14,15,16,17,18,19,20,21,22,23,24,25,26,27], trig: [] },
-  clouds:   { cont: [14,15,16,17,18,19,20,21,22], trig: [65,66] },
+  /* clouds: the ALIAS bank is the canonical list — it is the same CC the UI
+     cells send and the only one that works while chained (clouds-B). The
+     firmware also accepts the native 14-22 for console/legacy routing. */
+  clouds:   { cont: [40,41,42,43,44,45,46,47,48], trig: [65,66] },
   plaits:   { cont: [14,15,16,17,18,19,20,21,22,25], trig: [64] },
   rings:    { cont: [1,14,15,16,17,23], trig: [64] },
 };

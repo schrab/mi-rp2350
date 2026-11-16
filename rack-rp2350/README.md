@@ -166,18 +166,29 @@ documented as ~10 dB brighter at 12.5–16 kHz than Pd (open item).
   source per pair; PITCH/HOLD per group; TOTAL FB, VIBRATO and the FM
   structure switch are global.
 - **MIDI**:
-  - **Sensors**: notes **36–43 (C2–G2)** press/release sensors 1–8 (the
-    patch's own notemap); latch triggers **CC 55–62**; PLAY (pseudo-CC 64)
-    pulses sensor 1 for 400 ms.
+  - **Sensors**: notes **24–31 (C1–G1)** press/release sensors 1–8 — the
+    patch's own notemap (36–43) shifted one octave down; **velocity scales
+    the press peak** (the patch's e² gate law keeps the hardware's touch
+    curve); latch triggers **CC 55–62**; PLAY (pseudo-CC 64) pulses sensor 1
+    for 400 ms.
+  - **ARP pitch** (T8b): **CC 54 (P3 "ARP HARM")** retunes all eight voices
+    from the routed MOD-ARP's scale/root/chord — voices 1–4 a perfect bass
+    stack (root/fifth over two octaves), voices 5–8 the scale chord
+    (3rd/5th/7th/root), following W7 chord drift and NEO major/minor flips.
+    Routing **arp1/arp2 to PITCH 1234 / PITCH 5678 (CC 25/26)** instead makes
+    that group play the ARP's **exact step notes** as its root. While either
+    is active, sensor notes bypass the ARP's MIDI-follow hijack (pads stay
+    playable; other notes transpose the ARP root). Voicing math lives in
+    `src/lira8/lira_harmony.h` (host-tested).
   - **CC map** (`module` prints it): 1–8 tune, 9–12 fast, 13–16 sharp, 17–20
     mod, 21–24 FM source (0 audio / 1 off / 2 LFO), 25–26 pitch, 27–28 hold,
     29 FM structure, 30 total-fb, 31 vibrato, 36 drive, 37 dst-mix, 38 vol,
     39 LFO freq A, **80 LFO freq B, 81 and/or, 82 link, 83–84 time 1/2, 85
     feedback, 86 delay mix, 87–88 delay mod 1/2**, **51 delay mode
     (0 SELF / 1 LFO-tri / 2 LFO-sqr)**, 52 LFO waveform (direct override),
-    53 quantize (ON/OFF cell at P3 pot 14). T8 moved the delay section
-    41–49 → 80–88 so the clouds-B alias bank (40–50) cannot steal it while
-    lira8 is chain A.
+    53 quantize (ON/OFF cell at P3 pot 14), 54 arp-harm (ON/OFF at P3 pot
+    15). T8 moved the delay section 41–49 → 80–88 so the clouds-B alias bank
+    (40–50) cannot steal it while lira8 is chain A.
   - Delay storage is int16 with a **soft-knee limiter** at the ±2 headroom
     (linear to ±1.5): at maximum FEEDBACK the self-oscillating loop saturates
     instead of hard-clipping.
@@ -188,7 +199,7 @@ documented as ~10 dB brighter at 12.5–16 kHz than Pd (open item).
   - **P2 = group 5678 + delay line 2**, mirrored (MOD 2 / TIME 2 at pots 3/4).
   - **P3 = shared delay + distortion + LFO + globals** — row0: DEL MODE, FB,
     MIX, DRIVE, DIST MIX, VOL; row1: FREQ A, FREQ B, TOTAL FB, VIBRATO;
-    row2: FM STRUCT, AND/OR, LINK, QUANTIZE (+2 spares).
+    row2: FM STRUCT, AND/OR, LINK, QUANTIZE, ARP HARM (+1 spare).
   - Switch cells are **live** (no soft takeover): SLOW/FAST, FM/OFF/LFO,
     SELF/TRI/SQR, SPLIT/LOOP, ON/OFF.
 - Chain: lira8 is **chain A pair 4** (`chain lira8` / C3 SYS pair selector
@@ -446,11 +457,15 @@ decides, and any offender gets a one-line token promotion (window slack
   49,152 B workspace in the small buffer, and the tightest pair (rings)
   cannot fit `2*small + 49,152 ≤ 131,840`. Mono stays available in
   single-module clouds. Grain parameters are unaffected.
-- **Mod engine in chain mode**: destinations bind to the A slot (the sound
-  source; `g_active_module` IS A while chained, and the engine's per-block
-  pass runs the chain grid via the additive `g_mod_chain_*` overrides).
-  B-destination binding is future work, same as B grain-parameter CC
-  routing (B stays at factory defaults while chained).
+- **Mod engine in chain mode**: continuous destinations bind to the A slot
+  (the sound source; `g_active_module` IS A while chained, and the engine's
+  per-block pass runs the chain grid via the additive `g_mod_chain_*`
+  overrides), **except the clouds-B band** (T8c, 2026-11-16): CC 40–48 (the
+  grain alias bank) and 65/66 (freeze/trig) are accepted as destinations and
+  routed through the same `rack_chain_control_change` the MIDI intercept
+  uses — the C3's assign gesture works on the CLOUDS B page (its cells show
+  the routed/yellow state). Mode/quality (49/50) stay panel selectors, not
+  mod destinations.
 - **Swap-while-chained (decision 5)**: CC 32 / `switch` while chained
   targets the chain slots — v == A: fresh re-Init of A (no I2S change, no
   window copy; routing re-patches automatically), v == B: rejected (clouds

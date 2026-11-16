@@ -47,13 +47,17 @@ static const char* const kCcMap =
 // test-exciter knobs) stay un-modulated per the T3 destination list. 65
 // (freeze) / 66 (trig) are TRIGGER-ONLY: freeze latches on/off with the
 // source level, trigger pulses on rising edges.
-static const uint8_t kModContinuousCcs[] = {14, 15, 16, 17, 18, 19, 20, 21, 22};
+static const uint8_t kModContinuousCcs[] = {
+    14, 15, 16, 17, 18, 19, 20, 21, 22,   // native grain params
+    40, 41, 42, 43, 44, 45, 46, 47, 48,   // alias bank = the UI cells' CCs
+};
 static const uint8_t kModTriggerCcs[] = {65, 66};
 static const uint8_t kModTriggerKinds[] = {RACK_TRIG_LATCH, RACK_TRIG_PULSE};
 static const RackModDestinations kModDestinations = {
-    "clouds: continuous 14-22 (23/24 excluded: mode/quality selectors) | "
-    "triggers: 65 freeze (latch), 66 trig (pulse)",
-    9, kModContinuousCcs,
+    "clouds: continuous 14-22 + alias bank 40-48 (position..reverb; 23/24 "
+    "excluded: mode/quality selectors) | triggers: 65 freeze (latch), 66 "
+    "trig (pulse)",
+    18, kModContinuousCcs,
     2, kModTriggerCcs, kModTriggerKinds,
 };
 
@@ -450,6 +454,10 @@ void note_off(uint8_t note) {
 }
 
 void control_change(uint8_t cc, uint8_t val) {
+  // The ALWAYS-ON alias bank 40-48 is the UI cells' CC number for the grain
+  // params 14-22 (the MIDI path translates before dispatch, but direct calls
+  // — mod-dest restore / unassign, preset replay bypass — land here too).
+  if (cc >= 40 && cc <= 48) cc = static_cast<uint8_t>(cc - 26);
   const float v = (float)val / 127.0f;
   switch (cc) {
     case 1:  s->shared_exciter_tone = v; break;
@@ -514,6 +522,8 @@ void control_change(uint8_t cc, uint8_t val) {
 bool mod_set_cc_float(uint8_t cc, float v) {
   if (v < 0.0f) v = 0.0f;
   if (v > 1.0f) v = 1.0f;
+  // Alias bank 40-48 = the UI cells' CCs for the native grain params 14-22.
+  if (cc >= 40 && cc <= 48) cc = static_cast<uint8_t>(cc - 26);
   switch (cc) {
     case 14: s->shared_position      = v; break;
     case 15: s->shared_size          = v; break;
