@@ -3691,3 +3691,129 @@ the fix and costs no new DSP in lira8.
   the 2 s core-0 hardware watchdog (restarts a frozen board), the `reboot`
   console command, the HardFault record/reset handler, and the LED/piezo
   disable + button-print removal requested by the user.
+
+- **T8b ARP-driven voice pitch + sensor retrigger (2026-11-16, CODE COMPLETE,
+  bench acceptance pending)**: user request — sensor notes shifted one octave
+  down (36–43 → **24–31, C1–G1**), **MIDI velocity = press peak**, and the eight
+  voice pitches driven by the MOD-ARP. Design locked with the user:
+  - **CC 54 (P3 p15 "ARP HARM")**: all 8 voices retuned from the routed ARP's
+    harmony `(root, scale_st[12], nsteps, chord_deg, chord_nt)`. Low group
+    (voices 1–4 / pairs 0-1 / P1) = perfect bass stack `{−12,−5,0,+7}` from the
+    chord root; high group (voices 5–8 / pairs 2-3 / P2) = scale chord
+    `{third+12, fifth+12, seventh+12 | third+24, +24}`. Root folded to C3–B3.
+    W7 bar-line chord drift re-roots both groups; NEO's triad flip moves the
+    upper third. Harmony source = first ROUTED ARP, else arp1 (works with no
+    ARP routed; arp1 defaults C3 Aeolian).
+  - **ARP → PITCH 1234 / PITCH 5678 (CC 25/26) destinations** (the C3's normal
+    assign gesture): the mapped ARP's **exact current step note** becomes that
+    group's root, same voicing law. Always active regardless of CC 54;
+    precedence mapped-ARP > harmony > knobs. No gate/trigger side effects.
+  - **Voice tuning**: `VoicePair::set_note_hz()` + a per-oscillator override
+    mask; bypasses the ×1.99 PITCH multiplier (default 66 = 74 cents sharp
+    would detune the harmony) and quantize. `refresh_tune()` skips overridden
+    oscillators; clearing re-applies the knob law, so TUNE CCs record normally
+    while ARP-driven and restore on release.
+  - **MIDI hijack bypass (required)**: with ARP root modes 0/1
+    (`mod_arp_wants_midi_notes`) every incoming note was hijacked for root
+    transposition → pads dead + pad notes re-rooting the ARP. When the lira8
+    ARP-pitch feature is active, notes 24–31 bypass the hijack (adapter only),
+    all other notes still transpose the root; symmetric on note-off
+    (`rack_lira8_arp_pitch_on` / `rack_lira8_sensor_note` in midi.h →
+    main.cpp hooks).
+  - **Velocity**: `SensorEnv::set(on, level)`, level = vel/127, gate stays
+    `min(e²+hold,1)` (hardware touch curve, velocity also drives the cos
+    morph); CC 55–62 latches and PLAY keep level 1.0; same-level re-press is a
+    no-op (no attack restart — the patch's line~ law).
+  - **Snapshot plumbing**: new pure header `src/lira8/lira_harmony.h`
+    (`GroupCtx`/`Snapshot`/`group_offsets`/`fold_root`/`note_hz`, no MCU
+    headers). `mod_engine_process_block` publishes `g_lira_harmony` AFTER the
+    source pass and BEFORE the module render (same core, `seq` bumps only on
+    change). Published only when the active module is lira8 (chain A included).
+  - **UI**: `kUiPageLira8P3` p15 = `{54, "ARP HARM"}`; C3
+    `p1p2DiscreteCount` lira8 case adds CC 54 (ON/OFF, wireBool). Presets
+    capture CC 54 automatically (`cc_cache[module][128]` + replay).
+  - **Verification (this pass)**: new `test/test_harmony.cc` (major/Aeolian/
+    degree-5/pentatonic voicings, root folding, full Cmaj7 map C2 G2 C3 G3 |
+    E4 G4 B4 C5, mtof law) — `make test` all green; `pio run -d rack-rp2350
+    -e rack-lira8` SUCCESS (RAM 72.0%, flash 37.7%); C3 `idf.py build` SUCCESS.
+    NOT flashed/tested on hardware yet — user bench acceptance required.
+  - **Bench checks for the user**: (1) pad notes now 24–31; velocity changes
+    loudness/timbre; (2) CC 54 ON with arp1 unrouted = C3 Aeolian chord on the
+    pads; change the ARP scale/root → chord follows; W7/NEO bar line → voicing
+    moves; (3) assign arp1 → PITCH 1234: voices 1–4 walk the ARP's step notes
+    (bass stack on each); arp2 → PITCH 5678 for the upper group; (4) with the
+    ARP on MIDI-follow (root mode 0/1) pads still trigger.
+
+- **T8c clouds modulation mapping fix (2026-11-16, flashed + console-verified)**:
+  user report "clouds parameters can't be mapped with button pressed — list is
+  empty". TWO real causes, both fixed:
+  1) **Chain-B page (9) was not assignable**: the C3's assign sweep was gated
+     on `RackUI::GetPage() <= 1`, so holding the encoder + turning a pot on
+     the CLOUDS B page did nothing (the `>MOD<` prompt appeared, no source
+     ever showed). The RP2350 side also had no B-destination binding — the
+     README documented it as future work.
+     Fix: `mod_engine.h` now treats the clouds-B band as valid destinations
+     while a chain is engaged — CC 40-48 (grain alias bank) continuous and
+     65/66 (freeze latch / trig pulse) triggers — routed through the SAME
+     `rack_chain_control_change` the MIDI intercept uses (`mod_write_cc`,
+     `mod_fire_trigger`, `mod_trigger_kind`, `mod_is_continuous`,
+     `mod_set_dest` validation + cache restore from the CLOUDS cache).
+     `g_mod_chain_grid` is the chain-active flag in the engine. Mode/quality
+     (49/50) remain panel selectors, NOT mod destinations (inert by design).
+     C3: the assign gesture accepts page 9, and `s_potModSrc` gained a third
+     bank (2 = CLOUDS B) so P1/P2 bookkeeping is untouched
+     (`pageBank()` helper). Page-9 TELEM now carries routed/inert/source
+     flags (chain-B dim bit stripped — it IS the B page) so mapped B cells
+     show yellow/ride like A cells.
+  2) **Single-module clouds alias bank was not in the destination table**:
+     the clouds P1 cells (C3 + web panel) send CC 40-48, but
+     `kModContinuousCcs` only listed native 14-22, so every C3 assignment
+     ended INERT (`mod_set_dest` warning; cell blinked). Fix: the table now
+     lists 14-22 + 40-48 (18 entries) and `mod_set_cc_float` /
+     `control_change` translate the alias bank onto the native params (the
+     MIDI path already translated; direct calls — unassign restore, preset
+     replay bypass — now work too). Panel `MOD_DESTS.clouds.cont` switched
+     to the alias bank (labels resolve; the firmware still accepts native
+     14-22 for console/legacy routing).
+  - Console verification (board, this session): `chain lira8` then
+    `mod arp1 dest 45` -> "mod: arp1 -> clouds CC 45 (slewed gate CV)" and
+    `mod?` shows `dest=45(chain-B clouds on lira8)`; clear works; chain off
+    clean. `switch clouds` then `mod lfo1 dest 45` -> "continuous" ack (was
+    INERT before). Chain soak 14 s: 629-640 us peaks, stalls 0 (the 1.2 ms
+    first-window peak is the known engage transient). RP2350 + C3 reflashed
+    with the fix. Hardware UI check (C3 page-9 assign gesture) still needs
+    the user's hands.
+
+- **T8d MOD-ASSIGN gesture rewrite (2026-11-16, C3 built + flashed)**: user
+  report — mapping was glitchy: DENSITY->LFO worked, POSITION would not map,
+  sometimes another pot got the source. ROOT CAUSE (not plugin-related): the
+  old gesture derived the pot ANGLE from the PRESSED ADC reading. The encoder
+  push shares the mux SIG pad (GPIO3) through the 4.7k series resistor, so
+  pressing turns the reading into a divider between the pot's wiper
+  impedance and 4.7k — position-dependent and, for a 10k pot, NON-MONOTONIC
+  near the top (it peaks ~70% and falls again), i.e. one pressed value maps
+  to two angles. The old `pressedPosFromRaw()` knot curve was wrong for most
+  pot positions, the 5-step lock threshold was below the noise floor at low
+  positions, and the "largest pressed delta wins" rule let a non-turned pot
+  lock. Symptoms match exactly (low-position POSITION 35% failed, high
+  DENSITY 75% worked, ghost pots).
+  FIX — LATCHED assign mode, unpressed readings only:
+  - `PUSH_HOLD` (350 ms) arms `s_assignArmed` and the mode SURVIVES the
+    release (that release is what used to cancel it).
+  - Turn a pot -> the scan task locks that cell as the target from CLEAN raw
+    deltas (~4 counts; winner must lead the runner-up by ~2 counts; ~8
+    counts to retarget). Strip shows the cell label + source
+    (`>POSITION OFF<`). All sends stay muted while armed.
+  - ROTATE the encoder -> choose the source (OFF, LFO1-4, EU1-2, GATE1-2,
+    ADS1-2, ARP1-2).
+  - SHORT PUSH -> confirm (RackUI stores `TakePendingAssign`, the pot task
+    applies it via `applyModAssign`); no target = cancel. 15 s timeout and
+    any page change abort the mode.
+  - On exit the moved pots are re-seeded and `PickupResync()` re-arms soft
+    takeover so no parameter jumps.
+  Pressed readings are now used ONLY for the button state (which mutes the
+  pots). `pressedPosFromRaw` deleted with a physics note. Files:
+  `main/RackPots.cpp` (+hpp doc), `ui/RackUI.cpp` (+hpp), `rack-uimcu/README.md`
+  gesture table (also corrected: HOLD = 350 ms, not 600).
+  Console/link path unchanged (T8c cloud destinations still verified).
+  Hardware gesture test = user's hands; old flow is unrecoverable by design.
