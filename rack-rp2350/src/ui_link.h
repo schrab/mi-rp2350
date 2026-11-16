@@ -365,18 +365,29 @@ static const UiPageCell kUiPageLira8P3[16] = {
     {0,  "",           kUiColorWhite}, // p16 (spare)
 };
 
-// [module][0 = P1, 1 = P2, 2 = P3]. Elements has 3 unique params on P2 (MODEL
-// CC 28, PLAY CC 64, VCA CC 7). Clouds, Plaits, and Rings have all parameters
-// on P1, so P2/P3 have count = 0 (no duplicate params). lira8's P2/P3 are REAL
+// [module][0 = P1, 1 = P2, 2 = P3]. Elements' P2 = MODEL/PLAY/VCA + the T9
+// warps cells (CC 36-40). Clouds, Plaits, and Rings have all parameters on
+// P1, so P2/P3 have count = 0 (no duplicate params). lira8's P2/P3 are REAL
 // banks (its 47 params cannot fit one page).
-static const UiPageTable kUiPages[RACK_MODULE_COUNT][3] = {
-    { {kUiPageElementsP1, 16}, {kUiPageElementsP2, 3}, {nullptr, 0} },  // elements
-    { {kUiPageCloudsP1, 16},   {nullptr, 0},           {nullptr, 0} },  // clouds
-    { {kUiPagePlaitsP1, 11},   {nullptr, 0},           {nullptr, 0} },  // plaits
-    { {kUiPageRingsP1, 16},    {nullptr, 0},           {nullptr, 0} },  // rings
-    { {kUiPageLira8P1, 16},    {kUiPageLira8P2, 16},    {kUiPageLira8P3, 16} },  // lira8
+//
+// Counts are DERIVED from the tables (T9 lesson: a hand-written literal
+// drifted from its array and TELEM sent only the first N cells — the C3
+// renders what it is told).
+#define UI_PAGE_CELL_COUNT(t) (sizeof(t) / sizeof((t)[0]))
+static constexpr UiPageTable kUiPages[RACK_MODULE_COUNT][3] = {
+    { {kUiPageElementsP1, UI_PAGE_CELL_COUNT(kUiPageElementsP1)},
+      {kUiPageElementsP2, UI_PAGE_CELL_COUNT(kUiPageElementsP2)},
+      {nullptr, 0} },                                                    // elements
+    { {kUiPageCloudsP1,   UI_PAGE_CELL_COUNT(kUiPageCloudsP1)},
+      {nullptr, 0},        {nullptr, 0} },                               // clouds
+    { {kUiPagePlaitsP1,   UI_PAGE_CELL_COUNT(kUiPagePlaitsP1)},
+      {nullptr, 0},        {nullptr, 0} },                               // plaits
+    { {kUiPageRingsP1,    UI_PAGE_CELL_COUNT(kUiPageRingsP1)},
+      {nullptr, 0},        {nullptr, 0} },                               // rings
+    { {kUiPageLira8P1,    UI_PAGE_CELL_COUNT(kUiPageLira8P1)},
+      {kUiPageLira8P2,     UI_PAGE_CELL_COUNT(kUiPageLira8P2)},
+      {kUiPageLira8P3,     UI_PAGE_CELL_COUNT(kUiPageLira8P3)} },        // lira8
 };
-static const UiPageTable kUiPageEmpty = { nullptr, 0 };   // unused fallback
 
 // ===================== Dedicated Modulation & SYS aux cells =====================
 // Cell order = physical pot order (the C3's MOD-page pot map sends MOD_SET
