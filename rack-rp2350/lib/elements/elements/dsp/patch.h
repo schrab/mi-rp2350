@@ -51,6 +51,15 @@ struct Patch {
   float reverb_diffusion;
   float reverb_lp;
   float space;
+#if defined(RACK_RP2350_TC)
+  // T9 warps stage (rack-only; CC 36-40). 0..1 each; warps_algorithm 0 =
+  // stage bypass (zero cost). Mapping lives in part.inc's Process tail.
+  float warps_algorithm;
+  float warps_timbre;
+  float warps_mod_level;
+  float warps_car_level;
+  float warps_mix;
+#endif
   
   float modulation_frequency;
 };

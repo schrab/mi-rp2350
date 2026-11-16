@@ -37,6 +37,10 @@
 #include "elements/dsp/ram_code.h"
 #include "elements/dsp/voice.h"
 
+#if defined(RACK_RP2350_TC)
+#include "warps/dsp/modulator.h"   // T9: cross-mod stage, pool-placed (see part.inc)
+#endif
+
 namespace elements {
 
 struct PerformanceState {
@@ -55,7 +59,11 @@ class Part {
   Part() { }
   ~Part() { }
   
+#if defined(RACK_RP2350_TC)
+  void Init(uint16_t* reverb_buffer, warps::Modulator* warps_modulator);
+#else
   void Init(uint16_t* reverb_buffer);
+#endif
   
   ELEMENTS_RAM_CODE(part_process) void Process(
       const PerformanceState& performance_state,
@@ -108,6 +116,10 @@ class Part {
   float resonator_level_;
   
   Reverb reverb_;
+  
+#if defined(RACK_RP2350_TC)
+  warps::Modulator* warps_;   // T9: pool-placed by the module adapter; nullptr = stage off
+#endif
   
   ResonatorModel resonator_model_;
   

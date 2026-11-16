@@ -24,6 +24,7 @@
 #include "stmlib/dsp/dsp.h"      // stmlib::Clip16 (not pulled in by the wrappers)
 #include "elements/dsp/dsp.h"
 #include "elements/dsp/part.h"
+#include "warps/dsp/modulator.h"  // T9: warps stage state (pool-placed)
 #include "pico/time.h"           // time_us_32 (static inline in pico-sdk 2.x)
 
 #include "rack_arena.h"
@@ -55,19 +56,22 @@ static const uint32_t kStallUs = 900;     // >2x the 500 us block period
 static const char* const kCcMap =
     "1 pitch, 7 vca, 11 strength, 14 env-shape, 15-16 bow, 17-19 blow, 20-22 strike, "
     "23 geometry, 24 brightness, 25 damping, 26 position, 27 space, "
-    "28 model, 29 easter-egg, 64 play";
+    "28 model, 29 easter-egg, "
+    "36 warps-algo, 37 warps-timbre, 38 warps-mod, 39 warps-car, 40 warps-mix, "
+    "64 play";
 // T3 mod destinations: every float-parameter CC of the map accepts continuous
 // modulation (1/11 included — note that velocity-scaled strength from note-on
 // is overridden while a source is routed to CC 11). Selectors 28/29 are
 // excluded (int model/easter-egg switches — not modulable). Pseudo-CC 64
 // accepts trigger modulation (PLAY: triggers exciter strike & envelope).
 static const uint8_t kModContinuousCcs[] = {1, 7, 11, 14, 15, 16, 17, 18, 19,
-                                            20, 21, 22, 23, 24, 25, 26, 27};
+                                            20, 21, 22, 23, 24, 25, 26, 27,
+                                            36, 37, 38, 39, 40};
 static const uint8_t kModTriggerCcs[] = {64};
 static const uint8_t kModTriggerKinds[] = {RACK_TRIG_PULSE};
 static const RackModDestinations kModDestinations = {
-    "elements: continuous 1,7,11,14-27 | triggers: 64 play (pulse)",
-    17, kModContinuousCcs,
+    "elements: continuous 1,7,11,14-27 + 36-40 warps | triggers: 64 play (pulse)",
+    22, kModContinuousCcs,
     1, kModTriggerCcs, kModTriggerKinds,
 };
 
@@ -108,9 +112,21 @@ static size_t state_size() { return sizeof(State); }
 // Buffer demand: uint16_t reverb[21632] = 43,264 B (T9: the rack build's
 // Reverb instantiates FxEngine<21632> — the Dattorro Reserve chain sums to
 // 21,617 frames; Init() zero-fills exactly the declared size, so the carve
-// must match. Standalone keeps 32,768). Task 3 appends the warps carve.
+// must match. Standalone keeps 32,768) + the warps::Modulator (T9), placed
+// behind the reverb buffer, both 8-aligned (the pool allocator rounds;
+// placement-new needs 8 for the Modulator's float members). The pool's worst
+// resident set is rings+clouds (331,516 B, no elements involved), and the
+// reverb shrink (65,536 -> 43,264) freed the room — no static .bss (RAM is
+// partitioned to ~zero slack), no Part growth beyond the pointer + patch floats.
 static constexpr size_t kReverbBytes = 43264;
-static constexpr size_t buf_bytes() { return kReverbBytes; }
+static constexpr size_t buf_bytes() {
+  return kReverbBytes + sizeof(warps::Modulator);
+}
+// Stripped Modulator measured ~2 KB by the host test (kMaxBlockSize 16, no
+// vocoder, no easter egg). If this trips, something grew it back — re-derive
+// the pool math before touching the budget.
+static_assert(sizeof(warps::Modulator) <= 4096,
+    "warps Modulator grew past its pool carve budget (T9)");
 
 void init_at(uint8_t* obj_base, uint8_t* buf_base) {
   s = new (obj_base) State();
@@ -129,7 +145,13 @@ void init_at(uint8_t* obj_base, uint8_t* buf_base) {
   s->play_gate_counter = 0;
 
   elements::Dsp::setSr(kSampleRate);
-  s->part.Init(reverb_buffer);
+  // T9: warps state from the pool carve behind the reverb buffer; a fresh
+  // Modulator on every init (swap/chain re-init = factory defaults, matching
+  // every other piece of state). Value-init zeroes the SaturatingAmplifier
+  // level followers (Init() only resets drive_).
+  warps::Modulator* warps_mod =
+      new (buf_base + kReverbBytes) warps::Modulator();
+  s->part.Init(reverb_buffer, warps_mod);
   // Seed word count matches the field-proven Scarp sketch, but as a real
   // 3-word array — Seed() hashes all `size` words it is given.
   uint32_t seed[3] = {0x1fff7a10, 0x1fff7a10, 0x1fff7a10};
@@ -155,6 +177,12 @@ void init_at(uint8_t* obj_base, uint8_t* buf_base) {
   p->resonator_damping = 0.25f;       // 1024/4095 DAMPING
   p->resonator_position = 0.3f;       // 1229/4095 POSITION
   p->space = 0.0f;                    // reverb set to 0
+  // T9 warps stage defaults: all bypass/neutral (zero cost until CC'd).
+  p->warps_algorithm = 0.0f;
+  p->warps_timbre = 0.0f;
+  p->warps_mod_level = 0.0f;
+  p->warps_car_level = 0.0f;
+  p->warps_mix = 0.0f;
 }
 
 void init() {
@@ -304,6 +332,14 @@ void control_change(uint8_t cc, uint8_t val) {
     case 25: p->resonator_damping = v; break;
     case 26: p->resonator_position = v; break;
     case 27: p->space = v; break;
+    // T9 warps stage: CC 36 algorithm (0..1, DSP clamps to 0.625 = xmod zone;
+    // 0 = bypass), 37 timbre, 38 mod LEVEL (warps' own overdrive at the top),
+    // 39 carrier LEVEL, 40 dry/wet (mono into main).
+    case 36: p->warps_algorithm = v; break;
+    case 37: p->warps_timbre = v; break;
+    case 38: p->warps_mod_level = v; break;
+    case 39: p->warps_car_level = v; break;
+    case 40: p->warps_mix = v; break;
     // Resonator model selector: 0 modal / 1 string / 2 strings / 3 ominous.
     // Handed to core 1 via pending_resonator_model & pending_easter_egg.
     case 28:
@@ -365,6 +401,11 @@ bool mod_set_cc_float(uint8_t cc, float v) {
     case 25: p->resonator_damping = v; break;
     case 26: p->resonator_position = v; break;
     case 27: p->space = v; break;
+    case 36: p->warps_algorithm = v; break;
+    case 37: p->warps_timbre = v; break;
+    case 38: p->warps_mod_level = v; break;
+    case 39: p->warps_car_level = v; break;
+    case 40: p->warps_mix = v; break;
     default: return false;    // 28/29 selectors + unknown CCs: not modulable
   }
   return true;

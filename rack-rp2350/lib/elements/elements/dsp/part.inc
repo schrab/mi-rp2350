@@ -35,7 +35,11 @@ namespace elements {
 using namespace std;
 using namespace stmlib;
 
+#if defined(RACK_RP2350_TC)
+void Part::Init(uint16_t* reverb_buffer, warps::Modulator* warps_modulator) {
+#else
 void Part::Init(uint16_t* reverb_buffer) {
+#endif
   patch_.exciter_envelope_shape = 1.0f;
   patch_.exciter_bow_level = 0.0f;
   patch_.exciter_bow_timbre = 0.5f;
@@ -67,6 +71,16 @@ void Part::Init(uint16_t* reverb_buffer) {
   }
   
   reverb_.Init(reverb_buffer);
+  
+#if defined(RACK_RP2350_TC)
+  warps_ = warps_modulator;
+  if (warps_) {
+    warps_->Init(Dsp::getSr());   // 32000 — oscillators unused (carrier_shape stays 0)
+    warps::Parameters* wp = warps_->mutable_parameters();
+    wp->carrier_shape = 0;
+    wp->note = 48.0f;
+  }
+#endif
   
   scaled_exciter_level_ = 0.0f;
   scaled_resonator_level_ = 0.0f;
@@ -239,9 +253,42 @@ void Part::Process(
 
   resonator_level *= 16.0f;
   scaled_resonator_level_ = resonator_level < 1.0f ? resonator_level : 1.0f;
-  
-    
-    
+
+#if defined(RACK_RP2350_TC)
+  // T9 warps cross-modulation stage: carrier = main (post-SoftLimit resonator
+  // R channel), modulator = raw_buffer_ (the raw exciter), output mono into
+  // main. After metering/panic (the panic guard keeps measuring the pre-Warps
+  // resonator level) and before the reverb. Algorithm is clamped to 0.625 =
+  // pure comparator: the vocoder zone (>= 0.675) and the NOP blend are
+  // excluded (vocoder stripped in the vendored warps copy). Zero cost when
+  // patch_.warps_algorithm == 0 (no Process call, no buffers touched).
+  if (warps_ && patch_.warps_algorithm > 0.0f) {
+    warps::ShortFrame w_in[kMaxBlockSize], w_out[kMaxBlockSize];
+    for (size_t i = 0; i < size; ++i) {
+      float c = main[i];
+      float m = raw_buffer_[i];
+      w_in[i].l = static_cast<short>(
+          c > 1.0f ? 32767 : (c < -1.0f ? -32767 : c * 32767.0f));
+      w_in[i].r = static_cast<short>(
+          m > 1.0f ? 32767 : (m < -1.0f ? -32767 : m * 32767.0f));
+    }
+    warps::Parameters* wp = warps_->mutable_parameters();
+    // channel_drive[0/1] = warps' LEVEL knobs (SaturatingAmplifier: clean at
+    // 0, warm overdrive near 1) — the CCs map 1:1, no extra pre-gain.
+    wp->channel_drive[0] = patch_.warps_car_level;
+    wp->channel_drive[1] = patch_.warps_mod_level;
+    wp->modulation_algorithm =
+        patch_.warps_algorithm > 0.625f ? 0.625f : patch_.warps_algorithm;
+    wp->modulation_parameter = patch_.warps_timbre;
+    wp->carrier_shape = 0;
+    warps_->Process(w_in, w_out, size);
+    for (size_t i = 0; i < size; ++i) {
+      float w = static_cast<float>(w_out[i].l) * (1.0f / 32768.0f);
+      main[i] += (w - main[i]) * patch_.warps_mix;
+    }
+  }
+#endif
+
   // Apply reverb.
   
   reverb_.set_amount(reverb_amount);
