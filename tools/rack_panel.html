@@ -436,8 +436,12 @@ const MODULES = [
     { cc:29, label:'OMINOUS',   variant:'white', def:0,
       steps: { labels:['NORMAL','OMINOUS'], bytes:[0,1] } },
     // T9 warps stage (inside elements: carrier = main, mod = raw exciter;
-    // alg 0 = bypass, DSP clamps at 0.625 = comparator)
-    { cc:36, label:'W ALGO',    variant:'white', def:0 },
+    // alg 0 = bypass, DSP clamps at 0.625 = comparator). W ALGO is stepped:
+    // the pure algorithms sit at p*8 = 0..5 (byte = p*127; XFADE rides byte 1
+    // because 0 is the bypass).
+    { cc:36, label:'W ALGO',    variant:'white', def:0,
+      steps: { labels:['OFF','XFADE','FOLD','DIODE','DIGI','XOR','COMP'],
+               bytes:[0,1,16,32,48,64,79] } },
     { cc:37, label:'W TIMBRE',  variant:'white', def:0 },
     { cc:38, label:'W MOD',     variant:'white', def:0 },
     { cc:39, label:'W CAR',     variant:'white', def:0 },
