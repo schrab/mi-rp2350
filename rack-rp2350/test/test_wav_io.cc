@@ -9,8 +9,10 @@ int main() {
   const int kFrames = 4800, kSr = 32000;
   std::vector<float> buf(kFrames * 2);
   for (int i = 0; i < kFrames; ++i) {
-    buf[2 * i] = 0.5f * std::sinf(2.0f * 3.14159265f * 440.0f * i / kSr);
-    buf[2 * i + 1] = 0.25f * std::cosf(2.0f * 3.14159265f * 440.0f * i / kSr);
+    // C-library sinf/cosf: std::sinf/std::cosf are not guaranteed by
+    // C++17 and g++ 13.3 rejects them (surfaced by a stale-binary rebuild).
+    buf[2 * i] = 0.5f * sinf(2.0f * 3.14159265f * 440.0f * i / kSr);
+    buf[2 * i + 1] = 0.25f * cosf(2.0f * 3.14159265f * 440.0f * i / kSr);
   }
   WriteWav16("build/wav_io_roundtrip.wav", buf.data(), kFrames, 2, kSr);
   WavFile r = ReadWav("build/wav_io_roundtrip.wav");
