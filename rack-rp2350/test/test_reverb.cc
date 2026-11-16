@@ -34,6 +34,11 @@ static int g_fail = 0;
 
 static const size_t kFrames = 21632;   // the rack carve (43,264 B)
 static const size_t kCanary = 64;
+// Oversized allocation: the UPSTREAM arm (FxEngine<32768>) Init-writes 32,768
+// frames — the block must hold that without faulting, while the canary zone
+// at [kFrames, kFrames+kCanary) sits INSIDE the upstream write range (so the
+// pristine arm zeroes it -> RED via CHECK, not SIGSEGV).
+static const size_t kAlloc = 32768 + kCanary;
 
 static bool canaries_intact(const uint16_t* canary) {
   for (size_t i = 0; i < kCanary; ++i) {
@@ -43,9 +48,7 @@ static bool canaries_intact(const uint16_t* canary) {
 }
 
 static void test_init_fills_exactly_the_carve() {
-  // Oversized allocation so the UPSTREAM arm (32768 frames) writes inside
-  // the heap block (no crash) while still zeroing the canary zone (RED).
-  static uint16_t mem[kFrames + kCanary];
+  static uint16_t mem[kAlloc];
   uint16_t* canary = mem + kFrames;
   memset(mem, 0, sizeof(mem));
   for (size_t i = 0; i < kCanary; ++i) canary[i] = 0xA5A5u;
@@ -66,7 +69,7 @@ static void test_init_fills_exactly_the_carve() {
 }
 
 static void test_render_smoke_and_decay() {
-  static uint16_t mem[kFrames + kCanary];
+  static uint16_t mem[kAlloc];
   Reverb reverb;
   reverb.Init(mem);
   reverb.set_amount(1.0f);

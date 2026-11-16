@@ -162,7 +162,17 @@ class Reverb {
   }
   
  private:
+#if defined(RACK_RP2350_TC)
+  /* Rack (T9): the Dattorro Reserve chain above sums to 21,617 frames
+     (150+214+319+527+2182+2690+4501+2525+2197+6312) — instantiate the engine
+     at 21,632 frames so Part's reverb carve drops 65,536 -> 43,264 B and the
+     freed pool room hosts the warps::Modulator (module_elements.h). Init()
+     zero-fills exactly `size` samples (fx_engine.h), so the caller's carve
+     must match (kReverbBytes). Standalone keeps the upstream 32,768. */
+  typedef FxEngine<21632, FORMAT_16_BIT> E;
+#else
   typedef FxEngine<32768, FORMAT_16_BIT> E;
+#endif
   E engine_;
   
   float amount_;

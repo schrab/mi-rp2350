@@ -105,16 +105,18 @@ static State* s = nullptr;   // placement-new'd by init(); arena offset 0
 // clouds-B state live at once). init() stays the single-module path
 // (placement at arena offset 0, exactly as before T6).
 static size_t state_size() { return sizeof(State); }
-// Buffer demand: uint16_t reverb[32768] = 64 KB (FxEngine::Init zero-fills
-// the FULL declared template size, so 64 KiB — not the ~43 KiB the Dattorro
-// lines actually span — is the correct allocation).
-static constexpr size_t buf_bytes() { return 65536; }
+// Buffer demand: uint16_t reverb[21632] = 43,264 B (T9: the rack build's
+// Reverb instantiates FxEngine<21632> — the Dattorro Reserve chain sums to
+// 21,617 frames; Init() zero-fills exactly the declared size, so the carve
+// must match. Standalone keeps 32,768). Task 3 appends the warps carve.
+static constexpr size_t kReverbBytes = 43264;
+static constexpr size_t buf_bytes() { return kReverbBytes; }
 
 void init_at(uint8_t* obj_base, uint8_t* buf_base) {
   s = new (obj_base) State();
   // Buffer carve: uint16_t reverb[32768] = 64 KB from the caller's region.
   uint16_t* reverb_buffer = reinterpret_cast<uint16_t*>(buf_base);
-  memset(reverb_buffer, 0, 32768 * sizeof(uint16_t));
+  memset(reverb_buffer, 0, 21632 * sizeof(uint16_t));
   memset(s->blow_in, 0, sizeof(s->blow_in));
   memset(s->strike_in, 0, sizeof(s->strike_in));
   s->pending_resonator_model = -1;
