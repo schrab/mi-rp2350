@@ -107,16 +107,22 @@ namespace CTAG {
 
         // ===================== state =====================
         static uint8_t s_page = 0;            // 0-10 (module P1/P2/P3, MOD, SYS, chain-B)
-        static bool s_assignArmed = false;    // push held (assign/overlay)
+        static bool s_assignArmed = false;    // LATCHED assign mode (T8d)
         static bool s_overlay = false;        // module-select overlay live
         static uint8_t s_overlaySel = 0;      // 0-4
         static bool s_fullArrived = false;    // TELEM snapshot for s_page
         static uint8_t s_presetSlot = 0;      // SYS: C3-local selection
         static bool s_blinkPhase = false;     // 2 Hz inert-cell blink
         static uint8_t s_activePot = 0xFF;    // last moved pot (0-15)
-        static uint8_t s_assignPot = 0xFF;    // pot being mapped while held
-        static uint8_t s_assignSrc = 0;       // 0 = OFF, 1..10 = LFO1..ADS2
+        static uint8_t s_assignPot = 0xFF;    // target pot locked by the scan
+        static uint8_t s_assignSrc = 0;       // 0 = OFF, 1..12 = LFO1..ARP2
+        static uint32_t s_assignDeadlineMs = 0;   // latched-mode timeout
+        static bool s_pendingAssign = false;  // confirm handoff to RackPots
+        static uint8_t s_pendingAssignPot = 0xFF;
+        static uint8_t s_pendingAssignSrc = 0;
         static uint16_t s_lastWireSent[16];   // dedup discrete wire sends
+        static const uint8_t kAssignSources = 13;    // OFF + LFO1..ARP2
+        static const uint32_t kAssignTimeoutMs = 15000;
         static int64_t s_pendingRefreshUs = 0;
         static bool s_bootModCleaned = false;
 
@@ -296,6 +302,10 @@ namespace CTAG {
                     if (cc == 53) {           // QUANTIZE: an ON/OFF switch
                         wireIsBool127 = true;
                         return 2;
+                    }
+                    if (cc == 54) {           // ARP HARM: voices follow the ARP
+                        wireIsBool127 = true;
+                        return 2;             // (P3 p15, T8b)
                     }
                     break;
             }
@@ -764,11 +774,19 @@ namespace CTAG {
                 Display::DrawString(x, 1, buf, Display::FONT_VALUE,
                                     Display::kYellow);
             } else if (s_assignArmed) {
-                if (s_assignPot < 16) {
-                    snprintf(buf, sizeof(buf), ">MOD %s<",
-                             kSrcNames[s_assignSrc <= 12 ? s_assignSrc : 0]);
+                // T8d latched assign: show the locked target's label (once the
+                // scan picked a pot) and the source being chosen.
+                const char *srcName =
+                    kSrcNames[s_assignSrc <= 12 ? s_assignSrc : 0];
+                if (s_assignPot < 16 && s_fullArrived &&
+                    s_assignPot < s_cur.count &&
+                    s_cur.cell[s_assignPot].label[0] != '\0') {
+                    char lab[12];
+                    snprintf(lab, sizeof(lab), "%.10s",
+                             s_cur.cell[s_assignPot].label);
+                    snprintf(buf, sizeof(buf), ">%s %s<", lab, srcName);
                 } else {
-                    snprintf(buf, sizeof(buf), ">MOD<");
+                    snprintf(buf, sizeof(buf), ">MOD %s<", srcName);
                 }
                 Display::DrawString(x, 1, buf, Display::FONT_VALUE,
                                     Display::kYellow);
@@ -1311,6 +1329,24 @@ namespace CTAG {
             s_stripDirty = true;
         }
 
+        void RackUI::NoteAssignTarget(uint8_t pot) {
+            if (!s_assignArmed || pot > 15) return;
+            if (s_assignPot != pot) {
+                s_assignPot = pot;
+                s_stripDirty = true;
+            }
+            s_assignDeadlineMs =
+                (uint32_t)(esp_timer_get_time() / 1000) + kAssignTimeoutMs;
+        }
+
+        bool RackUI::TakePendingAssign(uint8_t &pot, uint8_t &src) {
+            if (!s_pendingAssign) return false;
+            s_pendingAssign = false;
+            pot = s_pendingAssignPot;
+            src = s_pendingAssignSrc;
+            return pot < 16;
+        }
+
         void RackUI::NoteModRide(uint8_t pot, uint8_t src, uint8_t param, uint8_t val) {
             (void)src; (void)param;
             if (pot >= 16) return;
@@ -1326,6 +1362,7 @@ namespace CTAG {
             s_fullArrived = false;      // dashes until the snapshot lands
             s_activePot = 0xFF;
             s_assignPot = 0xFF;
+            s_assignArmed = false;      // T8d: a page change aborts assign mode
             for (int i = 0; i < 16; ++i) s_lastWireSent[i] = 0xFFFF;
             s_pageDirty = true;
             s_stripDirty = true;
@@ -1642,16 +1679,35 @@ namespace CTAG {
                     s_stripDirty = true;
                 }
 
+                // T8d: latched assign mode times out (no confirm/cancel) so a
+                // forgotten mode cannot keep the pots muted.
+                if (s_assignArmed && s_assignDeadlineMs != 0 &&
+                    (uint32_t)(nowUs / 1000) >= s_assignDeadlineMs) {
+                    s_assignArmed = false;
+                    s_assignPot = 0xFF;
+                    s_stripDirty = true;
+                }
+
                 // ---- input ----
                 InputEvent ev;
                 while (UserInput::GetEvent(ev, 0)) {
                     switch (ev.type) {
                         case InputEvent::ENC_DELTA:
-                            if (s_assignArmed) {
+                            if (s_assignArmed && pressed) {
                                 // hold + rotate = module-select overlay
                                 s_overlay = true;
                                 s_overlaySel = (uint8_t)(
                                     (s_overlaySel + ev.delta + 5) % 5);
+                                s_stripDirty = true;
+                            } else if (s_assignArmed) {
+                                // T8d LATCHED assign: rotate = choose the
+                                // modulation source (0 = OFF .. 12 = ARP2).
+                                int v = (int)s_assignSrc + ev.delta;
+                                while (v < 0) v += kAssignSources;
+                                while (v >= kAssignSources) v -= kAssignSources;
+                                s_assignSrc = (uint8_t)v;
+                                s_assignDeadlineMs =
+                                    (uint32_t)(nowUs / 1000) + kAssignTimeoutMs;
                                 s_stripDirty = true;
                             } else if (s_page == 8 && pressed) {
                                 // Ignore accidental rotation while holding to save on SYS page
@@ -1693,8 +1749,15 @@ namespace CTAG {
                                 // Long press on SYS page is handled by timer (3s SAVE)
                                 s_assignArmed = false;
                             } else {
+                                // T8d: LATCHED assign mode — the 350 ms hold
+                                // arms it and it survives the release, so the
+                                // target can be picked with a clean (unpressed)
+                                // pot turn and the source with the encoder.
                                 s_assignArmed = true;
                                 s_assignPot = 0xFF;
+                                s_assignSrc = 0;
+                                s_assignDeadlineMs =
+                                    (uint32_t)(nowUs / 1000) + kAssignTimeoutMs;
                                 s_stripDirty = true;
                             }
                             break;
@@ -1704,6 +1767,18 @@ namespace CTAG {
                                 char b[24];
                                 snprintf(b, sizeof(b), "LOADED P%u", s_presetSlot);
                                 showBanner(b, 2000);
+                            } else if (s_assignArmed) {
+                                // Tap = confirm (target chosen) or cancel (no
+                                // target). Handoff to the scan task, which owns
+                                // the send path.
+                                if (s_assignPot < 16) {
+                                    s_pendingAssign = true;
+                                    s_pendingAssignPot = s_assignPot;
+                                    s_pendingAssignSrc = s_assignSrc;
+                                }
+                                s_assignArmed = false;
+                                s_assignPot = 0xFF;
+                                s_stripDirty = true;
                             }
                             break;
                         case InputEvent::PUSH_RELEASE:
@@ -1726,7 +1801,11 @@ namespace CTAG {
                                     SetPage(0);
                                 }
                             } else {
-                                s_assignArmed = false;   // release cancels
+                                // T8d: the hold ARMED assign mode; keep it
+                                // latched after release (release no longer
+                                // cancels — a short tap does).
+                                s_assignDeadlineMs =
+                                    (uint32_t)(nowUs / 1000) + kAssignTimeoutMs;
                             }
                             s_assignPot = 0xFF;
                             s_stripDirty = true;

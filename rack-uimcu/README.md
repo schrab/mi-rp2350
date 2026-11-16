@@ -86,14 +86,16 @@ All 3V3 logic, no level shifting.
 | Gesture | Action |
 |---------|--------|
 | Rotate | page cycle P1 -> [P2] -> [P3 for lira8] -> [CLOUDS B while chained] -> MOD-LFO 1/2 -> ... -> SYS (wraps); the C3 requests the page, dashes render until the TELEM snapshot lands |
-| Short push (< 600 ms) on MOD-C | toggle global clock source (UI_CMD sys id 2) |
+| Short push (< 350 ms) on MOD-C | toggle global clock source (UI_CMD sys id 2) |
 | Short push on SYS | the SYS action ring, one action per push, next action marked with the yellow underline (7 items): chain-pair cycle -> chain engage toggle -> preset slot cycle (0-15; pot 8 also selects) -> preset SAVE -> preset LOAD -> telemetry-deltas toggle -> telemetry-full toggle -> wrap. The strip shows `SYSTEM SAVE>` / `SYSTEM LOAD>` while those are armed. SAVE/LOAD run the T4a preset bank (docs/ui-protocol.md §9): SAVE pulls the RP2350's state part over the link and writes the slot (audio untouched); LOAD sends the stored blob back as PRESET_APPLY (the RP2350 swaps module/params/mod/clock via its pending machinery and acks a full TELEM) |
-| Push-hold >= 600 ms | arms MOD-ASSIGN mode (strip shows `>MOD<` in yellow) |
-| Hold + turn a POT | selects modulation source across the pot's rotation `[OFF, LFO1..4, EUC1..4, GAT1..2, ADS1..2]`; strip shows `>MOD LFO1<` / `>MOD OFF<` etc.; fully CCW unmaps the parameter (`>MOD OFF<`); releasing the push locks the selection without release glitches |
-| Hold + ROTATE | module-select overlay (strip shows `>ELEMX/CLOUDS/PLAITS/RINGS/LIRA8<`, 5 slots); releasing the hold CONFIRMS (sends SWITCH); releasing without rotating cancels |
-| Short push on P1/P2/MOD-A/MOD-B | no action (parameters live on the pots) |
+| Push-hold >= 350 ms, then release | arms MOD-ASSIGN mode (strip shows `>MOD OFF<` in yellow). The mode is **latched** — it survives the release, because pressed pot readings are meaningless (the encoder push grounds the mux SIG line through the 4.7k; the dip is position-dependent and non-monotonic near the pot top) |
+| In MOD-ASSIGN: turn a POT | locks that cell as the target (UNPRESSED movement; ~4 counts). The strip shows the cell label + source, e.g. `>POSITION OFF<` |
+| In MOD-ASSIGN: ROTATE | chooses the source `[OFF, LFO1..4, EUC1..4, GAT1..2, ADS1..2, ARP1..2]`; the strip updates live. A different pot turned ~8 counts retargets |
+| In MOD-ASSIGN: SHORT PUSH | CONFIRMS (maps the chosen source to the locked cell; `OFF` unmaps). With no target locked it cancels. 15 s without activity times out and cancels |
+| Hold + ROTATE | module-select overlay (strip shows `>ELEMX/CLOUDS/PLAITS/RINGS/LIRA8<`, 5 slots); releasing the hold CONFIRMS (sends SWITCH); releasing without rotating arms MOD-ASSIGN (above) |
+| Short push on P1/P2/MOD-A/MOD-B | MOD-ASSIGN confirm/cancel when armed; otherwise no action (parameters live on the pots) |
 
-Gesture timings: short < 600 ms <= hold; debounce 20 ms; encoder = one
+Gesture timings: short < 350 ms <= hold; debounce 20 ms; encoder = one
 event per detent (GPIO-ISR quadrature, seed detent table).
 
 ## Pot behavior

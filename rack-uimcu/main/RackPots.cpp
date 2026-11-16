@@ -84,9 +84,17 @@ namespace CTAG {
             volatile bool pickPending[NPOTS];
             volatile uint8_t pickTarget[NPOTS];    // cell value to align to
 
-            // ---- per-pot modulation assign tracking (per P1/P2 page) ----
-            uint8_t s_potModSrc[2][NPOTS];         // [page 0..1][pot 0..15]: 0 = OFF, 1..12 = LFO1..ARP2
+            // ---- per-pot modulation assign tracking (per page) ----
+            // Banks: 0 = P1, 1 = P2, 2 = the CLOUDS B page (chain mode, T8c).
+            uint8_t s_potModSrc[3][NPOTS];         // [bank][pot]: 0 = OFF, 1..12 = LFO1..ARP2
             int64_t s_lastAssignUs[NPOTS];         // echo guard for cell flags
+
+            // Page -> assign/pickup tracking bank. Page 9 (CLOUDS B) gets its
+            // own bank so chain-B mappings do not disturb P1/P2 bookkeeping.
+            uint8_t pageBank() {
+                const uint8_t pg = RackUI::GetPage();
+                return (pg == 9) ? 2 : (uint8_t)(pg <= 1 ? pg : 0);
+            }
 
             // The per-source dynamic control param a pot rides on a mod-routed cell
             // (user spec: LFO = rate, GATE = dens, ARP = dens, EU = pulses).
@@ -110,25 +118,15 @@ namespace CTAG {
                 return 7;                          // ARP: dest (param 7)
             }
 
-            // Linearize the pressed ADC reading (0..~3560 while the 470R push
-            // button pulls SIG toward GND) into a 0..127 pot angle so turning
-            // a pot while holding the button spans 0..127 evenly.
-            uint8_t pressedPosFromRaw(int raw) {
-                static const int kKnots[13] = {
-                    0, 55, 105, 145, 180, 215, 260, 315, 395, 515, 730, 1200, 3200
-                };
-                if (raw <= kKnots[0]) return 0;
-                if (raw >= kKnots[12]) return 127;
-                for (int i = 0; i < 12; ++i) {
-                    if (raw <= kKnots[i + 1]) {
-                        const int span = kKnots[i + 1] - kKnots[i];
-                        const int frac = ((raw - kKnots[i]) * 256) / (span > 0 ? span : 1);
-                        const int pos = ((i * 256 + frac) * 127) / (12 * 256);
-                        return (uint8_t)(pos < 0 ? 0 : (pos > 127 ? 127 : pos));
-                    }
-                }
-                return 127;
-            }
+            // NOTE (T8d): there used to be a pressedPosFromRaw() linearizer
+            // that read the POT ANGLE out of the pressed ADC value. That is
+            // physically unsound: the encoder push grounds GPIO3 (= the mux
+            // SIG pad) through the 4.7k, so the dip is a divider between the
+            // pot's wiper impedance and 4.7k — position-dependent and, for a
+            // 10k pot, NON-MONOTONIC near the top (it peaks around 70% and
+            // falls again), i.e. the same pressed value maps to two angles.
+            // Never derive a selection from pressed readings; see the latched
+            // assign mode in potTask (unpressed raw deltas only).
 
             void addrSet(uint8_t ch) {
                 gpio_set_level((gpio_num_t)PIN_S0, ch & 1);
@@ -188,7 +186,7 @@ namespace CTAG {
                     return;
                 }
                 const uint8_t curSrc = t.routedSrc; // 0 = OFF, 1..12 = LFO1..ARP2
-                const uint8_t pg = RackUI::GetPage() <= 1 ? RackUI::GetPage() : 0;
+                const uint8_t pg = pageBank();
                 const uint8_t localSrc = s_potModSrc[pg][pot];
                 s_lastAssignUs[pot] = esp_timer_get_time();
                 RackUI::NoteAssignPot(pot, modChoice);
@@ -218,7 +216,7 @@ namespace CTAG {
                     const uint8_t prevIdx = (uint8_t)(curSrc - 1);
                     RackLink::SendModSet(prevIdx, destParam(prevIdx), 0);
                 }
-                for (uint8_t p = 0; p < 2; ++p) {
+                for (uint8_t p = 0; p < 3; ++p) {
                     for (uint8_t i = 0; i < NPOTS; ++i) {
                         if (s_potModSrc[p][i] == modChoice) {
                             s_potModSrc[p][i] = 0;
@@ -259,18 +257,10 @@ namespace CTAG {
                 static int baselineRaw[NPOTS];
                 static int assignAnchorRaw[NPOTS];
                 static int assignFiltRaw[NPOTS];
-                static uint8_t assignAnchorPos[NPOTS];
                 static bool prevValid = false;
-                static bool assignSessionArmed = false;
-                static int64_t assignArmTimeUs = 0;
                 static int64_t lastPushUs = 0;
                 static int8_t assignPotLocked = -1;
-                static int8_t assignCandidatePot = -1;
-                static uint8_t assignCandidateCount = 0;
-                static uint8_t assignLastChoice = 0xFF;
-                static uint8_t assignStableChoice = 0xFF;
-                static uint8_t assignStableCount = 0;
-                static uint16_t assignTurnedMask = 0;
+                static bool assignLatchedPrev = false;
 
                 constexpr int64_t POST_RELEASE_GUARD_US = 250000; // 250 ms
 
@@ -291,6 +281,16 @@ namespace CTAG {
                             lastSentRaw[i] = rawSweep[i];
                         }
                         prevValid = true;
+                    }
+
+                    // T8d: apply a confirmed assignment. RackUI hands it over on
+                    // a short tap; the send path (MOD_SET + local bookkeeping)
+                    // lives in this task.
+                    {
+                        uint8_t ap = 0, as = 0;
+                        if (RackUI::TakePendingAssign(ap, as)) {
+                            applyModAssign(ap, as);
+                        }
                     }
 
                     // 1) Detect encoder push BEFORE touching filtRaw[0..15]:
@@ -317,85 +317,11 @@ namespace CTAG {
                         lastPushUs = now;
                         UserInput::SetPushRaw(true);
 
-                        // While button is held, NEVER update filtRaw[] or send
-                        // normal pot values. Only run modulation assignment
-                        // once AssignModeActive() has been armed.
-                        if (RackUI::AssignModeActive() && RackUI::GetPage() <= 1) {
-                            if (!assignSessionArmed) {
-                                const uint8_t pg = RackUI::GetPage() <= 1 ? RackUI::GetPage() : 0;
-                                for (int i = 0; i < NPOTS; ++i) {
-                                    assignAnchorRaw[i] = rawSweep[i];
-                                    assignFiltRaw[i] = rawSweep[i];
-                                    assignAnchorPos[i] = pressedPosFromRaw(rawSweep[i]);
-                                    RackUI::PotTarget t;
-                                    if (RackUI::GetPotTarget((uint8_t)i, t) &&
-                                        t.kind == RackUI::PotTarget::kCC) {
-                                        s_potModSrc[pg][i] = t.routedSrc;
-                                    }
-                                }
-                                assignPotLocked = -1;
-                                assignLastChoice = 0xFF;
-                                assignSessionArmed = true;
-                            } else {
-                                for (int i = 0; i < NPOTS; ++i) {
-                                    assignFiltRaw[i] =
-                                        (assignFiltRaw[i] * 3 + rawSweep[i] + 2) >> 2;
-                                }
-
-                                // Check which valid mod-target pot has moved most from its anchor in angle space
-                                int maxDelta = 0;
-                                int maxPot = -1;
-                                for (int i = 0; i < NPOTS; ++i) {
-                                    RackUI::PotTarget t;
-                                    if (!RackUI::GetPotTarget((uint8_t)i, t) ||
-                                        t.kind != RackUI::PotTarget::kCC || t.cc == 0) {
-                                        continue;
-                                    }
-                                    const uint8_t curPos = pressedPosFromRaw(assignFiltRaw[i]);
-                                    int d = (int)curPos - (int)assignAnchorPos[i];
-                                    if (d < 0) d = -d;
-                                    if (d > maxDelta) {
-                                        maxDelta = d;
-                                        maxPot = i;
-                                    }
-                                }
-
-                                if (assignPotLocked < 0) {
-                                    // Not locked yet: require deliberate turn of >= 5 angle steps on a valid cell
-                                    if (maxDelta >= 5 && maxPot >= 0) {
-                                        assignPotLocked = (int8_t)maxPot;
-                                        assignTurnedMask |= (uint16_t)(1u << maxPot);
-                                    }
-                                } else {
-                                    // Already locked: if the user turns a DIFFERENT valid cell by >= 10 steps, switch to it
-                                    if (maxPot >= 0 && maxPot != assignPotLocked && maxDelta >= 10) {
-                                        assignPotLocked = (int8_t)maxPot;
-                                        assignTurnedMask |= (uint16_t)(1u << maxPot);
-                                    }
-                                }
-
-                                if (assignPotLocked >= 0) {
-                                    const uint8_t p = (uint8_t)assignPotLocked;
-                                    const int r = assignFiltRaw[p];
-                                    const uint8_t pos = pressedPosFromRaw(r);
-
-                                    // Fully CCW: raw <= 80 or pos <= 10 -> 0 (OFF / unmap)
-                                    // CW: pos 11..127 -> 1..12 (LFO1..ARP2)
-                                    uint8_t choice = 0;
-                                    if (r > 80 && pos > 10) {
-                                        choice = (uint8_t)(
-                                            1 + ((int)(pos - 11) * 12) / 117);
-                                        if (choice > 12) choice = 12;
-                                    }
-
-                                    // Immediately update the top bar so user sees the live choice.
-                                    // DO NOT call applyModAssign here — doing so during the knob sweep
-                                    // would wipe out all intermediate mod sources on RP2350!
-                                    RackUI::NoteAssignPot(p, choice);
-                                    assignLastChoice = choice;
-                                }
-                            }
-                        }
+                        // While the button is held, NEVER update filtRaw[] or
+                        // send pot values: the press grounds the mux SIG line
+                        // (see the T8d note above), so every reading is
+                        // distorted. Assignment itself happens in the LATCHED
+                        // mode below, after release, from clean readings.
                         vTaskDelay(1);
                         continue;
                     }
@@ -404,18 +330,8 @@ namespace CTAG {
                     if (pushActive) {
                         pushActive = false;
                         UserInput::SetPushRaw(false);
-                        if (!RackUI::OverlayActive() && assignPotLocked >= 0 && assignLastChoice != 0xFF) {
-                            applyModAssign((uint8_t)assignPotLocked, assignLastChoice);
-                        }
+                        assignPotLocked = -1;   // a fresh press starts unlocked
                     }
-                    assignSessionArmed = false;
-                    assignArmTimeUs = 0;
-                    assignPotLocked = -1;
-                    assignCandidatePot = -1;
-                    assignCandidateCount = 0;
-                    assignLastChoice = 0xFF;
-                    assignStableChoice = 0xFF;
-                    assignStableCount = 0;
 
                     // Post-release guard: for 250 ms after releasing the button,
                     // re-seed filtRaw/lastSentRaw to the unpressed voltage and
@@ -429,12 +345,92 @@ namespace CTAG {
                             lastValue[ch] = mapValue(ch, rawSweep[ch]);
                             lastSent[ch] = lastValue[ch];
                         }
-                        if (assignTurnedMask != 0) {
-                            assignTurnedMask = 0;
-                            RackPots::PickupResync();
+                        RackPots::PickupResync();
+                        vTaskDelay(1);
+                        continue;
+                    }
+
+                    // ================= T8d LATCHED ASSIGN MODE =================
+                    // Armed by the encoder hold (survives the release). Clean,
+                    // UNPRESSED raw readings only:
+                    //   turn a pot  -> lock that cell as the target
+                    //   rotate      -> choose the source (handled in RackUI)
+                    //   tap         -> confirm (RackUI hands it back through
+                    //                  TakePendingAssign, applied above)
+                    // Sends stay muted while the mode is live; on exit the
+                    // moved pots are re-seeded and pickup re-armed so no
+                    // parameter jumps.
+                    if (RackUI::AssignModeActive()) {
+                        if (!assignLatchedPrev) {
+                            const uint8_t pg = pageBank();
+                            for (int i = 0; i < NPOTS; ++i) {
+                                assignAnchorRaw[i] = filtRaw[i];
+                                assignFiltRaw[i] = filtRaw[i];
+                                RackUI::PotTarget t;
+                                if (RackUI::GetPotTarget((uint8_t)i, t) &&
+                                    t.kind == RackUI::PotTarget::kCC) {
+                                    s_potModSrc[pg][i] = t.routedSrc;
+                                }
+                            }
+                            assignLatchedPrev = true;
+                        }
+                        int maxDelta = 0, secondDelta = 0, maxPot = -1;
+                        for (int i = 0; i < NPOTS; ++i) {
+                            const int raw = rawSweep[i];
+                            const int diff = raw - assignFiltRaw[i];
+                            if (diff > 96 || diff < -96) {
+                                assignFiltRaw[i] = (assignFiltRaw[i] + raw) >> 1;
+                            } else {
+                                assignFiltRaw[i] =
+                                    (assignFiltRaw[i] * 7 + raw + 4) >> 3;
+                            }
+                            lastValue[i] = mapValue((uint8_t)i, assignFiltRaw[i]);
+                            RackUI::PotTarget t;
+                            if (!RackUI::GetPotTarget((uint8_t)i, t) ||
+                                t.kind != RackUI::PotTarget::kCC || t.cc == 0) {
+                                continue;
+                            }
+                            int d = assignFiltRaw[i] - assignAnchorRaw[i];
+                            if (d < 0) d = -d;
+                            if (d > maxDelta) {
+                                secondDelta = maxDelta;
+                                maxDelta = d;
+                                maxPot = i;
+                            } else if (d > secondDelta) {
+                                secondDelta = d;
+                            }
+                        }
+                        // Raw-space thresholds (0..4095): ~4 counts to lock,
+                        // ~8 counts to switch cells, and the winner must lead
+                        // the runner-up by ~2 counts so equal drift cannot
+                        // mis-target.
+                        if (assignPotLocked < 0) {
+                            if (maxPot >= 0 && maxDelta >= 120 &&
+                                maxDelta >= secondDelta + 60) {
+                                assignPotLocked = (int8_t)maxPot;
+                                RackUI::NoteAssignTarget((uint8_t)maxPot);
+                            }
+                        } else if (maxPot >= 0 && maxPot != assignPotLocked &&
+                                   maxDelta >= 240) {
+                            assignPotLocked = (int8_t)maxPot;
+                            RackUI::NoteAssignTarget((uint8_t)maxPot);
                         }
                         vTaskDelay(1);
                         continue;
+                    }
+                    if (assignLatchedPrev) {
+                        // Leaving the mode: the pots moved while muted — make
+                        // the scan believe they are where they are, then let
+                        // pickup re-sync them to the cells' last sent values.
+                        assignLatchedPrev = false;
+                        for (int i = 0; i < NPOTS; ++i) {
+                            filtRaw[i] = assignFiltRaw[i];
+                            lastSentRaw[i] = filtRaw[i];
+                            baselineRaw[i] = filtRaw[i];
+                            lastValue[i] = mapValue((uint8_t)i, filtRaw[i]);
+                            lastSent[i] = lastValue[i];
+                        }
+                        RackPots::PickupResync();
                     }
 
                     // Normal unpressed pot processing across all 16 channels
@@ -566,7 +562,7 @@ namespace CTAG {
 
         void RackPots::PickupResync() {
             const int64_t now = esp_timer_get_time();
-            const uint8_t pg = RackUI::GetPage() <= 1 ? RackUI::GetPage() : 0;
+            const uint8_t pg = pageBank();
             for (uint8_t i = 0; i < NPOTS; ++i) {
                 pickPending[i] = false;
                 if (lastSendPotUs[i] != 0 &&
@@ -618,7 +614,7 @@ namespace CTAG {
             t.value = value;
             if (t.kind == RackUI::PotTarget::kCC) {
                 if (!AssignRecentlyChanged(pot)) {
-                    const uint8_t pg = RackUI::GetPage() <= 1 ? RackUI::GetPage() : 0;
+                    const uint8_t pg = pageBank();
                     s_potModSrc[pg][pot] = t.routedSrc;
                 }
                 if (t.routedSrc) return;
@@ -666,7 +662,7 @@ namespace CTAG {
             for (uint8_t s = 0; s < 12; ++s) {
                 RackLink::SendModSet(s, destParam(s), 0);
             }
-            for (uint8_t pg = 0; pg < 2; ++pg) {
+            for (uint8_t pg = 0; pg < 3; ++pg) {
                 for (uint8_t i = 0; i < NPOTS; ++i) {
                     s_potModSrc[pg][i] = 0;
                 }

@@ -66,7 +66,8 @@ namespace CTAG {
             static uint8_t GetPage();
             static uint8_t GetModule();
 
-            // True while the mod-assign gesture is armed (push held).
+            // True while the mod-assign mode is armed (LATCHED: the encoder
+            // hold arms it, a short push confirms/cancels — see README).
             static bool AssignModeActive();
             static bool OverlayActive();
 
@@ -93,6 +94,13 @@ namespace CTAG {
             // Track active / assigned pot for top-bar mod source display.
             static void NoteActivePot(uint8_t pot);
             static void NoteAssignPot(uint8_t pot, uint8_t srcIdxPlus1);
+            // LATCHED assign mode (T8d): the pot scan task reports the target
+            // pot it locked from UNPRESSED movement; the UI shows the label.
+            static void NoteAssignTarget(uint8_t pot);
+            // Confirm handoff: the UI stores the pending assignment, the pot
+            // scan task (which owns the send path) applies it. Returns false
+            // when there is nothing pending.
+            static bool TakePendingAssign(uint8_t &pot, uint8_t &src);
             static void NoteModRide(uint8_t pot, uint8_t src, uint8_t param, uint8_t val);
 
             // `ui` console dump.

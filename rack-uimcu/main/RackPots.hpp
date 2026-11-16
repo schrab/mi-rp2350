@@ -25,9 +25,14 @@ Send policy (docs/ui-protocol.md + README): deadband 2 counts vs the last
 SENT value, aggregate rate limit 200 msgs/s (token bucket), P1/P2 pages
 send MIDI CC frames (the ACTIVE page cell's CC at that pot position),
 MOD pages send MOD_SET [src][param][value] (the kModPotMap, MUST MATCH the
-RP2350's kUiMod*Cells), SYS page pots are inert. While the mod-assign
-gesture is armed (RackUI::AssignModeActive), pot moves become
-UI_CMD ASSIGN_CYCLE [pot][dir from the move direction] instead.
+RP2350's kUiMod*Cells), SYS page pots are inert.
+Mod-assign is a LATCHED mode (T8d): the encoder hold arms it, this scan task
+locks the target cell from UNPRESSED pot movement (sends muted), the encoder
+chooses the source in RackUI, and a short push confirms (RackUI hands the
+(pot, source) pair back through TakePendingAssign).
+NOTE: pressed ADC readings are NOT a pot angle — the encoder push grounds the
+mux SIG line through the 4.7k, so the dip is position-dependent and
+non-monotonic near the top of a 10k pot. Never derive a selection from them.
 
 Soft takeover / pot pickup (user spec 2026-11-08): a pot whose position
 does not match its cell's value NEVER jumps the parameter — page switches
