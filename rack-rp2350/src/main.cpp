@@ -68,6 +68,8 @@
 bool core1_separate_stack = true;
 #include <Adafruit_TinyUSB.h>
 #include "hardware/structs/scb.h"   // scb_hw: fault-status registers + AIRCR
+#include "hardware/structs/qmi.h"   // T9 clock diag: QMI M0 flash timing
+#include "hardware/regs/qmi.h"      // QMI_M0_TIMING_CLKDIV/RXDELAY field masks
 #include "hardware/watchdog.h"      // core-0 hang watchdog
 
 #ifndef RACK_ENABLE_USB_HOST
@@ -1605,6 +1607,10 @@ static void cmd_reboot(const char* args);
 static void cmd_ui(const char* args);
 static void cmd_uitest(const char* args);
 static void cmd_uisend(const char* args);
+// Bench: inject a CC through the REAL funnel (T9 warps per-algorithm bench).
+static void cmd_cc(const char* args);
+// T9 clock diag: live QMI M0 flash timing decode.
+static void cmd_qmi(const char* args);
 static void cmd_trig(const char* args);
 static void cmd_piezo(const char* args);
 static void cmd_help(const char* args);
@@ -1646,6 +1652,8 @@ static const ConsoleCommand kConsoleCommands[] = {
     {"ui",        cmd_ui},
     {"uitest",    cmd_uitest},
     {"uisend",    cmd_uisend},
+    {"cc",        cmd_cc},
+    {"qmi",       cmd_qmi},
     {"panic",     cmd_panic},
     {"reboot",    cmd_reboot},
     {"trig",      cmd_trig},
@@ -2234,6 +2242,42 @@ static void cmd_uitest(const char* args) {
                 "hw loopback: n/a on RP2350 UART (no LBM bit) - wire check = "
                 "C3 selftest + cross-board echo\r\n",
                 fails ? "FAIL" : "OK", (unsigned)(g_ui_crc_errors - crc0));
+}
+
+// cc — inject a MIDI CC through the REAL funnel (midiControlChange): identical
+// path to a controller/panel CC, including the TELEM cache + autosave-dirty,
+// the CC 32 / 33-35 intercepts and the registry dispatch. Bench tool (T9
+// warps per-algorithm sweep needs fixed values without hardware knobs); NOT
+// a performance input (no debounce, core-0 console context).
+static void cmd_cc(const char* args) {
+  int cc = -1, val = -1;
+  if (sscanf(args, "%d %d", &cc, &val) != 2 || cc < 0 || cc > 127 ||
+      val < 0 || val > 127) {
+    Serial.println("usage: cc <0-127> <0-127>   (through midiControlChange)");
+    return;
+  }
+  midiControlChange(static_cast<uint8_t>(cc), static_cast<uint8_t>(val));
+  Serial.printf("cc: %u -> %u\r\n", (unsigned)cc, (unsigned)val);
+}
+
+// qmi — read the LIVE QMI M0 flash timing (T9 clock diag). On RP2350 the
+// flash timing is set by the ROM boot and set_sys_clock_khz does NOT re-scale
+// it, so flash SCK = clk_sys / CLKDIV and an overclock must keep SCK inside
+// the flash chip's 133 MHz spec (240/2 = 120 in-spec; 280/2 = 140 out — the
+// c1e344a "QSPI flash timing" revert). Read-only.
+static void cmd_qmi(const char* args) {
+  (void)args;
+  const uint32_t timing = qmi_hw->m[0].timing;
+  const uint32_t clkdiv = timing & QMI_M0_TIMING_CLKDIV_BITS;
+  const uint32_t rxdel = (timing >> QMI_M0_TIMING_RXDELAY_LSB) & 0x7u;
+  const uint32_t fcpu = clock_get_hz(clk_sys);
+  Serial.printf("qmi: f_cpu=%lu Hz, CLKDIV=%lu RXDELAY=%lu -> flash SCK "
+                "%lu.%01lu MHz (flash spec 133; max safe f_cpu = 133 MHz * "
+                "CLKDIV)\r\n",
+                (unsigned long)fcpu, (unsigned long)clkdiv,
+                (unsigned long)rxdel,
+                (unsigned long)(fcpu / clkdiv / 1000000UL),
+                (unsigned long)((fcpu / clkdiv / 100000UL) % 10));
 }
 
 // uisend — send ONE full TELEM snapshot for the C3's active page (default P1)
