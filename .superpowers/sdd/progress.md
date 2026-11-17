@@ -4057,4 +4057,9 @@ Findings (T9):
   `oct=` and shifted `note=` (e.g. VARG 18/43/72, MOTIF 24/60/72 with clamping,
   METRO 29/50/92, DEJAVU 27/51/75). Audio active, `i2s stalls: 0`, 196-259 us
   vs 750 us. All five envs + C3 green; both devices re-flashed.
-- **Bench pending:** user listening confirmation of the OCTAVE steps on the pot.
+- **Second pot bug**: user reported the C3 OCTAVE display switched but pitch
+  did not. Root cause: `mod_engine_apply_ui_set()` (the RP2350 MOD_SET receiver)
+  whitelisted only shared params 10/11/12, so param 13 was REJECTED even with
+  the C3 map fixed. `f693b93` adds 13 to that whitelist; all five envs green
+  and RP2350 re-flashed. C3 was already flashed with the `{10,13}` pot map.
+- **Bench pending:** user re-test of the pot (display + actual octave jump).
