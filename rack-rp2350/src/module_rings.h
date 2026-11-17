@@ -28,6 +28,9 @@
 
 #include "rack_arena.h"
 #include "module_registry.h"     // RackModDestinations (T3 mod routing table)
+#include "rings_chord.h"         // VARG pool -> simultaneous chord notes
+#include "rings_dist.h"          // the 4 ctag-tbd distortion algos
+#include "lira8/lira_harmony.h"  // published chord snapshot (same-core, no lock)
 
 namespace rack_modules {
 namespace mod_rings {
@@ -43,21 +46,22 @@ static const uint32_t kStallUs = 1400;    // ~1.8x the 750 us block period
 
 static const char* const kCcMap =
     "1 pitch(-24..+24st), 7 vca, 14 structure, 15 brightness, 16 damping, 17 position, "
-    "18 model/fx, 19 polyphony, 20 mode, 21 waveform, 22 chord-table, "
-    "23 chord, 64 strum";
+    "18 model/fx, 19 polyphony, 20 mode(0-5, 5=VARG chord), 21 waveform, 22 chord-table, "
+    "23 chord, 24 dist-drive, 27 dist-type, 28 dist-bias, 29 dist-tone, 30 dist-mix, "
+    "64 strum";
 // T3 mod destinations: 1, 7, 14-17 + 23 accept continuous modulation (23 writes the
 // chord table at fill time — modulating it sweeps chords). 18-22 are EXCLUDED
 // (model/fx, polyphony, mode, waveform, chord-table selectors — per-block
 // selector writes would spam the between-blocks apply path with no musical
 // meaning). Pseudo-CC 64 (verified unused by all four maps) = the STRUM
 // input: pulse-kind, one block per rising edge (same path as MIDI note-on).
-static const uint8_t kModContinuousCcs[] = {1, 7, 14, 15, 16, 17, 23};
+static const uint8_t kModContinuousCcs[] = {1, 7, 14, 15, 16, 17, 23, 24};
 static const uint8_t kModTriggerCcs[] = {64};
 static const uint8_t kModTriggerKinds[] = {RACK_TRIG_PULSE};
 static const RackModDestinations kModDestinations = {
-    "rings: continuous 1,7,14-17,23 (18-22 excluded: model/poly/mode/wave/"
-    "chord-table selectors) | triggers: 64 strum (pulse)",
-    7, kModContinuousCcs,
+    "rings: continuous 1,7,14-17,23,24 (18-22 excluded: model/poly/mode/wave/"
+    "chord-table selectors; 24 = dist drive) | triggers: 64 strum (pulse)",
+    8, kModContinuousCcs,
     1, kModTriggerCcs, kModTriggerKinds,
 };
 
@@ -103,9 +107,26 @@ struct State {
   int32_t applied_waveform;
   int32_t applied_chord_table;
   int32_t applied_chord;
+
+  // VARG chord mode (mode 5) + post-render distortion. The shape table lives
+  // in static rodata (rings_dist.h), NOT here — the arena pool is nearly full.
+  ringdist::State dist;
+  volatile float dist_drive;      // CC 24, 0 = bypass
+  volatile uint8_t dist_type;     // CC 27, 0 tube / 1 fold / 2 fuzz / 3 shape
+  volatile float dist_bias;       // CC 28 (fuzz only)
+  volatile float dist_tone;       // CC 29, 1 = open
+  volatile float dist_mix;        // CC 30, 1 = wet
+  volatile bool varg_chord_on;    // core-0 MIDI-hook mirror of applied_mode == 5
+  uint32_t arp_seq_seen;          // last published harmony seq consumed
 };
 
 static State* s = nullptr;   // placement-new'd by init(); arena offset 0
+
+// The core-0 MIDI hook (declared in midi.h) is defined in main.cpp alongside
+// the LIRA-8 equivalent; this namespaced accessor is what it reads.
+inline bool varg_chord_hook_on() {
+  return s != nullptr && s->varg_chord_on;
+}
 
 // Number of valid chord indexes for the current table/mode/polyphony — a
 // mirror of CvScaler::NumChords (cv_scaler.cc:289-309). CHORD_TABLE_JOE is
@@ -172,12 +193,56 @@ void init_at(uint8_t* obj_base, uint8_t* buf_base) {
   s->applied_waveform = 0;                           // square / bow
   s->applied_chord_table = rings::CHORD_TABLE_BRYAN; // 0
   s->applied_chord = 0;                              // raw, clamped at fill
+
+  // Distortion defaults: audible black-metal grit on the new mode; CC 24 = 0
+  // restores a zero-cost bypass. Tone/mix default open/wet like ctag-tbd.
+  s->dist.lp[0] = 0.0f;
+  s->dist.lp[1] = 0.0f;
+  s->dist_drive = 0.55f;
+  s->dist_type = 0u;
+  s->dist_bias = 0.0f;
+  s->dist_tone = 1.0f;
+  s->dist_mix = 1.0f;
+  s->varg_chord_on = false;
+  s->arp_seq_seen = 0u;
 }
 
 void init() {
   rack_mem_reset();
   init_at(static_cast<uint8_t*>(rack_mem_alloc(state_size(), 8)),
           static_cast<uint8_t*>(rack_mem_alloc(buf_bytes(), 8)));
+}
+
+// Fill the StringSynthPart chord override from the VARG snapshot published by
+// mod_engine (same core-1 publish -> render order as LIRA-8, no locking).
+// A new seq = a new bar/chord: re-strum so the new voicing is actually heard.
+static inline void fill_varg_chord(rings::PerformanceState& perf, bool& strum) {
+  const l8harmony::Snapshot& h = l8harmony::g_lira_harmony;
+  if (!h.harmony_valid) {
+    perf.varg_chord_n = 0;
+    return;
+  }
+  if (h.seq != s->arp_seq_seen) {
+    s->arp_seq_seen = h.seq;
+    strum = true;
+  }
+  int32_t poly = s->applied_polyphony > 0 ? s->applied_polyphony : 1;
+  uint8_t slots = (uint8_t)(12 / poly);
+  if (slots > 8u) slots = 8u;
+  const ringchord::Chord c = ringchord::from_ctx(h.harmony, 0, slots);
+  perf.varg_chord_n = c.n;
+  for (uint8_t i = 0; i < c.n && i < 8u; ++i) perf.varg_chord[i] = c.tone[i];
+}
+
+// Snapshot the panel distortion settings (core 0 writes, core 1 renders).
+static inline ringdist::Params dist_params() {
+  ringdist::Params p{};
+  p.type = s->dist_type;
+  p.drive = s->dist_drive;
+  p.bias = s->dist_bias;
+  p.tone = s->dist_tone;
+  p.mix = s->dist_mix;
+  return p;
 }
 
 // T6: chain A-slot render — exactly n samples (n <= 24 = kMaxBlockSize) into
@@ -188,8 +253,9 @@ void init() {
 void chain_render_a(float* out_l, float* out_r, size_t n) {
   // --- apply pending changes strictly between two Process() calls ---
   if (s->pending_mode >= 0) {
-    s->applied_mode = s->pending_mode <= rings::MODE_EASTER_EGG
-        ? s->pending_mode : rings::MODE_EASTER_EGG;
+    s->applied_mode = s->pending_mode <= 5 ? s->pending_mode : 5;
+    s->varg_chord_on = (s->applied_mode == 5);
+    s->arp_seq_seen = 0u;   // re-read the published chord on mode entry
     s->pending_mode = -1;
   }
   if (s->pending_model >= 0) {
@@ -221,7 +287,7 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
     s->pending_chord = -1;
   }
 
-  const bool strum_pulse = s->pending_strum;
+  bool strum_pulse = s->pending_strum;
   s->pending_strum = false;
 
   rings::PerformanceState perf;
@@ -259,11 +325,16 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
 
   memset(s->in, 0, sizeof(s->in));
 
-  if (s->applied_mode == rings::MODE_EASTER_EGG) {
+  if (s->applied_mode == 5) {
+    perf.note = 0.0f; perf.tonic = 0.0f; perf.fm = 0.0f;
+    fill_varg_chord(perf, strum_pulse);
+  }
+  if (s->applied_mode == rings::MODE_EASTER_EGG || s->applied_mode == 5) {
     s->string_synth.Process(perf, patch, s->in, s->out, s->aux, n);
   } else {
     s->part.Process(perf, patch, s->in, s->out, s->aux, n);
   }
+  ringdist::process(&s->dist, dist_params(), s->out, s->aux, n);
   for (size_t i = 0; i < n; ++i) {
     out_l[i] = s->out[i] * s->shared_vca;
     out_r[i] = s->aux[i] * s->shared_vca;
@@ -273,8 +344,9 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
 void render() {
   // --- apply pending changes strictly between two Process() calls ---
   if (s->pending_mode >= 0) {
-    s->applied_mode = s->pending_mode <= rings::MODE_EASTER_EGG
-        ? s->pending_mode : rings::MODE_EASTER_EGG;
+    s->applied_mode = s->pending_mode <= 5 ? s->pending_mode : 5;
+    s->varg_chord_on = (s->applied_mode == 5);
+    s->arp_seq_seen = 0u;
     s->pending_mode = -1;
   }
   if (s->pending_model >= 0) {
@@ -310,7 +382,7 @@ void render() {
   }
 
   // Strum pulse: exactly one block high per note-on.
-  const bool strum_pulse = s->pending_strum;
+  bool strum_pulse = s->pending_strum;
   s->pending_strum = false;
 
   // --- fresh Patch + PerformanceState locals EVERY block (rings.cc:92-96) ---
@@ -351,14 +423,20 @@ void render() {
   // float-zero fill.
   memset(s->in, 0, sizeof(s->in));
 
+  if (s->applied_mode == 5) {
+    perf.note = 0.0f; perf.tonic = 0.0f; perf.fm = 0.0f;
+    fill_varg_chord(perf, strum_pulse);
+  }
+
   uint32_t t0 = time_us_32();
   // ONE part renders per block (rings.cc:98-116): modes 0-3 -> Part, mode 4
-  // (easter egg) -> StringSynthPart.
-  if (s->applied_mode == rings::MODE_EASTER_EGG) {
+  // (easter egg) and mode 5 (VARG chord) -> StringSynthPart.
+  if (s->applied_mode == rings::MODE_EASTER_EGG || s->applied_mode == 5) {
     s->string_synth.Process(perf, patch, s->in, s->out, s->aux, kBlockSize);
   } else {
     s->part.Process(perf, patch, s->in, s->out, s->aux, kBlockSize);
   }
+  ringdist::process(&s->dist, dist_params(), s->out, s->aux, kBlockSize);
   uint32_t dt = time_us_32() - t0;
   if (dt > proc_us_max) proc_us_max = dt;
 
@@ -427,8 +505,8 @@ void control_change(uint8_t cc, uint8_t val) {
     // POLYPHONY: CC 0-127 -> 1 + val/32 (1/2/3/4 ranges of 32); core 1
     // clamps again against kMaxPolyphony.
     case 19: s->pending_polyphony = static_cast<int8_t>(1 + val / 32); break;
-    // MODE: raw PerformanceMode index 0-4, clamped to 4.
-    case 20: s->pending_mode = static_cast<int8_t>(val > 4 ? 4 : val); break;
+    // MODE: raw index 0-4 (native) + 5 = VARG chord generator.
+    case 20: s->pending_mode = static_cast<int8_t>(val > 5 ? 5 : val); break;
     // WAVEFORM EXCITER: 0 square/bow, 1 impulse/blow, 2 saw/strike.
     case 21:
       if (val <= 2) s->pending_waveform = static_cast<int8_t>(val);
@@ -439,6 +517,12 @@ void control_change(uint8_t cc, uint8_t val) {
       break;
     // CHORD index: raw value kept (0..127), clamped at fill time.
     case 23: s->pending_chord = static_cast<int8_t>(val); break;
+    // Post-render distortion (ctag-tbd's 4 fast algos). Drive 0 = bypass.
+    case 24: s->dist_drive = v; break;
+    case 27: if (val <= 3) s->dist_type = static_cast<uint8_t>(val); break;
+    case 28: s->dist_bias = v; break;
+    case 29: s->dist_tone = v; break;
+    case 30: s->dist_mix = v; break;
     // STRUM pseudo-CC (64): val >= 64 = one-block strum pulse, val < 64 =
     // no-op. T1 button parity: the hardware PLAY button and the web panel
     // send this pseudo-CC (elements/plaits use the same CC number; rings'
@@ -488,7 +572,8 @@ bool chain_rejects_cc(uint8_t cc, uint8_t val) {
   // capped at 2 while a sympathetic model is live and chained — measured-
   // conservative, single-module rings unaffected.
   if (!s) return false;
-  const bool part_mode = s->applied_mode != rings::MODE_EASTER_EGG;
+  const bool part_mode = s->applied_mode != rings::MODE_EASTER_EGG &&
+                         s->applied_mode != 5;  // mode 5 = string-synth chords
   const bool sympathetic =
       part_mode && (s->applied_model == 1 || s->applied_model == 4);
   if (cc == 19 && sympathetic && (1 + val / 32) > 2) {
@@ -520,6 +605,7 @@ bool mod_set_cc_float(uint8_t cc, float v) {
     case 23:
       s->pending_chord = static_cast<int8_t>(v * 127.0f + 0.5f);
       break;
+    case 24: s->dist_drive = v; break;  // modulatable distortion drive
     default: return false;
   }
   return true;

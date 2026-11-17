@@ -132,6 +132,9 @@ void mod_arp_note_transpose(uint8_t note);
 // adapters.
 bool rack_lira8_arp_pitch_on();
 bool rack_lira8_sensor_note(uint8_t note);
+// Rings VARG chord mode: incoming notes must still fire the string-synth
+// strum instead of being swallowed by the ARP root-transpose path.
+bool rack_rings_varg_chord_on();
 
 // T5 UI-link CC-value observer (defined in ui_link.h, main.cpp TU): records
 // the wire CC under the active module for the TELEM value cache and, when
@@ -197,9 +200,13 @@ inline void midiNoteOn(uint8_t note, uint8_t vel) {
   ++note_on_count;
   last_note_event_ms = millis();
   if (mod_arp_wants_midi_notes()) {
-    // T8b: a pad-range note on the ARP-pitch lira8 must still gate its
-    // sensor; everything else only transposes the ARP root.
-    if (rack_lira8_arp_pitch_on() && rack_lira8_sensor_note(note)) {
+    // Rings VARG chord mode keeps the strum path alive; lira8 sensor pads
+    // keep their own gate; everything else only transposes the ARP root.
+    if (rack_rings_varg_chord_on()) {
+      applyNote();
+      shared_gate = true;
+      rack_module_note_on(note, vel);
+    } else if (rack_lira8_arp_pitch_on() && rack_lira8_sensor_note(note)) {
       rack_module_note_on(note, vel);
     } else {
       mod_arp_note_transpose(note);
@@ -215,7 +222,9 @@ inline void midiNoteOff(uint8_t note) {
   note_stack.remove(note);
   last_note_event_ms = millis();
   if (mod_arp_wants_midi_notes()) {
-    if (rack_lira8_arp_pitch_on() && rack_lira8_sensor_note(note)) {
+    if (rack_rings_varg_chord_on()) {
+      rack_module_note_off(note);
+    } else if (rack_lira8_arp_pitch_on() && rack_lira8_sensor_note(note)) {
       rack_module_note_off(note);
     } else if (note_stack.size > 0) {
       mod_arp_note_transpose(note_stack.top());

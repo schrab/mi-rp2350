@@ -131,11 +131,11 @@ ENTRY(_entry_point)
 
 /* T6 chain mode: tc_clouds' VMA sits at this FIXED offset above the window
    origin (the "B slot"). Sized to the chain A set (T6b): >= tc_rings
-   (58,084 B, the largest chain A with its full hot set); tc_elements
-   (36,752) and tc_plaits (~14.1 KB after the chain-tier demotion) fit below
-   it — all three are chain-A-capable (the asserts below fire if that
-   invariant is ever violated at link time). */
-RACK_CLOUDS_B_OFFSET = 0xE400;
+   60,336 B after the VARG-chord patch, the largest chain A with its full hot
+   set); tc_elements (36,752) and tc_plaits (~14.1 KB after the chain-tier
+   demotion) fit below it — all three are chain-A-capable (the asserts below
+   fire if that invariant is ever violated at link time). */
+RACK_CLOUDS_B_OFFSET = 0xEC00;
 
 SECTIONS
 {

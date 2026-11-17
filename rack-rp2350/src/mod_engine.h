@@ -1211,11 +1211,26 @@ static bool mod_lira_ctx_equal(const l8harmony::GroupCtx& a,
 static void mod_lira_harmony_publish() {
   l8harmony::Snapshot next{};
   // Harmony source: first routed ARP, else arp1 (dormant-generator case).
+  // Rings prefers an explicitly routed VARG ARP so a second non-VARG ARP
+  // cannot hijack the chord bed; LIRA-8 keeps its documented first-routed rule.
   uint8_t src_idx = MOD_SRC_ARP_FIRST;
-  for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
-    if (g_mod_engine.src[MOD_SRC_ARP_FIRST + k].dest_cc != 0) {
-      src_idx = (uint8_t)(MOD_SRC_ARP_FIRST + k);
-      break;
+  if (g_active_module == RACK_MODULE_RINGS) {
+    for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
+      const ModSource& candidate = g_mod_engine.src[MOD_SRC_ARP_FIRST + k];
+      if (candidate.dest_cc != 0 && candidate.p.arp.algo == MOD_ARP_VARG) {
+        src_idx = (uint8_t)(MOD_SRC_ARP_FIRST + k);
+        break;
+      }
+    }
+  }
+  bool harmony_src_found = (g_mod_engine.src[src_idx].dest_cc != 0);
+  if (!harmony_src_found) {
+    for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
+      if (g_mod_engine.src[MOD_SRC_ARP_FIRST + k].dest_cc != 0) {
+        src_idx = (uint8_t)(MOD_SRC_ARP_FIRST + k);
+        harmony_src_found = true;
+        break;
+      }
     }
   }
   {
@@ -1871,7 +1886,12 @@ void mod_engine_process_block(uint8_t active_module) {
 
   // T8b: publish the lira8 voice-pitch snapshot (the adapter's render runs
   // right after this pass — same core, no locking).
-  if (active_module == RACK_MODULE_LIRA8) mod_lira_harmony_publish();
+  // Rings VARG chord mode consumes the same snapshot as LIRA-8 (same-core
+  // publish -> render, no locking). Keep both gates explicit so the harmony
+  // source selection stays deterministic per active module.
+  if (active_module == RACK_MODULE_LIRA8 || active_module == RACK_MODULE_RINGS) {
+    mod_lira_harmony_publish();
+  }
 
   // Counter publish LAST (see the ordering note at the top).
   e.sample_counter += bs;

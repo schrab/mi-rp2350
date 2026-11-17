@@ -635,6 +635,13 @@ bool rack_lira8_sensor_note(uint8_t note) {
   return rack_modules::mod_lira8::is_sensor_note(note);
 }
 
+// Rings VARG chord mode: MIDI notes must still fire the string-synth strum
+// instead of being swallowed by the ARP root-transpose hijack.
+bool rack_rings_varg_chord_on() {
+  return g_active_module == RACK_MODULE_RINGS && !g_swapping &&
+         rack_modules::mod_rings::varg_chord_hook_on();
+}
+
 void rack_module_control_change(uint8_t cc, uint8_t val) {
   if (g_swapping) return;
   // T6b chained-A budget clamp: rings->clouds shares the 750 us pair budget

@@ -262,9 +262,9 @@ static const UiPageCell kUiPageRingsP1[16] = {
     {15, "BRIGHTNESS", kUiColorWhite}, // p1
     {16, "DAMPING",    kUiColorWhite}, // p2
     {17, "POSITION",   kUiColorWhite}, // p3
-    {0,  "",           kUiColorWhite}, // p4 (empty)
-    {0,  "",           kUiColorWhite}, // p5 (empty)
-    {0,  "",           kUiColorWhite}, // p6 (empty)
+    {24, "DIST DRIVE", kUiColorWhite}, // p4 (post-render distortion drive)
+    {27, "DIST TYPE",  kUiColorWhite}, // p5 (0 tube / 1 fold / 2 fuzz / 3 shape)
+    {30, "DIST MIX",   kUiColorWhite}, // p6
     // Row 1 (pots 6..9 / physical p7..p10):
     {1,  "PITCH",      kUiColorWhite}, // p7
     {14, "STRUCTURE",  kUiColorWhite}, // p8
