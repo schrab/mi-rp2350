@@ -222,5 +222,222 @@ static inline void init(State* st, uint32_t seed, const Inputs& in) {
   build_pool(st, in);
 }
 
+// ---- harmony kernels (advance) -----------------------------------------
+
+enum Kernel : uint8_t { kKernW7 = 0, kKernNeo = 1 };
+
+// Archetype -> default transition kernel (shared ROOT=2/3 overrides it).
+static const uint8_t kProgKernel[kProgCount] = {
+  kKernW7,   // Aeolian
+  kKernW7,   // Ostinato
+  kKernNeo,  // Weitzmann
+  kKernNeo,  // Mediant
+  kKernW7,   // Add9Dim
+  kKernNeo,  // HalfTrn
+  kKernW7,   // B2B5
+  kKernNeo   // NeoFree
+};
+
+// Tonic pitch class including the section-level key shift.
+static inline uint8_t tonic_pc(const State* st, const Inputs& in) {
+  return (uint8_t)((in.key_root_pc + st->key_shift) % 12u);
+}
+
+// Scale degree -> chord root pitch class inside the shared scale.
+static inline uint8_t degree_root_pc(const State* st, const Inputs& in,
+                                     uint8_t deg) {
+  uint8_t steps[12];
+  const uint8_t n =
+      expand_scale_mask(SCALE_BITMASKS[in.scale_id % SCALE_COUNT], steps);
+  return (uint8_t)((tonic_pc(st, in) + steps[deg % n]) % 12u);
+}
+
+// NEO operator selection. Shared TRANS (neo_op): 0 = weighted RAND
+// (N/R/L common, P/S mid, H rare — black-metal bias), 1..6 pinned, 7 = PLR.
+static inline uint8_t pick_neo_op(State* st, const Inputs& in) {
+  const uint8_t sel = in.neo_op & 7u;
+  if (sel == 7u) return v_rand(st, 3);              // PLR: P/L/R
+  if (sel != 0u) return (uint8_t)(sel - 1u);        // pinned P/L/R/N/S/H
+  static const uint8_t kWeighted[8] = { 3, 2, 1, 3, 0, 4, 2, 1 };
+  return kWeighted[v_rand(st, 8)];
+}
+
+// Restricted W7 CDF over n candidates. deg[i] = W7 pseudo-degree of
+// candidate i; the current degree gets zero weight (n > 1). Returns the
+// picked candidate INDEX.
+static inline uint8_t w7_pick(State* st, const uint8_t* deg, uint8_t n) {
+  uint32_t w[7];
+  uint32_t sum = 0;
+  const uint8_t prev = (uint8_t)(st->prev_deg % 7u);
+  for (uint8_t i = 0; i < n; ++i) {
+    const uint8_t d = (uint8_t)(deg[i] % 7u);
+    w[i] = (d == prev && n > 1u)
+        ? 0u
+        : (uint32_t)DIATONIC_W7_WEIGHTS[d] *
+          (uint32_t)CHORD_MARKOV_7X7[prev][d];
+    sum += w[i];
+  }
+  if (sum == 0u) return (uint8_t)((st->chord_idx + 1u) % n);
+  uint32_t pick = (v_next(st) >> 16) % sum;
+  for (uint8_t i = 0; i < n; ++i) {
+    if (pick < w[i]) return i;
+    pick -= w[i];
+  }
+  return 0u;
+}
+
+// Weitzmann region of the augmented anchor a: minors root on a+1/a+5/a+9,
+// majors on a/a+4/a+8 (verified against the research's {Bb,D,F#} anchor:
+// Bm/Ebm/Gm + D/Gb/Bb). member 0..2 minor, 3..5 major.
+static const uint8_t kWzSemi[6]  = { 1, 5, 9, 0, 4, 8 };
+static const uint8_t kWzMinor[6] = { 1, 1, 1, 0, 0, 0 };
+// Documented cycle Ebm -> Bm -> Gm -> Bb for anchor {Bb,D,F#}:
+// m(a+1) -> m(a+9) -> m(a+5) -> M(a+8).
+static const uint8_t kWzCycle[4] = { 0, 2, 1, 5 };
+
+// One bar: advance the progression, then (maybe) shift the section.
+static inline void advance(State* st, const Inputs& in) {
+  st->bars++;
+  // Section shift every 8 bars, probability scales with DISS: tonal center
+  // moves (the research's section-level key shifts) and the phrase resets.
+  if ((st->bars % 8u) == 0u &&
+      v_roll100(st) < (uint8_t)(10u + ((uint16_t)in.diss * 40u) / 100u)) {
+    static const int8_t kShifts[7] = { 2, 3, 5, -2, -3, 1, -1 };
+    const int16_t s = (int16_t)st->key_shift + kShifts[v_rand(st, 7)];
+    st->key_shift = (uint8_t)(((s % 12) + 12) % 12);
+  }
+
+  const uint8_t prog = st->prog_idx;
+  const uint8_t kernel = (in.root_mode == 2u) ? kKernW7
+                       : (in.root_mode == 3u) ? kKernNeo
+                       : kProgKernel[prog];
+
+  if (kernel == kKernNeo &&
+      (prog == kProgAeolian || prog == kProgOstinato ||
+       prog == kProgAdd9Dim || prog == kProgB2b5)) {
+    // ROOT=NEO forces the NEO walk for the W7 archetypes (TRANS honored);
+    // stasis keeps minor triads dominant: transform with prob 40 + diss/2 %.
+    if (v_roll100(st) < (uint8_t)(40u + (uint16_t)in.diss / 2u)) {
+      apply_neo_riemannian(&st->root_pc, &st->is_minor,
+                           (neo_riemannian_id_t)pick_neo_op(st, in));
+      st->quality = st->is_minor ? kQMinor : kQMajor;
+    }
+    return;
+  }
+  if (kernel == kKernW7 &&
+      (prog == kProgWeitzmann || prog == kProgMediant ||
+       prog == kProgHalfTrn || prog == kProgNeoFree)) {
+    // ROOT=W7 forces the diatonic fallback for the chromatic archetypes
+    // (minor planing over {i, bIII, bVI, bVII}).
+    static const uint8_t kFallback[4] = { 0, 2, 5, 6 };
+    const uint8_t i = w7_pick(st, kFallback, 4);
+    st->prev_deg = kFallback[i];
+    st->root_pc = degree_root_pc(st, in, st->prev_deg);
+    st->quality = kQMinor;
+    st->is_minor = 1;
+    return;
+  }
+
+  switch (prog) {
+    case kProgWeitzmann: {
+      st->chord_idx = (uint8_t)((st->chord_idx + 1u) & 3u);
+      uint8_t member = kWzCycle[st->chord_idx];
+      if (v_roll100(st) < (uint8_t)(in.diss / 2u)) {
+        member = v_rand(st, 6);              // NEO pivot within the region
+      }
+      st->root_pc =
+          (uint8_t)((st->anchor_pc + st->key_shift + kWzSemi[member]) % 12u);
+      st->is_minor = kWzMinor[member];
+      st->quality = st->is_minor ? kQMinor : kQMajor;
+      st->prev_deg = 0;
+      break;
+    }
+    case kProgMediant: {
+      // minor <-> minor chromatic mediant as a NEO pair:
+      // R->P = root +3 (minor third), L->P = root +8 (= -4, major third).
+      const uint8_t op = (v_rand(st, 2) == 0) ? (uint8_t)NR_TRANSFORM_R
+                                              : (uint8_t)NR_TRANSFORM_L;
+      apply_neo_riemannian(&st->root_pc, &st->is_minor,
+                           (neo_riemannian_id_t)op);
+      apply_neo_riemannian(&st->root_pc, &st->is_minor, NR_TRANSFORM_P);
+      st->quality = kQMinor;
+      break;
+    }
+    case kProgAdd9Dim: {
+      // Research seed: Am(add9) -> D#dim7(add6) -> G#m -> A (relative to i).
+      static const uint8_t kSeedRoot[4] = { 0, 6, 11, 0 };
+      static const uint8_t kSeedQual[4] = { kQAdd9, kQDim, kQMinor, kQMajor };
+      st->chord_idx = (uint8_t)((st->chord_idx + 1u) & 3u);
+      st->root_pc =
+          (uint8_t)((tonic_pc(st, in) + kSeedRoot[st->chord_idx]) % 12u);
+      st->quality = kSeedQual[st->chord_idx];
+      st->is_minor = (st->quality == kQMajor) ? 0u : 1u;
+      st->prev_deg = (uint8_t)((kSeedRoot[st->chord_idx] + 3u) % 7u);
+      break;
+    }
+    case kProgHalfTrn: {
+      // Half-step + tritone darkness: root motion +-1 / +-6 (Ebm-Em-Bbm).
+      static const int8_t kMotion[4] = { 1, -1, 6, -6 };
+      const int16_t r = (int16_t)st->root_pc + kMotion[v_rand(st, 4)];
+      st->root_pc = (uint8_t)((r + 12) % 12);
+      st->quality = kQMinor;
+      st->is_minor = 1;
+      break;
+    }
+    case kProgB2b5: {
+      // Phrygian power-chord pool (E5 F5 G5 A5 A#5 D#5): W7-weighted over
+      // root offsets {0, +1, +3, +5, +6, +11} mapped to W7 pseudo-degrees.
+      static const uint8_t kOff[6]  = { 0, 1, 3, 5, 6, 11 };
+      static const uint8_t kPdeg[6] = { 0, 1, 2, 3, 6, 6 };
+      const uint8_t i = w7_pick(st, kPdeg, 6);
+      st->prev_deg = kPdeg[i];
+      st->root_pc = (uint8_t)((tonic_pc(st, in) + kOff[i]) % 12u);
+      st->quality = kQPower;
+      st->is_minor = 1;
+      break;
+    }
+    case kProgNeoFree: {
+      // Pure NEO walk (stasis keeps minor triads dominant).
+      if (v_roll100(st) < (uint8_t)(40u + (uint16_t)in.diss / 2u)) {
+        apply_neo_riemannian(&st->root_pc, &st->is_minor,
+                             (neo_riemannian_id_t)pick_neo_op(st, in));
+        st->quality = st->is_minor ? kQMinor : kQMajor;
+      }
+      break;
+    }
+    case kProgAeolian: {
+      // i - bVII / i - bVI - bVII vamps: W7 x CHORD_MARKOV over {0,5,6}.
+      static const uint8_t kDegs[3] = { 0, 5, 6 };
+      const uint8_t i = w7_pick(st, kDegs, 3);
+      st->prev_deg = kDegs[i];
+      st->root_pc = degree_root_pc(st, in, st->prev_deg);
+      st->quality = kQMinor;
+      st->is_minor = 1;
+      break;
+    }
+    case kProgOstinato:
+    default: {
+      // Dungeon-synth ostinato i - bIII - bVI - bVII: same kernel, {0,2,5,6}.
+      static const uint8_t kDegs[4] = { 0, 2, 5, 6 };
+      const uint8_t i = w7_pick(st, kDegs, 4);
+      st->prev_deg = kDegs[i];
+      st->root_pc = degree_root_pc(st, in, st->prev_deg);
+      st->quality = kQMinor;
+      st->is_minor = 1;
+      break;
+    }
+  }
+
+  // DISS NEO substitution on the diatonic/seed archetypes: chromatic
+  // mutation of the picked chord (a substituted bar plays a plain triad).
+  if ((prog == kProgAeolian || prog == kProgOstinato ||
+       prog == kProgAdd9Dim || prog == kProgB2b5) &&
+      in.diss > 0u && v_roll100(st) < (uint8_t)(in.diss / 2u)) {
+    apply_neo_riemannian(&st->root_pc, &st->is_minor,
+                         (neo_riemannian_id_t)pick_neo_op(st, in));
+    st->quality = st->is_minor ? kQMinor : kQMajor;
+  }
+}
+
 }  // namespace varg
 #endif  // RACK_SRC_VARG_H_

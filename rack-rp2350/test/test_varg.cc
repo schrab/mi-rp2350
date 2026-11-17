@@ -142,10 +142,223 @@ static void test_lira_ctx() {
   }
 }
 
+// ---- Task 2: harmony kernels -------------------------------------------
+
+static bool state_eq(const State& a, const State& b) {
+  return a.prog_idx == b.prog_idx && a.chord_idx == b.chord_idx &&
+         a.prev_deg == b.prev_deg && a.root_pc == b.root_pc &&
+         a.quality == b.quality && a.is_minor == b.is_minor &&
+         a.anchor_pc == b.anchor_pc && a.bars == b.bars &&
+         a.key_shift == b.key_shift;
+}
+
+static Inputs inputs_for(uint8_t prog_idx) {
+  Inputs in = make_inputs();
+  in.prog = (uint8_t)(prog_idx * 13u + 6u);  // prog_of() lands exactly here
+  return in;
+}
+
+static void test_advance_determinism() {
+  for (uint8_t prog = 0; prog < kProgCount; ++prog) {
+    Inputs in = inputs_for(prog);
+    in.diss = 40;
+    State a{}, b{};
+    init(&a, 1234u, in);
+    init(&b, 1234u, in);
+    for (uint8_t bar = 0; bar < 16u; ++bar) advance(&a, in);
+    for (uint8_t bar = 0; bar < 16u; ++bar) advance(&b, in);
+    expect_true("advance deterministic", state_eq(a, b));
+  }
+}
+
+// Rel of root_pc to the CURRENT tonic (section shifts move it mid-run).
+static uint8_t rel_to_tonic(const State& st) {
+  const uint8_t tonic = (uint8_t)((9u + st.key_shift) % 12u);
+  return (uint8_t)((st.root_pc + 12u - tonic) % 12u);
+}
+
+static void test_aeolian_ostinato() {
+  // A Aeolian scale steps {0,2,3,5,7,8,10}: degrees {0,5,6} -> semis {0,8,10}
+  // (i, bVI, bVII); degrees {0,2,5,6} -> semis {0,3,8,10} (i, bIII, bVI, bVII).
+  Inputs in = inputs_for(kProgAeolian);
+  State st{};
+  init(&st, 77u, in);
+  bool ok = true;
+  for (uint8_t bar = 0; bar < 16u; ++bar) {
+    advance(&st, in);
+    const uint8_t rel = rel_to_tonic(st);
+    if (!(rel == 0 || rel == 8 || rel == 10) || st.quality != kQMinor) ok = false;
+    if (!(st.prev_deg == 0 || st.prev_deg == 5 || st.prev_deg == 6)) ok = false;
+  }
+  expect_true("aeolian degrees+quality", ok);
+
+  Inputs in2 = inputs_for(kProgOstinato);
+  init(&st, 78u, in2);
+  ok = true;
+  for (uint8_t bar = 0; bar < 16u; ++bar) {
+    advance(&st, in2);
+    const uint8_t rel = rel_to_tonic(st);
+    if (!(rel == 0 || rel == 3 || rel == 8 || rel == 10) ||
+        st.quality != kQMinor) ok = false;
+  }
+  expect_true("ostinato degrees+quality", ok);
+}
+
+static void test_weitzmann_region() {
+  Inputs in = inputs_for(kProgWeitzmann);
+  in.diss = 100;   // mutations stay INSIDE the region by construction
+  State st{};
+  init(&st, 99u, in);
+  const uint8_t anchor = 8u;  // tonic A(9) - 1
+  bool ok = true;
+  for (uint8_t bar = 0; bar < 32u; ++bar) {
+    advance(&st, in);
+    const uint8_t anch = (uint8_t)((anchor + st.key_shift) % 12u);
+    const uint8_t rel = (uint8_t)((st.root_pc + 12u - anch) % 12u);
+    const bool minor_ok = st.is_minor && (rel == 1 || rel == 5 || rel == 9);
+    const bool major_ok = !st.is_minor && (rel == 0 || rel == 4 || rel == 8);
+    if (!minor_ok && !major_ok) ok = false;
+  }
+  expect_true("weitzmann region membership", ok);
+}
+
+static void test_mediant() {
+  Inputs in = inputs_for(kProgMediant);
+  State st{};
+  init(&st, 5u, in);
+  bool ok = true;
+  uint8_t prev = st.root_pc;
+  for (uint8_t bar = 0; bar < 16u; ++bar) {
+    advance(&st, in);
+    const uint8_t d = (uint8_t)((st.root_pc + 12u - prev) % 12u);
+    if (!(d == 3 || d == 8) || st.quality != kQMinor) ok = false;
+    prev = st.root_pc;
+  }
+  expect_true("mediant +3/-4 minor", ok);
+}
+
+static void test_add9dim_seed() {
+  Inputs in = inputs_for(kProgAdd9Dim);
+  in.diss = 0;
+  State st{};
+  init(&st, 1u, in);
+  // golden cycle relative to tonic A=9: +6 dim, +11 min, +0 maj, +0 add9.
+  // Exactly 4 advances (bars < 8): the section-shift roll can never fire.
+  static const uint8_t kRoot[4] = { 3, 8, 9, 9 };
+  static const uint8_t kQual[4] = { kQDim, kQMinor, kQMajor, kQAdd9 };
+  for (uint8_t bar = 0; bar < 4u; ++bar) {
+    advance(&st, in);
+    expect_int("add9dim root", st.root_pc, kRoot[bar & 3u]);
+    expect_int("add9dim quality", st.quality, kQual[bar & 3u]);
+  }
+}
+
+static void test_halftrn_b2b5() {
+  Inputs in = inputs_for(kProgHalfTrn);
+  State st{};
+  init(&st, 2u, in);
+  bool ok = true;
+  uint8_t prev = st.root_pc;
+  for (uint8_t bar = 0; bar < 32u; ++bar) {
+    advance(&st, in);
+    const uint8_t d = (uint8_t)((st.root_pc + 12u - prev) % 12u);
+    if (!(d == 1 || d == 6 || d == 11) || st.quality != kQMinor) ok = false;
+    prev = st.root_pc;
+  }
+  expect_true("halftrn +-1/+-6 minor", ok);
+
+  Inputs in2 = inputs_for(kProgB2b5);
+  in2.diss = 0;
+  init(&st, 3u, in2);
+  ok = true;
+  for (uint8_t bar = 0; bar < 32u; ++bar) {
+    advance(&st, in2);
+    const uint8_t rel = rel_to_tonic(st);
+    if (!(rel == 0 || rel == 1 || rel == 3 || rel == 5 || rel == 6 ||
+          rel == 11) || st.quality != kQPower) ok = false;
+  }
+  expect_true("b2b5 pool+power", ok);
+}
+
+static void test_neofree_and_kernels() {
+  Inputs in = inputs_for(kProgNeoFree);
+  in.neo_op = 1;  // pinned P: root NEVER moves, quality flips per transform
+  in.diss = 0;
+  State st{};
+  init(&st, 7u, in);
+  const uint8_t root0 = st.root_pc;
+  bool flipped = false;
+  for (uint8_t bar = 0; bar < 32u; ++bar) {
+    advance(&st, in);
+    if (st.root_pc != root0) { expect_true("neofree pinned P root", false); break; }
+    flipped = flipped || (st.is_minor == 0);
+  }
+  expect_true("neofree pinned P flips quality", flipped);
+
+  // ROOT=W7 forces the diatonic fallback on NEOFREE (degrees {0,2,5,6} ->
+  // Aeolian semitone offsets {0,3,8,10} above the current tonic)
+  in.root_mode = 2;
+  in.neo_op = 0;
+  init(&st, 8u, in);
+  bool ok = true;
+  for (uint8_t bar = 0; bar < 16u; ++bar) {
+    advance(&st, in);
+    const uint8_t rel = rel_to_tonic(st);
+    if (!(rel == 0 || rel == 3 || rel == 8 || rel == 10) ||
+        st.quality != kQMinor) ok = false;
+  }
+  expect_true("w7 fallback on neofree", ok);
+
+  // ROOT=NEO forces the NEO walk on AEOLIAN
+  in.prog = 6;  // AEOLIAN
+  in.root_mode = 3;
+  init(&st, 9u, in);
+  ok = true;
+  for (uint8_t bar = 0; bar < 16u; ++bar) {
+    advance(&st, in);
+    if (st.quality != (st.is_minor ? kQMinor : kQMajor)) ok = false;
+  }
+  expect_true("neo kernel quality mirror", ok);
+}
+
+static void test_diss_substitution_and_sections() {
+  Inputs in = inputs_for(kProgAeolian);
+  in.diss = 100;
+  State st{};
+  init(&st, 11u, in);
+  bool left_diatonic = false;
+  for (uint8_t bar = 0; bar < 64u; ++bar) {
+    advance(&st, in);
+    // diatonic set is {0,8,10} above the CURRENT tonic (shift-aware)
+    const uint8_t rel = rel_to_tonic(st);
+    if (!(rel == 0 || rel == 8 || rel == 10)) left_diatonic = true;
+  }
+  expect_true("diss substitution leaves diatonic", left_diatonic);
+
+  Inputs in2 = inputs_for(kProgWeitzmann);
+  in2.diss = 100;
+  init(&st, 12u, in2);
+  bool shifted = false;
+  for (uint16_t bar = 0; bar < 400u; ++bar) {
+    advance(&st, in2);
+    if (st.key_shift != 0u) shifted = true;
+    if (st.key_shift > 11u) { expect_true("key_shift bound", false); break; }
+  }
+  expect_true("section shift occurs", shifted);
+}
+
 int main() {
   test_pools();
   test_calc_note();
   test_lira_ctx();
+  test_advance_determinism();
+  test_aeolian_ostinato();
+  test_weitzmann_region();
+  test_mediant();
+  test_add9dim_seed();
+  test_halftrn_b2b5();
+  test_neofree_and_kernels();
+  test_diss_substitution_and_sections();
   if (g_fail == 0) std::printf("test_varg: ALL PASS\n");
   else std::printf("test_varg: %d FAILURES\n", g_fail);
   return g_fail ? 1 : 0;
