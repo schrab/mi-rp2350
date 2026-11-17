@@ -4025,5 +4025,8 @@ Findings (T9):
   distortion CCs (CC cache replay, no swap). NOTE: `out` meter frequently hits
   999 (full scale) at the default drive 0.55 + mix 1 — user ears will judge
   whether to back off CC 24 / CC 30.
-- **Bench pending:** user listening confirmation (simultaneous-chord character,
-  W7/NEO evolution, 4 distortion flavors).
+- **User acceptance (2026-11-17)**: user listened and confirmed full
+  simultaneous chords (not arpeggiated), evolving W7/NEO progressions and
+  distinct tube/fold/fuzz/shape characters — **BENCH DONE**. Board left on
+  rings mode 5, arp1 VARG routed to voice, CC 24 ~0.55 / CC 27 tube /
+  CC 29-30 open.
