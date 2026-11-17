@@ -291,7 +291,9 @@ static inline void process(State* st, const Params& p,
     k_norm = 1.0f / softclip(k);
   } else if (type == kFuzz) {
     k = 1.0f + 9.0f * d * d;
-    bias = clamp01(p.bias);
+    // Fuzz MUST be asymmetric even with the bias knob at zero — otherwise
+    // (bias_sub=0, bias_norm=1) it is bit-identical to the tube algorithm.
+    bias = 0.25f + 0.75f * clamp01(p.bias);
     bias_sub = softclip(bias);
     bias_norm = 1.0f / (1.0f + bias_sub);
   } else if (type == kShape) {
