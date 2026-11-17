@@ -194,17 +194,19 @@ void init_at(uint8_t* obj_base, uint8_t* buf_base) {
   p->resonator_damping = 0.25f;       // 1024/4095 DAMPING
   p->resonator_position = 0.3f;       // 1229/4095 POSITION
   p->space = 0.0f;                    // reverb set to 0
-  // T9 warps stage defaults: bypass/neutral until CC 36-40 + CC 42 select it.
-  p->warps_algorithm = 0.0f;
+  // T9 warps stage defaults: usable patch (DIODE, 0.5 levels, 0.75 mix) so
+  // C3-only users hear Warps as soon as FX TYPE = WARPS, no web panel needed.
+  // The Patch fields are applied by apply_fx_params() only in Warps mode.
+  s->warps_algo = 0.25f;      // diode RM
+  s->warps_timbre = 0.5f;
+  s->warps_mod = 0.5f;
+  s->warps_car = 0.5f;
+  s->warps_mix = 0.75f;
+  p->warps_algorithm = 0.0f;  // bypassed until Warps mode is selected
   p->warps_timbre = 0.0f;
   p->warps_mod_level = 0.0f;
   p->warps_car_level = 0.0f;
   p->warps_mix = 0.0f;
-  s->warps_algo = 0.0f;
-  s->warps_timbre = 0.0f;
-  s->warps_mod = 0.0f;
-  s->warps_car = 0.0f;
-  s->warps_mix = 0.0f;
   // Distortion defaults match Rings. FX selector defaults to distortion.
   s->dist.lp[0] = 0.0f;
   s->dist.lp[1] = 0.0f;

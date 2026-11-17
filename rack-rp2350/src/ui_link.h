@@ -222,7 +222,9 @@ static const UiPageCell kUiPageElementsP2[] = {
     {45, "D TONE",     kUiColorWhite},
     {0,  "",           kUiColorWhite}, // dist MIX removed: drive is the amount
 };
-// Warps-mode P2 (CC 42 = 5): original T9 ALGO/TIMBRE/MOD/CAR/MIX on CC 36-40.
+// Warps-mode P2 (CC 42 = 5): original T9 ALGO/TIMBRE/MOD/MIX on CC 36/37/38/40.
+// W MIX (CC 40) is here instead of W CAR (CC 39, available on web panel) so
+// the C3 alone can make Warps audible — without MIX the stage is fully dry.
 static const UiPageCell kUiPageElementsP2Warps[] = {
     {28, "MODEL",      kUiColorWhite},
     {64, "PLAY",       kUiColorWhite},
@@ -231,8 +233,8 @@ static const UiPageCell kUiPageElementsP2Warps[] = {
     {36, "W ALGO",     kUiColorWhite},
     {37, "W TIMBRE",   kUiColorWhite},
     {38, "W MOD",      kUiColorWhite},
-    {39, "W CAR",      kUiColorWhite},
-    // W MIX (CC 40) remains available on the web panel / mod engine.
+    {40, "W MIX",      kUiColorWhite},
+    // W CAR (CC 39) remains available on the web panel / mod engine.
 };
 // clouds — P1: SIZE/TEXTURE teal, POSITION/DENSITY pink, rest white.
 static const UiPageCell kUiPageCloudsP1[] = {
