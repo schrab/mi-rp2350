@@ -3970,4 +3970,22 @@ Findings (T9):
   chord publish, algo quantizer 15→18, preset read clamp 4→5, console alias + mod?.
 - `ui_link.h` labels/echo + `rack-uimcu/ui/RackUI.cpp` names/buckets/formatting in
   lockstep (soft-takeover trap avoided by landing both sides before flashing).
-- Commit: 404a1e3 (code series ce50f74..404a1e3). **Bench pending:** flash + console sweep + lira8 harmony + user ears.
+- Commit: 404a1e3 (code series ce50f74..404a1e3).
+- **Bench (2026-11-17, automated part)**: flashed rack-elements UF2 to RP2350
+  (COM15, 1200-baud touch → picotool, verified) and C3 app to ESP32-C3 (COM22,
+  `build_uimcu.bat -p COM22 flash` — the plan's `flash COM22` form leaves a
+  harmless `ninja: unknown target 'COM22'` tail; `-p` is the correct form).
+  `mod?` reported `algo=varg(2oct) ... prog=weitzmn chord=pc.. q=.. pool=[...]`;
+  all 8 PROG bands, ROOT w7/neo/midi forcing and TRANS 0..7 tracked (neo_op
+  rand/p/l/r/n/s/h/plr). LIRA-8: `switch lira8` + arp1 dest 25 + CC 54 ARP HARM
+  on → 683-718 µs vs 1451 µs budget, `i2s stalls: 0`. Preset
+  dump/collect/load roundtrip restored algo=varg + p1-p4 (84/97/85/55).
+  `i2s stalls: 0` throughout; the 496 µs elements budget was already exceeded
+  pre-VARG (743 µs on first status) and spikes during long console prints.
+- **Extra fix**: 8395ac1 — `mod_set_param_console` guard rejected shared TRANS
+  (param 12), so `mod 10 trans <0-7>` was silently ignored; added 12 to the
+  allowed out-of-table params (all five envs rebuilt green).
+- **User acceptance (2026-11-17)**: user listened across the PROG/RIFF ranges
+  and confirmed the black-metal character — **BENCH DONE**. Board left on
+  elements, arp1 VARG (RIFF 8TH / PROG WEITZMANN / VOICE TRIAD / DISS 20,
+  dest voice).
