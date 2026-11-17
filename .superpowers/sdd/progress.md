@@ -3885,6 +3885,11 @@ Findings (T9):
   to the board without a recovery in hand (the 280 bootloop incident);
   BOOTSEL mass-storage copy is the race-free flash path; COM22 (C3) is the
   liveness channel when RP2350 USB CDC is down.
+- **Warps per-algorithm delta at 264 MHz (scripted, `cc`-driven, drone + mix 1)**:
+  OFF 601-628 | XFADE 702 | FOLD 689-710 | DIODE 712 | DIGI 683-695 |
+  XOR 693 | COMP 677-692 — **delta +49-111 µs/algorithm**, stalls 0
+  throughout. The OFF floor (~600-630 with drone) is the pre-T9 wait-state
+  condition; the stage itself is a modest constant add.
 - **Host test harness**: `test_warps.cc` (rack deltas: sizeof 73,192 →
   2,312 B, kMaxBlockSize 16, egg stripped), `test_reverb.cc` (canary: Init
   fills exactly the 21,632-frame carve), `test_warps_stage.cc` (bypass
