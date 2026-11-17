@@ -3988,6 +3988,30 @@ Findings (T9):
   need 312; flag preserved in platformio.ini + README + the setup() guard.
   LEDGER NOTE: only a fresh boot verified so far — a real multi-module /
   multi-hour soak is still needed before calling this accepted.
+- **VREG 1.20 -> 1.25 V (2026-11-17, Warps-at-320 hang root cause)**: re-enabling
+  the Warps stage (mode switch via CC 37 = 5) produced a HARD freeze under
+  repeated CC/switch traffic: USB stayed enumerated, CDC wedged (error 31),
+  watchdog did NOT rescue it (interrupts frozen) and no crash record was
+  written. Bisected by A/B: committed firmware (warps bypassed) survived 20+
+  mixed stress cycles; WIP hung at cycle 2-17; `switch`-only (no warps) survived
+  30; `cc 37 5`-only (no switch) hung at cycle 11 -> the Warps DSP sustained
+  load was the trigger. **Raising VREG 1.20 -> 1.25 V in `rack_pre_clock()`
+  eliminated the hang**: cc-only 40 cycles, cc37 30 cycles, mixed 20 cycles,
+  45 s idle soak all clean, 0 stalls, VREG readback 14 = 1.25 V. The earlier
+  "spontaneous 320 MHz wedges" (before any Warps code) were this same marginal
+  core voltage — 1.25 V is the right 320 MHz default. Boot default + README
+  updated. The 264 MHz sweep had only tested 1.20 V in short soaks; the extra
+  DSP load is what pushed it over.
+- **Switchable hang diagnostics are now PERSISTENT (2026-11-17, user rule)**:
+  `-DRACK_HANG_DEBUG=0/1` in platformio.ini gates core-0/core-1 watchdog
+  scratch breadcrumbs (`crumb()` / `crumb1()`, stages 10-13 render, 50/51
+  cmd_cc, 60-62 swap), a CRUMB boot print, and `crash: hang0=/hang1=`. Set 1 to
+  hunt a freeze, 0 for production (current). NEVER delete/rewrite these — the
+  prior investigation had stripped them and we re-added them under time
+  pressure; keep them for next time. Crumbs are cleared each clean loop pass
+  (else they are stale); scratch[0]/[1] survive a watchdog reset.
+  `cmd_cc`'s ack was also moved to the non-blocking `dbg_printf` (a blocking
+  CDC printf was the documented 2026-11-16 hang class).
 
 ### Rack T9a — warps memory truth + ctag-plan bugs (2026-11-17)
 

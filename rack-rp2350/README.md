@@ -693,11 +693,13 @@ record is always readable.
 
 ### Finding the stable frequency
 
-**Boot default: 320 MHz, VREG 1.20 V, QMI CLKDIV 4 / RXDELAY 3 (SCK 80 MHz).**
+**Boot default: 320 MHz, VREG 1.25 V, QMI CLKDIV 4 / RXDELAY 3 (SCK 80 MHz).**
+VREG is 1.25 V (not 1.20): the Warps DSP's sustained load at 320 MHz locked
+the core up at 1.20 V under repeated CC/switch traffic; 1.25 V is stable.
 A pre-clock constructor in `main.cpp` raises VREG and pins the QMI timing
 before the core applies `F_CPU` — the core's own VREG auto-adjust is RP2040-
 only. Hardware sweep: 270 MHz at the default 1.15 V resets in soak even at
-SCK 67.5 (so the lever is **core voltage**, not flash timing); at 1.20 V,
+SCK 67.5 (so the lever is **core voltage**, not flash timing); at 1.25 V,
 270–320 soak clean, 328 is the outer edge, 336 is the cliff. The old 280
 rejection was CLKDIV 3 (SCK 93 MHz) — at CLKDIV 4 it is clean.
 

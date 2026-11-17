@@ -210,8 +210,7 @@ static const UiPageCell kUiPageElementsP1[] = {
     {27, "SPACE",      kUiColorWhite},
 };
 // elements — P2: selectors (CC 28) + PLAY trigger (CC 64) + VCA (CC 7)
-// + shared distortion stage (CC 36-40; drive 0 = bypass). Warps DSP remains
-// compiled but its mix is held at 0 (bypassed) pending a later fix.
+// + FX. CC 37 picks distortion (0-4) or the T9 Warps stage (5).
 static const UiPageCell kUiPageElementsP2[] = {
     {28, "MODEL",      kUiColorWhite},
     {64, "PLAY",       kUiColorWhite},
@@ -221,6 +220,18 @@ static const UiPageCell kUiPageElementsP2[] = {
     {38, "D BIAS",     kUiColorWhite},
     {39, "D TONE",     kUiColorWhite},
     {0,  "",           kUiColorWhite}, // dist MIX removed: drive is the amount
+};
+// Warps-mode P2 (CC 37 = 5): the committed 7619ca5 cell set, with CC 37 now
+// the mode selector instead of W TIMBRE (which moved to CC 41, web panel only).
+static const UiPageCell kUiPageElementsP2Warps[] = {
+    {28, "MODEL",      kUiColorWhite},
+    {64, "PLAY",       kUiColorWhite},
+    {7,  "VCA",        kUiColorWhite},
+    {36, "W ALGO",     kUiColorWhite},
+    {37, "W TYPE",     kUiColorWhite},
+    {38, "W MOD",      kUiColorWhite},
+    {39, "W CAR",      kUiColorWhite},
+    {40, "W MIX",      kUiColorWhite},
 };
 // clouds — P1: SIZE/TEXTURE teal, POSITION/DENSITY pink, rest white.
 static const UiPageCell kUiPageCloudsP1[] = {
@@ -639,6 +650,19 @@ static uint32_t g_ui_last_rx_ms = 0;
 // remapped 32-CC window to cover CC 64/65/66 (trig/strum/freeze) and the
 // clouds alias bank 40-48 without index arithmetic.
 static uint8_t g_ui_cc_cache[RACK_MODULE_COUNT][128];
+
+// Elements P2 is mode-dependent: CC 37 = 5 selects the T9 Warps stage. The
+// cache above already tracks CC 37 (single observation point), so no extra
+// state is needed. Every TELEM / pot lookup goes through this selector.
+static inline const UiPageTable& ui_module_page(uint8_t mod, uint8_t page) {
+  if (mod == RACK_MODULE_ELEMENTS && page == kUiPageP2 &&
+      g_ui_cc_cache[RACK_MODULE_ELEMENTS][37] == 5u) {
+    static const UiPageTable kElementsP2Warps = {
+        kUiPageElementsP2Warps, UI_PAGE_CELL_COUNT(kUiPageElementsP2Warps)};
+    return kElementsP2Warps;
+  }
+  return kUiPages[mod][ui_module_page_idx(page)];
+}
 
 // T4a "seen" bitmap: which CCs were actually RECEIVED per module (cache
 // zeros are ambiguous — "never sent" vs "explicitly 0"). 8 u16 x 4 = 64 B.
@@ -1163,7 +1187,7 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
         }
       }
     } else if (ui_page_is_module(page)) {
-      const UiPageTable& t = kUiPages[mod][ui_module_page_idx(page)];
+      const UiPageTable& t = ui_module_page(mod, page);
       count = t.count;
       for (uint8_t i = 0; i < count; ++i) {
         cc[i] = t.cells[i].cc;
@@ -1203,8 +1227,8 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
                      : (i < kUiPages[RACK_MODULE_CLOUDS][kUiPageP1].count
                             ? kUiPages[RACK_MODULE_CLOUDS][kUiPageP1].cells[i].label : ""))
           : (ui_page_is_module(page))
-          ? (i < kUiPages[mod][ui_module_page_idx(page)].count
-                 ? kUiPages[mod][ui_module_page_idx(page)].cells[i].label : "")
+          ? (i < ui_module_page(mod, page).count
+                 ? ui_module_page(mod, page).cells[i].label : "")
           : (page == kUiPageModLfo12 ? kUiModLfo12Cells[i].label
          : page == kUiPageModLfo34 ? kUiModLfo34Cells[i].label
          : page == kUiPageModTrig ? kUiModTrigCells[i].label
@@ -1242,7 +1266,7 @@ static void ui_link_send_telem(uint8_t page, uint8_t mode, uint8_t delta_cc) {
       k = t.cells[idx].color;
       lab = t.cells[idx].label;
     } else if (ui_page_is_module(page)) {
-      const UiPageTable& t = kUiPages[mod][ui_module_page_idx(page)];
+      const UiPageTable& t = ui_module_page(mod, page);
       int8_t idx = -1;
       for (uint8_t i = 0; i < t.count; ++i) {
         if (t.cells[i].cc != 0 && t.cells[i].cc == delta_cc) { idx = (int8_t)i; break; }
@@ -1368,8 +1392,7 @@ void ui_link_observe_cc(uint8_t cc, uint8_t val) {
   if (!ui_page_is_module(g_ui_active_page)) return;  // MOD/SYS deltas come from the
                                                      // MOD_SET / gesture ack paths
   if (now - last_delta_ms < 50) return;
-  const UiPageTable& t =
-      kUiPages[mod][ui_module_page_idx(g_ui_active_page)];
+  const UiPageTable& t = ui_module_page(mod, g_ui_active_page);
   for (uint8_t i = 0; i < t.count; ++i) {
     if (t.cells[i].cc != 0 && t.cells[i].cc == cc) {
       last_delta_ms = now;
@@ -1569,7 +1592,7 @@ static void ui_link_dispatch() {
           break;
         }
         const UiPageTable& t =
-            kUiPages[g_active_module][ui_module_page_idx(g_ui_active_page)];
+            ui_module_page(g_active_module, g_ui_active_page);
         if (arg >= t.count) {
           dbg_printf("ui: ASSIGN_CYCLE cell %u >= count %u (empty pot)\r\n",
                         arg, t.count);

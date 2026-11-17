@@ -23,7 +23,10 @@ namespace ringdist {
 
 enum Type : uint8_t {
   kTube = 0, kFold = 1, kFuzz = 2, kShape = 3,
-  kSwedish = 4  // Swedish Chainsaw: HM-2 EQ + cascaded tanh
+  kSwedish = 4,  // Swedish Chainsaw: HM-2 EQ + cascaded tanh
+  kWarps = 5     // Elements-only: the T9 stage inside elements::Part::Process
+                 // (carrier = main, mod = raw exciter). This adapter skips
+                 // ringdist::process(); Rings never selects it (no window room).
 };
 
 struct State {

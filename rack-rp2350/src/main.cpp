@@ -83,6 +83,35 @@ bool core1_separate_stack = true;
 // dark CDC, bootloop — the c1e344a revert). Live readback: `qmi`, `vreg`.
 #include "hardware/watchdog.h"      // core-0 hang watchdog
 
+// ================= switchable hang breadcrumbs (PERSISTENT) =================
+// RACK_HANG_DEBUG (platformio.ini) keeps these in the tree permanently — set
+// the flag 0 for production, 1 to hunt a freeze. Never delete and rewrite.
+// A hang (not a fault) leaves USB enumerated but the console dead and writes
+// no crash record; the 2 s watchdog reboots it and the last core-0/core-1
+// stage survives in watchdog scratch[0]/[1] (SRAM is not guaranteed across a
+// watchdog reset, scratch is). Printed as CRUMB / w1= at the next boot.
+#ifndef RACK_HANG_DEBUG
+#define RACK_HANG_DEBUG 0
+#endif
+static constexpr uint32_t kCrumbMagic = 0xC0DE0000u;
+static inline void crumb(uint32_t stage) {
+#if RACK_HANG_DEBUG
+  watchdog_hw->scratch[0] = (stage == 0) ? 0 : (kCrumbMagic | (stage & 0x3Fu));
+#else
+  (void)stage;
+#endif
+}
+static inline void crumb1(uint32_t stage) {
+#if RACK_HANG_DEBUG
+  watchdog_hw->scratch[1] = 0xB0000000u | (stage & 0x3Fu);
+#else
+  (void)stage;
+#endif
+}
+#if RACK_HANG_DEBUG
+static uint32_t g_hang0 = 0, g_hang1 = 0;   // survive until next clean boot
+#endif
+
 // Pre-clock setup (runs BEFORE the Arduino core's main(), which applies
 // F_CPU via set_sys_clock_khz). Two things MUST happen before the PLL is
 // raised: (1) VREG 1.20 V — the core is unstable at 1.15 V above ~264 MHz;
@@ -91,7 +120,9 @@ bool core1_separate_stack = true;
 // ROM's 106.7 MHz at 320. A dummy XIP read + barrier after the timing write
 // follows the SDK's psram_reinit_timing precedent.
 __attribute__((constructor(101))) static void rack_pre_clock(void) {
-  vreg_set_voltage(VREG_VOLTAGE_1_20);
+  // 1.25 V (not 1.20): the Warps DSP's sustained load at 320 MHz locked the
+  // core up at 1.20 V under repeated CC/switch traffic; 1.25 V is stable.
+  vreg_set_voltage(VREG_VOLTAGE_1_25);
   uint32_t t = qmi_hw->m[0].timing;
   t = (t & ~(QMI_M0_TIMING_CLKDIV_BITS | QMI_M0_TIMING_RXDELAY_BITS)) |
       (4u << QMI_M0_TIMING_CLKDIV_LSB) | (3u << QMI_M0_TIMING_RXDELAY_LSB);
@@ -942,6 +973,7 @@ static void do_module_swap(uint8_t new_id) {
   const RackModuleInfo& old = kRackModules[g_active_module];
   const RackModuleInfo& nw = kRackModules[new_id];
   const uint32_t t0 = time_us_32();
+  crumb(60);   // swap start
 
   // (a) MUTE: ramp down through the old module's write loop ...
   g_render_gain = 1.0f;
@@ -989,9 +1021,11 @@ static void do_module_swap(uint8_t new_id) {
   irq_set_enabled(DMA_IRQ_0, false);   // T8: no core-1 IRQ during teardown
   g_swap_i2s_request = true;
   const uint32_t i2s_t0 = time_us_32();
+  crumb(61);   // waiting for core-0 I2S ack
   while (!g_swap_i2s_ack && time_us_32() - i2s_t0 < 1000000UL) {
     delay(1);
   }
+  crumb(62);   // I2S ack received / timed out
   irq_set_enabled(DMA_IRQ_0, true);    // T8: resumed on the audio core
   const bool i2s_ok = g_swap_i2s_ack && g_swap_i2s_result;
 
@@ -2300,8 +2334,13 @@ static void cmd_cc(const char* args) {
     Serial.println("usage: cc <0-127> <0-127>   (through midiControlChange)");
     return;
   }
+  crumb(50);   // just before midiControlChange dispatch (hang debug)
   midiControlChange(static_cast<uint8_t>(cc), static_cast<uint8_t>(val));
-  Serial.printf("cc: %u -> %u\r\n", (unsigned)cc, (unsigned)val);
+  crumb(51);   // just after dispatch
+  // Non-blocking: a blocking CDC printf under a slow/no reader was the
+  // documented 2026-11-16 hang class (core 0 stalls -> watchdog). Warps makes
+  // renders slower, so fast CC benches can back up the CDC FIFO.
+  dbg_printf("cc: %u -> %u\r\n", (unsigned)cc, (unsigned)val);
 }
 
 // qmi — read/write the LIVE QMI M0 flash timing (T9 clock diag). On RP2350
@@ -2568,6 +2607,10 @@ static void cmd_crash(const char* args) {
                 (unsigned long)g_crashv2.boot_count,
                 (unsigned long)g_crashv2.fault_streak,
                 (unsigned long)g_crashv2.safe_mode);
+#if RACK_HANG_DEBUG
+  Serial.printf("crash: hang0=%lu hang1=%lu (last stages before any hang)\r\n",
+                (unsigned long)g_hang0, (unsigned long)g_hang1);
+#endif
   if (g_crashv2.magic == kCrashMagicV2) {
     Serial.printf("crash: core=%lu pc=0x%08lx lr=0x%08lx cfsr=0x%08lx "
                   "hfsr=0x%08lx mmfar=0x%08lx bfar=0x%08lx (addr2line the pc)\r\n",
@@ -2615,8 +2658,9 @@ static void cmd_oc(const char* args) {
     Serial.println("oc: clkdiv 1-255, rxdelay 0-7");
     return;
   }
-  if (khz > 280000u) {
-    vreg_set_voltage(VREG_VOLTAGE_1_20);
+  if (khz > 280000u && vreg_get_voltage() < VREG_VOLTAGE_1_25) {
+    // Never lower the core: boot default is 1.25 V (needed for 320 MHz + Warps).
+    vreg_set_voltage(VREG_VOLTAGE_1_25);
     delay(5);                       // settle (timers are microsecond-locked)
   }
   uint32_t t = qmi_hw->m[0].timing;
@@ -2702,6 +2746,16 @@ void setup() {
   const uint32_t prev_boot_marker = watchdog_hw->scratch[4];
   const uint32_t prev_clean_shutdown = watchdog_hw->scratch[5];
   const uint32_t prev_setup_active = watchdog_hw->scratch[6];
+#if RACK_HANG_DEBUG
+  {
+    const uint32_t raw0 = watchdog_hw->scratch[0];
+    const uint32_t raw1 = watchdog_hw->scratch[1];
+    if ((raw0 & 0xFFFF0000u) == kCrumbMagic) g_hang0 = raw0 & 0x3Fu;
+    if ((raw1 & 0xF0000000u) == 0xB0000000u) g_hang1 = raw1 & 0x3Fu;
+    watchdog_hw->scratch[0] = 0;   // clear crumbs for this boot
+    watchdog_hw->scratch[1] = 0;
+  }
+#endif
   // Mark THIS boot as in-progress and clear the previous clean-shutdown flag.
   watchdog_hw->scratch[6] = 0x5E7AC71Bu;   // SETUP_ACTIVE
   watchdog_hw->scratch[5] = 0;
@@ -2907,6 +2961,11 @@ void setup() {
                 (unsigned long)g_crashv2.boot_count,
                 (unsigned long)g_crashv2.fault_streak,
                 g_crashv2.safe_mode ? " SAFE-MODE(240 MHz) - `crash clear` to re-arm" : "");
+#if RACK_HANG_DEBUG
+  if (g_hang0 || g_hang1)
+    Serial.printf("CRUMB: core-0 last stage %lu, core-1 stage %lu (from reset)\r\n",
+                  (unsigned long)g_hang0, (unsigned long)g_hang1);
+#endif
   // 2 s core-0 watchdog: fed at the end of every loop() pass. A hang reboots
   // the board instead of leaving it frozen (USB enumerated but dead).
   watchdog_enable(2000, false);
@@ -3250,5 +3309,8 @@ void loop() {
   }
   const uint32_t loop_dt = time_us_32() - loop_t0;
   if (loop_dt > g_core0_loop_max_us) g_core0_loop_max_us = loop_dt;
+  // Clean loop pass: clear crumbs so a surviving value marks the hang stage.
+  crumb(0);
+  crumb1(0);
   watchdog_update();
 }
