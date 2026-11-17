@@ -3895,6 +3895,28 @@ Findings (T9):
   fills exactly the 21,632-frame carve), `test_warps_stage.cc` (bypass
   bit-exact, aux untouched, alg clamp, exact halving) — all RED→GREEN
   watched; the full lira8 suite still green (one g++13.3 fix in test_wav_io).
+- **Crash forensics without a debugger (2026-11-17)**: the board's docs
+  confirm the BRIDLE mini_usb_rp2350 exposes **no SWD** ("debugging is not
+  possible on this board"; UF2 only) — so the crash record is the primary
+  tool. Extended: record v2 in `.uninitialized_data` with `boot_count`,
+  sticky `fault_streak`, `reset_reason` (0 cold / 1 pre-setup death / 2 fault
+  / 3 watchdog-in-loop via the watchdog scratch marker) + **sticky SAFE MODE**
+  (fault_streak >= 2 or boot_count >= 3 -> setup drops clk_sys to 240 BEFORE
+  the window copy, so one boot is ALWAYS console-readable; `crash clear`
+  re-arms). `crash` prints the counters/record.
+- **Runtime overclock bench (2026-11-17)**: `oc <khz 24000-400000>
+  [clkdiv] [rxdelay]` - pins the QMI timing FIRST (the SDK's PSRAM
+  precedent), raises VREG to 1.20 V above 280 MHz, switches the PLL live. The
+  integrity oracle re-reads the boot module's FLASH image through XIP and
+  compares against the boot-time window-copy FNV (`g_window_src_sum`) - a
+  pure-read test that never touches the SRAM window core 1 executes from.
+  Validated: 264 -> 270000 live, FNV OK, readback correct, console alive;
+  Serial1/I2S dividers stay stale until `reboot` (audio off-rate, UI link
+  dead - by design). A 270 soak ended in a reset with `fault_streak=0` and
+  `reason=1` (no scratch marker = POR-class, not watchdog/fault; the same
+  USB/CDC flap family as healthy clocks - ambiguous, NOT a 270 verdict).
+  Next bench: sweep 252/264/270 with periodic FNV re-verifies + counters;
+  the 280-300 matrix (RXDELAY 2/3/4 x CLKDIV 3/4) is now console-cheap.
 
 ### Rack T9a — warps memory truth + ctag-plan bugs (2026-11-17)
 
