@@ -15,7 +15,7 @@ ENGINE_SRCS =   # e.g. lira8_engine.cpp
 WARPSFLAGS ?= -O2 -g -std=c++17 -Wall -Wextra -I../lib/elements -I../lib/stmlib -I.
 RACKFLAGS  ?= $(WARPSFLAGS) -DRACK_RP2350_TC
 
-TEST_BINS = test_wav_io test_pd_primitives test_voice test_engine test_harmony test_warps test_reverb test_warps_stage
+TEST_BINS = test_wav_io test_pd_primitives test_voice test_engine test_harmony test_warps test_reverb test_warps_stage test_varg
 GOLDEN_BIN = render_golden
 
 all: $(TEST_BINS) $(GOLDEN_BIN)
@@ -36,6 +36,9 @@ test_engine: test_engine.cc ../src/lira8/lira_engine.h ../src/lira8/lira_delay.h
 	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
 
 test_harmony: test_harmony.cc ../src/lira8/lira_harmony.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
+
+test_varg: test_varg.cc ../src/varg.h ../src/gen_tables.h ../src/lira8/lira_harmony.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
 
 # T9: warps vendored copy (rack deltas under test), reverb engine size, and
