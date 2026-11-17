@@ -4096,4 +4096,7 @@ Findings (T9):
   the default bias 0 (bias_sub=0, bias_norm=1) — `fe2e261` adds a 0.25 bias
   floor so it is always asymmetric. Host tests + all five envs + C3 green;
   Elements + C3 re-flashed.
-- **Bench pending:** user re-test of the 5 type names and distinct characters.
+- **User acceptance (2026-11-17)**: user re-tested and confirmed the type names
+  display on the correct cells and all five distortion types sound distinct
+  on both Elements and Rings — **BENCH DONE**. Warps remains preserved and
+  bypassed as requested.
