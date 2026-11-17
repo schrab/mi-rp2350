@@ -70,6 +70,15 @@ bool core1_separate_stack = true;
 #include "hardware/structs/scb.h"   // scb_hw: fault-status registers + AIRCR
 #include "hardware/structs/qmi.h"   // T9 clock diag: QMI M0 flash timing
 #include "hardware/regs/qmi.h"      // QMI_M0_TIMING_CLKDIV/RXDELAY field masks
+
+// T9 clock note: the RP2350's flash (QMI) timing is set by the ROM (CLKDIV 3,
+// RXDELAY 2) and does NOT re-scale with set_sys_clock_khz — flash SCK =
+// clk_sys/3. At 264 MHz that is 88 MHz SCK: within the flash's 133 MHz spec,
+// soaked stable on hardware (0 stalls, checksums clean). At 280 it is 93 MHz
+// and XIP reads corrupt intermittently (bad-CRC TELEM, dark CDC, bootloop —
+// the c1e344a "QSPI flash timing" revert). 280 is NOT adopted on this board;
+// 264 is. Live readback: console `qmi` (`qmi set <clkdiv> <rxdelay>` for
+// bench overrides).
 #include "hardware/watchdog.h"      // core-0 hang watchdog
 
 #ifndef RACK_ENABLE_USB_HOST
@@ -2260,24 +2269,38 @@ static void cmd_cc(const char* args) {
   Serial.printf("cc: %u -> %u\r\n", (unsigned)cc, (unsigned)val);
 }
 
-// qmi — read the LIVE QMI M0 flash timing (T9 clock diag). On RP2350 the
-// flash timing is set by the ROM boot and set_sys_clock_khz does NOT re-scale
-// it, so flash SCK = clk_sys / CLKDIV and an overclock must keep SCK inside
-// the flash chip's 133 MHz spec (240/2 = 120 in-spec; 280/2 = 140 out — the
-// c1e344a "QSPI flash timing" revert). Read-only.
+// qmi — read/write the LIVE QMI M0 flash timing (T9 clock diag). On RP2350
+// the flash timing is set by the ROM boot and set_sys_clock_khz does NOT
+// re-scale it, so flash SCK = clk_sys / CLKDIV and the ROM's RXDELAY sampling
+// delay is tuned for the boot clock — an overclock must pin a proven
+// CLKDIV/RXDELAY combo BEFORE any XIP-heavy work (setup's window copy reads
+// flash). `qmi` reads; `qmi set <clkdiv> <rxdelay>` writes (read-modify-write
+// of M0_TIMING; the write is a register access, new fetches use the new
+// timing). The proven generic-boot2 combo is CLKDIV 4 / RXDELAY 2.
 static void cmd_qmi(const char* args) {
-  (void)args;
+  uint32_t clkdiv = 0, rxdel = 0;
+  if (sscanf(args, "set %lu %lu", (unsigned long*)&clkdiv,
+             (unsigned long*)&rxdel) == 2) {
+    if (clkdiv < 1 || clkdiv > 255 || rxdel > 7) {
+      Serial.println("qmi: set range CLKDIV 1-255, RXDELAY 0-7");
+      return;
+    }
+    uint32_t t = qmi_hw->m[0].timing;
+    t = (t & ~(QMI_M0_TIMING_CLKDIV_BITS | QMI_M0_TIMING_RXDELAY_BITS)) |
+        (clkdiv << QMI_M0_TIMING_CLKDIV_LSB) |
+        (rxdel << QMI_M0_TIMING_RXDELAY_LSB);
+    qmi_hw->m[0].timing = t;
+  }
   const uint32_t timing = qmi_hw->m[0].timing;
-  const uint32_t clkdiv = timing & QMI_M0_TIMING_CLKDIV_BITS;
-  const uint32_t rxdel = (timing >> QMI_M0_TIMING_RXDELAY_LSB) & 0x7u;
+  const uint32_t div = timing & QMI_M0_TIMING_CLKDIV_BITS;
+  const uint32_t rx = (timing >> QMI_M0_TIMING_RXDELAY_LSB) & 0x7u;
   const uint32_t fcpu = clock_get_hz(clk_sys);
   Serial.printf("qmi: f_cpu=%lu Hz, CLKDIV=%lu RXDELAY=%lu -> flash SCK "
-                "%lu.%01lu MHz (flash spec 133; max safe f_cpu = 133 MHz * "
-                "CLKDIV)\r\n",
-                (unsigned long)fcpu, (unsigned long)clkdiv,
-                (unsigned long)rxdel,
-                (unsigned long)(fcpu / clkdiv / 1000000UL),
-                (unsigned long)((fcpu / clkdiv / 100000UL) % 10));
+                "%lu.%01lu MHz (proven combo: CLKDIV 4 / RXDELAY 2; 280 MHz "
+                "target SCK 70)\r\n",
+                (unsigned long)fcpu, (unsigned long)div, (unsigned long)rx,
+                (unsigned long)(fcpu / div / 1000000UL),
+                (unsigned long)((fcpu / div / 100000UL) % 10));
 }
 
 // uisend — send ONE full TELEM snapshot for the C3's active page (default P1)
