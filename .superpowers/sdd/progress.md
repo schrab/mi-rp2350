@@ -4129,6 +4129,14 @@ Findings (T9):
   page guard in `GetPotTarget`; single target resolution passed into
   `sendTarget`; TELEM re-request after preset load; ARP ride param 1.
   **Encoder source scroll now CLAMPS at OFF/ARP2 (no wrap)** per user request.
-- C3 build green + re-flashed. **Bench pending:** user re-test of mapping and
-  unassign across pages; possible follow-up: restore authoritative ASSIGN_CYCLE
-  and extend the RP handler to MOD pages 2..7.
+- C3 build green + re-flashed. **User re-test**: "mapping PITCH but it jumps
+  and maps WAVE on encoder confirm" on a module P1 page. On Rings P1 PITCH is
+  slot 6 and WAVE slot 14 (not neighbours), so this is the ASSIGN TARGET LOCK,
+  not the send path: anchors were captured from `filtRaw` (still settling from
+  the encoder-press artifact) and a single spike could steal the target.
+  `54c8bf4` anchors from the fresh `rawSweep` and requires the same leading pot
+  across 3 consecutive scans before locking/switching, with candidate state
+  reset on enter/exit of assign mode. C3 rebuilt + re-flashed.
+- **Bench pending:** user re-test of PITCH mapping / unassign / source clamp;
+  possible follow-up: restore authoritative ASSIGN_CYCLE and extend the RP
+  handler to MOD pages 2..7.
