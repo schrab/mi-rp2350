@@ -4049,6 +4049,12 @@ Findings (T9):
   (`ringchord::from_ctx` carries the root delta so octave shifts reach Rings).
   `dc9812a` fixed the console guard to admit param 13 (same class of bug as
   the earlier TRANS param-12 fix).
-- **Bench pending:** rebuild + flash with the octave semantics, then sweep all
-  six algos (VARG, HYP-1, MOTIF, MARKOV, METRO, DEJAVU) at -2/-1/0/+1/+2 and
-  confirm `oct=` + note shift; user listening confirmation.
+- **Pot fix**: the C3's `kModPotMap[5][6]` was still `kNoSet`, so the new MOD-ARP
+  cell 6 never sent MOD_SET — the OCTAVE pot did nothing. `8a0f2f0` maps it to
+  `{src 10, param 13}` and makes `mod_arp_set_octave()` refresh both generators'
+  `cur_note` immediately (previously `note=` only changed on a gate).
+- **Bench**: all SIX algos swept at octave -2/0/+2 with `mod?` confirming both
+  `oct=` and shifted `note=` (e.g. VARG 18/43/72, MOTIF 24/60/72 with clamping,
+  METRO 29/50/92, DEJAVU 27/51/75). Audio active, `i2s stalls: 0`, 196-259 us
+  vs 750 us. All five envs + C3 green; both devices re-flashed.
+- **Bench pending:** user listening confirmation of the OCTAVE steps on the pot.
