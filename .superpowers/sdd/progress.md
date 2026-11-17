@@ -4065,3 +4065,26 @@ Findings (T9):
 - **User acceptance (2026-11-17)**: user turned the OCTAVE pot through the 5
   steps and confirmed the actual pitch jumps by whole octaves across the ARP
   algos — **BENCH DONE**. Board left on Rings mode 5, VARG, OCTAVE +1.
+
+### Swedish Chainsaw distortion + Elements share (2026-11-17)
+- User asked to implement the algorithm from Barabas5532/SwedishChainsaw in our
+  distortion module, then to put the same stage on Elements because the T9
+  Warps stage was not working as planned — explicitly "don't delete the code".
+- Fetched the repo: the signature is the Boss HM-2 EQ at all knobs max — three
+  fixed MATLAB biquads (GPLv3, `HM2Filter.cpp`) wrapped in two tanh saturators
+  (the active `waveshape()` is just `tanh`; the commented piecewise curve is
+  unused). Ported verbatim into `src/rings_dist.h` as DIST TYPE 4 ("SWEDE"):
+  HP 60 Hz (700 Hz tight via bias), tanh, 3 HM2 biquads, 7 kHz LP, tanh, with
+  the common tone-LP/dry-wet stage. Filter state is a static singleton (no
+  arena growth). Coefficients are fixed-digital, so bands sit ~0.73x lower at
+  32 kHz — documented. Host tests cover finite/bounded output across 8 blocks.
+- Same stage added to Elements (`module_elements.h`) post-resonator using the
+  former Warps CCs 36-40 (drive/type/bias/tone/mix). **Warps code preserved**:
+  its Patch fields and the lib patch remain; original CC mappings are kept as
+  comments, `warps_mix` stays 0 (zero-cost bypass) until the user wants it back.
+- C3: DIST TYPE now 5 options with names (TUBE/FOLD/FUZZ/SHAPE/SWEDE) on both
+  the Rings and Elements pages; UI labels updated on both sides.
+- All five envs + C3 green; both devices flashed. Elements sweep CC37 0..4
+  stable: 212-302 us vs 496 us budget, `i2s stalls: 0`. No notes were played in
+  the automated sweep — audible character pending user ears.
+- Commits: 0b627da (Swedish algo) .. 7c2fe13 (Elements share).
