@@ -654,3 +654,85 @@ ms)`. `telemetry off`
 mutes ONLY this line (cadence + counter resets continue; `status` prints a
 one-liner instead). T4 DIN counters deliberately live in `din`/`status`, not
 here — the format above is byte-compatible with the T1/T2/T3 bench history.
+
+## Reset forensics + overclock bench (no SWD on this board)
+
+The BRIDLE mini_usb_rp2350 has no SWD, so the console + the SRAM crash record
+(`.uninitialized_data`, survives warm resets) are the only fault tools.
+
+At every boot the firmware captures the previous boot's evidence *before*
+`watchdog_enable()` (which would overwrite the marker in `scratch[4]`), then
+prints:
+
+```
+boot: reason=<N> (0 cold | 1 POR/hardware | 2 fault | 3 watchdog-in-loop |
+                  4 watchdog-in-setup | 5 clean-reboot) wd=0x<bits>
+      unhealthy_boots=<n> fault_streak=<n>[ SAFE-MODE(240 MHz) ...]
+```
+
+`wd` is the raw `WATCHDOG_REASON` bits, printed **for reference only**: on this
+chip the TIMER bit was observed sticky across soft resets (a `reboot` after a
+BOOTSEL touch still showed `wd=0x01`). The decisive signal is three firmware-
+owned scratch words (POR clears them, soft/watchdog resets preserve them):
+`scratch[4]` boot-done, `[5]` clean-shutdown (set by `reboot`), `[6]`
+setup-active. So:
+
+- **reason 4** = died DURING setup (setup-active set, no boot-done) — the real
+  clock verdict: the clock hung XIP/init before setup finished.
+- **reason 3** = reset after setup completed (loop-time hang/external).
+- **reason 5** = intentional `reboot`; **reason 1** = POR/brownout/USB flap
+  (not a clock verdict). Note the 1200-baud BOOTSEL touch itself uses a
+  watchdog reboot and clears the boot-done marker, so the first boot after
+  flashing typically reads reason 1 — ignore it; use `reboot` for clean tests.
+
+A HardFault prints a one-shot `CRASH:`
+line with `pc=...` (resolve with `arm-none-eabi-addr2line -e firmware.elf <pc>`).
+`crash` reprints the record; `crash clear` re-arms after SAFE MODE. Sticky
+`fault_streak >= 2` or `unhealthy_boots >= 3` forces one 240 MHz boot so the
+record is always readable.
+
+### Finding the stable frequency
+
+**Boot default: 320 MHz, VREG 1.20 V, QMI CLKDIV 4 / RXDELAY 3 (SCK 80 MHz).**
+A pre-clock constructor in `main.cpp` raises VREG and pins the QMI timing
+before the core applies `F_CPU` — the core's own VREG auto-adjust is RP2040-
+only. Hardware sweep: 270 MHz at the default 1.15 V resets in soak even at
+SCK 67.5 (so the lever is **core voltage**, not flash timing); at 1.20 V,
+270–320 soak clean, 328 is the outer edge, 336 is the cliff. The old 280
+rejection was CLKDIV 3 (SCK 93 MHz) — at CLKDIV 4 it is clean.
+
+Flash SCK = `clk_sys / CLKDIV` (the RP2350 ROM pins CLKDIV 3 / RXDELAY 2;
+`set_sys_clock_khz` does NOT re-scale it). Keep SCK ≤ 88 MHz by raising CLKDIV
+as the PLL goes up:
+
+```
+oc <khz> [clkdiv] [rxdelay]     # live switch; prints FNV + a CLKDIV hint
+oc off                          # restore build clock, stop FNV watch
+qmi                             # read live CLKDIV/RXDELAY/SCK
+reboot                          # full restore (also Serial1/I2S dividers)
+```
+
+`oc` re-reads the boot module's FLASH through XIP and compares its FNV against
+the boot-time window-copy checksum (`fnv=OK|MISMATCH`). With a clock override
+active the 2 s report gains `| oc: <khz> kHz fnv=OK|MISMATCH` — a **continuous**
+integrity check over a soak, which is what catches the intermittent corruption
+that killed 280. The check is read-only; core 1 executes from the SRAM window
+and is never disturbed. Above 280 MHz `oc` raises VREG to 1.20 V. Serial1/I2S
+dividers stay stale until `reboot` (audio off-rate, UI link dead) — bench with
+the console, not the C3.
+
+**Suggested sweep** (each step: `oc`, wait for a 2 s report, watch `fnv=` and
+`max Process`, then soak ≥ 1 min; after any reset read `boot: reason=`):
+
+```
+oc 328000 4 3    oc 336000 4 3    ...   (bench only; 320 is the boot default)
+```
+
+Advance while `fnv=OK`, stalls stay 0 and no reason-2/4 reset appears; back off
+one step at the first MISMATCH or reason-4. Always finish with `oc off` /
+`reboot` before flashing. **`vreg <1100|1150|1200|1250>`** reads/sets the core
+supply live — raising to 1200 first is what makes >264 MHz stable.
+
+Note: 320 MHz is not a 12 MHz multiple, so PIO-USB host timing would be
+unreliable — it is disabled in this build (`RACK_ENABLE_USB_HOST=0`); use
+312 MHz if host is re-enabled.

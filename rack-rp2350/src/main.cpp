@@ -56,8 +56,9 @@
 //
 // Init order (hard-won, see the ledger): USB host (PIO-USB) BEFORE
 // i2s.begin() — PIO-USB hard-claims all of PIO0; the status LED claims PIO2
-// SM0; I2S lands on PIO2 SM1. Reordering panics at boot. f_cpu must be a
-// multiple of 12 MHz (240 MHz) or PIO-USB timing breaks.
+// SM0; I2S lands on PIO2 SM1. Reordering panics at boot. PIO-USB needs a
+// 12 MHz-multiple f_cpu; the 320 MHz build default is fine while host is
+// disabled (RACK_ENABLE_USB_HOST=0) — use 312 MHz if host is re-enabled.
 #include <Arduino.h>
 #include <I2S.h>
 #include <stdarg.h>              // dbg_printf (non-blocking diagnostics TX)
@@ -74,13 +75,31 @@ bool core1_separate_stack = true;
 
 // T9 clock note: the RP2350's flash (QMI) timing is set by the ROM (CLKDIV 3,
 // RXDELAY 2) and does NOT re-scale with set_sys_clock_khz — flash SCK =
-// clk_sys/3. At 264 MHz that is 88 MHz SCK: within the flash's 133 MHz spec,
-// soaked stable on hardware (0 stalls, checksums clean). At 280 it is 93 MHz
-// and XIP reads corrupt intermittently (bad-CRC TELEM, dark CDC, bootloop —
-// the c1e344a "QSPI flash timing" revert). 280 is NOT adopted on this board;
-// 264 is. Live readback: console `qmi` (`qmi set <clkdiv> <rxdelay>` for
-// bench overrides).
+// clk_sys/CLKDIV. The build default is 320 MHz; the pre-clock constructor
+// below pins CLKDIV 4 / RXDELAY 3 (SCK 80 MHz) and raises VREG to 1.20 V
+// BEFORE the core's main() calls set_sys_clock_khz(F_CPU). 270 MHz at the
+// default 1.15 V reset in soak (reason 3); 1.20 V was stable through 320 MHz.
+// At CLKDIV 3, 280 would put SCK at 93 MHz and corrupt XIP (bad-CRC TELEM,
+// dark CDC, bootloop — the c1e344a revert). Live readback: `qmi`, `vreg`.
 #include "hardware/watchdog.h"      // core-0 hang watchdog
+
+// Pre-clock setup (runs BEFORE the Arduino core's main(), which applies
+// F_CPU via set_sys_clock_khz). Two things MUST happen before the PLL is
+// raised: (1) VREG 1.20 V — the core is unstable at 1.15 V above ~264 MHz;
+// the core's own auto-adjust is RP2040-only, so RP2350 needs this explicitly;
+// (2) QMI CLKDIV 4 / RXDELAY 3 — keeps flash SCK at 80 MHz instead of the
+// ROM's 106.7 MHz at 320. A dummy XIP read + barrier after the timing write
+// follows the SDK's psram_reinit_timing precedent.
+__attribute__((constructor(101))) static void rack_pre_clock(void) {
+  vreg_set_voltage(VREG_VOLTAGE_1_20);
+  uint32_t t = qmi_hw->m[0].timing;
+  t = (t & ~(QMI_M0_TIMING_CLKDIV_BITS | QMI_M0_TIMING_RXDELAY_BITS)) |
+      (4u << QMI_M0_TIMING_CLKDIV_LSB) | (3u << QMI_M0_TIMING_RXDELAY_LSB);
+  qmi_hw->m[0].timing = t;
+  volatile uint8_t xip_dummy = *reinterpret_cast<volatile uint8_t*>(0x10000000u);
+  (void)xip_dummy;
+  __asm volatile("dsb 0xF" ::: "memory");
+}
 
 #ifndef RACK_ENABLE_USB_HOST
 #define RACK_ENABLE_USB_HOST 0
@@ -1630,6 +1649,7 @@ static void cmd_cc(const char* args);
 static void cmd_qmi(const char* args);
 // T9 bench: runtime overclock + crash record print/clear.
 static void cmd_oc(const char* args);
+static void cmd_vreg(const char* args);
 static void cmd_crash(const char* args);
 static void cmd_trig(const char* args);
 static void cmd_piezo(const char* args);
@@ -1675,6 +1695,7 @@ static const ConsoleCommand kConsoleCommands[] = {
     {"cc",        cmd_cc},
     {"qmi",       cmd_qmi},
     {"oc",        cmd_oc},
+    {"vreg",      cmd_vreg},
     {"crash",     cmd_crash},
     {"panic",     cmd_panic},
     {"reboot",    cmd_reboot},
@@ -2084,6 +2105,7 @@ static void cmd_reboot(const char* args) {
   (void)args;
   Serial.println("reboot: system reset");
   delay(50);                        // let the CDC drain a few frames
+  watchdog_hw->scratch[5] = 0xC1EA0FFu;   // CLEAN_SHUTDOWN: reason 5 next boot
   scb_hw->aircr = (0x05FAu << 16) | 0x04u;
   __asm volatile("dsb 0xF" ::: "memory");
   for (;;) {
@@ -2309,8 +2331,8 @@ static void cmd_qmi(const char* args) {
   const uint32_t rx = (timing >> QMI_M0_TIMING_RXDELAY_LSB) & 0x7u;
   const uint32_t fcpu = clock_get_hz(clk_sys);
   Serial.printf("qmi: f_cpu=%lu Hz, CLKDIV=%lu RXDELAY=%lu -> flash SCK "
-                "%lu.%01lu MHz (proven combo: CLKDIV 4 / RXDELAY 2; 280 MHz "
-                "target SCK 70)\r\n",
+                "%lu.%01lu MHz (320 MHz boot default: CLKDIV 4 / RXDELAY 3 "
+                "-> SCK 80; keep SCK <= 88)\r\n",
                 (unsigned long)fcpu, (unsigned long)div, (unsigned long)rx,
                 (unsigned long)(fcpu / div / 1000000UL),
                 (unsigned long)((fcpu / div / 100000UL) % 10));
@@ -2361,6 +2383,12 @@ static void cmd_help(const char* args) {
   Serial.println("  bpm <20-300>       internal clock BPM (0.1 steps)");
   Serial.println("  clock <internal|midi> [src]  global clock source / per-source override");
   Serial.println("  status             one-line summary: module/clock/swaps/din/uptime");
+  Serial.println("  crash [clear]      last-reset reason + watchdog cause + fault streak");
+  Serial.println("                     (reason 4 = watchdog died IN setup => clock verdict)");
+  Serial.println("  qmi [set D R]      live QMI flash timing (CLKDIV/RXDELAY); SCK=f_cpu/D");
+  Serial.println("  oc <khz> [D] [R]   live overclock bench with continuous FNV watch");
+  Serial.println("                     (above 280 raises VREG 1.20; `oc off`/reboot restores)");
+  Serial.println("  vreg [1100|1150|1200|1250]  read/set core supply (mV)");
   Serial.println("  din [clear]        DIN MIDI counters + last message (UART1 GP5)");
   Serial.println("  dintest            inject a canned MIDI stream into the DIN parser");
   Serial.println("                     -> funnel (notes/CC/clock; UART1 bypassed)");
@@ -2454,9 +2482,11 @@ struct CrashRecordV2 {
   uint32_t cfsr, hfsr, mmfar, bfar;
   uint32_t boot_count;      // consecutive unhealthy boots
   uint32_t fault_streak;    // consecutive HardFault resets (sticky)
-  uint32_t reset_reason;    // 0 cold-setup-end, 1 died before setup end,
-                            // 2 HardFault, 3 watchdog in loop
+  uint32_t reset_reason;    // 0 cold, 1 POR/hardware flap, 2 HardFault,
+                            // 3 watchdog in loop, 4 watchdog DURING setup,
+                            // 5 clean reboot
   uint32_t safe_mode;       // this boot ran at 240 MHz (record printed)
+  uint32_t wd_reason;       // raw WATCHDOG_REASON bits: 1=TIMER, 2=FORCE
 };
 static constexpr uint32_t kCrashMagicV2 = 0xC0DE5AF3u;   // v2: counters
 __attribute__((section(".uninitialized_data.crash"), used))
@@ -2509,6 +2539,10 @@ extern "C" __attribute__((naked)) void isr_hardfault(void) {
 // FLASH image. cmd_oc re-reads the flash through XIP and compares — a pure
 // read test that never touches the SRAM window core 1 is executing from.
 static uint32_t g_window_src_sum = 0;
+// Set by `oc`: enables a continuous XIP FNV re-check in the 2 s report. The
+// 280 failure mode was INTERMITTENT corruption (valid TELEM frames with bad
+// CRC), which a one-shot FNV at switch time cannot catch — a soak can.
+static volatile bool g_oc_verify = false;
 
 // crash — print/clear the T9 crash counters (NOLOAD SRAM, survives resets).
 // `crash clear` zeroes the sticky fault_streak so normal clocks re-arm after
@@ -2521,14 +2555,16 @@ static void cmd_crash(const char* args) {
     g_crashv2.safe_mode = 0;
     g_crashv2.magic = 0;
     g_crashv2.reset_reason = 0;
+    g_crashv2.wd_reason = 0;
     __dmb();
     Serial.printf("crash: counters cleared — next reboot runs at F_CPU "
                   "(%lu Hz build clock)\r\n", (unsigned long)F_CPU);
     return;
   }
-  Serial.printf("crash: reason=%lu unhealthy_boots=%lu fault_streak=%lu "
-                "safe_mode=%lu\r\n",
+  Serial.printf("crash: reason=%lu wd=0x%02lx unhealthy_boots=%lu "
+                "fault_streak=%lu safe_mode=%lu\r\n",
                 (unsigned long)g_crashv2.reset_reason,
+                (unsigned long)g_crashv2.wd_reason,
                 (unsigned long)g_crashv2.boot_count,
                 (unsigned long)g_crashv2.fault_streak,
                 (unsigned long)g_crashv2.safe_mode);
@@ -2554,10 +2590,21 @@ static void cmd_crash(const char* args) {
 // audio runs off-rate and the UI link is dead — both restored by rebooting.
 // A crash lands in SAFE MODE (240 MHz) on the next boot, readable.
 static void cmd_oc(const char* args) {
+  while (*args == ' ') ++args;
+  if (strncasecmp(args, "off", 3) == 0) {
+    g_oc_verify = false;
+    if (!set_sys_clock_khz(F_CPU / 1000u, true))
+      Serial.println("oc off: PLL restore failed (use `reboot`)");
+    else
+      Serial.printf("oc off: restored build clock %lu Hz, FNV watch stopped "
+                    "(`reboot` also restores Serial1/I2S dividers)\r\n",
+                    (unsigned long)F_CPU);
+    return;
+  }
   unsigned khz = 0, div = 0, rx = 0;
   const int n = sscanf(args, "%u %u %u", &khz, &div, &rx);
   if (n < 1 || khz < 24000u || khz > 400000u) {
-    Serial.println("usage: oc <khz 24000-400000> [clkdiv] [rxdelay]   "
+    Serial.println("usage: oc <khz 24000-400000> [clkdiv] [rxdelay] | off   "
                    "(defaults: live QMI values; `reboot` restores)");
     return;
   }
@@ -2596,34 +2643,93 @@ static void cmd_oc(const char* args) {
                 (unsigned long)((fcpu / live_div / 100000UL) % 10u),
                 (unsigned long)sum, (unsigned long)g_window_src_sum,
                 sum == g_window_src_sum ? "OK" : "MISMATCH (XIP corrupting)");
+  // Flash SCK = clk_sys / CLKDIV (the RP2350 ROM pins CLKDIV 3 / RXDELAY 2 and
+  // set_sys_clock_khz does NOT re-scale it). 264/3 = 88 MHz was the last known
+  // good SCK; above that the sample point goes marginal. Recommend the CLKDIV
+  // that keeps SCK <= 88 MHz so a higher core clock does not drag XIP with it.
+  const uint32_t safe_div = (fcpu + 87999999u) / 88000000u;
+  if (live_div < safe_div) {
+    Serial.printf("oc: hint: CLKDIV >= %lu keeps flash SCK <= 88 MHz "
+                  "(ROM 3 gives %lu.%lu MHz here) — retry "
+                  "`oc %u %lu 2`\r\n",
+                  (unsigned long)safe_div,
+                  (unsigned long)(fcpu / live_div / 1000000UL),
+                  (unsigned long)((fcpu / live_div / 100000UL) % 10u),
+                  khz, (unsigned)safe_div);
+  }
+  g_oc_verify = true;   // continuous FNV re-check in the 2 s report
   Serial.println("oc: Serial1/I2S stale (off-rate, UI link dead) — `reboot` "
                  "restores the build clock");
 }
 
+// vreg — bench the core supply live. `vreg <mv>`: 1150|1200|1250|1300 mV;
+// bare = report. 270 MHz reset at default 1.15 V even with flash SCK 67.5,
+// so VREG (not flash timing) is the suspected lever for the next clocks.
+static void cmd_vreg(const char* args) {
+  while (*args == ' ') ++args;
+  if (*args) {
+    unsigned mv = (unsigned)atol(args);
+    enum vreg_voltage v;
+    switch (mv) {
+      case 1100: v = VREG_VOLTAGE_1_10; break;
+      case 1150: v = VREG_VOLTAGE_1_15; break;
+      case 1200: v = VREG_VOLTAGE_1_20; break;
+      case 1250: v = VREG_VOLTAGE_1_25; break;
+      default:
+        Serial.println("vreg: use 1100|1150|1200|1250 (mV)");
+        return;
+    }
+    vreg_set_voltage(v);
+    delay(5);
+  }
+  const uint32_t v = vreg_get_voltage();
+  Serial.printf("vreg: VREG_VOLTAGE=%lu (RP2350: 5=0.80, C=1.15, D=1.20, "
+                "E=1.25, F=1.30)\r\n", (unsigned long)v);
+}
+
 void setup() {
+  // --- Crash forensics: capture the PREVIOUS boot's evidence FIRST ---
+  // watchdog_enable() writes WATCHDOG_NON_REBOOT_MAGIC (0x6ab73121) into
+  // scratch[4] -- so the boot-done marker MUST be read BEFORE it is called.
+  // WATCHDOG_REASON (RO) is printed raw for reference but NOT used as the
+  // discriminator: on this chip its TIMER bit is STICKY across soft resets
+  // (a `reboot` after a BOOTSEL touch still showed wd=0x01). Instead we own
+  // three scratch words, which POR clears but soft/watchdog resets preserve:
+  //   scratch[4] = 0xB007CAFE once setup completed (boot-done marker),
+  //   scratch[5] = CLEAN_SHUTDOWN set only by the `reboot` console command,
+  //   scratch[6] = SETUP_ACTIVE while setup is in progress (cleared at end).
+  const uint32_t prev_wd_reason = watchdog_hw->reason;
+  const uint32_t prev_boot_marker = watchdog_hw->scratch[4];
+  const uint32_t prev_clean_shutdown = watchdog_hw->scratch[5];
+  const uint32_t prev_setup_active = watchdog_hw->scratch[6];
+  // Mark THIS boot as in-progress and clear the previous clean-shutdown flag.
+  watchdog_hw->scratch[6] = 0x5E7AC71Bu;   // SETUP_ACTIVE
+  watchdog_hw->scratch[5] = 0;
   // BOOT WATCHDOG FIRST: 8 s covers the window copy + I2S + USB enumeration;
   // a boot that stalls on a print or a peripheral gets reset instead of
   // freezing. The loop's 2 s period replaces this at the end of setup.
   watchdog_enable(8000, false);
   // --- T9 crash counters + SAFE MODE ---------------------------------------
   // .uninitialized_data survives warm resets; a cold boot leaves garbage, so
-  // the counters self-sanitize. scratch[4] survives watchdog resets only:
-  // present = some previous boot reached the end of setup at least.
+  // the counters self-sanitize.
   {
-    const uint32_t kBootDone = 0xB007CAFEu;
-    const uint32_t marker = watchdog_hw->scratch[4];
-    watchdog_hw->scratch[4] = 0;
     if (g_crashv2.boot_count > 500u || g_crashv2.fault_streak > 50u) {
       g_crashv2.boot_count = 0;
       g_crashv2.fault_streak = 0;
       g_crashv2.safe_mode = 0;
     }
+    g_crashv2.wd_reason = prev_wd_reason;
     if (g_crashv2.magic == kCrashMagicV2) {
       g_crashv2.reset_reason = 2;              // the fault handler set it
-    } else if (marker != kBootDone) {
-      g_crashv2.reset_reason = 1;              // died before setup completed
+    } else if (prev_clean_shutdown == 0xC1EA0FFu) {
+      g_crashv2.reset_reason = 5;              // intentional `reboot`
+    } else if (prev_setup_active == 0x5E7AC71Bu &&
+               prev_boot_marker != 0xB007CAFEu) {
+      g_crashv2.reset_reason = 4;              // died DURING setup (clock verdict)
+    } else if (prev_boot_marker == 0xB007CAFEu) {
+      g_crashv2.reset_reason = 3;              // watchdog/external after setup
     } else {
-      g_crashv2.reset_reason = 3;              // watchdog in the loop
+      g_crashv2.reset_reason = 1;              // POR / brownout / hardware flap
     }
     ++g_crashv2.boot_count;
     // SAFE MODE: a crashy clock config (hard fault or hang before the loop)
@@ -2793,19 +2899,22 @@ void setup() {
     g_crashv2.magic = 0;
     __dmb();
   }
-  Serial.printf("boot: reason=%lu (0 cold | 1 pre-setup death | 2 fault | "
-                "3 watchdog-in-loop) unhealthy_boots=%lu fault_streak=%lu%s\r\n",
+  Serial.printf("boot: reason=%lu (0 cold | 1 POR/hardware | 2 fault | "
+                "3 watchdog-in-loop | 4 watchdog-in-setup | 5 clean-reboot) "
+                "wd=0x%02lx unhealthy_boots=%lu fault_streak=%lu%s\r\n",
                 (unsigned long)g_crashv2.reset_reason,
+                (unsigned long)g_crashv2.wd_reason,
                 (unsigned long)g_crashv2.boot_count,
                 (unsigned long)g_crashv2.fault_streak,
                 g_crashv2.safe_mode ? " SAFE-MODE(240 MHz) - `crash clear` to re-arm" : "");
   // 2 s core-0 watchdog: fed at the end of every loop() pass. A hang reboots
   // the board instead of leaving it frozen (USB enumerated but dead).
   watchdog_enable(2000, false);
-  // T9 boot-done marker (survives watchdog resets): the NEXT setup can tell a
-  // pre-setup death / cold boot (marker absent) from a loop-time watchdog
-  // reset (marker present). Read-and-cleared at setup start.
-  watchdog_hw->scratch[4] = 0xB007CAFEu;
+  // Boot-done markers (survive soft/watchdog resets; POR clears them). The
+  // NEXT setup reads them before watchdog_enable() to classify the reset that
+  // just happened. Clear SETUP_ACTIVE: from here on a reset means a loop hang.
+  watchdog_hw->scratch[4] = 0xB007CAFEu;   // reached end of setup
+  watchdog_hw->scratch[6] = 0;             // setup no longer active
 #if RACK_ENABLE_USB_HOST
   dbg_printf("%s up (rack boot module, %lu Hz / %lu-sample blocks, budget %lu us, USB MIDI device + PIO-USB host; CC 32 or serial 'switch' swaps modules; CC 33/34/35 = mod engine source/param/value; console: help)\r\n",
                 boot.name,
@@ -3049,6 +3158,19 @@ void loop() {
       snprintf(mod_field, sizeof(mod_field), "%s", m.name);
       budget = m.budget_us;
     }
+    // T9 oc bench: continuous XIP integrity check while a clock override is
+    // active. Intermittent flash corruption only shows up over a soak; the
+    // one-shot FNV at switch time cannot catch it. Reads only — core 1 runs
+    // from the SRAM window, so XIP fetches never disturb the audio path.
+    char oc_tail[64] = "";
+    if (g_oc_verify) {
+      const RackWindowSection& s = rack_window_section(RACK_BOOT_MODULE);
+      const uint32_t fnv =
+          rack_checksum32(s.flash_start, (size_t)(s.flash_end - s.flash_start));
+      snprintf(oc_tail, sizeof(oc_tail), " | oc: %lu kHz fnv=%s",
+               (unsigned long)(clock_get_hz(clk_sys) / 1000u),
+               fnv == g_window_src_sum ? "OK" : "MISMATCH");
+    }
     if (g_telemetry_enabled) {
       // TEMP PROBE (plaits ping-path diagnosis): pulses consumed since the
       // last report + the active articulation bits (bit0 gate_resp, bit1
@@ -3079,7 +3201,7 @@ void loop() {
       const uint16_t pz_peak = rack_piezo::report_peak();
       const uint32_t pz_rate = rack_piezo::report_sample_rate();
 #if RACK_ENABLE_USB_HOST
-      dbg_printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s | %s\r\n",
+      dbg_printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s | %s%s\r\n",
                     proc_us_max,
                     (unsigned)budget,
                     stalls, stalls - last_stall_total,
@@ -3096,9 +3218,10 @@ void loop() {
                     (unsigned)pio_usb_host_get_frame_number(),
                     mod_field,
                     modeng_tail,
-                    plaits_tail);
+                    plaits_tail,
+                    oc_tail);
 #else
-      dbg_printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | mod=%s | %s | %s\r\n",
+      dbg_printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | mod=%s | %s | %s%s\r\n",
                     proc_us_max,
                     (unsigned)budget,
                     stalls, stalls - last_stall_total,
@@ -3111,7 +3234,8 @@ void loop() {
                     mod_field,
                     modeng_tail,
                     g_active_module == RACK_MODULE_PLAITS ? plaits_tail
-                        : (g_active_module == RACK_MODULE_LIRA8 ? lira8_tail : ""));
+                        : (g_active_module == RACK_MODULE_LIRA8 ? lira8_tail : ""),
+                    oc_tail);
 #endif
     }
     last_stall_total = stalls;

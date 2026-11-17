@@ -3917,6 +3917,77 @@ Findings (T9):
   USB/CDC flap family as healthy clocks - ambiguous, NOT a 270 verdict).
   Next bench: sweep 252/264/270 with periodic FNV re-verifies + counters;
   the 280-300 matrix (RXDELAY 2/3/4 x CLKDIV 3/4) is now console-cheap.
+- **The 270 "reason=1" was a BROKEN signal (2026-11-17, analysis)**: the code
+  called `watchdog_enable(8000,false)` as setup's FIRST action; the SDK writes
+  `WATCHDOG_NON_REBOOT_MAGIC` (0x6ab73121) into `scratch[4]`, so the boot-done
+  marker read immediately after was ALWAYS clobbered -> `reason=1` on every
+  non-fault boot, and `reason=3` (watchdog-in-loop) was unreachable dead code.
+  The "POR-class" reading was therefore unfounded: **there is no 270 verdict
+  yet**. FIX (uncommitted, build-green on rack-lira8): capture
+  `watchdog_hw->reason` + `scratch[4]` BEFORE `watchdog_enable()`; add raw
+  `wd` bits to the crash record; new reason codes 4 = watchdog fired during
+  setup (TIMER bit + no marker = real clock verdict) and 5 = clean reboot
+  (no TIMER + marker present). Also: `oc <khz>` now prints a CLKDIV hint to
+  keep flash SCK <= 88 MHz (raise CLKDIV as the PLL climbs — the actual lever
+  for going past 280, whose rejection was SCK-driven at CLKDIV 3), `oc off`
+  restores the build clock, and the 2 s report carries a continuous XIP FNV
+  re-check while an override is active (`| oc: <khz> kHz fnv=OK|MISMATCH`)
+  so a soak catches the intermittent corruption a one-shot FNV misses.
+  README gained a "Reset forensics + overclock bench" section with sweep.
+- **Live hardware test of the decoder (2026-11-17)**: flashed via 1200-baud
+  touch to COM15 (RP2350 app CDC; COM22 = C3, left alone). Board re-enumerated
+  fine, `crash` reported `reason=4 wd=0x01` on the first boot — a FALSE POSITIVE:
+  the SDK's touch-to-BOOTSEL uses `watchdog_reboot` (scratch[4]=0 + TIMER bit),
+  which looks exactly like a setup hang. A `reboot` command then reported
+  `reason=3 wd=0x01` — proving `WATCHDOG_REASON`'s TIMER bit is STICKY on this
+  chip and cannot be the discriminator. FIX (build pending reflash): stop using
+  `wd` for classification (print advisory only); use three firmware scratch
+  words that POR clears but soft/watchdog resets preserve — `[4]`=boot-done
+  (0xB007CAFE), `[5]`=clean-shutdown (0xC1EAN0FF, set by `reboot`), `[6]`=
+  setup-active (0x5E7AC71B, set at setup entry, cleared at end). Precedence:
+  fault magic -> reason 2; clean-shutdown -> 5; setup-active && !boot-done ->
+  4 (clock verdict); boot-done -> 3; else -> 1. The 1200-baud touch (pc=0 path
+  of watchdog_reboot) clears [4] only, so post-flash boot reads reason 1.
+  VERIFIED on hardware: clean `reboot` -> `reason=5 wd=0x01` (wd advisory,
+  sticky) with the new scratch decoder; the touch-flash boot no longer
+  misreports as reason 4.
+- **Overclock sweep on hardware (2026-11-17, bench-only — not a boot-clock
+  change)**: flashed the new bench firmware to COM15, added a live `vreg`
+  console command, swept via `oc <khz> <clkdiv> <rxdelay>` with 8 s soaks,
+  checking continuous `fnv=OK`, `stalls 0 (+0)` and no reset:
+  - **270 @ default VREG 1.15 V, CLKDIV 4 (SCK 67.5): RESET** `reason=3`
+    (post-setup hang/watchdog). So the earlier "270 POR flap" was really a
+    core-stability failure at 1.15 V — and the flash SCK was NOT the lever.
+  - **270 / 280 / 288 / 300 / 312 / 320 @ VREG 1.20 V, CLKDIV 4**
+    (SCK 67.5-80): ALL PASS — FNV OK every report, zero stalls, no reset.
+    280 here uses CLKDIV 4 (SCK 70) and does NOT reproduce the old CLKDIV-3
+    (SCK 93) corruption — confirming the divider was the 280 issue.
+  - **328 @ 1.20 V, CLKDIV 4 (SCK 82): PASS** (ack + FNV OK, no reset).
+  - **336 @ 1.20 V: immediate reset** `reason=3`. **336 @ 1.25 V: HARD HANG**
+    — USB stayed enumerated, CDC wedged (Win error 31/22), the 2 s loop
+    watchdog did NOT rescue it (core stuck inside the live PLL/VREG switch),
+    and even the 1200-baud touch could not be opened. Physical BOOTSEL (hold
+    button + replug) / power-cycle required; a simple power-cycle restores
+    the 264 MHz build clock because `oc` is runtime-only, flash unchanged.
+  - **Verdict: 320 MHz is the last cleanly stable point, 328 the outer edge,
+    336 the cliff.** Root lever is CORE VREG (1.20 V), with CLKDIV >= 4 to
+    keep flash SCK <= 82 MHz. User called the bench here with "enough data",
+    then approved 320 MHz / 1.20 V as the new boot default.
+- **320 MHz / 1.20 V adopted as the boot default (2026-11-17, user-approved)**:
+  `platformio.ini` `f_cpu` 264 -> **320000000L**. A `__attribute__((constructor
+  (101)))` `rack_pre_clock()` in main.cpp raises VREG to 1.20 V and pins QMI
+  CLKDIV 4 / RXDELAY 3 BEFORE the Arduino core's main() calls
+  `set_sys_clock_khz(F_CPU)` — the core's own VREG auto-adjust is RP2040-only,
+  and the ROM's CLKDIV 3 would put SCK at 106.7 MHz at 320. A dummy XIP read +
+  `dsb` follows the SDK's psram_reinit_timing precedent. All 5 envs build-green.
+  Flashed rack-lira8 to the board (was in BOOTSEL after the 336 hang): booted
+  clean, `qmi` = 320000000 Hz / CLKDIV 4 / RXDELAY 3 / SCK 80 MHz, `vreg` = 13
+  (= 0b01101 = VREG_VOLTAGE_1_20), `crash` reason=1 (BOOTSEL flash), zero
+  stalls, `max Process` 464-509 us of 1451. CAVEAT: 320 is NOT a 12 MHz
+  multiple — PIO-USB host (currently disabled, RACK_ENABLE_USB_HOST=0) would
+  need 312; flag preserved in platformio.ini + README + the setup() guard.
+  LEDGER NOTE: only a fresh boot verified so far — a real multi-module /
+  multi-hour soak is still needed before calling this accepted.
 
 ### Rack T9a — warps memory truth + ctag-plan bugs (2026-11-17)
 
