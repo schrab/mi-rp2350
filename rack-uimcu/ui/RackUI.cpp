@@ -17,6 +17,7 @@ acks drive the UI" — the C3 never invents values; missing TELEM = dashes).
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/portmacro.h"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -127,6 +128,9 @@ namespace CTAG {
         static bool s_bootModCleaned = false;
 
         static RackTelemPage s_cur;          // last TELM copy (renderer)
+        // The UI task publishes s_cur; the pot-scan task reads it. Same-
+        // priority time slicing made the ~320 B copy tear — guard both sides.
+        static portMUX_TYPE s_curMux = portMUX_INITIALIZER_UNLOCKED;
         static bool s_stripDirty = true;
         static bool s_pageDirty = true;
         static volatile uint8_t s_modRideVal[16] = {
@@ -1452,7 +1456,10 @@ namespace CTAG {
             if (PageIsModule(s_page) || s_page == 9) {
                 // P1/P2/CLOUDS B: the ACTIVE page cell's CC (TELEM-driven). routedSrc
                 // rides the TELEM flags bits 3-6 (source id + 1).
-                if (!s_fullArrived || pot >= s_cur.count) return false;
+                // A snapshot for another page must NEVER drive this page's
+                // pots — that was the "knob writes a random parameter" bug.
+                if (!s_fullArrived || s_cur.page != s_page ||
+                    pot >= s_cur.count) return false;
                 if (s_page == 9 && pot < 3) return false; // pots 0-2 (exciter) blank on chained Clouds-B
                 if (s_cur.cell[pot].label[0] == '\0' || s_cur.cell[pot].cc == 0) return false; // empty pot
                 out.kind = PotTarget::kCC;
@@ -1777,9 +1784,11 @@ namespace CTAG {
                             } else if (s_assignArmed) {
                                 // T8d LATCHED assign: rotate = choose the
                                 // modulation source (0 = OFF .. 12 = ARP2).
+                                // Clamp at OFF (0) and ARP2 (12) — no wrap,
+                                // matching the module/page selector behaviour.
                                 int v = (int)s_assignSrc + ev.delta;
-                                while (v < 0) v += kAssignSources;
-                                while (v >= kAssignSources) v -= kAssignSources;
+                                if (v < 0) v = 0;
+                                if (v >= kAssignSources) v = kAssignSources - 1;
                                 s_assignSrc = (uint8_t)v;
                                 s_assignDeadlineMs =
                                     (uint32_t)(nowUs / 1000) + kAssignTimeoutMs;
@@ -1839,6 +1848,11 @@ namespace CTAG {
                         case InputEvent::PUSH_SHORT:
                             if (s_page == 8) {
                                 PresetStore::LoadFrom(s_presetSlot);
+                                // Preset apply can change every dest_cc on the
+                                // RP2350 — force a fresh TELEM so ROUTED flags
+                                // (and therefore mod-ride/unassign targets)
+                                // are not left pointing at the old mapping.
+                                RackLink::SendPageRequest(s_page);
                                 char b[24];
                                 snprintf(b, sizeof(b), "LOADED P%u", s_presetSlot);
                                 showBanner(b, 2000);
@@ -1931,7 +1945,9 @@ namespace CTAG {
                             !s_fullArrived || tmp.page != s_cur.page ||
                             (PageIsModule(s_page) && tmp.module != s_cur.module);
                         if (pageOrModChanged) {
+                            portENTER_CRITICAL(&s_curMux);
                             s_cur = tmp;
+                            portEXIT_CRITICAL(&s_curMux);
                             if ((s_page == 1 && !ModuleHasP2(s_cur.module)) ||
                                 (s_page == 10 && !ModuleHasP3(s_cur.module))) {
                                 SetPage(0);
@@ -1952,7 +1968,9 @@ namespace CTAG {
                                         i, tmp.cell[i].value);
                                 }
                             }
+                            portENTER_CRITICAL(&s_curMux);
                             s_cur = tmp;
+                            portEXIT_CRITICAL(&s_curMux);
                             if (wasFull) s_fullArrived = true;
                             s_pageDirty = true;
                         }

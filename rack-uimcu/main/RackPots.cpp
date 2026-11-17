@@ -99,13 +99,13 @@ namespace CTAG {
             // The per-source dynamic control param a pot rides on a mod-routed cell
             // (user spec: LFO = rate, GATE = dens, ARP = dens, EU = pulses).
             // MUST MATCH the kModParamNames indexes in rack-rp2350/src/mod_engine.h:
-            // LFO 1 = rate, EU 1 = pulses, GATE 1 = dens, ADSR 6 = div, ARP 3 = dens.
+            // LFO 1 = rate, EU 1 = pulses, GATE 1 = dens, ADSR 6 = div, ARP 1 = dens (p[0]).
             uint8_t rideParam(uint8_t src) {
                 if (src <= 3) return 1;            // LFO: rate
                 if (src <= 5) return 1;            // EUclid: pulses (density)
                 if (src <= 7) return 1;            // GATE: dens (density)
                 if (src <= 9) return 6;            // ADSR: division
-                return 3;                          // ARP: dens (density)
+                return 1;                          // ARP: dens = p[0] (param 1)
             }
 
             // Per-source `dest` param index in rack-rp2350/src/mod_engine.h:
@@ -173,9 +173,11 @@ namespace CTAG {
                 return (uint8_t)v;
             }
 
-            void sendTarget(uint8_t pot, uint8_t value) {
-                RackUI::PotTarget t;
-                if (!RackUI::GetPotTarget(pot, t)) return;
+            void sendTarget(uint8_t pot, uint8_t value,
+                            const RackUI::PotTarget &t) {
+                // Use the ALREADY resolved target — resolving a second time
+                // could pick a different page if one changed between the two
+                // calls, writing a random parameter.
                 RackUI::ApplyPotAction(pot, t, value);
             }
 
@@ -502,7 +504,7 @@ namespace CTAG {
                                         RackUI::NoteModRide(ch, src, p, v);
                                         RackLink::SendModSet(src, p, v);
                                     } else {
-                                        sendTarget(ch, v);
+                                        sendTarget(ch, v, t);
                                     }
                                 }
                             }
