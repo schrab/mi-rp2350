@@ -563,6 +563,14 @@ namespace CTAG {
                     barMax = 17;
                     return choice;
                 }
+                // SHARED TRANSPOSE (slot 6): -24..+24 semitones (49 steps)
+                if (slot == 6) {
+                    int v = ((int)potVal * 49) / 128;
+                    if (v > 48) v = 48;
+                    barVal = v;
+                    barMax = 48;
+                    return v - 24;
+                }
                 // SHARED NEO_OP (slot 7): 0=RAND, 1=P, 2=L, 3=R, 4=N, 5=S, 6=H, 7=PLR
                 if (slot == 7) {
                     int v = ((int)potVal * 8) / 128;
@@ -1057,6 +1065,9 @@ namespace CTAG {
 
                         if (slot == 0 || slot == 10) {
                             pName = (dispVal >= 0 && dispVal < 18) ? kArpAlgoNames[dispVal] : "---";
+                        } else if (slot == 6) {
+                            snprintf(bufText, sizeof(bufText), "%+dst", dispVal);
+                            pName = bufText;
                         } else if (slot == 7) {
                             if (rootChoice == 3) {
                                 pName = (dispVal >= 0 && dispVal < 8) ? kNeoOpNames[dispVal] : "---";
@@ -1321,6 +1332,7 @@ namespace CTAG {
                 if (pot == 5 || pot == 15) n = 13;   // ADSR DIV (0..12)
             } else if (s_page == 7) {
                 if (pot == 0 || pot == 10) n = 18;   // ARP ALGO (0..17)
+                if (pot == 6) n = 49;                // SHARED TRANSPOSE (-24..+24 st)
                 if (pot == 7) n = 8;                 // SHARED NEO_OP (0..7)
                 if (pot == 8) n = 16;                // SHARED ROOT (0..15)
                 if (pot == 9) n = 20;                // SHARED SCALE (0..19)

@@ -300,6 +300,7 @@ struct ModEngine {
   ModSource src[MOD_SOURCE_COUNT];
   ModArpExt arp_ext[MOD_ARP_COUNT];
   uint8_t   neo_op;                   // 0..7: RAND, P, L, R, N, S, H, PLR
+  int8_t    arp_transpose;            // shared ARP transpose, -24..+24 semitones (±2 oct)
   // ---- telemetry (core 1 writes, core 0 prints + resets each 2 s report) ---
   volatile uint32_t mod_us_max;       // engine block cost, max since report
   volatile uint32_t telem_midi_ticks; // F8 consumed since last report
@@ -1079,6 +1080,14 @@ static void mod_arp_set_shared_neo_op(uint8_t op) {
   g_mod_engine.neo_op = (op <= 7) ? op : 0;
 }
 
+// Shared transpose for ALL ARP algos (-24..+24 semitones). Changes take effect
+// on the next step for the mono note and immediately for the published chord
+// snapshot (Rings / LIRA-8), since that is rebuilt every block.
+static void mod_arp_set_transpose(int8_t semitones) {
+  g_mod_engine.arp_transpose =
+      semitones < -24 ? -24 : (semitones > 24 ? 24 : semitones);
+}
+
 // Intercepts step output on final bar of phrase cycle to inject cadential turnaround fills
 static void mod_arp_apply_turnaround(ModSource& s, ModArpExt& ext, uint8_t st, ModArpStep& io_step) {
   if (ext.dd_fill == 0) return;
@@ -1109,6 +1118,13 @@ static void mod_arp_apply_turnaround(ModSource& s, ModArpExt& ext, uint8_t st, M
 }
 
 // Compute MIDI note (28..96) for a step
+static inline uint8_t mod_arp_transposed(int16_t note) {
+  note += g_mod_engine.arp_transpose;   // shared ±2 octave transpose
+  if (note < 0) note = 0;
+  if (note > 127) note = 127;
+  return (uint8_t)note;
+}
+
 static uint8_t mod_arp_calc_note(const ModSource& s, const ModArpExt& ext,
                                  const ModArpStep& step) {
   if (s.p.arp.algo == MOD_ARP_VARG) {
@@ -1116,12 +1132,14 @@ static uint8_t mod_arp_calc_note(const ModSource& s, const ModArpExt& ext,
     vs.flags = step.flags;
     vs.off = step.off;
     vs.oct = step.oct;
-    return varg::calc_note(ext.st.varg, vs);
+    return mod_arp_transposed(varg::calc_note(ext.st.varg, vs));
   }
   const uint8_t base_root = (s.p.arp.root_param <= 3)
       ? (s.p.arp.midi_root ? s.p.arp.midi_root : 48u)
       : (uint8_t)(48u + ((s.p.arp.root_param - 4) % 12u));
-  return degree_to_midi_folded(base_root, ext.deg, step.off, step.oct, ext.scale_st, ext.nsteps);
+  return mod_arp_transposed(
+      degree_to_midi_folded(base_root, ext.deg, step.off, step.oct,
+                            ext.scale_st, ext.nsteps));
 }
 
 // Check if destination CC targets voice pitch on the active module or chain
@@ -1241,7 +1259,10 @@ static void mod_lira_harmony_publish() {
       // scale degree — the lira8 voicing law works unchanged on the pool.
       const varg::State& v = ext.st.varg;
       next.harmony_valid = 1;
-      next.harmony.root = l8harmony::fold_root((uint8_t)(36u + v.root_pc));
+      // Carried as an absolute root shift (not fold_root) so ±2 octaves reach
+      // Rings' chord adapter; ringchord::from_ctx reads the delta from root.
+      next.harmony.root = (uint8_t)((int16_t)l8harmony::fold_root(
+                              (uint8_t)(36u + v.root_pc)) + g_mod_engine.arp_transpose);
       next.harmony.nsteps = v.pool_n;
       for (uint8_t i = 0; i < 12; ++i) next.harmony.scale_st[i] = 0;
       for (uint8_t i = 0; i < v.pool_n && i < 12; ++i) {
@@ -1255,7 +1276,9 @@ static void mod_lira_harmony_publish() {
           (ext.deg >= 0 && ext.deg < ext.nsteps) ? (uint8_t)ext.deg : 0;
       next.harmony_valid = 1;
       mod_lira_fill_ctx(next.harmony, ext,
-                        l8harmony::fold_root((uint8_t)(base + ext.scale_st[deg])));
+                        (uint8_t)((int16_t)l8harmony::fold_root(
+                            (uint8_t)(base + ext.scale_st[deg])) +
+                            g_mod_engine.arp_transpose));
     }
   }
   // Exact-note group mappings: ARP -> CC 25 (low) / CC 26 (high).
@@ -1437,6 +1460,7 @@ void mod_engine_init() {
     }
   }
   e.neo_op = 0;
+  e.arp_transpose = 0;
 }
 
 // FA re-phase: MIDI-clocked sources only (internal clock keeps running).
@@ -2049,8 +2073,13 @@ static void mod_apply_cc_value(uint8_t src_idx, uint8_t param, uint8_t val) {
   preset_mark_dirty();            // T4a: persistent state changed
   ModEngine& e = g_mod_engine;
   ModSource& s = e.src[src_idx];
-  if (s.type == MOD_ARP && (param == 10 || param == 11 || param == 12)) {
-    if (param == 10) {
+  if (s.type == MOD_ARP && (param == 10 || param == 11 || param == 12 ||
+                            param == 13)) {
+    if (param == 13) {
+      // CC byte 0..127 -> -24..+24 semitones (49 steps, center ~64 = 0 st).
+      int16_t t = (int16_t)(((uint16_t)val * 48u + 63u) / 127u) - 24;
+      mod_arp_set_transpose((int8_t)t);
+    } else if (param == 10) {
       uint8_t r = (uint8_t)(((uint16_t)val * 16) / 128);
       if (r > 15) r = 15;
       mod_arp_set_shared_root(r);
@@ -2484,6 +2513,13 @@ static bool mod_set_param_console(uint8_t src_idx, uint8_t param,
         mod_arp_set_shared_neo_op(op);
         return true;
       }
+      if (param == 13) { // shared ARP transpose, signed semitones -24..+24
+        int t = (int)v;
+        if (t < -24) t = -24;
+        if (t > 24) t = 24;
+        mod_arp_set_transpose((int8_t)t);
+        return true;
+      }
       switch (param) {
         case 0: // algo
           if (!strcasecmp(tok, "hyp1") || !strcasecmp(tok, "acid")) s.p.arp.algo = MOD_ARP_HYP1;
@@ -2525,6 +2561,7 @@ static int8_t mod_parse_param(uint8_t src_idx, const char* tok) {
     if (!strcasecmp(tok, "root")) return 10;
     if (!strcasecmp(tok, "scale") || !strcasecmp(tok, "sc")) return 11;
     if (!strcasecmp(tok, "trans") || !strcasecmp(tok, "op") || !strcasecmp(tok, "neo")) return 12;
+    if (!strcasecmp(tok, "transpose") || !strcasecmp(tok, "transp") || !strcasecmp(tok, "tp")) return 13;
     if (!strcasecmp(tok, "dens") || !strcasecmp(tok, "prob") ||
         !strcasecmp(tok, "riff")) return 1; // p1
     if (!strcasecmp(tok, "slide") || !strcasecmp(tok, "form") || !strcasecmp(tok, "contour") ||
@@ -2710,11 +2747,11 @@ void mod_engine_cmd_modq(const char* args) {
         const ModArpExt& ext = e.arp_ext[s.p.arp.ext_idx];
         const char* root_str = (s.p.arp.root_param < 16)
                              ? kRootNames[s.p.arp.root_param] : "fix";
-        Serial.printf("algo=%s(%uoct) root=%s scale=%s neo_op=%s p1=%u p2=%u p3=%u p4=%u deg=%d note=%u step=%u out=%s",
+        Serial.printf("algo=%s(%uoct) root=%s scale=%s neo_op=%s tp=%+dst p1=%u p2=%u p3=%u p4=%u deg=%d note=%u step=%u out=%s",
                       kAlgo[s.p.arp.algo % MOD_ARP_ALGO_COUNT], s.p.arp.range,
                       root_str,
                       kSc[(s.p.arp.scale_idx & 0x3Fu) % SCALE_COUNT],
-                      kNeoOps[e.neo_op & 7u],
+                      kNeoOps[e.neo_op & 7u], e.arp_transpose,
                       s.p.arp.p[0], s.p.arp.p[1], s.p.arp.p[2], s.p.arp.p[3], (int)ext.deg,
                       s.p.arp.cur_note, s.p.arp.step,
                       mod_print_fixed(b1, sizeof(b1), s.out));
@@ -2895,6 +2932,7 @@ static uint16_t mod_engine_preset_write(uint8_t* p) {
         pl[6] = s.p.arp.p[2];
         pl[7] = s.p.arp.p[3];
         pl[8] = e.neo_op;
+        pl[9] = (uint8_t)e.arp_transpose;   // signed -24..+24, default 0
         break;
     }
     memcpy(w, pl, 24); w += 24;
@@ -3010,6 +3048,12 @@ static uint16_t mod_engine_preset_read(const uint8_t* p) {
         s.p.arp.p[2] = pl[6] <= 100 ? pl[6] : 30;
         s.p.arp.p[3] = pl[7] <= 100 ? pl[7] : 20;
         if (i == MOD_SRC_ARP_FIRST) e.neo_op = pl[8] <= 7 ? pl[8] : 0;
+        {
+          int16_t tp = (int16_t)(int8_t)pl[9];
+          if (tp < -24) tp = -24;
+          if (tp > 24) tp = 24;
+          e.arp_transpose = (int8_t)tp;
+        }
         s.p.arp.ext_idx = (uint8_t)((i >= MOD_SRC_ARP_FIRST) ? (i - MOD_SRC_ARP_FIRST) : 0);
         mod_arp_rebuild_pattern(s);
         break;

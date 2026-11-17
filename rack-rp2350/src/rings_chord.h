@@ -65,10 +65,20 @@ static inline Chord from_varg(const varg::State& v, int8_t octave,
 static inline Chord from_ctx(const l8harmony::GroupCtx& g, int8_t octave,
                              uint8_t max_slots) {
   const uint8_t root = (uint8_t)((g.root + 12u - 48u) % 12u);
+  // The publisher may add the shared ARP transpose to root (48 + pc +/- 24st).
+  // fold_root() keeps only the pitch class, so carry the octave delta here.
+  const int16_t shift = (int16_t)((int16_t)g.root - (int16_t)(48u + root));
   int8_t pool[8];
   const uint8_t n = g.nsteps < 8u ? g.nsteps : 8u;
   for (uint8_t i = 0; i < n; ++i) pool[i] = (int8_t)g.scale_st[i];
-  return from_pool(pool, n, root, octave, max_slots);
+  Chord c = from_pool(pool, n, root, octave, max_slots);
+  for (uint8_t i = 0; i < c.n; ++i) {
+    int32_t note = (int32_t)c.tone[i] + shift;
+    if (note < 0) note = 0;
+    if (note > 127) note = 127;
+    c.tone[i] = (float)note;
+  }
+  return c;
 }
 
 }  // namespace ringchord

@@ -64,6 +64,11 @@ static void test_chord_from_pool() {
     expect_int("ctx n", c.n, 3);
     expect_near("ctx t0", c.tone[0], 45.0f, 0.01f);
     expect_near("ctx t1", c.tone[1], 51.0f, 0.01f);
+    // published root +24 st (ARP transpose) must shift every chord tone
+    g.root = 81;  // A + 2 octaves
+    ringchord::Chord t = ringchord::from_ctx(g, 0, 8);
+    expect_near("ctx transpose t0", t.tone[0], 69.0f, 0.01f);
+    expect_near("ctx transpose t1", t.tone[1], 75.0f, 0.01f);
   }
   {
     // all slots clamped to a valid MIDI range even at silly octaves
