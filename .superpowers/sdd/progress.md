@@ -3832,9 +3832,64 @@ Plan: `docs/superpowers/plans/2026-11-17-elements-warps.md`.
 | T9b Reverb engine sized to its true span | done (build-verified) | 342fd43 | `FxEngine<32768>` → `<21632>` under RACK_RP2350_TC (Dattorro Reserve sum = 21,617 frames, ledger-documented 43,254 B); elements carve 65,536 → 43,264 B frees the warps room; canary host test `test_reverb.cc` RED (upstream Init zeroes the guard zone) → GREEN |
 | T9c Warps stage inside Part + CCs 36-40 | done (build-verified) | 7619ca5 | stage in `part.inc` after metering/panic, before `reverb_.Process`; carrier = main, modulator = `raw_buffer_`, mono into main (aux untouched); algorithm clamped 0.625 (comparator; vocoder zone excluded); `Part::Init(reverb_buffer, warps*)`; Modulator pool-placed behind the reverb carve (`static_assert` ≤ 4096 — actual **2,312 B**); CCs 36-40 in `control_change` + `mod_set_cc_float`, kModContinuousCcs 17→22; stage host tests: bypass bit-exact vs nullptr-warp Part, aux untouched, alg 1.0 ≡ 0.625, silent-mod mix 0.5 = exact halving |
 | T9d UI surfaces (P2 cells + panel + README) | done (build-verified) | 9df714f | `kUiPageElementsP2` +5 cells (`W ALGO/TIMBRE/MOD/CAR/MIX`) — C3 renders pages from TELEM, **no rack-uimcu change, no C3 reflash**; `rack_panel.html` knobs/ccMap/MOD_DESTS; README "Elements × Warps stage (T9)" section |
-| T9e Flash + per-algorithm bench + user acceptance + push | pending hardware | — | gates: max Process ≤ 460 µs of 496 in the worst combo (ominous dwell + warps), i2s stalls 0, chain elements→clouds `u= 0`; per-algorithm µs table into this ledger; user ears per algorithm |
+| T9e Flash + per-algorithm bench + user acceptance + push | in progress (clock work done; bench pending) | 9dc98ab + 0457273 + (264 clock commit) | bench gates re-anchored — see the clock findings below; per-algorithm warps delta table still pending user hands |
 
 Findings (T9):
+
+### Rack T9-clock — 240 floor truth, 280 rejected, 264 adopted (2026-11-17)
+
+- **T9 (warps) is EXONERATED from the budget story**: a whole-build bisect
+  (flashing pre-T9 44a3024) measured the SAME idle — pre-T9 elements idles at
+  **504-518 µs of the 496 budget** on device (stalls 0, the 2.9 ms I2S bank
+  absorbs it — the accepted operating condition). The plan's ≤ 460 µs gate was
+  anchored on the ledger's old 101-125 µs numbers (strings-model era) — wrong
+  baseline, mine. The warps stage DELTA measured on hardware at 240:
+  **+30-135 µs per algorithm** (OFF ~640 → XFADE 734, DIODE 808, DIGI 645,
+  XOR 745, COMP 712, drone baseline 673). Gate re-anchored to the delta.
+- **The idle floor is WAIT-STATE bound, not compute bound**: ~510-540 µs
+  wandering to 600-700 at BOTH 240 and 264 MHz — raising the clock does not
+  move it. The unmarked (XIP) fraction of the hot path dominates; further
+  gains need tc-marking promotions (tc_elements has 7,544 B A-slot slack),
+  not clocks.
+- **280 MHz is NOT stable on this board and was rejected on evidence**:
+  - The flash (QMI) timing is set by the RP2350 ROM (measured live:
+    **CLKDIV 3, RXDELAY 2** — boot2/PICO_FLASH_SPI_CLKDIV does NOT apply on
+    RP2350, pico-sdk issue #1903) and set_sys_clock_khz does NOT re-scale it,
+    so flash SCK = clk_sys/3: 80 MHz at 240, **93 MHz at 280** — the data
+    sample point goes marginal and XIP reads corrupt INTERMITTENTLY.
+  - Observed at 280 across four builds (incl. one with a constructor-time
+    QMI pin to the proven 4/2 combo): intermittent boot (sometimes reached
+    link+TELEM, sometimes died in core init), **structurally-valid TELEM
+    frames with corrupt CRC** (C3 log), CDC dark in every variant, and a
+    bootloop triggered by the C3's stale autosave applying a lira8 swap whose
+    window copy hit the corruption. 264 MHz shows none of this.
+  - Adopted: **264 MHz = 12×22** (PIO-USB-safe multiple), SCK 88 MHz, ROM
+    timing, soaked stable (0 stalls). 280 was the T7 note's intent but its
+    "flash SCK w/in legal bounds" concern was real — at 280 the margin was
+    already gone before any divider fix could land. 280 needs a real QMI
+    retune (RXDELAY ≥ 3 at 93 SCK) to revisit; not attempted further.
+- **New console tools (T9)**: `cc <0-127> <0-127>` injects a MIDI CC through
+  the REAL midiControlChange funnel (TELEM cache + autosave-dirty + registry
+  dispatch) — scripted benching without hardware knobs; `qmi` /
+  `qmi set <clkdiv> <rxdelay>` reads/writes the live QMI M0 timing (runtime
+  write validated at 240: set → readback → audio alive).
+- **UI fix along the way**: elements P2 showed 3 of 8 cells because
+  `kUiPages` hardcoded the cell counts — the registry now DERIVES counts from
+  its tables (`UI_PAGE_CELL_COUNT`); the C3 renders TELEM as told, so the
+  warps cells appeared only after that fix (user-confirmed 8/8).
+- **Panel**: W ALGO is a labeled step selector (OFF/XFADE/FOLD/DIODE/DIGI/
+  XOR/COMP at bytes 0/1/16/32/48/64/79 — the pure algorithms sit at p×8 =
+  0..5; byte 0 is the bypass). C3 pots stay continuous (TELEM has no steps
+  metadata; protocol extension deferred).
+- **Process lesson recorded in agent memory**: never flash a known-bad build
+  to the board without a recovery in hand (the 280 bootloop incident);
+  BOOTSEL mass-storage copy is the race-free flash path; COM22 (C3) is the
+  liveness channel when RP2350 USB CDC is down.
+- **Host test harness**: `test_warps.cc` (rack deltas: sizeof 73,192 →
+  2,312 B, kMaxBlockSize 16, egg stripped), `test_reverb.cc` (canary: Init
+  fills exactly the 21,632-frame carve), `test_warps_stage.cc` (bypass
+  bit-exact, aux untouched, alg clamp, exact halving) — all RED→GREEN
+  watched; the full lira8 suite still green (one g++13.3 fix in test_wav_io).
 
 ### Rack T9a — warps memory truth + ctag-plan bugs (2026-11-17)
 
