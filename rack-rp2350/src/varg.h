@@ -439,5 +439,107 @@ static inline void advance(State* st, const Inputs& in) {
   }
 }
 
+// ---- riff (build_bar) --------------------------------------------------
+
+static const uint8_t kZoneLo[kRiffZoneCount] = { 0, 17, 34, 51, 68, 85 };
+
+// 55..100 across the zone's span; downbeats always survive thinning.
+static inline uint8_t riff_density(const Inputs& in) {
+  const uint8_t frac = (uint8_t)(in.riff - kZoneLo[zone_of(in)]);
+  const uint16_t d = 55u + ((uint16_t)frac * 45u) / 16u;
+  return d > 100u ? 100u : (uint8_t)d;
+}
+
+// Build the 16-step riff for the current bar (pool + zone + DISS).
+static inline void build_bar(State* st, const Inputs& in, Step out[16]) {
+  build_pool(st, in);
+  const uint8_t zone = zone_of(in);
+  const uint8_t dens = riff_density(in);
+  const int8_t i_third = pool_top_of(
+      st, (st->quality == kQMinor || st->quality == kQAdd9) ? 3 : 4);
+  const int8_t i_fifth = pool_top_of(st, 7);
+  const int8_t i_high  = pool_top_of(st, 12);
+  const int8_t i_pass  = (in.diss >= 65u) ? pool_top_of(st, 6)
+                       : (in.diss >= 30u) ? pool_top_of(st, 1) : 0;
+  // Riff-cell rotation (mutation), DISS-driven.
+  const uint8_t rot =
+      (in.diss >= 25u && v_roll100(st) < (uint8_t)(in.diss / 4u))
+          ? v_rand(st, 4) : 0u;
+
+  for (uint8_t s = 0; s < 16u; ++s) {
+    Step& t = out[s];
+    const uint8_t beat = (uint8_t)(s & 3u);
+    bool gate = false, acc = false, slide = false;
+    int8_t off = 0, oct = 0;
+    switch (zone) {
+      case kRiffSustain: {
+        gate = (s == 0u || s == 8u);
+        slide = gate;
+        off = (s == 8u) ? i_fifth : 0;
+        acc = (s == 0u);
+        break;
+      }
+      case kRiffHalf: {
+        gate = (beat == 0u);
+        off = (s == 0u || s == 8u) ? 0 : i_fifth;
+        acc = (s == 0u || s == 8u);
+        break;
+      }
+      case kRiff8th: {
+        // 4-step cell: root, fifth, root, third (rotated by mutation).
+        static const uint8_t kCell[4] = { 0, 2, 0, 1 };
+        gate = ((s & 1u) == 0u);
+        const uint8_t c = kCell[(uint8_t)(((s >> 1) + rot) & 3u)];
+        off = (c == 0u) ? 0
+            : (c == 1u) ? i_third
+            : (c == 2u) ? i_fifth : i_high;
+        acc = (s == 0u || s == 8u);
+        break;
+      }
+      case kRiff16th: {
+        gate = true;
+        off = (int8_t)((s + rot) % st->pool_n);
+        acc = (beat == 0u);
+        break;
+      }
+      case kRiffGallop: {
+        // 3+1 gallop cell: root, root, fifth, rest.
+        static const uint8_t kGal[3] = { 0, 0, 2 };
+        gate = (beat != 3u);
+        const uint8_t c = kGal[beat % 3u];
+        off = (c == 2u) ? i_fifth : 0;
+        acc = (beat == 0u);
+        break;
+      }
+      case kRiffBlast:
+      default: {
+        gate = true;
+        off = (s & 1u) ? i_high : 0;
+        acc = (beat == 0u);
+        break;
+      }
+    }
+    // Density thinning: downbeats always survive.
+    if (gate && beat != 0u && dens < 100u) {
+      gate = (v_roll100(st) < dens);
+    }
+    // DISS passing tones on odd 16ths in the tremolo zones.
+    if (gate && (s & 1u) == 1u && zone >= kRiff16th && in.diss > 0u &&
+        v_roll100(st) < (uint8_t)(in.diss / 3u)) {
+      off = i_pass;
+      acc = false;
+    }
+    // Octave displacement in the tremolo zones (uses the RANGE octaves).
+    if (gate && zone >= kRiff8th && in.range > 1u && (s & 7u) == 5u &&
+        v_roll100(st) < 40u) {
+      oct = (int8_t)(1u + v_rand(st, (uint8_t)(in.range - 1u)));
+    }
+    t.flags = (uint8_t)((gate ? kFlagGate : 0u) | (acc ? kFlagAccent : 0u) |
+                        (slide ? kFlagSlide : 0u));
+    t.off = off;
+    t.oct = oct;
+  }
+}
+
 }  // namespace varg
 #endif  // RACK_SRC_VARG_H_

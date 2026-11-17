@@ -347,6 +347,122 @@ static void test_diss_substitution_and_sections() {
   expect_true("section shift occurs", shifted);
 }
 
+// ---- Task 3: riff builder ----------------------------------------------
+
+static void test_zone_grids() {
+  Inputs in = make_inputs();
+  in.voice = 17; in.diss = 0;
+  State st{};
+  Step bar[16];
+
+  // SUSTAIN (riff 16 = zone 0 top, density 100): gates exactly {0,8}
+  in.riff = 16;
+  init(&st, 21u, in);
+  build_bar(&st, in, bar);
+  for (uint8_t s = 0; s < 16u; ++s) {
+    const bool want = (s == 0 || s == 8);
+    expect_true("sustain gate", ((bar[s].flags & kFlagGate) != 0u) == want);
+    if (want) expect_true("sustain slide", (bar[s].flags & kFlagSlide) != 0u);
+  }
+  expect_true("sustain accent0", (bar[0].flags & kFlagAccent) != 0u);
+
+  // HALF (riff 33 = zone 1 top): gates {0,4,8,12}, accents {0,8}
+  in.riff = 33;
+  init(&st, 22u, in);
+  build_bar(&st, in, bar);
+  for (uint8_t s = 0; s < 16u; ++s) {
+    const bool want = ((s & 3u) == 0u);
+    expect_true("half gate", ((bar[s].flags & kFlagGate) != 0u) == want);
+  }
+  expect_true("half accents", (bar[0].flags & kFlagAccent) != 0u &&
+                              (bar[8].flags & kFlagAccent) != 0u);
+
+  // 16TH (riff 67 = zone 3 top, density 100): all 16 gates, accents {0,4,8,12}
+  in.riff = 67;
+  init(&st, 23u, in);
+  build_bar(&st, in, bar);
+  uint8_t gates = 0;
+  for (uint8_t s = 0; s < 16u; ++s) {
+    if (bar[s].flags & kFlagGate) ++gates;
+    if ((s & 3u) == 0u)
+      expect_true("16th accent", (bar[s].flags & kFlagAccent) != 0u);
+  }
+  expect_int("16th gate count", gates, 16);
+
+  // GALLOP (riff 84 = zone 4 top): gates = beat != 3
+  in.riff = 84;
+  init(&st, 24u, in);
+  build_bar(&st, in, bar);
+  for (uint8_t s = 0; s < 16u; ++s) {
+    const bool want = ((s & 3u) != 3u);
+    expect_true("gallop gate", ((bar[s].flags & kFlagGate) != 0u) == want);
+  }
+}
+
+static void test_riff_bounds_and_blast() {
+  Inputs in = make_inputs();
+  in.riff = 100;  // BLAST
+  in.diss = 0;
+  State st{};
+  init(&st, 31u, in);
+  Step bar[16];
+  build_bar(&st, in, bar);
+  bool ok = true;
+  for (uint8_t s = 0; s < 16u; ++s) {
+    if (bar[s].flags & kFlagGate) {
+      if (bar[s].off < 0 || bar[s].off >= (int8_t)st.pool_n) ok = false;
+    }
+    if ((s & 3u) == 0u) {  // downbeats always gated + accented in BLAST
+      if (!(bar[s].flags & kFlagGate)) ok = false;
+      if (!(bar[s].flags & kFlagAccent)) ok = false;
+    }
+  }
+  expect_true("blast bounds+accents", ok);
+
+  // off bounds across 8 seeds at a mid-density zone
+  in.riff = 62;  // 8TH
+  ok = true;
+  for (uint8_t seed = 0; seed < 8u; ++seed) {
+    init(&st, 100u + seed, in);
+    build_bar(&st, in, bar);
+    for (uint8_t s = 0; s < 16u; ++s) {
+      if ((bar[s].flags & kFlagGate) &&
+          (bar[s].off < 0 || bar[s].off >= (int8_t)st.pool_n)) ok = false;
+    }
+  }
+  expect_true("riff off bounds", ok);
+}
+
+static void test_diss_passing_and_determinism() {
+  Inputs in = make_inputs();
+  in.riff = 67;   // 16TH
+  in.diss = 100;  // b2 + tritone join the pool; passing rolls at 33%
+  State st{};
+  init(&st, 41u, in);
+  int8_t pass_idx = -1;
+  for (uint8_t i = 0; i < st.pool_n; ++i) {
+    if (st.pool[i] == 6) pass_idx = (int8_t)i;   // tritone is the color tone
+  }
+  bool saw_pass = false;
+  Step bar[16];
+  for (uint8_t b = 0; b < 4u && !saw_pass; ++b) {
+    build_bar(&st, in, bar);
+    for (uint8_t s = 1; s < 16u; s += 2) {
+      if ((bar[s].flags & kFlagGate) && bar[s].off == pass_idx) saw_pass = true;
+    }
+  }
+  expect_true("diss passing tone fired", saw_pass);
+
+  // deterministic rebuild: same seed -> identical bar
+  State a{}, b{};
+  init(&a, 55u, in);
+  init(&b, 55u, in);
+  Step ba[16], bb[16];
+  build_bar(&a, in, ba);
+  build_bar(&b, in, bb);
+  expect_true("build_bar deterministic", std::memcmp(ba, bb, sizeof(ba)) == 0);
+}
+
 int main() {
   test_pools();
   test_calc_note();
@@ -359,6 +475,9 @@ int main() {
   test_halftrn_b2b5();
   test_neofree_and_kernels();
   test_diss_substitution_and_sections();
+  test_zone_grids();
+  test_riff_bounds_and_blast();
+  test_diss_passing_and_determinism();
   if (g_fail == 0) std::printf("test_varg: ALL PASS\n");
   else std::printf("test_varg: %d FAILURES\n", g_fail);
   return g_fail ? 1 : 0;
