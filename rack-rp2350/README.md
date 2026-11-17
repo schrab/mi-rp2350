@@ -316,6 +316,15 @@ applied to the Patch only when FX type = 5; in distortion mode they are zeroed
 so `Part::Process` skips Warps (zero cost). Likewise `ringdist::process` is
 skipped in Warps mode. Switching FX preserves both sets of control values.
 
+**Signal routing:** in Warps mode the raw exciter is the MODULATOR consumed by
+the Warps stage — `part.inc` forces `raw_gain = 0` so it does **not** bleed into
+`aux` (which feeds reverb/distortion). Carrier and modulator are mixed inside
+Warps; reverb and distortion receive the clean main signal. At `space=0` with
+Warps off, `aux` is the raw exciter as before. (Patch law: `lib/` is regenerated
+by `tools/sync_pio_libs.sh`; this delta lives in
+`tools/patches/elements/elements-warps-stage.patch` and is applied to both
+the rack and standalone libs, guarded by `RACK_RP2350_TC`.)
+
 The post-render distortion is the same 5-algo stage Rings uses; on Elements it
 runs after `Part::Process`, before VCA/I2S. Drive 0 = zero-cost bypass; drive
 alone is the amount (no wet/dry mix — what you hear at high drive is the

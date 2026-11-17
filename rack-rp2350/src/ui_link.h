@@ -1397,7 +1397,12 @@ void ui_link_observe_cc(uint8_t cc, uint8_t val) {
   for (uint8_t i = 0; i < t.count; ++i) {
     if (t.cells[i].cc != 0 && t.cells[i].cc == cc) {
       last_delta_ms = now;
-      ui_link_send_telem(g_ui_active_page, kUiTelemDelta, cc);
+      // Elements FX type (CC 42) swaps the P2 cell set, so the C3 needs a
+      // FULL snapshot — a delta carries the value but no relabeled cells.
+      if (mod == RACK_MODULE_ELEMENTS && cc == 42)
+        ui_link_send_telem(g_ui_active_page, kUiTelemFull, 0);
+      else
+        ui_link_send_telem(g_ui_active_page, kUiTelemDelta, cc);
       return;
     }
   }

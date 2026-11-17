@@ -4028,6 +4028,25 @@ Findings (T9):
   Verified: CC 42=0 dist params respond; CC 42=5 Warps runs (Process ~623 us),
   20-cycle mixed stress clean at 1.25 V. User confirmed "dry signal at max
   distortion" was the waveshaper's carrier/fundamental, not a bug.
+- **Two user-found bugs fixed (2026-11-17)**:
+  1. *Screen not updating after FX switch*: changing CC 42 (FX type) sent only a
+     TELEM delta (value, no cell labels), so the C3 kept stale P2 cells until a
+     page switch. Fixed: `ui_link_observe_cc` sends a FULL TELEM snapshot on
+     CC 42 for Elements (relabels the mode-dependent P2 cells).
+  2. *Modulator bleed into reverb/distortion*: at `space=0`, `raw_gain=1` makes
+     Elements' `aux` = raw exciter (the Warps modulator), so it reached
+     reverb/distortion unprocessed ("modulator output without reverb"; with
+     space on, raw_gain=0 and the signal was fine). Fixed in `part.inc`: in
+     Warps mode (`warps_ && warps_algorithm>0`) force `raw_gain=0` so `aux`
+     carries the clean stereo resonator. Both carrier+modulator feed Warps and
+     are mixed there; reverb/distortion get main without the modulator. Delta
+     lives in `tools/patches/elements/elements-warps-stage.patch` (new hunk
+     `@@ -150,6 +164,13 @@`), applied by sync to both rack + standalone libs
+     under `RACK_RP2350_TC`. Host test `test_warps_stage.cc` assertion updated
+     (aux must now differ from the warps-less Part in Warps mode). All 5 envs
+     build-green, rack-lira8 flashed. NOTE: host test could not be rebuilt here
+     (no g++ on this machine) — re-run `make test_warps_stage` in WSL.
+
 
 ### Rack T9a — warps memory truth + ctag-plan bugs (2026-11-17)
 

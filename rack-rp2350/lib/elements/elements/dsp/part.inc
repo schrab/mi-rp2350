@@ -164,6 +164,13 @@ void Part::Process(
   float space = patch_.space >= 1.0f ? 1.0f : patch_.space;
   float raw_gain = space <= 0.05f ? 1.0f : 
     (space <= 0.1f ? 2.0f - space * 20.0f : 0.0f);
+#if defined(RACK_RP2350_TC)
+  // Warps mode: the raw exciter is the MODULATOR consumed by the Warps stage
+  // below — it must NOT bleed into aux (which feeds reverb/distortion).
+  // Force aux to the clean stereo resonator so both DSPs get main without the
+  // modulator. Reverb then treats the Warps result (in main) and clean aux.
+  if (warps_ && patch_.warps_algorithm > 0.0f) raw_gain = 0.0f;
+#endif
   space = space >= 0.1f ? space - 0.1f : 0.0f;
   float spread = space <= 0.7f ? space : 0.7f;
   float reverb_amount = space >= 0.5f ? 1.0f * (space - 0.5f) : 0.0f;
