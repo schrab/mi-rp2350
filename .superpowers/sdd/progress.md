@@ -4014,5 +4014,16 @@ Findings (T9):
   via `rack_rings_varg_chord_on`); distortion on **all** modes via CC 24/27-30;
   C3 MODE bucket 5 -> 6 + DIST TYPE bucket 4. All five rack envs, standalone
   rings and C3 build green.
-- Commits: 7fd33aa (pure headers/tests) .. dfabbad (firmware wiring).
-  **Bench pending:** flash + chord/type sweep + timing + user ears.
+- Commits: 7fd33aa (pure headers/tests) .. 66af79c (docs).
+- **Bench (2026-11-17, automated part)**: flashed rack-rings UF2 (COM15) and
+  C3 app (`-p COM22 flash`). Mode 5 engaged via `cc 20 5` with arp1 VARG
+  routed to `voice`: `mod?` showed `algo=varg ... prog=weitzmn chord=pc8 q=min
+  bar=1 pool=[0,3,7,12]`. Audio meters active (in ~700-960, out ~930-999).
+  Distortion sweep CC 27 = 0/1/2/3 (tube/fold/fuzz/shape) and CC 24 = 0 (bypass)
+  / 127 (max drive) all stable: `max Process 178-360 us` vs the 750 us budget,
+  `i2s stalls: 0` throughout. Preset dump/collect/load restored mode 5 and the
+  distortion CCs (CC cache replay, no swap). NOTE: `out` meter frequently hits
+  999 (full scale) at the default drive 0.55 + mix 1 — user ears will judge
+  whether to back off CC 24 / CC 30.
+- **Bench pending:** user listening confirmation (simultaneous-chord character,
+  W7/NEO evolution, 4 distortion flavors).
