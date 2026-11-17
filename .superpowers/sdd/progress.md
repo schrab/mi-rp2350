@@ -4062,4 +4062,6 @@ Findings (T9):
   whitelisted only shared params 10/11/12, so param 13 was REJECTED even with
   the C3 map fixed. `f693b93` adds 13 to that whitelist; all five envs green
   and RP2350 re-flashed. C3 was already flashed with the `{10,13}` pot map.
-- **Bench pending:** user re-test of the pot (display + actual octave jump).
+- **User acceptance (2026-11-17)**: user turned the OCTAVE pot through the 5
+  steps and confirmed the actual pitch jumps by whole octaves across the ARP
+  algos — **BENCH DONE**. Board left on Rings mode 5, VARG, OCTAVE +1.
