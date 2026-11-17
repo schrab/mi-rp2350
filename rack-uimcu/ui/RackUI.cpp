@@ -959,8 +959,8 @@ namespace CTAG {
                                 static const char *const kRingFx[6]     = { "FORMNT", "CHORUS", "REVERB", "FORM2", "ENSEMB", "REVB2" };
                                 pName = (dispVal >= 0 && dispVal < 6) ? (ringMode == 4 ? kRingFx[dispVal] : kRingModels[dispVal]) : "---";
                             } else if (c.cc == 20) {
-                                static const char *const kRingModes[5] = { "STEREO", "WAVE", "EL-ST", "EL-EX", "EGG" };
-                                pName = (dispVal >= 0 && dispVal < 5) ? kRingModes[dispVal] : "---";
+                                static const char *const kRingModes[6] = { "STEREO", "WAVE", "EL-ST", "EL-EX", "EGG", "VARG" };
+                                pName = (dispVal >= 0 && dispVal < 6) ? kRingModes[dispVal] : "---";
                             } else if (c.cc == 21) {
                                 static const char *const kRingWaves[3]    = { "SQR", "IMP", "SAW" };
                                 static const char *const kRingExciters[3] = { "BOW", "BLOW", "STRK" };
