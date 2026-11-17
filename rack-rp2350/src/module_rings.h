@@ -47,7 +47,7 @@ static const uint32_t kStallUs = 1400;    // ~1.8x the 750 us block period
 static const char* const kCcMap =
     "1 pitch(-24..+24st), 7 vca, 14 structure, 15 brightness, 16 damping, 17 position, "
     "18 model/fx, 19 polyphony, 20 mode(0-5, 5=VARG chord), 21 waveform, 22 chord-table, "
-    "23 chord, 24 dist-drive, 27 dist-type, 28 dist-bias, 29 dist-tone, 30 dist-mix, "
+    "23 chord, 24 dist-drive (0=bypass), 27 dist-type, 28 dist-bias, 29 dist-tone, "
     "64 strum";
 // T3 mod destinations: 1, 7, 14-17 + 23 accept continuous modulation (23 writes the
 // chord table at fill time — modulating it sweeps chords). 18-22 are EXCLUDED
@@ -115,7 +115,6 @@ struct State {
   volatile uint8_t dist_type;     // CC 27, 0 tube / 1 fold / 2 fuzz / 3 shape
   volatile float dist_bias;       // CC 28 (fuzz only)
   volatile float dist_tone;       // CC 29, 1 = open
-  volatile float dist_mix;        // CC 30, 1 = wet
   volatile bool varg_chord_on;    // core-0 MIDI-hook mirror of applied_mode == 5
 };
 
@@ -201,7 +200,6 @@ void init_at(uint8_t* obj_base, uint8_t* buf_base) {
   s->dist_type = 0u;
   s->dist_bias = 0.0f;
   s->dist_tone = 1.0f;
-  s->dist_mix = 1.0f;
   s->varg_chord_on = false;
 }
 
@@ -236,7 +234,6 @@ static inline ringdist::Params dist_params() {
   p.drive = s->dist_drive;
   p.bias = s->dist_bias;
   p.tone = s->dist_tone;
-  p.mix = s->dist_mix;
   return p;
 }
 
@@ -521,7 +518,6 @@ void control_change(uint8_t cc, uint8_t val) {
     case 27: if (val <= 4) s->dist_type = static_cast<uint8_t>(val); break;
     case 28: s->dist_bias = v; break;
     case 29: s->dist_tone = v; break;
-    case 30: s->dist_mix = v; break;
     // STRUM pseudo-CC (64): val >= 64 = one-block strum pulse, val < 64 =
     // no-op. T1 button parity: the hardware PLAY button and the web panel
     // send this pseudo-CC (elements/plaits use the same CC number; rings'

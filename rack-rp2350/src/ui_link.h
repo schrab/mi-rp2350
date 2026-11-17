@@ -220,7 +220,7 @@ static const UiPageCell kUiPageElementsP2[] = {
     {37, "D TYPE",     kUiColorWhite},
     {38, "D BIAS",     kUiColorWhite},
     {39, "D TONE",     kUiColorWhite},
-    {40, "D MIX",      kUiColorWhite},
+    {0,  "",           kUiColorWhite}, // dist MIX removed: drive is the amount
 };
 // clouds — P1: SIZE/TEXTURE teal, POSITION/DENSITY pink, rest white.
 static const UiPageCell kUiPageCloudsP1[] = {
@@ -265,7 +265,7 @@ static const UiPageCell kUiPageRingsP1[16] = {
     {17, "POSITION",   kUiColorWhite}, // p3
     {24, "DIST DRIVE", kUiColorWhite}, // p4 (post-render distortion drive)
     {27, "DIST TYPE",  kUiColorWhite}, // p5 (0 tube / 1 fold / 2 fuzz / 3 shape / 4 swede)
-    {30, "DIST MIX",   kUiColorWhite}, // p6
+    {0,  "",           kUiColorWhite}, // p6 (dist MIX removed: drive is the amount)
     // Row 1 (pots 6..9 / physical p7..p10):
     {1,  "PITCH",      kUiColorWhite}, // p7
     {14, "STRUCTURE",  kUiColorWhite}, // p8

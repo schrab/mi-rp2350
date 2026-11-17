@@ -35,7 +35,8 @@ struct Params {
   float drive;   // 0..1; 0 = zero-cost bypass
   float bias;    // 0..1; fuzz bias / Swedish "tight" HP toggle
   float tone;    // 0..1; 1 = open
-  float mix;     // 0..1; 0 = fully dry
+  // No wet/dry mix: drive == 0 is a zero-cost bypass, so DRIVE alone is the
+  // distortion-amount control. The stage is always fully wet when engaged.
 };
 
 static inline float clamp01(float x) {
@@ -258,25 +259,18 @@ static inline void process(State* st, const Params& p,
                            float* out, float* aux, size_t n) {
   if (p.drive <= 0.0f) return;
   const float d = p.drive;
-  const float mix = clamp01(p.mix);
   const float lp_k = 0.04f + 0.96f * clamp01(p.tone);
   const int type = (int)(p.type % 5u);
   if (type == kSwedish) {
-    // Block-oriented pedal core: save dry, shape, then reuse the common
-    // tone LP + dry/wet blend. Rings blocks are <= 24 samples.
-    float dry[2][64];
+    // Block-oriented pedal core, then the common tone LP. Rings blocks <= 24.
     const size_t m = n < 64u ? n : 64u;
-    for (size_t i = 0; i < m; ++i) {
-      dry[0][i] = out[i];
-      dry[1][i] = aux[i];
-    }
     swedish_process(out, aux, m, d, p.bias);
     float* chans[2] = {out, aux};
     for (int c = 0; c < 2; ++c) {
       float lp = st->lp[c];
       for (size_t i = 0; i < m; ++i) {
         lp += lp_k * (chans[c][i] - lp);
-        chans[c][i] = dry[c][i] + (lp - dry[c][i]) * mix;
+        chans[c][i] = lp;
       }
       st->lp[c] = lp;
     }
@@ -323,7 +317,7 @@ static inline void process(State* st, const Params& p,
         wet = softclip(k * dry) * k_norm;
       }
       lp += lp_k * (wet - lp);
-      chans[c][i] = dry + (lp - dry) * mix;
+      chans[c][i] = lp;
     }
     st->lp[c] = lp;
   }

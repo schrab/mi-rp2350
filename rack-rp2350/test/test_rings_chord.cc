@@ -120,7 +120,7 @@ static void test_process_bypass_and_types() {
     q.drive = 0.7f;
     q.bias = 0.3f;
     q.tone = 0.5f;
-    q.mix = 1.0f;
+
     ringdist::process(&s2, q, out, aux, 8);
     bool finite = true, bounded = true;
     for (int i = 0; i < 8; ++i) {
@@ -141,7 +141,7 @@ static void test_process_bypass_and_types() {
     q.drive = 0.8f;
     q.bias = 0.8f;
     q.tone = 0.5f;
-    q.mix = 1.0f;
+
     ringdist::State st{{0.0f, 0.0f}};
     for (int block = 0; block < 8; ++block) {
       ringdist::process(&st, q, o, a, 24);
@@ -158,23 +158,20 @@ static void test_process_bypass_and_types() {
   }
 }
 
-static void test_process_mix_and_state() {
+static void test_process_drive_and_state() {
   float out[4] = {0.5f, -0.5f, 0.25f, -0.25f};
   float aux[4] = {-0.5f, 0.5f, -0.25f, 0.25f};
-  float keep[4];
-  std::memcpy(keep, out, sizeof(out));
   ringdist::State st{{0.0f, 0.0f}};
   ringdist::Params p{};
   p.type = ringdist::kTube;
   p.drive = 0.5f;
   p.tone = 1.0f;
-  p.mix = 0.0f;  // fully dry
+  // Engaged: output is fully wet (no mix parameter), tone LP applied.
   ringdist::process(&st, p, out, aux, 4);
-  for (int i = 0; i < 4; ++i) expect_near("dry mix", out[i], keep[i], 1e-6f);
+  for (int i = 0; i < 4; ++i) expect_true("wet output", std::fabs(out[i]) > 0.0f);
 
   // lp state persists across calls
   float o2[2] = {1.0f, 1.0f}, a2[2] = {1.0f, 1.0f};
-  p.mix = 1.0f;
   ringdist::process(&st, p, o2, a2, 2);
   const float lp0 = st.lp[0];
   ringdist::process(&st, p, o2, a2, 2);
@@ -185,7 +182,7 @@ int main() {
   test_chord_from_pool();
   test_shaper_curves();
   test_process_bypass_and_types();
-  test_process_mix_and_state();
+  test_process_drive_and_state();
   if (g_fail == 0) std::printf("test_rings_chord: ALL PASS\n");
   else std::printf("test_rings_chord: %d FAILURES\n", g_fail);
   return g_fail ? 1 : 0;

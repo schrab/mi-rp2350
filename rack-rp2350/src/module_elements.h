@@ -59,7 +59,7 @@ static const char* const kCcMap =
     "23 geometry, 24 brightness, 25 damping, 26 position, 27 space, "
     "28 model, 29 easter-egg, "
     "36 dist-drive, 37 dist-type(0 tube/1 fold/2 fuzz/3 shape/4 swede), "
-    "38 dist-bias, 39 dist-tone, 40 dist-mix, 64 play";
+    "38 dist-bias, 39 dist-tone, 64 play";
 // T3 mod destinations: every float-parameter CC of the map accepts continuous
 // modulation (1/11 included — note that velocity-scaled strength from note-on
 // is overridden while a source is routed to CC 11). Selectors 28/29 are
@@ -67,12 +67,12 @@ static const char* const kCcMap =
 // accepts trigger modulation (PLAY: triggers exciter strike & envelope).
 static const uint8_t kModContinuousCcs[] = {1, 7, 11, 14, 15, 16, 17, 18, 19,
                                             20, 21, 22, 23, 24, 25, 26, 27,
-                                            36, 37, 38, 39, 40};
+                                            36, 37, 38, 39};
 static const uint8_t kModTriggerCcs[] = {64};
 static const uint8_t kModTriggerKinds[] = {RACK_TRIG_PULSE};
 static const RackModDestinations kModDestinations = {
-    "elements: continuous 1,7,11,14-27 + 36-40 dist (warps code kept, bypassed) | triggers: 64 play (pulse)",
-    22, kModContinuousCcs,
+    "elements: continuous 1,7,11,14-27 + 36-39 dist (warps code kept, bypassed) | triggers: 64 play (pulse)",
+    21, kModContinuousCcs,
     1, kModTriggerCcs, kModTriggerKinds,
 };
 
@@ -101,15 +101,14 @@ struct State {
   volatile bool play_latched_gate;
   volatile uint16_t play_gate_counter;
 
-  // Shared distortion stage (same module as Rings). CC 36-40 were the T9
-  // warps controls; they now drive this stage. Warps DSP stays compiled and
-  // pool-placed (warps_mix remains 0 = zero-cost bypass) for a later fix.
+  // Shared distortion stage (same module as Rings). CC 36-39 were the T9
+  // warps controls; they now drive this stage (CC 40 / warps-mix is free).
+  // Warps DSP stays compiled and pool-placed (warps_mix stays 0 = bypass).
   ringdist::State dist;
   volatile float dist_drive;
   volatile uint8_t dist_type;
   volatile float dist_bias;
   volatile float dist_tone;
-  volatile float dist_mix;
 };
 
 static State* s = nullptr;   // placement-new'd by init(); arena offset 0
@@ -201,7 +200,6 @@ void init_at(uint8_t* obj_base, uint8_t* buf_base) {
   s->dist_type = 0u;
   s->dist_bias = 0.0f;
   s->dist_tone = 1.0f;
-  s->dist_mix = 1.0f;
 }
 
 void init() {
@@ -217,7 +215,6 @@ static inline ringdist::Params dist_params() {
   p.drive = s->dist_drive;
   p.bias = s->dist_bias;
   p.tone = s->dist_tone;
-  p.mix = s->dist_mix;
   return p;
 }
 
@@ -378,7 +375,6 @@ void control_change(uint8_t cc, uint8_t val) {
     case 37: if (val <= 4) s->dist_type = static_cast<uint8_t>(val); break;  // was warps-timbre
     case 38: s->dist_bias = v; break;                               // was warps-mod
     case 39: s->dist_tone = v; break;                               // was warps-car
-    case 40: s->dist_mix = v; break;                                // was warps-mix
     // Resonator model selector: 0 modal / 1 string / 2 strings / 3 ominous.
     // Handed to core 1 via pending_resonator_model & pending_easter_egg.
     case 28:
@@ -444,7 +440,6 @@ bool mod_set_cc_float(uint8_t cc, float v) {
     case 37: if (v < 1.0f) s->dist_type = (uint8_t)(v * 5.0f); break;
     case 38: s->dist_bias = v; break;
     case 39: s->dist_tone = v; break;
-    case 40: s->dist_mix = v; break;
     default: return false;    // 28/29 selectors + unknown CCs: not modulable
   }
   return true;
