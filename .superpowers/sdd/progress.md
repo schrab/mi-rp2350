@@ -4088,3 +4088,12 @@ Findings (T9):
   stable: 212-302 us vs 496 us budget, `i2s stalls: 0`. No notes were played in
   the automated sweep — audible character pending user ears.
 - Commits: 0b627da (Swedish algo) .. 7c2fe13 (Elements share).
+- **User feedback / fixes (2026-11-17)**: "D DRIVE shows distortion types,
+  D TYPE shows numbers, not all algos sound different." Two real bugs found:
+  (1) Elements' C3 type-name table + discrete count were keyed to CC 36 (which
+  is D DRIVE) instead of CC 37 (D TYPE) — `fe2e261` moved both to 37; RINGS'
+  table was already correct at CC 27. (2) FUZZ was bit-identical to TUBE at
+  the default bias 0 (bias_sub=0, bias_norm=1) — `fe2e261` adds a 0.25 bias
+  floor so it is always asymmetric. Host tests + all five envs + C3 green;
+  Elements + C3 re-flashed.
+- **Bench pending:** user re-test of the 5 type names and distinct characters.
