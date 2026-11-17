@@ -320,7 +320,10 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
   memset(s->in, 0, sizeof(s->in));
 
   if (s->applied_mode == 5) {
-    perf.note = 0.0f; perf.tonic = 0.0f; perf.fm = 0.0f;
+    // Keep the CC 1 PITCH transpose (shared_pitch, -24..+24 st = +/-2 oct).
+    // Only the note-filter tonic is zeroed so the absolute chord notes are
+    // used verbatim; perf.tonic is the global transpose added by the engine.
+    perf.note = 0.0f; perf.fm = 0.0f;
     fill_varg_chord(perf);
   }
   if (s->applied_mode == rings::MODE_EASTER_EGG || s->applied_mode == 5) {
@@ -417,7 +420,10 @@ void render() {
   memset(s->in, 0, sizeof(s->in));
 
   if (s->applied_mode == 5) {
-    perf.note = 0.0f; perf.tonic = 0.0f; perf.fm = 0.0f;
+    // Keep the CC 1 PITCH transpose (shared_pitch, -24..+24 st = +/-2 oct).
+    // Only the note-filter tonic is zeroed so the absolute chord notes are
+    // used verbatim; perf.tonic is the global transpose added by the engine.
+    perf.note = 0.0f; perf.fm = 0.0f;
     fill_varg_chord(perf);
   }
 
