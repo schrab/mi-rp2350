@@ -117,7 +117,6 @@ struct State {
   volatile float dist_tone;       // CC 29, 1 = open
   volatile float dist_mix;        // CC 30, 1 = wet
   volatile bool varg_chord_on;    // core-0 MIDI-hook mirror of applied_mode == 5
-  uint32_t arp_seq_seen;          // last published harmony seq consumed
 };
 
 static State* s = nullptr;   // placement-new'd by init(); arena offset 0
@@ -204,7 +203,6 @@ void init_at(uint8_t* obj_base, uint8_t* buf_base) {
   s->dist_tone = 1.0f;
   s->dist_mix = 1.0f;
   s->varg_chord_on = false;
-  s->arp_seq_seen = 0u;
 }
 
 void init() {
@@ -215,16 +213,13 @@ void init() {
 
 // Fill the StringSynthPart chord override from the VARG snapshot published by
 // mod_engine (same core-1 publish -> render order as LIRA-8, no locking).
-// A new seq = a new bar/chord: re-strum so the new voicing is actually heard.
-static inline void fill_varg_chord(rings::PerformanceState& perf, bool& strum) {
+// Strumming comes ONLY from the VARG riff gates (dest 127 -> CC 64); a chord
+// change just swaps the notes for the next strum, it never fires one itself.
+static inline void fill_varg_chord(rings::PerformanceState& perf) {
   const l8harmony::Snapshot& h = l8harmony::g_lira_harmony;
   if (!h.harmony_valid) {
     perf.varg_chord_n = 0;
     return;
-  }
-  if (h.seq != s->arp_seq_seen) {
-    s->arp_seq_seen = h.seq;
-    strum = true;
   }
   int32_t poly = s->applied_polyphony > 0 ? s->applied_polyphony : 1;
   uint8_t slots = (uint8_t)(12 / poly);
@@ -255,7 +250,6 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
   if (s->pending_mode >= 0) {
     s->applied_mode = s->pending_mode <= 5 ? s->pending_mode : 5;
     s->varg_chord_on = (s->applied_mode == 5);
-    s->arp_seq_seen = 0u;   // re-read the published chord on mode entry
     s->pending_mode = -1;
   }
   if (s->pending_model >= 0) {
@@ -287,7 +281,7 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
     s->pending_chord = -1;
   }
 
-  bool strum_pulse = s->pending_strum;
+  const bool strum_pulse = s->pending_strum;
   s->pending_strum = false;
 
   rings::PerformanceState perf;
@@ -327,7 +321,7 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
 
   if (s->applied_mode == 5) {
     perf.note = 0.0f; perf.tonic = 0.0f; perf.fm = 0.0f;
-    fill_varg_chord(perf, strum_pulse);
+    fill_varg_chord(perf);
   }
   if (s->applied_mode == rings::MODE_EASTER_EGG || s->applied_mode == 5) {
     s->string_synth.Process(perf, patch, s->in, s->out, s->aux, n);
@@ -346,7 +340,6 @@ void render() {
   if (s->pending_mode >= 0) {
     s->applied_mode = s->pending_mode <= 5 ? s->pending_mode : 5;
     s->varg_chord_on = (s->applied_mode == 5);
-    s->arp_seq_seen = 0u;
     s->pending_mode = -1;
   }
   if (s->pending_model >= 0) {
@@ -382,7 +375,7 @@ void render() {
   }
 
   // Strum pulse: exactly one block high per note-on.
-  bool strum_pulse = s->pending_strum;
+  const bool strum_pulse = s->pending_strum;
   s->pending_strum = false;
 
   // --- fresh Patch + PerformanceState locals EVERY block (rings.cc:92-96) ---
@@ -425,7 +418,7 @@ void render() {
 
   if (s->applied_mode == 5) {
     perf.note = 0.0f; perf.tonic = 0.0f; perf.fm = 0.0f;
-    fill_varg_chord(perf, strum_pulse);
+    fill_varg_chord(perf);
   }
 
   uint32_t t0 = time_us_32();
