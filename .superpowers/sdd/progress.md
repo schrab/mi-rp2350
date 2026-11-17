@@ -4106,4 +4106,4 @@ Findings (T9):
   `dist_mix` state + CC 30 (Rings) / CC 40 (Elements) handlers, the mod-dest
   entries and the C3 "D MIX" cells. Host tests updated; all five envs green;
   RP2350 re-flashed. Bench: CC map no longer lists mix, drive 0/64/127 stable,
-  `i2s stalls: 0`.
+  `i2s stalls: 0`. **User accepted** DRIVE as the sole amount control.
