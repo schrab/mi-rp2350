@@ -262,6 +262,8 @@ namespace CTAG {
                 static bool prevValid = false;
                 static int64_t lastPushUs = 0;
                 static int8_t assignPotLocked = -1;
+                static int8_t assignCandidatePot = -1;
+                static uint8_t assignCandidateCount = 0;
                 static bool assignLatchedPrev = false;
 
                 constexpr int64_t POST_RELEASE_GUARD_US = 250000; // 250 ms
@@ -364,10 +366,16 @@ namespace CTAG {
                     // parameter jumps.
                     if (RackUI::AssignModeActive()) {
                         if (!assignLatchedPrev) {
+                            assignPotLocked = -1;
+                            assignCandidatePot = -1;
+                            assignCandidateCount = 0;
                             const uint8_t pg = pageBank();
                             for (int i = 0; i < NPOTS; ++i) {
-                                assignAnchorRaw[i] = filtRaw[i];
-                                assignFiltRaw[i] = filtRaw[i];
+                                // Anchor from the FRESH sweep: filtRaw can
+                                // still be settling from the encoder-press
+                                // artifact and give a bogus starting delta.
+                                assignAnchorRaw[i] = rawSweep[i];
+                                assignFiltRaw[i] = rawSweep[i];
                                 RackUI::PotTarget t;
                                 if (RackUI::GetPotTarget((uint8_t)i, t) &&
                                     t.kind == RackUI::PotTarget::kCC) {
@@ -406,16 +414,28 @@ namespace CTAG {
                         // ~8 counts to switch cells, and the winner must lead
                         // the runner-up by ~2 counts so equal drift cannot
                         // mis-target.
-                        if (assignPotLocked < 0) {
-                            if (maxPot >= 0 && maxDelta >= 120 &&
-                                maxDelta >= secondDelta + 60) {
+                        // Require the SAME leading pot across several scans.
+                        // A single ghost spike (mux/encoder artifact) can no
+                        // longer steal the assign target from the real pot.
+                        if (maxPot >= 0 &&
+                            ((assignPotLocked < 0 && maxDelta >= 120 &&
+                              maxDelta >= secondDelta + 60) ||
+                             (assignPotLocked >= 0 && maxPot != assignPotLocked &&
+                              maxDelta >= 240))) {
+                            if (assignCandidatePot == maxPot) {
+                                ++assignCandidateCount;
+                            } else {
+                                assignCandidatePot = (int8_t)maxPot;
+                                assignCandidateCount = 1;
+                            }
+                            if (assignCandidateCount >= 3) {
                                 assignPotLocked = (int8_t)maxPot;
                                 RackUI::NoteAssignTarget((uint8_t)maxPot);
+                                assignCandidateCount = 0;
                             }
-                        } else if (maxPot >= 0 && maxPot != assignPotLocked &&
-                                   maxDelta >= 240) {
-                            assignPotLocked = (int8_t)maxPot;
-                            RackUI::NoteAssignTarget((uint8_t)maxPot);
+                        } else {
+                            assignCandidatePot = -1;
+                            assignCandidateCount = 0;
                         }
                         vTaskDelay(1);
                         continue;
@@ -425,6 +445,9 @@ namespace CTAG {
                         // the scan believe they are where they are, then let
                         // pickup re-sync them to the cells' last sent values.
                         assignLatchedPrev = false;
+                        assignPotLocked = -1;
+                        assignCandidatePot = -1;
+                        assignCandidateCount = 0;
                         for (int i = 0; i < NPOTS; ++i) {
                             filtRaw[i] = assignFiltRaw[i];
                             lastSentRaw[i] = filtRaw[i];
