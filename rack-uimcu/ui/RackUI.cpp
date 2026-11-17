@@ -259,7 +259,7 @@ namespace CTAG {
                 case 0: // Elements
                     if (cc == 28) return 4;   // MODEL: 0..3 (MODAL, STRING, STRINGS, OMINOUS)
                     if (cc == 29) return 2;   // OMINOUS: 0..1 (legacy)
-                    if (cc == 37) return 5;   // DIST TYPE: 0..4 (was WARPS timbre)
+                    if (cc == 37) return 6;   // FX TYPE: 0..4 distortion (TUBE/FLD/FUZZ/SHAPE/SWEDE), 5 WARPS
                     if (cc == 64) {
                         wireIsBool127 = true;
                         return 2;             // PLAY: <64 vs >=64
@@ -941,10 +941,10 @@ namespace CTAG {
                             static const char *const kElemModels[4] = { "MODAL", "STRING", "STRINGS", "OMINOUS" };
                             pName = (dispVal >= 0 && dispVal < 4) ? kElemModels[dispVal] : "---";
                         } else if (modForPage == 0 && c.cc == 37) {
-                            static const char *const kElemDistTypes[5] = {
-                                "TUBE", "FOLD", "FUZZ", "SHAPE", "SWEDE"
+                            static const char *const kElemDistTypes[6] = {
+                                "TUBE", "FOLD", "FUZZ", "SHAPE", "SWEDE", "WARPS"
                             };
-                            pName = (dispVal >= 0 && dispVal < 5) ? kElemDistTypes[dispVal] : "---";
+                            pName = (dispVal >= 0 && dispVal < 6) ? kElemDistTypes[dispVal] : "---";
                         } else if (modForPage == 1 && (c.cc == 23 || c.cc == 49)) {
                             static const char *const kCloudModes[3] = { "GRAN", "STRE", "LOOP" };
                             pName = (dispVal >= 0 && dispVal < 3) ? kCloudModes[dispVal] : "---";
