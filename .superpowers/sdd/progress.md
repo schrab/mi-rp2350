@@ -4100,3 +4100,10 @@ Findings (T9):
   display on the correct cells and all five distortion types sound distinct
   on both Elements and Rings — **BENCH DONE**. Warps remains preserved and
   bypassed as requested.
+- **MIX removed (2026-11-17)**: user pointed out MIX is redundant — drive 0 is
+  already a zero-cost bypass, so mix never adds a distinct state. `cad6a8a`
+  removed `Params::mix` and the blend (always fully wet when engaged), the
+  `dist_mix` state + CC 30 (Rings) / CC 40 (Elements) handlers, the mod-dest
+  entries and the C3 "D MIX" cells. Host tests updated; all five envs green;
+  RP2350 re-flashed. Bench: CC map no longer lists mix, drive 0/64/127 stable,
+  `i2s stalls: 0`.

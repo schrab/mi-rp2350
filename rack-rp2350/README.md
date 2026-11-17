@@ -292,7 +292,9 @@ ctag-tbd commits `2166c84c` / `4f086145` / `a62ad652`):
   4 **swede** (Swedish Chainsaw — HM-2's three maxed graphic-EQ biquads +
   cascaded tanh stages, from Barabas5532/SwedishChainsaw; CC 28 >= 64 selects
   the "tight" 700 Hz input HP),
-- **CC 28** bias (fuzz only), **CC 29** tone (1 = open), **CC 30** mix (1 = wet).
+- **CC 28** bias (fuzz only; also Swedish "tight" HP), **CC 29** tone (1 = open).
+  There is no wet/dry mix control: **CC 24 drive is the amount** (0 = zero-cost
+  bypass, stage fully wet whenever engaged).
 
 The C3 Rings P1 page exposes drive / type / mix on the three formerly empty
 pots. The shared SRAM window's chain-A boundary moved from 0xE400 to 0xEC00
@@ -303,7 +305,7 @@ fits with ~1.4 KB of window slack.
 
 Elements now runs the **same five-algorithm distortion stage** as Rings,
 post-resonator (after `Part::Process`, before VCA/I2S). It uses the former T9
-Warps controls **CC 36 drive / 37 type / 38 bias / 39 tone / 40 mix**. The
+Warps controls **CC 36 drive / 37 type / 38 bias / 39 tone** (no mix — drive is the amount). The
 Warps DSP code is **preserved but bypassed** (`warps_mix` stays 0, zero cost)
 so it can be restored later — no library patch or code was deleted.
 
