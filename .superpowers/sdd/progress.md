@@ -3957,3 +3957,17 @@ Findings (T9):
   305 K ≤ 331,776 — ~26 K headroom; rings→clouds worst case untouched
   (331,516, 260 B slack). Init zero-fill shrank 64 KB → 43 KB (faster
   boot/swap as a side effect).
+
+### Rack VARG — black-metal generative sequencer (6th MOD-ARP algo) (2026-11-17)
+- Spec: docs/superpowers/specs/2026-11-17-varg-black-metal-generative-sequencer-design.md
+  (design locked with the user: mono riff + harmony; 6th ARP algo; RIFF/PROG/VOICE/DISS;
+  archetype library with W7/NEO kernels; web panel out of scope v1)
+- `src/varg.h` pure engine, host-tested (`test/test_varg.cc`): pool builders per
+  VOICE/quality, W7-restricted + NEO kernels, Weitzmann region law
+  (minors anchor+1 / majors anchor), 8 seeded archetype sequences, riff zones.
+- `mod_engine.h`: MOD_ARP_VARG=5 / MOD_ARP_ALGO_COUNT=6, VARG state in the ARP ext
+  union, bar-line branch (generic drift/fill bypassed), calc_note branch, lira8
+  chord publish, algo quantizer 15→18, preset read clamp 4→5, console alias + mod?.
+- `ui_link.h` labels/echo + `rack-uimcu/ui/RackUI.cpp` names/buckets/formatting in
+  lockstep (soft-takeover trap avoided by landing both sides before flashing).
+- Commit: 404a1e3 (code series ce50f74..404a1e3). **Bench pending:** flash + console sweep + lira8 harmony + user ears.

@@ -242,6 +242,32 @@ between the resonator mixdown and the reverb — the canonical hardware patch
   would be needed; revisit as a phase-2 plan) and the easter-egg frequency
   shifter.
 
+## MOD-ARP VARG — black-metal generative algorithm (6th ARP algo)
+
+`mod arp1 algo varg` (ALGO pot positions 16–18 = VARG 1/2/3 = 1/2/3 octaves).
+Mono riff + harmony like every ARP algo — but the harmony engine generates
+black-metal progressions with the W7 / Neo-Riemannian kernels:
+
+- **p1 RIFF** — rhythm archetype + density zones: SUSTAIN (half-bar holds) /
+  HALF (quarters) / 8TH / 16TH (tremolo) / GALLOP (3+1) / BLAST (every step;
+  a true 32nd blast uses DIV 1/32).
+- **p2 PROG** — progression archetypes: AEOLIAN (i–bVII / i–bVI–bVII),
+  OSTINATO (i–bIII–bVI–bVII), WEITZMANN (augmented-anchor region cycle),
+  MEDIANT (NEO R→P / L→P minor mediants), ADD9DIM (Am(add9)–D#dim7–G#m–A
+  seed), HALFTRN (root ±1/±6), B2B5 (Phrygian power-chord pool), NEOFREE
+  (NEO walk).
+- **p3 VOICE** — chord-pool voicing: POWER / TRIAD / TRITONE / DIMAUG /
+  ADD9 / PEDAL (tonic pedal note joins the pool).
+- **p4 DISS** — NEO substitutions, chromatic planing, b2/tritone passing
+  tones, riff-cell mutation, and section key shifts every 8 bars.
+- Shared ROOT/SCALE/TRANS still apply: MIDI/PARAL set the tonic, **W7 forces
+  the diatonic kernel, NEO forces the NEO walk** (TRANS pins the operator).
+  LIRA-8 CC 54 (ARP HARM) voices the generated chord on all eight voices;
+  the engine publishes root + chord-tone pool (not a scale degree).
+- Engine: `src/varg.h` (pure, host-tested via `test/test_varg.cc`).
+- Both ARPs on VARG keep independent progressions (shared ROOT/SCALE still
+  locks the key); the first routed ARP is the LIRA-8 harmony source.
+
 ## SRAM architecture (T2 + T6/T6b two-slot window)
 
 - **One window for all five modules**: `memmap_rack.ld` (single script, every
