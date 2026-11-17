@@ -552,20 +552,22 @@ static const UiAuxCell kUiModArpCells[16] = {
     {"P2 DIV",   kUiColorYellow, 11, 6},
 };
 
-static const char* const kArp1Labels[5][4] = {
+static const char* const kArp1Labels[6][4] = {
     { "P1 DENS", "P1 SLID", "P1 ACC",  "P1 MUTE" }, // HYP-1
     { "P1 DENS", "P1 FORM", "P1 XFRM", "P1 MUTE" }, // MOTIF
     { "P1 DENS", "P1 CNTR", "P1 PEDL", "P1 GRAV" }, // MARKOV
     { "P1 PROB", "P1 PULS", "P1 RTCH", "P1 ACCM" }, // METRO
     { "P1 DENS", "P1 DJVU", "P1 STEP", "P1 SPRD" }, // DEJAVU
+    { "P1 RIFF", "P1 PROG", "P1 VOIC", "P1 DISS" }, // VARG
 };
 
-static const char* const kArp2Labels[5][4] = {
+static const char* const kArp2Labels[6][4] = {
     { "P2 DENS", "P2 SLID", "P2 ACC",  "P2 MUTE" }, // HYP-1
     { "P2 DENS", "P2 FORM", "P2 XFRM", "P2 MUTE" }, // MOTIF
     { "P2 DENS", "P2 CNTR", "P2 PEDL", "P2 GRAV" }, // MARKOV
     { "P2 PROB", "P2 PULS", "P2 RTCH", "P2 ACCM" }, // METRO
     { "P2 DENS", "P2 DJVU", "P2 STEP", "P2 SPRD" }, // DEJAVU
+    { "P2 RIFF", "P2 PROG", "P2 VOIC", "P2 DISS" }, // VARG
 };
 
 // SYS: ONE module selector pot (dual-purpose: module select when no chain,
@@ -596,7 +598,7 @@ static const char* ui_aux_cell_label(uint8_t page, uint8_t idx) {
   if (page == kUiPageModArp) {
     if (idx == 0) return "P1 ALGO";
     if (idx >= 1 && idx <= 4) {
-      uint8_t a = g_mod_engine.src[10].p.arp.algo % 5;
+      uint8_t a = g_mod_engine.src[10].p.arp.algo % MOD_ARP_ALGO_COUNT;
       return kArp1Labels[a][idx - 1];
     }
     if (idx == 5) return "P1 DIV";
@@ -607,7 +609,7 @@ static const char* ui_aux_cell_label(uint8_t page, uint8_t idx) {
     if (idx == 9) return "SCALE";
     if (idx == 10) return "P2 ALGO";
     if (idx >= 11 && idx <= 14) {
-      uint8_t a = g_mod_engine.src[11].p.arp.algo % 5;
+      uint8_t a = g_mod_engine.src[11].p.arp.algo % MOD_ARP_ALGO_COUNT;
       return kArp2Labels[a][idx - 11];
     }
     if (idx == 15) return "P2 DIV";
@@ -1004,12 +1006,27 @@ static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
         }
         switch (c.param) {
           case 0: {
-            const uint8_t choice = (uint8_t)((s.p.arp.algo % 5) * 3 + ((s.p.arp.range >= 1 && s.p.arp.range <= 3) ? (s.p.arp.range - 1) : 0));
-            return (uint8_t)(((uint16_t)choice * 128 + 64) / 15);
+            const uint8_t choice = (uint8_t)((s.p.arp.algo % MOD_ARP_ALGO_COUNT) * 3 + ((s.p.arp.range >= 1 && s.p.arp.range <= 3) ? (s.p.arp.range - 1) : 0));
+            return (uint8_t)(((uint16_t)choice * 128 + 64) / (MOD_ARP_ALGO_COUNT * 3u));
           }
-          case 1: return (uint8_t)(((uint16_t)s.p.arp.p[0] * 127 + 50) / 100);
-          case 2: return (uint8_t)(((uint16_t)s.p.arp.p[1] * 127 + 50) / 100);
-          case 3: return (uint8_t)(((uint16_t)s.p.arp.p[2] * 127 + 50) / 100);
+          case 1:  // p1: RIFF zone-centered echo (VARG) / percent
+            if (s.p.arp.algo == MOD_ARP_VARG) {
+              const uint8_t z = (uint8_t)(((uint16_t)s.p.arp.p[0] * 6) / 101);
+              return (uint8_t)(((uint16_t)z * 128 + 64) / 6);
+            }
+            return (uint8_t)(((uint16_t)s.p.arp.p[0] * 127 + 50) / 100);
+          case 2:  // p2: PROG archetype-centered echo (VARG) / percent
+            if (s.p.arp.algo == MOD_ARP_VARG) {
+              const uint8_t z = (uint8_t)(((uint16_t)s.p.arp.p[1] * 8) / 101);
+              return (uint8_t)(((uint16_t)z * 128 + 64) / 8);
+            }
+            return (uint8_t)(((uint16_t)s.p.arp.p[1] * 127 + 50) / 100);
+          case 3:  // p3: VOICE voicing-centered echo (VARG) / percent
+            if (s.p.arp.algo == MOD_ARP_VARG) {
+              const uint8_t z = (uint8_t)(((uint16_t)s.p.arp.p[2] * 6) / 101);
+              return (uint8_t)(((uint16_t)z * 128 + 64) / 6);
+            }
+            return (uint8_t)(((uint16_t)s.p.arp.p[2] * 127 + 50) / 100);
           case 4: return (uint8_t)(((uint16_t)s.p.arp.p[3] * 127 + 50) / 100);
           case 5: return s.clock_sel == MOD_CLK_GLOBAL ? 0 : (s.clock_sel == MOD_CLK_INTERNAL ? 64 : 127);
           case 6: return (uint8_t)(((uint16_t)s.division * 127) / (MOD_DIVISION_COUNT - 1));
