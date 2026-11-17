@@ -4137,6 +4137,8 @@ Findings (T9):
   `54c8bf4` anchors from the fresh `rawSweep` and requires the same leading pot
   across 3 consecutive scans before locking/switching, with candidate state
   reset on enter/exit of assign mode. C3 rebuilt + re-flashed.
-- **Bench pending:** user re-test of PITCH mapping / unassign / source clamp;
-  possible follow-up: restore authoritative ASSIGN_CYCLE and extend the RP
-  handler to MOD pages 2..7.
+- **User acceptance (2026-11-17)**: user confirmed PITCH now locks correctly,
+  confirm maps the right parameter and unassign reliably disables it —
+  **BENCH DONE**. Deferred (not needed now): restoring authoritative
+  ASSIGN_CYCLE / extending its RP handler to MOD pages 2..7, and refreshing
+  the stale `docs/ui_link.h` duplicate.
