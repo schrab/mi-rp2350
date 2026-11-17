@@ -267,6 +267,10 @@ black-metal progressions with the W7 / Neo-Riemannian kernels:
 - Engine: `src/varg.h` (pure, host-tested via `test/test_varg.cc`).
 - Both ARPs on VARG keep independent progressions (shared ROOT/SCALE still
   locks the key); the first routed ARP is the LIRA-8 harmony source.
+- **Shared ARP octave transpose**: the MOD-ARP page `OCTAVE` pot (or
+  `mod <arp> octave <-2..2>`) shifts **all six** ARP algos by −2 / −1 / 0 / +1 /
+  +2 octaves. For VARG it shifts both the mono riff and the chord published to
+  Rings mode 5 / LIRA-8 ARP HARM.
 
 ## Rings VARG chord mode + post-render distortion
 

@@ -539,7 +539,7 @@ static const UiAuxCell kUiModArpCells[16] = {
     {"P1 MUTE",  kUiColorYellow, 10, 4},
     {"P1 DIV",   kUiColorYellow, 10, 6},
     // Row 1: shared TRANSPOSE (slot 6), TRANS (7), ROOT (8), SCALE (9)
-    {"TRNSPOSE", kUiColorYellow, 10, 13},
+    {"OCTAVE",    kUiColorYellow, 10, 13},
     {"TRANS",    kUiColorYellow, 10, 12},
     {"ROOT",     kUiColorYellow, 10, 10},
     {"SCALE",    kUiColorYellow, 10, 11},
@@ -602,7 +602,7 @@ static const char* ui_aux_cell_label(uint8_t page, uint8_t idx) {
       return kArp1Labels[a][idx - 1];
     }
     if (idx == 5) return "P1 DIV";
-    if (idx == 6) return "TRNSPOSE";
+    if (idx == 6) return "OCTAVE";
     if (idx == 7) {
       return (g_mod_engine.src[10].p.arp.root_param == 3) ? "TRANS" : "";
     }
@@ -994,9 +994,9 @@ static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
           default: return 0;
         }
       default:  // MOD_ARP
-        if (c.param == 13) { // shared ARP transpose (-24..+24 st) -> 49 steps
-          const uint8_t steps = (uint8_t)(g_mod_engine.arp_transpose + 24);
-          return (uint8_t)(((uint16_t)steps * 128 + 24) / 49);
+        if (c.param == 13) { // shared ARP octave (-2..+2) -> 5 steps
+          const uint8_t steps = (uint8_t)(g_mod_engine.arp_octave + 2);
+          return (uint8_t)(((uint16_t)steps * 128 + 12) / 5);
         }
         if (c.param == 12) { // shared TRANS / NEO-OP (0..7)
           return (uint8_t)(((uint16_t)g_mod_engine.neo_op * 128 + 64) / 8);

@@ -4038,3 +4038,17 @@ Findings (T9):
   state; strums now come solely from riff gates (dest 127 -> CC 64 -> strum).
   Five envs rebuilt green, re-flashed; BLAST riff shows continuous audio,
   SUSTAIN only fires on its two gated steps, `i2s stalls: 0`.
+- **Shared ARP OCTAVE transpose (2026-11-17)**: user reported pitch changes had
+  no effect on VARG chords; they chose a transpose in the ARP for ALL algos on
+  a MOD-ARP page pot, and corrected that it must be OCTAVE steps, not semitones.
+  `05cb674` added the shared control (CC/param 13, console
+  `mod <arp> octave <-2..2>`, `oct=%+doct` telemetry, preset byte pl[9], MOD-ARP
+  cell 6 "OCTAVE", C3 5-step bar + "+Noct" label); the final pass stores octaves
+  in `g_mod_engine.arp_octave` and multiplies by 12 in `mod_arp_calc_note()`
+  (ALL six algos share this path) and in the published harmony root
+  (`ringchord::from_ctx` carries the root delta so octave shifts reach Rings).
+  `dc9812a` fixed the console guard to admit param 13 (same class of bug as
+  the earlier TRANS param-12 fix).
+- **Bench pending:** rebuild + flash with the octave semantics, then sweep all
+  six algos (VARG, HYP-1, MOTIF, MARKOV, METRO, DEJAVU) at -2/-1/0/+1/+2 and
+  confirm `oct=` + note shift; user listening confirmation.
