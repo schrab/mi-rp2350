@@ -210,16 +210,17 @@ static const UiPageCell kUiPageElementsP1[] = {
     {27, "SPACE",      kUiColorWhite},
 };
 // elements — P2: selectors (CC 28) + PLAY trigger (CC 64) + VCA (CC 7)
-// + T9 warps stage (CC 36-40; algorithm 0 = bypass).
+// + shared distortion stage (CC 36-40; drive 0 = bypass). Warps DSP remains
+// compiled but its mix is held at 0 (bypassed) pending a later fix.
 static const UiPageCell kUiPageElementsP2[] = {
     {28, "MODEL",      kUiColorWhite},
     {64, "PLAY",       kUiColorWhite},
     {7,  "VCA",        kUiColorWhite},
-    {36, "W ALGO",     kUiColorWhite},
-    {37, "W TIMBRE",   kUiColorWhite},
-    {38, "W MOD",      kUiColorWhite},
-    {39, "W CAR",      kUiColorWhite},
-    {40, "W MIX",      kUiColorWhite},
+    {36, "D DRIVE",    kUiColorWhite},
+    {37, "D TYPE",     kUiColorWhite},
+    {38, "D BIAS",     kUiColorWhite},
+    {39, "D TONE",     kUiColorWhite},
+    {40, "D MIX",      kUiColorWhite},
 };
 // clouds — P1: SIZE/TEXTURE teal, POSITION/DENSITY pink, rest white.
 static const UiPageCell kUiPageCloudsP1[] = {
