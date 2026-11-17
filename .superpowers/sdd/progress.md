@@ -4294,3 +4294,46 @@ Findings (T9):
   **BENCH DONE**. Deferred (not needed now): restoring authoritative
   ASSIGN_CYCLE / extending its RP handler to MOD pages 2..7, and refreshing
   the stale `docs/ui_link.h` duplicate.
+
+
+## HANDOFF — Elements FX (Warps + distortion) + reverb, 2026-11-17 (end of session)
+
+**Board state flashed + booted clean**: commit `511808c`, `rack-lira8` UF2
+`33075A35A77B`, 320 MHz / VREG 1.20 V, COM15 healthy.
+
+**Final working design (Elements FX, user decision = no parallel loading, both
+DSPs compiled in, one active per block):**
+- CC 42 = FX TYPE: 0-4 distortion (tube/fold/fuzz/shape/swede), 5 Warps.
+- Distortion params CC 43 drive / 44 bias / 45 tone (Rings uses 24/27/28/29 —
+  taken on Elements by brightness/space/model/easter-egg).
+- Warps params CC 36-40 = ORIGINAL T9 mapping (algo/timbre/mod/car/mix), staged
+  in State, applied to the Patch only in Warps mode (`apply_fx_params()`).
+  CC 37 = W TIMBRE (no longer overloaded). Boot defaults: DIODE algo, 0.5
+  timbre/mod/car, 0.75 mix so C3-only users hear Warps immediately.
+- C3 P2 cells switch on the CC-42 cache (full TELEM sent on CC 42 to relabel):
+  FX TYPE + D DRIVE/BIAS/TONE, or FX TYPE + W ALGO/TIMBRE/MOD/W MIX (W CAR on
+  web panel). Web panel `tools/rack_panel.html` updated to match.
+
+**Reverb — DO NOT RE-BREAK (two bugs I introduced and reverted):**
+- `bd286f1` forced `raw_gain=0` globally → starved reverb of the raw-exciter
+  signal ("no diffusion, repeated delay"). REVERTED in `85e8063`: `raw_gain=0`
+  ONLY while Warps runs (`warps_ && warps_algorithm>0`); distortion/reverb path
+  is byte-identical to the pre-warps state.
+- `ffd3d3b` cut the reverb's LFO modulation 80->16 / 100->20 to tame a flange
+  at 95-100% space — this KILLED the Dattorro's essential chorus and sounded
+  "very weird". REVERTED in `511808c`. **The mild flange at high space is
+  upstream Elements character (since 8f48630) — leave it alone.** Reverb.h is
+  now byte-identical to 9466f43 (pre-my-work); `git diff 9466f43 HEAD -- reverb.h`
+  is EMPTY — use that as the canary.
+- The working reverb decay fix (`reverb_time = 0.35 + 1.2*reverb_amount`) is
+  from 8f48630 (Nov 11), predates all my Warps work — KEEP.
+
+**Rule learned (user)**: never edit generated `lib/` by hand + maintain a
+separate patch that can drift — but ALSO don't churn the sync script. The
+`elements-warps-stage.patch` / `elements-reverb-restore.patch` are the source
+of truth for lib deltas; verify with `sync_pio_libs.sh` before finalizing.
+
+**Still pending (honest status)**: scripted console stress + 1.25 V showed no
+hangs; real multi-module soak + user's ears on Warps algorithms/reverb tail
+not yet signed off. Host test `test_warps_stage` could not be rebuilt here (no
+g++ on Windows; binaries are WSL ELFs) — run `make test_warps_stage` in WSL.
