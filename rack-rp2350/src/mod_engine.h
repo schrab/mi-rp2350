@@ -2324,7 +2324,8 @@ static bool mod_set_param_console(uint8_t src_idx, uint8_t param,
   ModEngine& e = g_mod_engine;
   ModSource& s = e.src[src_idx];
   const uint8_t n = mod_param_count_of(s.type);
-  if (param >= n && param != 10 && param != 11 && param != 12 && param != 99) return false;
+  if (param >= n && param != 10 && param != 11 && param != 12 && param != 13 &&
+      param != 99) return false;
   preset_mark_dirty();            // T4a: persistent state changed
   if (param < n) {
     const uint8_t tail = n - 3;
