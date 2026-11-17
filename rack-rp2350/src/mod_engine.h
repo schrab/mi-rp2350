@@ -2471,6 +2471,7 @@ static bool mod_set_param_console(uint8_t src_idx, uint8_t param,
           else if (!strcasecmp(tok, "markov") || !strcasecmp(tok, "gravity") || !strcasecmp(tok, "walk")) s.p.arp.algo = MOD_ARP_MARKOV;
           else if (!strcasecmp(tok, "metro") || !strcasecmp(tok, "m185") || !strcasecmp(tok, "accum")) s.p.arp.algo = MOD_ARP_METRO;
           else if (!strcasecmp(tok, "dejavu") || !strcasecmp(tok, "marbles") || !strcasecmp(tok, "shift")) s.p.arp.algo = MOD_ARP_DEJAVU;
+          else if (!strcasecmp(tok, "varg") || !strcasecmp(tok, "black")) s.p.arp.algo = MOD_ARP_VARG;
           else s.p.arp.algo = (uint8_t)(v < 0 ? 0 : (v > 4 ? 4 : v));
           mod_arp_rebuild_pattern(s);
           return true;
@@ -2504,13 +2505,17 @@ static int8_t mod_parse_param(uint8_t src_idx, const char* tok) {
     if (!strcasecmp(tok, "root")) return 10;
     if (!strcasecmp(tok, "scale") || !strcasecmp(tok, "sc")) return 11;
     if (!strcasecmp(tok, "trans") || !strcasecmp(tok, "op") || !strcasecmp(tok, "neo")) return 12;
-    if (!strcasecmp(tok, "dens") || !strcasecmp(tok, "prob")) return 1; // p1
+    if (!strcasecmp(tok, "dens") || !strcasecmp(tok, "prob") ||
+        !strcasecmp(tok, "riff")) return 1; // p1
     if (!strcasecmp(tok, "slide") || !strcasecmp(tok, "form") || !strcasecmp(tok, "contour") ||
-        !strcasecmp(tok, "pulses") || !strcasecmp(tok, "dejavu")) return 2; // p2
+        !strcasecmp(tok, "pulses") || !strcasecmp(tok, "dejavu") ||
+        !strcasecmp(tok, "prog")) return 2; // p2
     if (!strcasecmp(tok, "accent") || !strcasecmp(tok, "acc") || !strcasecmp(tok, "xform") ||
-        !strcasecmp(tok, "pedal") || !strcasecmp(tok, "ratchet") || !strcasecmp(tok, "steps")) return 3; // p3
+        !strcasecmp(tok, "pedal") || !strcasecmp(tok, "ratchet") || !strcasecmp(tok, "steps") ||
+        !strcasecmp(tok, "voice") || !strcasecmp(tok, "vox")) return 3; // p3
     if (!strcasecmp(tok, "mutate") || !strcasecmp(tok, "mut") || !strcasecmp(tok, "grav") ||
-        !strcasecmp(tok, "accum") || !strcasecmp(tok, "spread")) return 4; // p4
+        !strcasecmp(tok, "accum") || !strcasecmp(tok, "spread") ||
+        !strcasecmp(tok, "diss")) return 4; // p4
   }
   for (uint8_t i = 0; i < n; ++i) {
     if (strcasecmp(tok, kModParamNames[s.type][i]) == 0) return (int8_t)i;
@@ -2668,7 +2673,8 @@ void mod_engine_cmd_modq(const char* args) {
                       mod_print_fixed(b5, sizeof(b5), s.out));
         break;
       default: { // MOD_ARP
-        static const char* const kAlgo[5] = {"hyp1", "motif", "markov", "metro", "dejavu"};
+        static const char* const kAlgo[MOD_ARP_ALGO_COUNT] = {
+            "hyp1", "motif", "markov", "metro", "dejavu", "varg"};
         static const char* const kSc[SCALE_COUNT] = {
             "chrom", "ionian", "dorian", "phryg", "lydian", "mixo", "aeol", "locr",
             "pmaj", "pmin", "blues", "hmin", "mmin", "pdom", "wtone",
@@ -2685,13 +2691,26 @@ void mod_engine_cmd_modq(const char* args) {
         const char* root_str = (s.p.arp.root_param < 16)
                              ? kRootNames[s.p.arp.root_param] : "fix";
         Serial.printf("algo=%s(%uoct) root=%s scale=%s neo_op=%s p1=%u p2=%u p3=%u p4=%u deg=%d note=%u step=%u out=%s",
-                      kAlgo[s.p.arp.algo % 5], s.p.arp.range,
+                      kAlgo[s.p.arp.algo % MOD_ARP_ALGO_COUNT], s.p.arp.range,
                       root_str,
                       kSc[(s.p.arp.scale_idx & 0x3Fu) % SCALE_COUNT],
                       kNeoOps[e.neo_op & 7u],
                       s.p.arp.p[0], s.p.arp.p[1], s.p.arp.p[2], s.p.arp.p[3], (int)ext.deg,
                       s.p.arp.cur_note, s.p.arp.step,
                       mod_print_fixed(b1, sizeof(b1), s.out));
+        if (s.p.arp.algo == MOD_ARP_VARG) {
+          static const char* const kProg[varg::kProgCount] = {
+              "aeolian", "ostinato", "weitzmn", "mediant",
+              "add9dim", "halftrn", "b2b5", "neofree"};
+          static const char* const kQual[varg::kQCount] = {
+              "min", "maj", "pow", "dim", "aug", "add9"};
+          const varg::State& v = ext.st.varg;
+          Serial.printf(" prog=%s chord=pc%u q=%s bar=%u shift=%u pool=[",
+                        kProg[v.prog_idx % varg::kProgCount], v.root_pc,
+                        kQual[v.quality % varg::kQCount], v.bars, v.key_shift);
+          for (uint8_t i = 0; i < v.pool_n; ++i) Serial.printf("%d,", v.pool[i]);
+          Serial.printf("]");
+        }
         break;
       }
     }
