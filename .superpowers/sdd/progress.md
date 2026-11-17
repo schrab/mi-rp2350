@@ -4107,3 +4107,28 @@ Findings (T9):
   entries and the C3 "D MIX" cells. Host tests updated; all five envs green;
   RP2350 re-flashed. Bench: CC map no longer lists mix, drive 0/64/127 stable,
   `i2s stalls: 0`. **User accepted** DRIVE as the sole amount control.
+
+### Mod-mapping / pot-handling investigation (2026-11-17)
+- User reported systemic MOD_SET bugs: knobs map random parameters and
+  unassign fails randomly, across all plugins. Three parallel audits agreed the
+  static `(src,param)` tables are CORRECT (96/96 cells match across C3
+  `kModPotMap` and the RP2350 `kUiMod*Cells`) — the failure is in shared state.
+- Findings: (1) C3 `s_cur` (~320 B) is assigned wholesale by the UI task while
+  the pot-scan task reads `s_cur.cell[].cc/.flags` — same priority, no lock →
+  torn reads; `GetPotTarget` had no `s_cur.page == s_page` guard. (2) `sendTarget`
+  resolved the target a SECOND time (double `GetPotTarget`) so a page change
+  between the two calls wrote a different param. (3) Unassign sends clears only
+  for `localSrc`/`curSrc`; a torn/zero read sends nothing (silent no-op).
+  (4) Preset load never forced a TELEM refresh, leaving ROUTED flags stale.
+  (5) ARP mod-ride wrote param 3 while the strip said "DENS" (param 1).
+  (6) Historical: `ASSIGN_CYCLE` is dead code on the C3 (call site deleted in
+  `6dbb695`); the C3-local `s_potModSrc` cache + raw MOD_SET dest writes are
+  the architectural root of drift vs the RP2350's authoritative routing.
+  (7) Stale duplicate `docs/ui_link.h` still documents the old 3-algo contract.
+- **Fixes applied (b620840, C3 only)**: critical-section around `s_cur` writes;
+  page guard in `GetPotTarget`; single target resolution passed into
+  `sendTarget`; TELEM re-request after preset load; ARP ride param 1.
+  **Encoder source scroll now CLAMPS at OFF/ARP2 (no wrap)** per user request.
+- C3 build green + re-flashed. **Bench pending:** user re-test of mapping and
+  unassign across pages; possible follow-up: restore authoritative ASSIGN_CYCLE
+  and extend the RP handler to MOD pages 2..7.
