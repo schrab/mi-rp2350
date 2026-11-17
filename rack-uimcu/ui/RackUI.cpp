@@ -60,9 +60,9 @@ namespace CTAG {
                 kNoSet, kNoSet, kNoSet, kNoSet,
                 {9, 1}, {9, 2}, {9, 3}, {9, 4}, {9, 0}, {9, 6},
             },
-            {   // MOD-ARP (page 7): ARP 1 (pots 0..5), middle row TRANS, ROOT, SCALE (pots 7, 8, 9), ARP 2 (pots 10..15)
+            {   // MOD-ARP (page 7): ARP 1 (pots 0..5), middle row OCTAVE, TRANS, ROOT, SCALE (pots 6..9), ARP 2 (pots 10..15)
                 {10, 0}, {10, 1}, {10, 2}, {10, 3}, {10, 4}, {10, 6},
-                kNoSet, {10, 12}, {10, 10}, {10, 11},
+                {10, 13}, {10, 12}, {10, 10}, {10, 11},
                 {11, 0}, {11, 1}, {11, 2}, {11, 3}, {11, 4}, {11, 6},
             },
         };

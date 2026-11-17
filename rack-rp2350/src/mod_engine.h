@@ -1080,11 +1080,21 @@ static void mod_arp_set_shared_neo_op(uint8_t op) {
   g_mod_engine.neo_op = (op <= 7) ? op : 0;
 }
 
+static uint8_t mod_arp_calc_note(const ModSource& s, const ModArpExt& ext,
+                                 const ModArpStep& step);
+
 // Shared OCTAVE transpose for ALL ARP algos (-2..+2 octaves = -24..+24 st).
-// Changes take effect on the next step for the mono note and immediately for
-// the published chord snapshot (Rings / LIRA-8), rebuilt every block.
+// Refresh both generators' current note immediately so the pot responds even
+// between gates; the published chord snapshot follows on the next block.
 static void mod_arp_set_octave(int8_t octaves) {
   g_mod_engine.arp_octave = octaves < -2 ? -2 : (octaves > 2 ? 2 : octaves);
+  for (uint8_t k = 0; k < MOD_ARP_COUNT; ++k) {
+    ModSource& src = g_mod_engine.src[MOD_SRC_ARP_FIRST + k];
+    ModArpExt& ext = g_mod_engine.arp_ext[src.p.arp.ext_idx];
+    src.p.arp.cur_note = mod_arp_calc_note(src, ext, ext.steps[src.p.arp.step]);
+    ext.target_pitch_q16 = ((int32_t)src.p.arp.cur_note) << 16;
+    if (!src.p.arp.held) ext.current_pitch_q16 = ext.target_pitch_q16;
+  }
 }
 
 // Intercepts step output on final bar of phrase cycle to inject cadential turnaround fills
