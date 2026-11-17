@@ -4032,3 +4032,9 @@ Findings (T9):
   distinct tube/fold/fuzz/shape characters — **BENCH DONE**. Board left on
   rings mode 5, arp1 VARG routed to voice, CC 24 ~0.55 / CC 27 tube /
   CC 29-30 open.
+- **Follow-up 2026-11-17**: user asked that strumming come ONLY from the VARG
+  riff (guitar-style picking), not from an extra re-strum on chord changes.
+  `a1ae0f8` removed the seq-triggered strum and the now-unused `arp_seq_seen`
+  state; strums now come solely from riff gates (dest 127 -> CC 64 -> strum).
+  Five envs rebuilt green, re-flashed; BLAST riff shows continuous audio,
+  SUSTAIN only fires on its two gated steps, `i2s stalls: 0`.
