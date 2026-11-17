@@ -447,13 +447,13 @@ const MODULES = [
     // Original T9 Warps controls (active when FX TYPE = WARPS).
     // W ALGO is stepped: pure algorithms at p*8 = 0..5 (XFADE rides byte 1
     // because 0 is bypass; DSP clamps at 0.625 = comparator).
-    { cc:36, label:'W ALGO',    variant:'white', def:0,
+    { cc:36, label:'W ALGO',    variant:'white', def:32/127,
       steps: { labels:['OFF','XFADE','FOLD','DIODE','DIGI','XOR','COMP'],
                bytes:[0,1,16,32,48,64,79] } },
-    { cc:37, label:'W TIMBRE',  variant:'white', def:0 },
-    { cc:38, label:'W MOD',     variant:'white', def:0 },
-    { cc:39, label:'W CAR',     variant:'white', def:0 },
-    { cc:40, label:'W MIX',     variant:'white', def:0 },
+    { cc:37, label:'W TIMBRE',  variant:'white', def:64/127 },
+    { cc:38, label:'W MOD',     variant:'white', def:64/127 },
+    { cc:39, label:'W CAR',     variant:'white', def:64/127 },
+    { cc:40, label:'W MIX',     variant:'white', def:96/127 },
     { cc:64, label:'PLAY',      moment:1, def:0 },
   ],
 },
