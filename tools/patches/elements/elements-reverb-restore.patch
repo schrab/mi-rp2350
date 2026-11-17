@@ -19,18 +19,3 @@
    set_resolution(kMaxModes);
    
    bow_signal_ = 0.0f;
---- a/elements/dsp/fx/reverb.h
-+++ b/elements/dsp/fx/reverb.h
-@@ -93,7 +93,7 @@
-       
-       // Smear AP1 inside the loop.
--      c.Interpolate(ap1, 10.0f, LFO_1, 80.0f, 1.0f);
-+      c.Interpolate(ap1, 10.0f, LFO_1, 16.0f, 1.0f);
-       c.Write(ap1, 100, 0.0f);
-@@ -111,7 +111,7 @@
-       
-       // Main reverb loop.
-       c.Load(apout);
--      c.Interpolate(del2, 6211.0f, LFO_2, 100.0f, krt);
-+      c.Interpolate(del2, 6211.0f, LFO_2, 20.0f, krt);
-       c.Lp(lp_1, klp);

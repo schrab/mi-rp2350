@@ -90,9 +90,8 @@ class Reverb {
       float apout = 0.0f;
       engine_.Start(&c);
       
-      // Smear AP1 inside the loop. Mod depth cut 80 -> 16: at high space the
-      // original ±80-sample sweep at 0.5 Hz was an audible flange/chorus.
-      c.Interpolate(ap1, 10.0f, LFO_1, 16.0f, 1.0f);
+      // Smear AP1 inside the loop.
+      c.Interpolate(ap1, 10.0f, LFO_1, 80.0f, 1.0f);
       c.Write(ap1, 100, 0.0f);
       
       c.Read(*left + *right, gain);
@@ -110,7 +109,7 @@ class Reverb {
       
       // Main reverb loop.
       c.Load(apout);
-      c.Interpolate(del2, 6211.0f, LFO_2, 20.0f, krt);   // mod 100 -> 20: tame flange
+      c.Interpolate(del2, 6211.0f, LFO_2, 100.0f, krt);
       c.Lp(lp_1, klp);
       c.Read(dap1a TAIL, -kap);
       c.WriteAllPass(dap1a, kap);
