@@ -4013,6 +4013,22 @@ Findings (T9):
   `cmd_cc`'s ack was also moved to the non-blocking `dbg_printf` (a blocking
   CDC printf was the documented 2026-11-16 hang class).
 
+- **Final FX control layout (2026-11-17, user decision: no parallel loading,
+  both DSPs compiled in, original Warps controls)**: CC 42 = FX selector
+  (0-4 distortion tube/fold/fuzz/shape/swede, 5 Warps). Distortion params CC 43
+  drive / 44 bias / 45 tone. CC 36-40 are the ORIGINAL T9 Warps controls
+  (algo/timbre/mod/car/mix) again, staged in State and applied to the Patch by
+  `apply_fx_params()` only in Warps mode; CC 37 is W TIMBRE once more (no longer
+  overloaded as the type selector — that caused "missing original controls" +
+  gritty sound via an aggressive car=1.0 seed). One DSP active per block (no
+  coexistence, no SRAM overlay). Clean defaults (all warps params 0 = bypass).
+  C3 P2 cells switch on the CC 42 cache: FX TYPE + D DRIVE/BIAS/TONE or FX TYPE
+  + W ALGO/TIMBRE/MOD/CAR (W MIX on web panel). `rack_panel.html` updated (FX
+  TYPE stepped bytes 0-5, not 0/16/.../127 — byte must equal firmware val<=5).
+  Verified: CC 42=0 dist params respond; CC 42=5 Warps runs (Process ~623 us),
+  20-cycle mixed stress clean at 1.25 V. User confirmed "dry signal at max
+  distortion" was the waveshaper's carrier/fundamental, not a bug.
+
 ### Rack T9a — warps memory truth + ctag-plan bugs (2026-11-17)
 
 - **`sizeof(warps::Modulator)` is ~68-73 KB WITH the vocoder, not the

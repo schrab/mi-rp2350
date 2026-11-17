@@ -61,8 +61,9 @@ static const char* const kCcMap =
     "1 pitch, 7 vca, 11 strength, 14 env-shape, 15-16 bow, 17-19 blow, 20-22 strike, "
     "23 geometry, 24 brightness, 25 damping, 26 position, 27 space, "
     "28 model, 29 easter-egg, "
-    "FX: 37 type 0 tube/1 fold/2 fuzz/3 shape/4 swede/5 warps; "
-    "dist 36 drive/38 bias/39 tone, warps 36 algo/38 mod/39 car/40 mix/41 timbre, 64 play";
+    "36-40 warps (algo/timbre/mod/car/mix, original T9), "
+    "42 fx-type(0 tube/1 fold/2 fuzz/3 shape/4 swede/5 warps), "
+    "43 dist-drive, 44 dist-bias, 45 dist-tone, 64 play";
 // T3 mod destinations: every float-parameter CC of the map accepts continuous
 // modulation (1/11 included — note that velocity-scaled strength from note-on
 // is overridden while a source is routed to CC 11). Selectors 28/29 are
@@ -70,12 +71,12 @@ static const char* const kCcMap =
 // accepts trigger modulation (PLAY: triggers exciter strike & envelope).
 static const uint8_t kModContinuousCcs[] = {1, 7, 11, 14, 15, 16, 17, 18, 19,
                                             20, 21, 22, 23, 24, 25, 26, 27,
-                                            36, 37, 38, 39, 40, 41};
+                                            36, 37, 38, 39, 40, 43, 44, 45};
 static const uint8_t kModTriggerCcs[] = {64};
 static const uint8_t kModTriggerKinds[] = {RACK_TRIG_PULSE};
 static const RackModDestinations kModDestinations = {
-    "elements: continuous 1,7,11,14-27 + 36-41 FX (warps mode per CC 37) | triggers: 64 play (pulse)",
-    23, kModContinuousCcs,
+    "elements: continuous 1,7,11,14-27 + 36-40 warps + 43-45 dist | triggers: 64 play (pulse)",
+    25, kModContinuousCcs,
     1, kModTriggerCcs, kModTriggerKinds,
 };
 
@@ -104,14 +105,17 @@ struct State {
   volatile bool play_latched_gate;
   volatile uint16_t play_gate_counter;
 
-  // Shared distortion stage (same module as Rings). CC 36-39 were the T9
-  // warps controls; they now drive this stage (CC 40 / warps-mix is free).
-  // Warps DSP stays compiled and pool-placed (warps_mix stays 0 = bypass).
+  // Both DSPs compiled in; only one active per block (no coexistence at
+  // runtime, no SRAM overlay). Original T9 Warps controls on CC 36-40 are
+  // staged here and applied to the Patch ONLY when fx_type == kWarps; else
+  // the Patch fields are 0 so Part::Process skips Warps (zero cost).
   ringdist::State dist;
+  volatile uint8_t fx_type;         // 0-4 = ringdist::Type, 5 = kFxWarps
   volatile float dist_drive;
   volatile uint8_t dist_type;
   volatile float dist_bias;
   volatile float dist_tone;
+  volatile float warps_algo, warps_timbre, warps_mod, warps_car, warps_mix;
 };
 
 static State* s = nullptr;   // placement-new'd by init(); arena offset 0
@@ -190,15 +194,21 @@ void init_at(uint8_t* obj_base, uint8_t* buf_base) {
   p->resonator_damping = 0.25f;       // 1024/4095 DAMPING
   p->resonator_position = 0.3f;       // 1229/4095 POSITION
   p->space = 0.0f;                    // reverb set to 0
-  // T9 warps stage defaults: all bypass/neutral (zero cost until CC'd).
+  // T9 warps stage defaults: bypass/neutral until CC 36-40 + CC 42 select it.
   p->warps_algorithm = 0.0f;
   p->warps_timbre = 0.0f;
   p->warps_mod_level = 0.0f;
   p->warps_car_level = 0.0f;
   p->warps_mix = 0.0f;
-  // Distortion defaults match Rings (audible grit; CC 36 = 0 bypasses).
+  s->warps_algo = 0.0f;
+  s->warps_timbre = 0.0f;
+  s->warps_mod = 0.0f;
+  s->warps_car = 0.0f;
+  s->warps_mix = 0.0f;
+  // Distortion defaults match Rings. FX selector defaults to distortion.
   s->dist.lp[0] = 0.0f;
   s->dist.lp[1] = 0.0f;
+  s->fx_type = 0u;
   s->dist_drive = 0.55f;
   s->dist_type = 0u;
   s->dist_bias = 0.0f;
@@ -221,10 +231,24 @@ static inline ringdist::Params dist_params() {
   return p;
 }
 
-// Warps mode (CC 37 = 5) runs the T9 stage inside Part::Process — the post-
-// render distortion must be skipped so the two never stack.
+// FX selector (CC 42): 0-4 = distortion, 5 = Warps. Both DSPs are compiled
+// in; only one runs per block. Warps' original T9 controls (CC 36-40) are
+// applied to the Patch here so Part::Process sees them only in Warps mode.
 static inline bool fx_is_warps() {
-  return s->dist_type == ringdist::kWarps;
+  return s->fx_type == ringdist::kWarps;
+}
+static inline void apply_fx_params() {
+  elements::Patch* p = s->part.mutable_patch();
+  if (fx_is_warps()) {
+    p->warps_algorithm = s->warps_algo;
+    p->warps_timbre = s->warps_timbre;
+    p->warps_mod_level = s->warps_mod;
+    p->warps_car_level = s->warps_car;
+    p->warps_mix = s->warps_mix;
+  } else {
+    p->warps_algorithm = 0.0f;       // zero-cost bypass
+    p->warps_mix = 0.0f;
+  }
 }
 
 // T6 chain A-slot render: exactly n samples (n <= 24, the chain grid) into
@@ -268,6 +292,7 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
   while (done < n) {
     const size_t chunk =
         (n - done > kBlockSize) ? (size_t)kBlockSize : (n - done);
+    apply_fx_params();
     s->part.Process(s->perf_state, s->blow_in, s->strike_in, s->main_out,
                     s->aux_out, chunk);
     if (!fx_is_warps())
@@ -315,6 +340,7 @@ void render() {
 #if RACK_HANG_DEBUG
   watchdog_hw->scratch[1] = 0xB0000000u | 10u;   // before Part::Process
 #endif
+  apply_fx_params();
   s->part.Process(s->perf_state, s->blow_in, s->strike_in, s->main_out,
                   s->aux_out, kBlockSize);
 #if RACK_HANG_DEBUG
@@ -385,35 +411,21 @@ void control_change(uint8_t cc, uint8_t val) {
     case 25: p->resonator_damping = v; break;
     case 26: p->resonator_position = v; break;
     case 27: p->space = v; break;
-    // FX mode: CC 37 selects distortion (0-4) or the T9 Warps stage (5).
-    // The Warps writes are the ORIGINAL committed mapping (7619ca5) — direct
-    // p->warps_* writes, no staging layer. CC 37 was warps-timbre in T9; it is
-    // now the selector, so timbre moved to CC 41 (web panel / mod engine).
-    case 36:
-      if (fx_is_warps()) p->warps_algorithm = v; else s->dist_drive = v; break;
-    case 37:
-      if (val <= ringdist::kWarps) {
-        s->dist_type = static_cast<uint8_t>(val);
-        if (val == ringdist::kWarps) {
-          // Seed a usable patch on entry (the stage is bypassed while
-          // warps_algorithm == 0, as in the committed T9 implementation).
-          p->warps_algorithm = 0.25f;   // diode RM
-          p->warps_timbre = 0.5f;
-          p->warps_mod_level = 0.5f;
-          p->warps_car_level = 1.0f;
-          p->warps_mix = 0.7f;
-        } else {
-          p->warps_algorithm = 0.0f;    // zero-cost bypass on exit
-          p->warps_mix = 0.0f;
-        }
-      }
+    // Original T9 Warps controls (CC 36-40), staged; applied to the Patch
+    // only in Warps mode by apply_fx_params(). Values persist across FX
+    // switches so returning to Warps restores the exact original controls.
+    case 36: s->warps_algo = v; break;      // W ALGO (0 = bypass)
+    case 37: s->warps_timbre = v; break;    // W TIMBRE
+    case 38: s->warps_mod = v; break;       // W MOD (carrier/mod level)
+    case 39: s->warps_car = v; break;       // W CAR
+    case 40: s->warps_mix = v; break;       // W MIX
+    // FX selector (CC 42) + distortion params (CC 43-45). Only one DSP runs.
+    case 42:
+      if (val <= ringdist::kWarps) s->fx_type = static_cast<uint8_t>(val);
       break;
-    case 38:
-      if (fx_is_warps()) p->warps_mod_level = v; else s->dist_bias = v; break;
-    case 39:
-      if (fx_is_warps()) p->warps_car_level = v; else s->dist_tone = v; break;
-    case 40: if (fx_is_warps()) p->warps_mix = v; break;
-    case 41: if (fx_is_warps()) p->warps_timbre = v; break;
+    case 43: s->dist_drive = v; break;
+    case 44: s->dist_bias = v; break;
+    case 45: s->dist_tone = v; break;
     // Resonator model selector: 0 modal / 1 string / 2 strings / 3 ominous.
     // Handed to core 1 via pending_resonator_model & pending_easter_egg.
     case 28:
@@ -475,20 +487,15 @@ bool mod_set_cc_float(uint8_t cc, float v) {
     case 25: p->resonator_damping = v; break;
     case 26: p->resonator_position = v; break;
     case 27: p->space = v; break;
-    case 36:
-      if (fx_is_warps()) p->warps_algorithm = v; else s->dist_drive = v; break;
-    case 37:
-      if (v < 1.0f) {
-        s->dist_type = (uint8_t)(v * (ringdist::kWarps + 1u));
-        if (!fx_is_warps()) { p->warps_algorithm = 0.0f; p->warps_mix = 0.0f; }
-      }
-      break;
-    case 38:
-      if (fx_is_warps()) p->warps_mod_level = v; else s->dist_bias = v; break;
-    case 39:
-      if (fx_is_warps()) p->warps_car_level = v; else s->dist_tone = v; break;
-    case 40: if (fx_is_warps()) p->warps_mix = v; break;
-    case 41: if (fx_is_warps()) p->warps_timbre = v; break;
+    case 36: s->warps_algo = v; break;
+    case 37: s->warps_timbre = v; break;
+    case 38: s->warps_mod = v; break;
+    case 39: s->warps_car = v; break;
+    case 40: s->warps_mix = v; break;
+    case 42: if (v < 1.0f) s->fx_type = (uint8_t)(v * 6.0f); break;
+    case 43: s->dist_drive = v; break;
+    case 44: s->dist_bias = v; break;
+    case 45: s->dist_tone = v; break;
     default: return false;    // 28/29 selectors + unknown CCs: not modulable
   }
   return true;

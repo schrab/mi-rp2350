@@ -210,28 +210,29 @@ static const UiPageCell kUiPageElementsP1[] = {
     {27, "SPACE",      kUiColorWhite},
 };
 // elements — P2: selectors (CC 28) + PLAY trigger (CC 64) + VCA (CC 7)
-// + FX. CC 37 picks distortion (0-4) or the T9 Warps stage (5).
+// + FX. CC 42 selects distortion (0-4) or the T9 Warps stage (5). The 5 FX
+// cells are mode-dependent (both DSPs compiled in, one active per block).
 static const UiPageCell kUiPageElementsP2[] = {
     {28, "MODEL",      kUiColorWhite},
     {64, "PLAY",       kUiColorWhite},
     {7,  "VCA",        kUiColorWhite},
-    {36, "D DRIVE",    kUiColorWhite},
-    {37, "D TYPE",     kUiColorWhite},
-    {38, "D BIAS",     kUiColorWhite},
-    {39, "D TONE",     kUiColorWhite},
+    {42, "FX TYPE",    kUiColorWhite},
+    {43, "D DRIVE",    kUiColorWhite},
+    {44, "D BIAS",     kUiColorWhite},
+    {45, "D TONE",     kUiColorWhite},
     {0,  "",           kUiColorWhite}, // dist MIX removed: drive is the amount
 };
-// Warps-mode P2 (CC 37 = 5): the committed 7619ca5 cell set, with CC 37 now
-// the mode selector instead of W TIMBRE (which moved to CC 41, web panel only).
+// Warps-mode P2 (CC 42 = 5): original T9 ALGO/TIMBRE/MOD/CAR/MIX on CC 36-40.
 static const UiPageCell kUiPageElementsP2Warps[] = {
     {28, "MODEL",      kUiColorWhite},
     {64, "PLAY",       kUiColorWhite},
     {7,  "VCA",        kUiColorWhite},
+    {42, "FX TYPE",    kUiColorWhite},
     {36, "W ALGO",     kUiColorWhite},
-    {37, "W TYPE",     kUiColorWhite},
+    {37, "W TIMBRE",   kUiColorWhite},
     {38, "W MOD",      kUiColorWhite},
     {39, "W CAR",      kUiColorWhite},
-    {40, "W MIX",      kUiColorWhite},
+    // W MIX (CC 40) remains available on the web panel / mod engine.
 };
 // clouds — P1: SIZE/TEXTURE teal, POSITION/DENSITY pink, rest white.
 static const UiPageCell kUiPageCloudsP1[] = {
@@ -651,12 +652,12 @@ static uint32_t g_ui_last_rx_ms = 0;
 // clouds alias bank 40-48 without index arithmetic.
 static uint8_t g_ui_cc_cache[RACK_MODULE_COUNT][128];
 
-// Elements P2 is mode-dependent: CC 37 = 5 selects the T9 Warps stage. The
-// cache above already tracks CC 37 (single observation point), so no extra
+// Elements P2 is mode-dependent: CC 42 = 5 selects the T9 Warps stage. The
+// cache above already tracks CC 42 (single observation point), so no extra
 // state is needed. Every TELEM / pot lookup goes through this selector.
 static inline const UiPageTable& ui_module_page(uint8_t mod, uint8_t page) {
   if (mod == RACK_MODULE_ELEMENTS && page == kUiPageP2 &&
-      g_ui_cc_cache[RACK_MODULE_ELEMENTS][37] == 5u) {
+      g_ui_cc_cache[RACK_MODULE_ELEMENTS][42] == 5u) {
     static const UiPageTable kElementsP2Warps = {
         kUiPageElementsP2Warps, UI_PAGE_CELL_COUNT(kUiPageElementsP2Warps)};
     return kElementsP2Warps;

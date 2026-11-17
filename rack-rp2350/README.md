@@ -301,13 +301,29 @@ pots. The shared SRAM window's chain-A boundary moved from 0xE400 to 0xEC00
 (60,416 B) to fit the patched `tc_rings` hot set (60,336 B); the B slot still
 fits with ~1.4 KB of window slack.
 
-## Elements distortion (shared stage)
+## Elements FX — 5 distortions + Warps (one active)
 
-Elements now runs the **same five-algorithm distortion stage** as Rings,
-post-resonator (after `Part::Process`, before VCA/I2S). It uses the former T9
-Warps controls **CC 36 drive / 37 type / 38 bias / 39 tone** (no mix — drive is the amount). The
-Warps DSP code is **preserved but bypassed** (`warps_mix` stays 0, zero cost)
-so it can be restored later — no library patch or code was deleted.
+Elements runs **both** DSPs compiled in, with only one active per block — no
+parallel execution, no SRAM overlay. **CC 42** is the FX type selector:
+
+| CC 42 | FX | Controls |
+|---|---|---|
+| 0-4 | distortion (tube/fold/fuzz/shape/swede, same stage as Rings) | CC 43 drive / 44 bias / 45 tone |
+| 5 | **Warps** (original T9 internal cross-mod stage) | CC 36 algo / 37 timbre / 38 mod / 39 car / 40 mix |
+
+The Warps controls are the **original T9 mapping** (CC 36-40), staged and
+applied to the Patch only when FX type = 5; in distortion mode they are zeroed
+so `Part::Process` skips Warps (zero cost). Likewise `ringdist::process` is
+skipped in Warps mode. Switching FX preserves both sets of control values.
+
+The post-render distortion is the same 5-algo stage Rings uses; on Elements it
+runs after `Part::Process`, before VCA/I2S. Drive 0 = zero-cost bypass; drive
+alone is the amount (no wet/dry mix — what you hear at high drive is the
+waveshaper's carrier/fundamental, not a dry blend).
+
+The C3 P2 cells switch with the FX type (CC 42 cache): distortion shows FX
+TYPE + D DRIVE/BIAS/TONE; Warps shows FX TYPE + W ALGO/TIMBRE/MOD/CAR (W MIX
+stays on the web panel). No C3 reflash needed for label changes.
 
 ## SRAM architecture (T2 + T6/T6b two-slot window)
 
