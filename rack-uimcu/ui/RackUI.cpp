@@ -554,12 +554,12 @@ namespace CTAG {
             }
             if (page == 7) {
                 // MOD-ARP:
-                // P1/P2 ALGO (0, 10): 0..14 (5 algos * 3 octave ranges)
+                // P1/P2 ALGO (0, 10): 0..17 (6 algos * 3 octave ranges)
                 if (slot == 0 || slot == 10) {
-                    int choice = ((int)potVal * 15) / 128;
-                    if (choice > 14) choice = 14;
+                    int choice = ((int)potVal * 18) / 128;
+                    if (choice > 17) choice = 17;
                     barVal = choice;
-                    barMax = 14;
+                    barMax = 17;
                     return choice;
                 }
                 // SHARED NEO_OP (slot 7): 0=RAND, 1=P, 2=L, 3=R, 4=N, 5=S, 6=H, 7=PLR
@@ -596,10 +596,34 @@ namespace CTAG {
                 }
                 // Dynamic parameters: slots 1..4 (ARP1) and slots 11..14 (ARP2)
                 if ((slot >= 1 && slot <= 4) || (slot >= 11 && slot <= 14)) {
-                    int choice = ((int)s_cur.cell[slot < 6 ? 0 : 10].value * 15) / 128;
-                    if (choice > 14) choice = 14;
+                    int choice = ((int)s_cur.cell[slot < 6 ? 0 : 10].value * 18) / 128;
+                    if (choice > 17) choice = 17;
                     int algo = choice / 3;
                     int p_idx = (slot < 6) ? (slot - 1) : (slot - 11); // 0..3
+                    if (algo == 5) {
+                        // VARG: RIFF (0..5), PROG (0..7), VOICE (0..5), DISS %
+                        if (p_idx == 0) {
+                            int v = ((int)potVal * 6) / 128;
+                            if (v > 5) v = 5;
+                            barVal = v; barMax = 5;
+                            return v;
+                        }
+                        if (p_idx == 1) {
+                            int v = ((int)potVal * 8) / 128;
+                            if (v > 7) v = 7;
+                            barVal = v; barMax = 7;
+                            return v;
+                        }
+                        if (p_idx == 2) {
+                            int v = ((int)potVal * 6) / 128;
+                            if (v > 5) v = 5;
+                            barVal = v; barMax = 5;
+                            return v;
+                        }
+                        int v = ((int)potVal * 100 + 63) / 127;
+                        barVal = potVal; barMax = 127;
+                        return v;
+                    }
                     if (p_idx == 0) {
                         // DENS / PROB: 0..100 (%)
                         int v = ((int)potVal * 100 + 63) / 127;
@@ -983,12 +1007,23 @@ namespace CTAG {
                         }
                     } else if (s_page == 7) {
                         // MOD-ARP:
-                        static const char *const kArpAlgoNames[15] = {
+                        static const char *const kArpAlgoNames[18] = {
                             "HYP-1",    "HYP-2",    "HYP-3",
                             "MOTIF 1",  "MOTIF 2",  "MOTIF 3",
                             "MARKOV 1", "MARKOV 2", "MARKOV 3",
                             "METRO 1",  "METRO 2",  "METRO 3",
-                            "DEJAVU 1", "DEJAVU 2", "DEJAVU 3"
+                            "DEJAVU 1", "DEJAVU 2", "DEJAVU 3",
+                            "VARG 1",   "VARG 2",   "VARG 3"
+                        };
+                        static const char *const kVargRiff[6] = {
+                            "SUSTAIN", "HALF", "8TH", "16TH", "GALLOP", "BLAST"
+                        };
+                        static const char *const kVargProg[8] = {
+                            "AEOLIAN", "OSTINAT", "WEITZMN", "MEDIANT",
+                            "ADD9DIM", "HALFTRN", "B2B5", "NEOFREE"
+                        };
+                        static const char *const kVargVoice[6] = {
+                            "POWER", "TRIAD", "TRITONE", "DIMAUG", "ADD9", "PEDAL"
                         };
                         static const char *const kArpScaleNames[20] = {
                             "CHROM",    "IONIAN",   "DORIAN",   "PHRYGIAN",
@@ -1020,7 +1055,7 @@ namespace CTAG {
                         if (rootChoice > 15) rootChoice = 15;
 
                         if (slot == 0 || slot == 10) {
-                            pName = (dispVal >= 0 && dispVal < 15) ? kArpAlgoNames[dispVal] : "---";
+                            pName = (dispVal >= 0 && dispVal < 18) ? kArpAlgoNames[dispVal] : "---";
                         } else if (slot == 7) {
                             if (rootChoice == 3) {
                                 pName = (dispVal >= 0 && dispVal < 8) ? kNeoOpNames[dispVal] : "---";
@@ -1046,11 +1081,22 @@ namespace CTAG {
                         } else if (slot == 5 || slot == 15) {
                             pName = (dispVal >= 0 && dispVal < 13) ? kDivNames[dispVal] : "---";
                         } else if ((slot >= 1 && slot <= 4) || (slot >= 11 && slot <= 14)) {
-                            int choice = ((int)s_cur.cell[slot < 6 ? 0 : 10].value * 15) / 128;
-                            if (choice > 14) choice = 14;
+                            int choice = ((int)s_cur.cell[slot < 6 ? 0 : 10].value * 18) / 128;
+                            if (choice > 17) choice = 17;
                             int algo = choice / 3;
                             int p_idx = (slot < 6) ? (slot - 1) : (slot - 11);
-                            if (p_idx == 0) {
+                            if (algo == 5) {
+                                if (p_idx == 0) {
+                                    pName = (dispVal >= 0 && dispVal < 6) ? kVargRiff[dispVal] : "---";
+                                } else if (p_idx == 1) {
+                                    pName = (dispVal >= 0 && dispVal < 8) ? kVargProg[dispVal] : "---";
+                                } else if (p_idx == 2) {
+                                    pName = (dispVal >= 0 && dispVal < 6) ? kVargVoice[dispVal] : "---";
+                                } else {
+                                    snprintf(bufText, sizeof(bufText), "%d%%", dispVal);
+                                    pName = bufText;
+                                }
+                            } else if (p_idx == 0) {
                                 snprintf(bufText, sizeof(bufText), "%d%%", dispVal);
                                 pName = bufText;
                             } else if (algo == 0) {
@@ -1273,15 +1319,20 @@ namespace CTAG {
                 if (pot == 4 || pot == 14) n = 2;    // ADSR MODE (0..1)
                 if (pot == 5 || pot == 15) n = 13;   // ADSR DIV (0..12)
             } else if (s_page == 7) {
-                if (pot == 0 || pot == 10) n = 15;   // ARP ALGO (0..14)
+                if (pot == 0 || pot == 10) n = 18;   // ARP ALGO (0..17)
                 if (pot == 7) n = 8;                 // SHARED NEO_OP (0..7)
                 if (pot == 8) n = 16;                // SHARED ROOT (0..15)
                 if (pot == 9) n = 20;                // SHARED SCALE (0..19)
                 if (pot == 5 || pot == 15) n = 13;   // ARP DIV (0..12)
-                int choice = ((int)s_cur.cell[pot < 6 ? 0 : 10].value * 15) / 128;
-                if (choice > 14) choice = 14;
+                int choice = ((int)s_cur.cell[pot < 6 ? 0 : 10].value * 18) / 128;
+                if (choice > 17) choice = 17;
                 int algo = choice / 3;
                 int p_idx = (pot < 6) ? (pot - 1) : (pot - 11);
+                if (algo == 5) {
+                    if (p_idx == 0) n = 6;             // VARG RIFF
+                    else if (p_idx == 1) n = 8;        // VARG PROG
+                    else if (p_idx == 2) n = 6;        // VARG VOICE
+                }
                 if (algo == 1 && (p_idx == 1 || p_idx == 2)) n = 4;
                 else if (algo == 2 && p_idx == 1) n = 16;
                 else if (algo == 2 && p_idx == 2) n = 4;
