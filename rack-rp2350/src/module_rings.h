@@ -518,7 +518,7 @@ void control_change(uint8_t cc, uint8_t val) {
     case 23: s->pending_chord = static_cast<int8_t>(val); break;
     // Post-render distortion (ctag-tbd's 4 fast algos). Drive 0 = bypass.
     case 24: s->dist_drive = v; break;
-    case 27: if (val <= 3) s->dist_type = static_cast<uint8_t>(val); break;
+    case 27: if (val <= 4) s->dist_type = static_cast<uint8_t>(val); break;
     case 28: s->dist_bias = v; break;
     case 29: s->dist_tone = v; break;
     case 30: s->dist_mix = v; break;

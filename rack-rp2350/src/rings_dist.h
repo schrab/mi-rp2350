@@ -21,7 +21,10 @@
 
 namespace ringdist {
 
-enum Type : uint8_t { kTube = 0, kFold = 1, kFuzz = 2, kShape = 3 };
+enum Type : uint8_t {
+  kTube = 0, kFold = 1, kFuzz = 2, kShape = 3,
+  kSwedish = 4  // Swedish Chainsaw: HM-2 EQ + cascaded tanh
+};
 
 struct State {
   float lp[2];  // one-pole tone state, per channel
@@ -30,7 +33,7 @@ struct State {
 struct Params {
   uint8_t type;  // 0..3
   float drive;   // 0..1; 0 = zero-cost bypass
-  float bias;    // 0..1; only used by fuzz
+  float bias;    // 0..1; fuzz bias / Swedish "tight" HP toggle
   float tone;    // 0..1; 1 = open
   float mix;     // 0..1; 0 = fully dry
 };
@@ -44,6 +47,84 @@ static inline float softclip(float x) {
   if (x < -3.0f) return -1.0f;
   if (x > 3.0f) return 1.0f;
   return x * (27.0f + x * x) / (27.0f + 9.0f * x * x);
+}
+
+// ---- Swedish Chainsaw (Barabas5532/SwedishChainsaw, GPLv3) ---------------
+// The Entombed/Dismember "buzzsaw" is the Boss HM-2 graphic EQ with all four
+// bands maxed: three fixed peaking biquads (MATLAB coefficients from the
+// plugin's HM2Filter.cpp) wrapped in two tanh saturation stages. The plugin
+// also does 4x oversampling, an amp input HP and a JCM800 FMV tonestack; we
+// keep the pedal's defining HM2+tanh core at 32 kHz and reuse the common
+// tone-LP/dry-wet stage below. Coefficients are fixed-digital (the JUCE
+// prepare() ignores sampleRate), so at 32 kHz the bands sit ~0.73x lower.
+struct SwedishState {
+  float hp_y[2];        // input high-pass output state
+  float hp_x[2];        // input high-pass input state
+  float bq[2][3][2];    // per-channel biquad z1/z2 for the 3 HM2 bands
+  float pre_lp[2];      // 7 kHz post-HM2 one-pole
+};
+static inline SwedishState& swedish_state() {
+  static SwedishState s{};
+  return s;
+}
+
+// Fixed HM2 bands: b0,b1,b2,a1,a2 (a0 = 1 in all three).
+static inline void swedish_biquad(float* z, float x,
+                                  float b0, float b1, float b2,
+                                  float a1, float a2, float& y) {
+  y = b0 * x + z[0];
+  z[0] = b1 * x - a1 * y + z[1];
+  z[1] = b2 * x - a2 * y;
+}
+
+// One-pole high-pass / low-pass (RC at 32 kHz Rings rate).
+static inline float swedish_hp(float& y, float& xp, float x, float a) {
+  y = a * (y + x - xp);
+  xp = x;
+  return y;
+}
+static inline float swedish_lp(float& y, float x, float a) {
+  y += a * (x - y);
+  return y;
+}
+
+// One stereo block through the pedal core. `drive` = pedal gain, `bias`
+// >= 0.5 selects the tighter 700 Hz input HP. State is a singleton: there is
+// exactly one Rings adapter instance, and keeping it static avoids growing
+// the arena-placed State (chain rings+clouds has only ~128 B spare).
+static inline void swedish_process(float* out, float* aux, size_t n,
+                                   float drive, float bias) {
+  SwedishState& st = swedish_state();
+  const float a_hp = 1.0f / (1.0f + 6.2831853f * (bias >= 0.5f ? 700.0f
+                                                              : 60.0f)
+                                            / 32000.0f);
+  const float a_lp = 6.2831853f * 7000.0f / 32000.0f;
+  const float pedal_gain = 1.0f + 19.0f * clamp01(drive);
+  const float amp_gain = 1.0f + 9.0f * clamp01(drive);
+  float* chans[2] = {out, aux};
+  for (int c = 0; c < 2; ++c) {
+    for (size_t i = 0; i < n; ++i) {
+      float x = swedish_hp(st.hp_y[c], st.hp_x[c], chans[c][i], a_hp);
+      x = softclip(x * pedal_gain);                    // pedal tanh
+      float y;
+      swedish_biquad(st.bq[c][0], x,
+                     1.016224171805848f, -1.996244766867333f,
+                     0.980170456681741f, -1.996244766867333f,
+                     0.996394628487589f, y);
+      swedish_biquad(st.bq[c][1], y,
+                     1.048098514125369f, -1.946884930731663f,
+                     0.914902628855116f, -1.946884930731663f,
+                     0.963001142980485f, y);
+      swedish_biquad(st.bq[c][2], y,
+                     1.260798129602192f, -1.896438187817481f,
+                     0.674002337997260f, -1.896438187817481f,
+                     0.934800467599452f, y);
+      y = swedish_lp(st.pre_lp[c], y, a_lp);
+      y = softclip(y * amp_gain);                      // amp tanh
+      // makeup: the HM2 bands boost hard at max settings
+      chans[c][i] = y * 0.35f;
+    }
+  }
 }
 
 // Retroactor's Vult-generated Befaco wavefolder, from
@@ -179,7 +260,28 @@ static inline void process(State* st, const Params& p,
   const float d = p.drive;
   const float mix = clamp01(p.mix);
   const float lp_k = 0.04f + 0.96f * clamp01(p.tone);
-  const int type = (int)(p.type % 4u);
+  const int type = (int)(p.type % 5u);
+  if (type == kSwedish) {
+    // Block-oriented pedal core: save dry, shape, then reuse the common
+    // tone LP + dry/wet blend. Rings blocks are <= 24 samples.
+    float dry[2][64];
+    const size_t m = n < 64u ? n : 64u;
+    for (size_t i = 0; i < m; ++i) {
+      dry[0][i] = out[i];
+      dry[1][i] = aux[i];
+    }
+    swedish_process(out, aux, m, d, p.bias);
+    float* chans[2] = {out, aux};
+    for (int c = 0; c < 2; ++c) {
+      float lp = st->lp[c];
+      for (size_t i = 0; i < m; ++i) {
+        lp += lp_k * (chans[c][i] - lp);
+        chans[c][i] = dry[c][i] + (lp - dry[c][i]) * mix;
+      }
+      st->lp[c] = lp;
+    }
+    return;
+  }
   float k = 0.0f, k_norm = 1.0f;
   float bias = 0.0f, bias_sub = 0.0f, bias_norm = 1.0f;
   float ws_gain = 1.0f;

@@ -112,7 +112,7 @@ static void test_process_bypass_and_types() {
   expect_true("bypass aux", std::memcmp(aux, keep_aux, sizeof(aux)) == 0);
   expect_near("bypass lp", st.lp[0], 0.0f, 1e-9f);
 
-  for (int type = 0; type < 4; ++type) {
+  for (int type = 0; type < 5; ++type) {
     for (int i = 0; i < 8; ++i) { out[i] = 0.2f * i - 0.6f; aux[i] = -out[i]; }
     ringdist::State s2{{0.0f, 0.0f}};
     ringdist::Params q{};
@@ -130,6 +130,31 @@ static void test_process_bypass_and_types() {
     expect_true("type finite", finite);
     expect_true("type bounded", bounded);
     expect_true("type lp moved", std::fabs(s2.lp[0]) > 0.0f);
+  }
+  // Swedish Chainsaw has its own persistent HM2 biquad state: consecutive
+  // blocks must stay finite and the tight-HP (bias >= 0.5) path must work.
+  {
+    float o[24], a[24];
+    for (int i = 0; i < 24; ++i) { o[i] = 0.2f * i - 2.0f; a[i] = -o[i]; }
+    ringdist::Params q{};
+    q.type = ringdist::kSwedish;
+    q.drive = 0.8f;
+    q.bias = 0.8f;
+    q.tone = 0.5f;
+    q.mix = 1.0f;
+    ringdist::State st{{0.0f, 0.0f}};
+    for (int block = 0; block < 8; ++block) {
+      ringdist::process(&st, q, o, a, 24);
+      for (int i = 0; i < 24; ++i) {
+        if (!std::isfinite(o[i]) || !std::isfinite(a[i])) {
+          expect_true("swedish finite", false);
+          break;
+        }
+      }
+    }
+    bool nonzero = false;
+    for (int i = 0; i < 24; ++i) nonzero = nonzero || std::fabs(o[i]) > 1e-5f;
+    expect_true("swedish produces signal", nonzero);
   }
 }
 

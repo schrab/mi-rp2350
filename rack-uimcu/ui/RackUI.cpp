@@ -279,7 +279,7 @@ namespace CTAG {
                 case 3: // Rings
                     if (cc == 18) return 6;   // MODEL/FX: 0..5
                     if (cc == 20) return 6;   // MODE: 0..5 (5 = VARG chord)
-                    if (cc == 27) return 4;   // DIST TYPE: 0..3
+                    if (cc == 27) return 5;   // DIST TYPE: 0..4 (4 = Swedish Chainsaw)
                     if (cc == 21) return 3;   // WAVE: 0..2
                     if (cc == 22) return 3;   // CHORD TB: 0..2
                     if (cc == 23) return 11;  // CHORD: 0..10
@@ -976,6 +976,11 @@ namespace CTAG {
                             } else if (c.cc == 22) {
                                 static const char *const kRingChordTables[3] = { "BRYAN", "JON", "JOE" };
                                 pName = (dispVal >= 0 && dispVal < 3) ? kRingChordTables[dispVal] : "---";
+                            } else if (c.cc == 27) {
+                                static const char *const kDistTypes[5] = {
+                                    "TUBE", "FOLD", "FUZZ", "SHAPE", "SWEDE"
+                                };
+                                pName = (dispVal >= 0 && dispVal < 5) ? kDistTypes[dispVal] : "---";
                             }
                         }
                     } else if (s_page == 2 || s_page == 3) {
