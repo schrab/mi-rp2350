@@ -70,6 +70,7 @@ bool core1_separate_stack = true;
 #include "hardware/structs/scb.h"   // scb_hw: fault-status registers + AIRCR
 #include "hardware/structs/qmi.h"   // T9 clock diag: QMI M0 flash timing
 #include "hardware/regs/qmi.h"      // QMI_M0_TIMING_CLKDIV/RXDELAY field masks
+#include "hardware/vreg.h"          // T9 oc bench: vreg raise above 280 MHz
 
 // T9 clock note: the RP2350's flash (QMI) timing is set by the ROM (CLKDIV 3,
 // RXDELAY 2) and does NOT re-scale with set_sys_clock_khz — flash SCK =
@@ -1627,6 +1628,9 @@ static void cmd_uisend(const char* args);
 static void cmd_cc(const char* args);
 // T9 clock diag: live QMI M0 flash timing decode.
 static void cmd_qmi(const char* args);
+// T9 bench: runtime overclock + crash record print/clear.
+static void cmd_oc(const char* args);
+static void cmd_crash(const char* args);
 static void cmd_trig(const char* args);
 static void cmd_piezo(const char* args);
 static void cmd_help(const char* args);
@@ -1670,6 +1674,8 @@ static const ConsoleCommand kConsoleCommands[] = {
     {"uisend",    cmd_uisend},
     {"cc",        cmd_cc},
     {"qmi",       cmd_qmi},
+    {"oc",        cmd_oc},
+    {"crash",     cmd_crash},
     {"panic",     cmd_panic},
     {"reboot",    cmd_reboot},
     {"trig",      cmd_trig},
@@ -2431,16 +2437,30 @@ static void pumpConsole() {
 // warm reset, and crt0 neither loads nor zeroes this section), then resets.
 // setup() prints the record once, after the deferred boot line, so the fault
 // PC can be resolved with `arm-none-eabi-addr2line -e firmware.elf <pc>`.
-struct CrashRecord {
+//
+// T9 SAFE MODE (the "console dies with the crash" lesson): an aggressive
+// clock (280+) can fault BEFORE the USB CDC enumerates, so the record is
+// written but unreadable. The record therefore carries counters:
+//   - fault_streak: +1 per HardFault reset (never auto-cleared — STICKY),
+//   - boot_count:   +1 per boot that never reached a healthy 5 s loop.
+// When fault_streak >= 2 or boot_count >= 3, setup() drops the clock to
+// 240 MHz as its FIRST action — one boot is ALWAYS readable and prints the
+// record. Clear with the console command `crash clear` (re-arms normal clock).
+struct CrashRecordV2 {
   uint32_t magic;
   uint32_t core;
   uint32_t pc, lr, psr;
   uint32_t r0, r1, r2, r3, r12;
   uint32_t cfsr, hfsr, mmfar, bfar;
+  uint32_t boot_count;      // consecutive unhealthy boots
+  uint32_t fault_streak;    // consecutive HardFault resets (sticky)
+  uint32_t reset_reason;    // 0 cold-setup-end, 1 died before setup end,
+                            // 2 HardFault, 3 watchdog in loop
+  uint32_t safe_mode;       // this boot ran at 240 MHz (record printed)
 };
-static constexpr uint32_t kCrashMagic = 0xC0DE5AFEu;
+static constexpr uint32_t kCrashMagicV2 = 0xC0DE5AF3u;   // v2: counters
 __attribute__((section(".uninitialized_data.crash"), used))
-static volatile CrashRecord g_crash;
+static volatile CrashRecordV2 g_crashv2;
 
 // Called from isr_hardfault with the exception-frame pointer + EXC_RETURN.
 // Cortex-M33: an FP-extended frame stacks S0-S15 + FPSCR (17 words) BELOW the
@@ -2448,21 +2468,23 @@ static volatile CrashRecord g_crash;
 // present, and the basic frame then starts at sp + 17 words.
 extern "C" void crash_record_c(uint32_t* sp, uint32_t exc_return) {
   uint32_t* f = ((exc_return & 0x10u) == 0u) ? (sp + 17) : sp;
-  g_crash.core = (uint32_t)get_core_num();
-  g_crash.r0 = f[0];
-  g_crash.r1 = f[1];
-  g_crash.r2 = f[2];
-  g_crash.r3 = f[3];
-  g_crash.r12 = f[4];
-  g_crash.lr = f[5];
-  g_crash.pc = f[6];
-  g_crash.psr = f[7];
-  g_crash.cfsr = scb_hw->cfsr;
-  g_crash.hfsr = scb_hw->hfsr;
-  g_crash.mmfar = scb_hw->mmfar;
-  g_crash.bfar = scb_hw->bfar;
+  g_crashv2.fault_streak = g_crashv2.fault_streak + 1u;   // sticky, pre-magic
+  g_crashv2.core = (uint32_t)get_core_num();
+  g_crashv2.r0 = f[0];
+  g_crashv2.r1 = f[1];
+  g_crashv2.r2 = f[2];
+  g_crashv2.r3 = f[3];
+  g_crashv2.r12 = f[4];
+  g_crashv2.lr = f[5];
+  g_crashv2.pc = f[6];
+  g_crashv2.psr = f[7];
+  g_crashv2.cfsr = scb_hw->cfsr;
+  g_crashv2.hfsr = scb_hw->hfsr;
+  g_crashv2.mmfar = scb_hw->mmfar;
+  g_crashv2.bfar = scb_hw->bfar;
+  g_crashv2.reset_reason = 2;
   __dmb();
-  g_crash.magic = kCrashMagic;
+  g_crashv2.magic = kCrashMagicV2;
   __dmb();
   // NVIC_SystemReset() is not linked in this TU; AIRCR SYSRESETREQ is the same
   // register write (VECTKEY 0x05FA, then system reset request).
@@ -2483,11 +2505,139 @@ extern "C" __attribute__((naked)) void isr_hardfault(void) {
       "b crash_record_c\n");
 }
 
+// T9 oc-bench oracle: the boot-time window-copy FNV of the boot module's
+// FLASH image. cmd_oc re-reads the flash through XIP and compares — a pure
+// read test that never touches the SRAM window core 1 is executing from.
+static uint32_t g_window_src_sum = 0;
+
+// crash — print/clear the T9 crash counters (NOLOAD SRAM, survives resets).
+// `crash clear` zeroes the sticky fault_streak so normal clocks re-arm after
+// SAFE MODE. The one-shot CRASH line is printed by setup (see the boot block).
+static void cmd_crash(const char* args) {
+  while (*args == ' ') ++args;
+  if (strcasecmp(args, "clear") == 0) {
+    g_crashv2.boot_count = 0;
+    g_crashv2.fault_streak = 0;
+    g_crashv2.safe_mode = 0;
+    g_crashv2.magic = 0;
+    g_crashv2.reset_reason = 0;
+    __dmb();
+    Serial.printf("crash: counters cleared — next reboot runs at F_CPU "
+                  "(%lu Hz build clock)\r\n", (unsigned long)F_CPU);
+    return;
+  }
+  Serial.printf("crash: reason=%lu unhealthy_boots=%lu fault_streak=%lu "
+                "safe_mode=%lu\r\n",
+                (unsigned long)g_crashv2.reset_reason,
+                (unsigned long)g_crashv2.boot_count,
+                (unsigned long)g_crashv2.fault_streak,
+                (unsigned long)g_crashv2.safe_mode);
+  if (g_crashv2.magic == kCrashMagicV2) {
+    Serial.printf("crash: core=%lu pc=0x%08lx lr=0x%08lx cfsr=0x%08lx "
+                  "hfsr=0x%08lx mmfar=0x%08lx bfar=0x%08lx (addr2line the pc)\r\n",
+                  (unsigned long)g_crashv2.core,
+                  (unsigned long)g_crashv2.pc, (unsigned long)g_crashv2.lr,
+                  (unsigned long)g_crashv2.cfsr, (unsigned long)g_crashv2.hfsr,
+                  (unsigned long)g_crashv2.mmfar, (unsigned long)g_crashv2.bfar);
+  } else {
+    Serial.println("crash: no fault record held (one-shot line was printed at boot)");
+  }
+}
+
+// oc — runtime overclock bench (T9). The app boots at the safe build clock;
+// this switches live so a clock candidate costs one console command, not a
+// reflash. Order follows the SDK's own PSRAM rule: pin the QMI timing FIRST,
+// then raise the PLL. Above 280 MHz raise VREG to 1.20 V (the core only
+// auto-sets 1.15). The FLASH-integrity oracle is the boot-time window-copy
+// FNV over the boot module's flash image, re-read through XIP (reads only).
+// Serial1/I2S dividers stay programmed for the old clock until `reboot`:
+// audio runs off-rate and the UI link is dead — both restored by rebooting.
+// A crash lands in SAFE MODE (240 MHz) on the next boot, readable.
+static void cmd_oc(const char* args) {
+  unsigned khz = 0, div = 0, rx = 0;
+  const int n = sscanf(args, "%u %u %u", &khz, &div, &rx);
+  if (n < 1 || khz < 24000u || khz > 400000u) {
+    Serial.println("usage: oc <khz 24000-400000> [clkdiv] [rxdelay]   "
+                   "(defaults: live QMI values; `reboot` restores)");
+    return;
+  }
+  const uint32_t t0 = qmi_hw->m[0].timing;
+  if (div == 0) div = t0 & QMI_M0_TIMING_CLKDIV_BITS;
+  if (rx == 0 && n < 3) rx = (t0 >> QMI_M0_TIMING_RXDELAY_LSB) & 0x7u;
+  if (div < 1u || div > 255u || rx > 7u) {
+    Serial.println("oc: clkdiv 1-255, rxdelay 0-7");
+    return;
+  }
+  if (khz > 280000u) {
+    vreg_set_voltage(VREG_VOLTAGE_1_20);
+    delay(5);                       // settle (timers are microsecond-locked)
+  }
+  uint32_t t = qmi_hw->m[0].timing;
+  t = (t & ~(QMI_M0_TIMING_CLKDIV_BITS | QMI_M0_TIMING_RXDELAY_BITS)) |
+      ((div & 0xFFu) << QMI_M0_TIMING_CLKDIV_LSB) |
+      (rx << QMI_M0_TIMING_RXDELAY_LSB);
+  qmi_hw->m[0].timing = t;
+  __dmb();
+  if (!set_sys_clock_khz(khz, true)) {
+    Serial.printf("oc: PLL cannot hit %u kHz exactly — timing left as-is\r\n",
+                  khz);
+    return;
+  }
+  const RackWindowSection& s = rack_window_section(RACK_BOOT_MODULE);
+  const uint32_t sum =
+      rack_checksum32(s.flash_start, (size_t)(s.flash_end - s.flash_start));
+  const uint32_t fcpu = clock_get_hz(clk_sys);
+  const uint32_t live_div = qmi_hw->m[0].timing & QMI_M0_TIMING_CLKDIV_BITS;
+  Serial.printf("oc: f_cpu=%lu CLKDIV=%lu RXDELAY=%lu -> flash SCK %lu.%01lu "
+                "MHz | flash FNV 0x%08lx vs boot 0x%08lx -> %s\r\n",
+                (unsigned long)fcpu, (unsigned long)live_div,
+                (unsigned long)rx,
+                (unsigned long)(fcpu / live_div / 1000000UL),
+                (unsigned long)((fcpu / live_div / 100000UL) % 10u),
+                (unsigned long)sum, (unsigned long)g_window_src_sum,
+                sum == g_window_src_sum ? "OK" : "MISMATCH (XIP corrupting)");
+  Serial.println("oc: Serial1/I2S stale (off-rate, UI link dead) — `reboot` "
+                 "restores the build clock");
+}
+
 void setup() {
   // BOOT WATCHDOG FIRST: 8 s covers the window copy + I2S + USB enumeration;
   // a boot that stalls on a print or a peripheral gets reset instead of
   // freezing. The loop's 2 s period replaces this at the end of setup.
   watchdog_enable(8000, false);
+  // --- T9 crash counters + SAFE MODE ---------------------------------------
+  // .uninitialized_data survives warm resets; a cold boot leaves garbage, so
+  // the counters self-sanitize. scratch[4] survives watchdog resets only:
+  // present = some previous boot reached the end of setup at least.
+  {
+    const uint32_t kBootDone = 0xB007CAFEu;
+    const uint32_t marker = watchdog_hw->scratch[4];
+    watchdog_hw->scratch[4] = 0;
+    if (g_crashv2.boot_count > 500u || g_crashv2.fault_streak > 50u) {
+      g_crashv2.boot_count = 0;
+      g_crashv2.fault_streak = 0;
+      g_crashv2.safe_mode = 0;
+    }
+    if (g_crashv2.magic == kCrashMagicV2) {
+      g_crashv2.reset_reason = 2;              // the fault handler set it
+    } else if (marker != kBootDone) {
+      g_crashv2.reset_reason = 1;              // died before setup completed
+    } else {
+      g_crashv2.reset_reason = 3;              // watchdog in the loop
+    }
+    ++g_crashv2.boot_count;
+    // SAFE MODE: a crashy clock config (hard fault or hang before the loop)
+    // would otherwise bootloop invisibly when the USB CDC never enumerates at
+    // the aggressive clock. After repeated unhealthy boots, run THIS boot at
+    // 240 MHz: the console comes up and the record + counters are readable.
+    // Sticky fault_streak keeps it engaged until `crash clear`.
+    if (g_crashv2.fault_streak >= 2u || g_crashv2.boot_count >= 3u) {
+      if (clock_get_hz(clk_sys) > 240000000u) {
+        set_sys_clock_khz(240000, true);
+      }
+      g_crashv2.safe_mode = 1;
+    }
+  }
   // --- SRAM window: copy the BOOT module's hot section flash -> SRAM ---
   // MUST run before ANY module code executes (module init calls tc_*
   // functions: Part::Init, GranularProcessor::Init, Voice::Init, ...). The
@@ -2516,6 +2666,7 @@ void setup() {
   {
     uint32_t src_sum = 0, dst_sum = 0;
     const uint32_t n = rack_window_copy(RACK_BOOT_MODULE, &src_sum, &dst_sum);
+    g_window_src_sum = src_sum;   // oc-bench flash-integrity oracle baseline
     const RackWindowSection& s = rack_window_section(RACK_BOOT_MODULE);
     snprintf(window_line, sizeof(window_line),
              "rack: window 0x%08x+%u | copied %s %u bytes (checksum src=0x%08x dst=0x%08x)",
@@ -2624,25 +2775,37 @@ void setup() {
   audio_ready = true;
   dbg_printf("%s\r\n", window_line);          // deferred boot line (see fix note)
   // Crash record from the previous run (isr_hardfault): PC + fault status of
-  // the fault that reset us. One line, then cleared so it prints only once.
-  if (g_crash.magic == kCrashMagic) {
+  // the fault that reset us. One line, then the magic is cleared so it prints
+  // only once — the counters and streak stay (sticky safe mode) until
+  // `crash clear`. Resolve the PC: arm-none-eabi-addr2line -e firmware.elf <pc>.
+  if (g_crashv2.magic == kCrashMagicV2) {
     Serial.printf("CRASH: core=%lu pc=0x%08lx lr=0x%08lx psr=0x%08lx "
                   "cfsr=0x%08lx hfsr=0x%08lx mmfar=0x%08lx bfar=0x%08lx "
                   "r0=0x%08lx r1=0x%08lx r2=0x%08lx r3=0x%08lx r12=0x%08lx\r\n",
-                  (unsigned long)g_crash.core,
-                  (unsigned long)g_crash.pc, (unsigned long)g_crash.lr,
-                  (unsigned long)g_crash.psr,
-                  (unsigned long)g_crash.cfsr, (unsigned long)g_crash.hfsr,
-                  (unsigned long)g_crash.mmfar, (unsigned long)g_crash.bfar,
-                  (unsigned long)g_crash.r0, (unsigned long)g_crash.r1,
-                  (unsigned long)g_crash.r2, (unsigned long)g_crash.r3,
-                  (unsigned long)g_crash.r12);
-    g_crash.magic = 0;
+                  (unsigned long)g_crashv2.core,
+                  (unsigned long)g_crashv2.pc, (unsigned long)g_crashv2.lr,
+                  (unsigned long)g_crashv2.psr,
+                  (unsigned long)g_crashv2.cfsr, (unsigned long)g_crashv2.hfsr,
+                  (unsigned long)g_crashv2.mmfar, (unsigned long)g_crashv2.bfar,
+                  (unsigned long)g_crashv2.r0, (unsigned long)g_crashv2.r1,
+                  (unsigned long)g_crashv2.r2, (unsigned long)g_crashv2.r3,
+                  (unsigned long)g_crashv2.r12);
+    g_crashv2.magic = 0;
     __dmb();
   }
+  Serial.printf("boot: reason=%lu (0 cold | 1 pre-setup death | 2 fault | "
+                "3 watchdog-in-loop) unhealthy_boots=%lu fault_streak=%lu%s\r\n",
+                (unsigned long)g_crashv2.reset_reason,
+                (unsigned long)g_crashv2.boot_count,
+                (unsigned long)g_crashv2.fault_streak,
+                g_crashv2.safe_mode ? " SAFE-MODE(240 MHz) - `crash clear` to re-arm" : "");
   // 2 s core-0 watchdog: fed at the end of every loop() pass. A hang reboots
   // the board instead of leaving it frozen (USB enumerated but dead).
   watchdog_enable(2000, false);
+  // T9 boot-done marker (survives watchdog resets): the NEXT setup can tell a
+  // pre-setup death / cold boot (marker absent) from a loop-time watchdog
+  // reset (marker present). Read-and-cleared at setup start.
+  watchdog_hw->scratch[4] = 0xB007CAFEu;
 #if RACK_ENABLE_USB_HOST
   dbg_printf("%s up (rack boot module, %lu Hz / %lu-sample blocks, budget %lu us, USB MIDI device + PIO-USB host; CC 32 or serial 'switch' swaps modules; CC 33/34/35 = mod engine source/param/value; console: help)\r\n",
                 boot.name,
@@ -2703,6 +2866,16 @@ static void dbg_pump() {
 
 void loop() {
   const uint32_t loop_t0 = time_us_32();
+  // T9: a boot that survives 5 s of loop is healthy — clear the unhealthy-
+  // boot counter so a NORMAL reboot does not accumulate it (fault_streak
+  // stays sticky until `crash clear`, keeping SAFE MODE engaged if a clock
+  // config keeps faulting).
+  static bool t9_healthy = false;
+  if (!t9_healthy && millis() > 5000u) {
+    t9_healthy = true;
+    g_crashv2.boot_count = 0;
+    __dmb();
+  }
   // --- I2S reconfig requests from a running swap / chain transition (core 1
   // waits bounded on either) ---
   serviceSwapI2s();
