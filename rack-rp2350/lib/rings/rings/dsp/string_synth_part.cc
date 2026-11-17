@@ -468,6 +468,17 @@ void StringSynthPart::Process(
     for (int32_t i = 0; i < chord_size; ++i) {
       float n;
 
+      // Rack VARG chord mode: absolute MIDI notes supplied by the mod engine
+      // (chord-tone pool) — every slot renders at once, no arpeggiation.
+      if (performance_state.varg_chord_n > 0) {
+        const int32_t vn = performance_state.varg_chord_n;
+        const int32_t vi = i < vn ? i : (vn ? i % vn : 0);
+        n = performance_state.varg_chord[vi];
+        notes[i].note = n;
+        notes[i].amplitude = 1.0f;
+        continue;
+      }
+
       if (performance_state.chord_table == CHORD_TABLE_BRYAN) {
         n = bryanChords[polyphony_ - 1][group_[group].chord][i];
       } else if (performance_state.chord_table == CHORD_TABLE_JON) {

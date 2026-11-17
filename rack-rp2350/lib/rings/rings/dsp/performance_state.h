@@ -65,6 +65,10 @@ struct PerformanceState {
   float fm;
   float locked_frequency_pot_value;
   int32_t chord;
+  // Rack VARG chord mode: when varg_chord_n > 0 the string synth renders
+  // these ABSOLUTE MIDI notes simultaneously instead of a static chord table.
+  uint8_t varg_chord_n = 0;
+  float varg_chord[8];
   uint8_t frequency_locked;
   uint8_t waveform_exciter;
   uint8_t strum_hold_option;
