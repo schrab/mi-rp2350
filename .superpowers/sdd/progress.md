@@ -3989,3 +3989,30 @@ Findings (T9):
   and confirmed the black-metal character — **BENCH DONE**. Board left on
   elements, arp1 VARG (RIFF 8TH / PROG WEITZMANN / VOICE TRIAD / DISS 20,
   dest voice).
+
+### Rack Rings — VARG chord mode + ctag-tbd distortion (2026-11-17)
+- Request: a 6th Rings mode playing full simultaneous VARG chords/triads (NOT
+  arpeggiated) over evolving W7/NEO harmony, with the 4 fast distortion algos
+  from ctag-tbd's latest commits applied after the resonator. Design locked:
+  re-source StringSynthPart's chord renderer, adapter-level post-render
+  shaper (all modes), implement directly.
+- **Distortion source**: the 4 algos were NOT in this repo or local refs;
+  fetched ctag-tbd (user-approved) and found tube / fold / fuzz / shape in
+  commits `2166c84c`, `4f086145`, `a62ad652` (DSP in eurorack@5642bf4
+  `rings/dsp/part.cc`, Vult `Fold_do`, braids `wav_sine` table). Ported
+  verbatim into the pure header `src/rings_dist.h`; the 257-entry int32 shape
+  table is a static rodata singleton (~1 KB .bss), never in the arena pool.
+- `src/rings_chord.h` (host-tested): VARG pool / l8harmony snapshot -> absolute
+  MIDI notes for simultaneous chord slots; keeps root/third/fifth when the
+  pool exceeds the available voices.
+- `tools/patches/rings/03-varg-chord.patch` adds `PerformanceState.varg_chord_n`
+  (default 0) + `varg_chord[8]` and overrides StringSynthPart's static chord
+  table. Hot-set side effect: tc_rings 58,084 -> **60,336 B**; the chain-A
+  boundary `RACK_CLOUDS_B_OFFSET` moved 0xE400 -> 0xEC00 (B slot still fits:
+  60,416 + 56,964 = 117,380 <= 118,784).
+- Wiring: mode 5 = VARG chords (re-strum on chord change, MIDI strum bypass
+  via `rack_rings_varg_chord_on`); distortion on **all** modes via CC 24/27-30;
+  C3 MODE bucket 5 -> 6 + DIST TYPE bucket 4. All five rack envs, standalone
+  rings and C3 build green.
+- Commits: 7fd33aa (pure headers/tests) .. dfabbad (firmware wiring).
+  **Bench pending:** flash + chord/type sweep + timing + user ears.

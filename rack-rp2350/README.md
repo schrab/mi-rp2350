@@ -268,6 +268,30 @@ black-metal progressions with the W7 / Neo-Riemannian kernels:
 - Both ARPs on VARG keep independent progressions (shared ROOT/SCALE still
   locks the key); the first routed ARP is the LIRA-8 harmony source.
 
+## Rings VARG chord mode + post-render distortion
+
+RINGS mode 5 (`cc 20 5`, shown as `MODE 5/5` on the C3) is a **simultaneous
+chord** engine: instead of the native one-note-per-strum resonator, it renders
+the VARG chord-tone pool with the string-synth voice bank (all tones at once —
+no arpeggiation). The chord is read from the same bar-quantized harmony
+snapshot LIRA-8 uses; the published root + pool are converted to absolute MIDI
+notes (`src/rings_chord.h`) and re-strummed on every chord change. MIDI notes
+keep firing the strum while a VARG ARP is routed (e.g. `mod arp1 dest voice`).
+
+The four ctag-tbd fast distortion algorithms run **after the render in every
+Rings mode** (0–5), not just the chord mode (`src/rings_dist.h`, ported from
+ctag-tbd commits `2166c84c` / `4f086145` / `a62ad652`):
+
+- **CC 24** drive (0 = zero-cost bypass, default 0.55),
+- **CC 27** type: 0 tube (SoftClip knee glue), 1 fold (Vult/Befaco wavefolder),
+  2 fuzz (biased asymmetric SoftClip), 3 shape (TBD03's seeded waveshaper),
+- **CC 28** bias (fuzz only), **CC 29** tone (1 = open), **CC 30** mix (1 = wet).
+
+The C3 Rings P1 page exposes drive / type / mix on the three formerly empty
+pots. The shared SRAM window's chain-A boundary moved from 0xE400 to 0xEC00
+(60,416 B) to fit the patched `tc_rings` hot set (60,336 B); the B slot still
+fits with ~1.4 KB of window slack.
+
 ## SRAM architecture (T2 + T6/T6b two-slot window)
 
 - **One window for all five modules**: `memmap_rack.ld` (single script, every
