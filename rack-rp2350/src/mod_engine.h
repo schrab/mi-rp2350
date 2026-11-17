@@ -107,6 +107,7 @@ extern volatile uint8_t g_mod_chain_rate_khz;   // 0 = off, else rate/1000
 
 #include "gen_tables.h"
 #include "lira8/lira_harmony.h"   // T8b: ARP -> lira8 voice-pitch snapshot
+#include "varg.h"    // VARG: 6th ARP algo (black-metal harmony + riff; pure header)
 
 // ===================== source taxonomy =====================
 enum ModSourceType : uint8_t {
@@ -133,7 +134,9 @@ enum ModArpAlgo : uint8_t {
   MOD_ARP_MARKOV = 2,   // Tonal-Gravity Markov Walker + 16 Melodic Contours
   MOD_ARP_METRO  = 3,   // Metropolix 8-Stage Accumulator & Ratchets
   MOD_ARP_DEJAVU = 4,   // Marbles 3-Zone Deja-Vu Shift Register + Salience
+  MOD_ARP_VARG   = 5,   // Black-metal harmony/riff generator (W7/NEO kernels)
 };
+static const uint8_t MOD_ARP_ALGO_COUNT = 6;
 
 // Source ids (CC 33 values): 0-3 LFO1-4, 4-5 EU1-2, 6-7 GATE1-2, 8-9 ADSR1-2, 10-11 ARP1-2.
 // 4+2+2+2+2 = 12 sources total.
@@ -206,6 +209,7 @@ struct ModArpExt {
       uint8_t u_pitch[16];
       uint8_t u_gate[16];
     } dejavu;
+    varg::State varg;   // MOD_ARP_VARG: progression + chord pool (pure header)
   } st;
 
   // 303 DSP Articulator state (Q16.16)
@@ -236,7 +240,7 @@ struct ModSource {
     struct { float a_s, d_s, s_lvl, r_s; uint8_t retrig, env_state; float env;
              uint32_t ticks; } adsr;
     struct {
-      uint8_t algo;           // 0..4 (HYP1, MOTIF, MARKOV, METRO, DEJAVU)
+      uint8_t algo;           // 0..5 (HYP1, MOTIF, MARKOV, METRO, DEJAVU, VARG)
       uint8_t range;          // 1..3 octaves
       uint8_t root_param;     // 0 = MIDI follow, 1=PARAL, 2=W7, 3=NEO, 24..84 = fixed root MIDI note
       uint8_t midi_root;      // last captured external MIDI note (default 48 = C3)
@@ -973,6 +977,57 @@ static void mod_arp_build_dejavu(ModSource& s, ModArpExt& ext) {
   }
 }
 
+// ---- MOD_ARP_VARG: black-metal harmony + riff (spec 2026-11-17) --------
+// Knob mapping: p1 RIFF, p2 PROG, p3 VOICE, p4 DISS. ROOT/SCALE/TRANS stay
+// shared with the other ARP algos; W7/NEO root modes force the kernels.
+
+static void mod_varg_inputs(const ModSource& s, varg::Inputs* in) {
+  in->riff  = s.p.arp.p[0];
+  in->prog  = s.p.arp.p[1];
+  in->voice = s.p.arp.p[2];
+  in->diss  = s.p.arp.p[3];
+  in->range = s.p.arp.range ? s.p.arp.range : 1u;
+  in->root_mode = (s.p.arp.root_param <= 3u) ? s.p.arp.root_param : 0u;
+  in->neo_op = g_mod_engine.neo_op;
+  in->scale_id = (s.p.arp.scale_idx & 0x3Fu) % SCALE_COUNT;
+  // Same root derivation as mod_arp_base_root_note() (defined later in this
+  // file — duplicated here because the VARG builders sit above it).
+  const uint8_t root_note = (s.p.arp.root_param <= 3u)
+      ? (s.p.arp.midi_root ? s.p.arp.midi_root : 48u)
+      : (uint8_t)(48u + ((s.p.arp.root_param - 4u) % 12u));
+  in->key_root_pc = (uint8_t)(root_note % 12u);
+}
+
+// Rebuild the 16-step riff under the CURRENT chord; (re-)seed the
+// progression when the algorithm/key/scale changed.
+static void mod_varg_steps(ModSource& s, ModArpExt& ext) {
+  varg::Inputs in;
+  mod_varg_inputs(s, &in);
+  varg::State* v = &ext.st.varg;
+  const uint8_t prog = varg::prog_of(in);
+  if (v->pool_n == 0u || v->prog_idx != prog ||
+      v->last_key != in.key_root_pc || v->last_scale != in.scale_id) {
+    varg::init(v, s.rng, in);
+  }
+  varg::Step tmp[16];
+  varg::build_bar(v, in, tmp);
+  for (uint8_t i = 0; i < 16u; ++i) {
+    ext.steps[i].flags = tmp[i].flags;
+    ext.steps[i].off   = tmp[i].off;
+    ext.steps[i].oct   = tmp[i].oct;
+  }
+}
+
+// Bar line: advance the progression/section, then rebuild the riff.
+static void mod_varg_bar(ModSource& s, ModArpExt& ext) {
+  varg::Inputs in;
+  mod_varg_inputs(s, &in);
+  varg::State* v = &ext.st.varg;
+  v->rng = s.rng ^ (s.p.arp.ticks * 2654435761u);   // per-bar entropy
+  varg::advance(v, in);
+  mod_varg_steps(s, ext);
+}
+
 // Rebuild all 16 steps for the currently selected algorithm (0..4)
 static void mod_arp_rebuild_pattern(ModSource& s) {
   ModArpExt& ext = g_mod_engine.arp_ext[s.p.arp.ext_idx];
@@ -990,6 +1045,9 @@ static void mod_arp_rebuild_pattern(ModSource& s) {
       break;
     case MOD_ARP_METRO:
       mod_arp_build_metro(s, ext);
+      break;
+    case MOD_ARP_VARG:
+      mod_varg_steps(s, ext);
       break;
     case MOD_ARP_DEJAVU:
     default:
@@ -1053,6 +1111,13 @@ static void mod_arp_apply_turnaround(ModSource& s, ModArpExt& ext, uint8_t st, M
 // Compute MIDI note (28..96) for a step
 static uint8_t mod_arp_calc_note(const ModSource& s, const ModArpExt& ext,
                                  const ModArpStep& step) {
+  if (s.p.arp.algo == MOD_ARP_VARG) {
+    varg::Step vs;
+    vs.flags = step.flags;
+    vs.off = step.off;
+    vs.oct = step.oct;
+    return varg::calc_note(ext.st.varg, vs);
+  }
   const uint8_t base_root = (s.p.arp.root_param <= 3)
       ? (s.p.arp.midi_root ? s.p.arp.midi_root : 48u)
       : (uint8_t)(48u + ((s.p.arp.root_param - 4) % 12u));
@@ -1156,7 +1221,20 @@ static void mod_lira_harmony_publish() {
   {
     const ModSource& s = g_mod_engine.src[src_idx];
     const ModArpExt& ext = g_mod_engine.arp_ext[s.p.arp.ext_idx];
-    if (ext.nsteps > 0) {
+    if (s.p.arp.algo == MOD_ARP_VARG && ext.st.varg.pool_n > 0) {
+      // VARG publishes the generated CHORD (root + chord-tone pool), not a
+      // scale degree — the lira8 voicing law works unchanged on the pool.
+      const varg::State& v = ext.st.varg;
+      next.harmony_valid = 1;
+      next.harmony.root = l8harmony::fold_root((uint8_t)(36u + v.root_pc));
+      next.harmony.nsteps = v.pool_n;
+      for (uint8_t i = 0; i < 12; ++i) next.harmony.scale_st[i] = 0;
+      for (uint8_t i = 0; i < v.pool_n && i < 12; ++i) {
+        next.harmony.scale_st[i] = (uint8_t)v.pool[i];
+      }
+      next.harmony.chord_deg = 0;
+      next.harmony.chord_nt = (v.pool_n >= 4u) ? 4u : 3u;
+    } else if (ext.nsteps > 0) {
       const uint8_t base = mod_arp_base_root_note(s);
       const uint8_t deg =
           (ext.deg >= 0 && ext.deg < ext.nsteps) ? (uint8_t)ext.deg : 0;
@@ -1613,6 +1691,9 @@ void mod_engine_process_block(uint8_t active_module) {
           // Bar-line wrap (step 0): chord drift, mutation, and fill-bar state
           if (st < prev_st || (s.p.arp.ticks & 0x0Fu) == 0u) {
             ext.bar_count++;
+            if (s.p.arp.algo == MOD_ARP_VARG) {
+              mod_varg_bar(s, ext);   // progression + section + riff rebuild
+            } else {
             const uint8_t drift_bars = (s.p.arp.p[3] >= 60) ? 4 : 8;
             if (ext.bar_count >= drift_bars) {
               ext.bar_count = 0;
@@ -1634,11 +1715,12 @@ void mod_engine_process_block(uint8_t active_module) {
               // Refresh variations on the bar
               mod_arp_rebuild_pattern(s);
             }
+            }
           }
 
           // Evaluate step (or cadential turnaround fill on fill bars)
           ModArpStep cur_step = ext.steps[st];
-          if (ext.dd_fill != 0) {
+          if (ext.dd_fill != 0 && s.p.arp.algo != MOD_ARP_VARG) {
             mod_arp_apply_turnaround(s, ext, st, cur_step);
           }
 
@@ -2045,9 +2127,9 @@ static void mod_apply_cc_value(uint8_t src_idx, uint8_t param, uint8_t val) {
       break;
     default:  // MOD_ARP
       switch (param) {
-        case 0: { // algo (0..14 choices = 5 algos x 3 octave ranges)
-          uint8_t choice = (uint8_t)(((uint16_t)val * 15) / 128);
-          if (choice > 14) choice = 14;
+        case 0: { // algo (0..17 choices = 6 algos x 3 octave ranges)
+          uint8_t choice = (uint8_t)(((uint16_t)val * 18) / 128);
+          if (choice > 17) choice = 17;
           s.p.arp.algo = choice / 3;
           s.p.arp.range = (uint8_t)(1 + (choice % 3));
           mod_arp_rebuild_pattern(s);
@@ -2880,7 +2962,7 @@ static uint16_t mod_engine_preset_read(const uint8_t* p) {
         break;
       }
       default: {  // MOD_ARP
-        s.p.arp.algo = pl[0] <= 4 ? pl[0] : 0;
+        s.p.arp.algo = pl[0] <= 5 ? pl[0] : 0;
         s.p.arp.range = (pl[1] >= 1 && pl[1] <= 3) ? pl[1] : 1;
         s.p.arp.root_param = pl[2] <= 15 ? pl[2] : 0;
         s.p.arp.scale_idx = pl[3] <= 127 ? pl[3] : 6;
