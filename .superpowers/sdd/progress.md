@@ -4014,7 +4014,9 @@ Findings (T9):
   via `rack_rings_varg_chord_on`); distortion on **all** modes via CC 24/27-30;
   C3 MODE bucket 5 -> 6 + DIST TYPE bucket 4. All five rack envs, standalone
   rings and C3 build green.
-- Commits: 7fd33aa (pure headers/tests) .. 66af79c (docs).
+- Commits: 7fd33aa (pure headers/tests) .. 66af79c (docs); 6129105 fixed the
+  C3 Rings MODE value-name table (5 -> 6 entries, "VARG" at index 5) — the
+  pot bucket was widened earlier but the displayed label still read "---".
 - **Bench (2026-11-17, automated part)**: flashed rack-rings UF2 (COM15) and
   C3 app (`-p COM22 flash`). Mode 5 engaged via `cc 20 5` with arp1 VARG
   routed to `voice`: `mod?` showed `algo=varg ... prog=weitzmn chord=pc8 q=min
