@@ -2243,9 +2243,12 @@ void mod_engine_apply_ui_set(uint8_t src, uint8_t param, uint8_t val) {
                   MOD_SOURCE_COUNT);
     return;
   }
-  if (g_mod_engine.src[src].type == MOD_ARP && (param == 10 || param == 11 || param == 12)) {
+  if (g_mod_engine.src[src].type == MOD_ARP &&
+      (param == 10 || param == 11 || param == 12 || param == 13)) {
     dbg_printf("mod: ui set %s %s <- %u\r\n", mod_src_name(src),
-                  param == 10 ? "shared root" : (param == 11 ? "shared scale" : "neo op"), val);
+                  param == 10 ? "shared root"
+                : param == 11 ? "shared scale"
+                : param == 12 ? "neo op" : "shared octave", val);
     mod_apply_cc_value(src, param, val);
     return;
   }
