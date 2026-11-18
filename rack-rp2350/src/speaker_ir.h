@@ -91,6 +91,11 @@ static const float kSpeakerIr[512] = {
 // q15 packed pairs: scale=2960.207174 (sum|h|=11.0465 -> sum|ir16|=32700 <= 32700);
 // y_float = acc * kSpeakerQ15Norm, kSpeakerQ15Norm = 1.03095857e-08
 static const float kSpeakerQ15Norm = 1.03095857e-08f;
+// RACK_DIST_MARK (when the including adapter defines it) lands this 1 KB
+// table in the tc_* SRAM window like kSpeakerIr — unmarked it sits in XIP
+// flash and every block pays 2048 sequential cache-miss loads in the FIR
+// (measured: cv=202-263 us vs the ~25-40 us the dual-MAC should cost).
+RACK_DIST_MARK(dist_speaker_ir_q15)
 static const uint32_t kSpeakerIrQ15[256] = {
     0xfffc0002u, 0xfffc0001u, 0xfffb0001u, 0xfffb0001u, 0xfffb0001u, 0xfffa0001u,
     0xfffa0001u, 0xfff90001u, 0xfff90002u, 0xfff90001u, 0xfff90002u, 0xfff70002u,

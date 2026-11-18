@@ -21,34 +21,69 @@
 
 #include <cmath>
 
-// q15 dual-MAC for the speaker FIR (the M33 DSP extension — Yiu ch.19.4:
-// SMLAD Xd, Xn, Xm = two MACs per instruction, 1.5 cycles/MAC with LDMIA
-// unrolling). CAVEAT: the Windows toolchain's GAS has NO working `smlad`
-// opcode ("bad arguments" for ANY operands, armv7e-m and armv8-m alike,
-// while `smuad` assembles fine) — so the equivalent SMUAD + add form is
-// used: SMUAD Xd, Xn, Xm computes the same dual product pair without the
-// accumulate; the add folds into the acc update at the same 1.5 cycles/MAC.
-// On the board (__ARM_FEATURE_DSP — the build targets
-// -march=armv8-m.main+fp+dsp) this is the hardware instruction via inline
-// asm; on the host the identical math in portable C — bit-exact, so the
-// host tests validate the board's path.
+// q15 dual-MAC for the speaker FIR (the M33 DSP extension — Yiu ch.19.4):
+// SMLAD Xd, Xn, Xm = two MACs per instruction accumulating into Xd, SMLADX
+// = the same with Xm's halves swapped, PKHTB = pack (top from Rn, bottom
+// from Rm). Linux GAS assembles all three. The board build targets
+// -march=armv8-m.main+fp+dsp (__ARM_FEATURE_DSP); the host gets the
+// identical math in portable C — bit-exact, so the host tests validate the
+// board's path.
+// HISTORY: the Windows toolchain's GAS has NO working `smlad` opcode ("bad
+// arguments" for ANY operands, armv7e-m and armv8-m alike; `smuad` worked),
+// so a SMUAD + add workaround shipped. That form ALSO made gcc spill the
+// accumulator to the stack every iteration ("=&l" on a fresh dest forbids
+// reusing acc's register as the destination; measured cv=202-263 us vs the
+// ~110 us float baseline). The helpers below take acc as a "+l" in-place
+// operand — in the FIR loop acc/a/b are distinct live values, and armv8-M's
+// Rd != Rn/Rm rule is verified in the disassembly after every build.
 #if defined(__ARM_FEATURE_DSP) && (defined(__arm__) || defined(__thumb__))
-static inline int32_t rack_smuad(int32_t a, int32_t b) {
-  int32_t r;
-  __asm__("smuad %0, %1, %2" : "=&l"(r) : "l"(a), "l"(b));
+// binutils >= 2.4x parses SMLAD/SMLADX in the 4-operand form ONLY
+// (`smlad Xd, Xn, Xm, Xa` — "bad arguments" for the 3-operand Thumb form,
+// on Windows 2.43.1 AND Linux 2.47; gcc 16's arm_acle __smlad emits the
+// 4-operand form too). T32 requires Xa == Xd, so acc appears as both the
+// destination and the accumulate input: acc = acc + dual products.
+static inline int32_t rack_smlad_acc(int32_t acc, int32_t a, int32_t b) {
+  __asm__("smlad %0, %1, %2, %0" : "+l"(acc) : "l"(a), "l"(b));
+  return acc;
+}
+static inline int32_t rack_smladx_acc(int32_t acc, int32_t a, int32_t b) {
+  __asm__("smladx %0, %1, %2, %0" : "+l"(acc) : "l"(a), "l"(b));
+  return acc;
+}
+static inline uint32_t rack_pkhtb(uint32_t hi_src, uint32_t lo_src) {
+  uint32_t r;
+  // GAS QUIRK: the no-shift `pkhtb Rd, Rn, Rm` form gets canonicalized
+  // into the PKHBT encoding with the two operands SWAPPED (pkhtb r8, r1,
+  // r2 encodes as r8.hi=r2.hi, r8.lo=r1.lo) — the top/bottom roles invert
+  // silently. Always spell pkhbt Rd, Rn, Rm (Rd.hi = Rn.hi, Rd.lo = Rm.lo)
+  // for the unshifted pack.
+  __asm__("pkhbt %0, %1, %2" : "=l"(r) : "l"(hi_src), "l"(lo_src));
   return r;
 }
 #else
-static inline int32_t rack_smuad(int32_t a, int32_t b) {
+static inline int32_t rack_smlad_acc(int32_t acc, int32_t a, int32_t b) {
   const uint32_t ua = (uint32_t)a, ub = (uint32_t)b;
   const int16_t al = (int16_t)(ua & 0xffffu);
   const int16_t ah = (int16_t)((ua >> 16) & 0xffffu);
   const int16_t bl = (int16_t)(ub & 0xffffu);
   const int16_t bh = (int16_t)((ub >> 16) & 0xffffu);
-  return (int32_t)al * bl + (int32_t)ah * bh;
+  return acc + ((int32_t)al * bl + (int32_t)ah * bh);
+}
+static inline int32_t rack_smladx_acc(int32_t acc, int32_t a, int32_t b) {
+  const uint32_t ua = (uint32_t)a, ub = (uint32_t)b;
+  const int16_t al = (int16_t)(ua & 0xffffu);
+  const int16_t ah = (int16_t)((ua >> 16) & 0xffffu);
+  const int16_t bl = (int16_t)(ub & 0xffffu);
+  const int16_t bh = (int16_t)((ub >> 16) & 0xffffu);
+  return acc + ((int32_t)al * bh + (int32_t)ah * bl);
+}
+static inline uint32_t rack_pkhtb(uint32_t hi_src, uint32_t lo_src) {
+  return (hi_src & 0xffff0000u) | (lo_src & 0xffffu);
 }
 #endif
-#define RACK_SMUAD(a, b) rack_smuad((a), (b))
+#define RACK_SMLAD_ACC(acc, a, b) rack_smlad_acc((acc), (a), (b))
+#define RACK_SMLADX_ACC(acc, a, b) rack_smladx_acc((acc), (a), (b))
+#define RACK_PKHTB(hi_src, lo_src) rack_pkhtb((hi_src), (lo_src))
 
 // Per-TU SRAM-placement hook: the including adapter may define
 // RACK_DIST_MARK(token) (-> ELEMENTS_RAM_CODE) BEFORE including this header
@@ -367,28 +402,106 @@ struct SpeakerConv {
       dec_[i] = decw[n + i];
     }
     // 4) conv at 16 kHz, q15 int16 dual-MAC (__SMLADX, M33 DSP extension —
-    //    Yiu ch.19.4): quantize v to int16, append to hist16, then per
-    //    output 256 packed dual-MACs (the IR words ascend, the x words
-    //    descend; the halves pair via the SMLADX swap). The IR is scaled so
-    //    sum|ir16| <= 32700: the int32 accumulator cannot overflow (ch.
-    //    19.5). Host fallback: the same dual-MAC math in portable C
-    //    (bit-exact vs the hardware instruction).
+    //    Yiu ch.19.4): quantize v to int16, append to hist16, then the
+    //    packed dual-MAC FIR below (two outputs per iteration). The IR is
+    //    scaled so sum|ir16| <= 32700: the int32 accumulator cannot
+    //    overflow (ch. 19.5). Host fallback: the same dual-MAC math in
+    //    portable C (bit-exact vs the hardware instruction).
     for (size_t j = 0; j < n16; ++j) {
       float q = v[j] * 32767.0f;
       if (q > 32767.0f) q = 32767.0f;
       if (q < -32768.0f) q = -32768.0f;
       hist16_[kSpeakerTaps - 1 + j] = (int16_t)q;
     }
-    for (size_t j = 0; j < n16; ++j) {
+    // The packed FIR. hist16_ (511 old + n16 new v16 samples) is read as
+    // uint32 words W[k] = v16[2k] | v16[2k+1]<<16 (copied into Ws first —
+    // element-wise, no aliasing). Output j's window ends at m =
+    // kSpeakerTaps-1+j; its t-th tap pair is (v16[m-2t], v16[m-2t-1]) —
+    // DESCENDING consecutive samples, so per output parity:
+    //   m odd (j even): the pair = (W[k].hi, W[k].lo), k = 255+r-t —
+    //     SMLADX's Xm-half swap realigns it with (ir16[2t], ir16[2t+1]).
+    //   m even (j odd): the pair straddles two adjacent words —
+    //     (W[k].lo, W[k-1].hi), k = 256+r-t — PKHTB re-packs it
+    //     (top from the older word, bottom from the newer); plain SMLAD.
+    // Both outputs share the same ir word and the same two W words (one
+    // descending pointer pair). Splitting the parity RIGHT is what the
+    // first SMLADX-everywhere attempt got wrong (crossed tap pairs, err
+    // 0.33 — the naive law caught it). Per pair of outputs this is ~5-6
+    // instructions for 4 MACs instead of ~12 for 2.
+    uint32_t Ws[262];
+    const size_t ns16 = kSpeakerTaps - 1 + n16;   // valid v16 samples
+    for (size_t k = 0; k < (ns16 + 1) / 2; ++k) {
+      const uint32_t lo = (uint16_t)hist16_[2 * k];
+      const uint32_t hi =
+          2 * k + 1 < ns16 ? (uint16_t)hist16_[2 * k + 1] : 0u;
+      Ws[k] = lo | (hi << 16);
+    }
+    for (size_t r = 0; r < n16 / 2; ++r) {
+      int32_t acc_a = 0, acc_b = 0;
+#if defined(__ARM_FEATURE_DSP) && (defined(__arm__) || defined(__thumb__))
+      // Hand-written kernel (the CMSIS q15-FIR pattern): gcc spilled one of
+      // the two descending pointers to the stack every iteration and burned
+      // ~6 movs shuffling the inline-asm operands (~15 instructions per 4
+      // MACs). Register variables pin every operand — no allocator, no
+      // spill. Per iteration: ldr ir, ldmdb both W words, smladx (output
+      // 2r), pkhtb + smlad (output 2r+1) = 7 instructions for 4 MACs.
+      {
+        register size_t cnt __asm__("r3") = kSpeakerTaps / 2;
+        register int32_t aa __asm__("r4") = 0;
+        register int32_t ab __asm__("r5") = 0;
+        // ldmdb loads {a, b} = W[255+r-t], W[256+r-t] from base-8/base-4;
+        // start the base two words past the window top.
+        register const uint32_t* bp __asm__("r6") =
+            Ws + (kSpeakerTaps / 2 - 1 + r) + 2;
+        register const uint32_t* irp __asm__("r7") = kSpeakerIrQ15;
+        register uint32_t iw __asm__("r0");
+        register uint32_t a __asm__("r1");
+        register uint32_t b __asm__("r2");
+        register uint32_t x __asm__("r8");
+        __asm__ __volatile__(
+            "1:\n"
+            "ldr.w  %[iw], [%[irp]], #4\n"
+            "ldmdb  %[bp]!, {%[a], %[b]}\n"
+            "smladx %[aa], %[iw], %[a], %[aa]\n"
+            "pkhbt  %[x], %[a], %[b]\n"
+            "smlad  %[ab], %[iw], %[x], %[ab]\n"
+            "subs   %[cnt], #1\n"
+            "bne.n  1b\n"
+            : [aa] "+r"(aa), [ab] "+r"(ab), [bp] "+r"(bp), [irp] "+r"(irp),
+              [cnt] "+r"(cnt), [iw] "=&r"(iw), [a] "=&r"(a), [b] "=&r"(b),
+              [x] "=&r"(x)
+            :
+            : "cc", "memory");
+        acc_a = aa;
+        acc_b = ab;
+      }
+#else
+      {
+        const uint32_t* pa = Ws + (kSpeakerTaps / 2 - 1 + r);  // W[255+r] ↓
+        const uint32_t* pb = pa + 1;                           // W[256+r] ↓
+        const uint32_t* irp = kSpeakerIrQ15;
+        for (size_t t = 0; t < kSpeakerTaps / 2; ++t) {
+          const uint32_t iw = *irp++;
+          const uint32_t a = *pa--;                // W[255+r-t] (older)
+          const uint32_t b = *pb--;                // W[256+r-t] (newer)
+          acc_a = RACK_SMLADX_ACC(acc_a, iw, a);   // output 2r   (m odd)
+          acc_b = RACK_SMLAD_ACC(acc_b, iw,
+                                 RACK_PKHTB(a, b));  // output 2r+1 (m even)
+        }
+      }
+#endif
+      v[2 * r] = (float)acc_a * kSpeakerQ15Norm * kSpeakerConvGain;
+      v[2 * r + 1] = (float)acc_b * kSpeakerQ15Norm * kSpeakerConvGain;
+    }
+    if (n16 & 1) {   // never with the 16-sample rack block; kept correct
+      const size_t j = n16 - 1;
       const int16_t* xp = hist16_ + (kSpeakerTaps - 1 + (int)j);
       int32_t acc = 0;
       for (size_t t = 0; t < kSpeakerTaps / 2; ++t) {
-        // the pair (ir16[2t], ir16[2t+1]) x (v16[m-2t], v16[m-2t-1]):
-        // the halves (lo = the older, hi = the newer) pair via the SMLADX
-        // swap: acc += ir16[2t]*v16[m-2t] + ir16[2t+1]*v16[m-2t-1]
+        // (ir16[2t], ir16[2t+1]) x (v16[m-2t], v16[m-2t-1]) — plain halves
         const uint32_t xw = (uint32_t)(uint16_t)xp[-2 * (int)t]
                           | ((uint32_t)(uint16_t)xp[-2 * (int)t - 1] << 16);
-        acc += RACK_SMUAD(kSpeakerIrQ15[t], xw);
+        acc = RACK_SMLAD_ACC(acc, kSpeakerIrQ15[t], xw);
       }
       v[j] = (float)acc * kSpeakerQ15Norm * kSpeakerConvGain;
     }
