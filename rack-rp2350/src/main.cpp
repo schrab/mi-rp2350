@@ -2858,6 +2858,16 @@ void setup() {
   TinyUSBDevice.setProductDescriptor("Rack RP2350");
 
   Serial.begin(115200);
+  // Flush-to-zero + default-NaN on the M33 FPU (2026-11-19): the swede cab
+  // FIR and FMV/biquad states decay into the denormal range on quiet input,
+  // and the FPU defaults to FULL denormal support (slow paths) — measured as
+  // recurring max-Process spikes to ~1.7 ms (3.4x the 496 us budget) while
+  // idle-with-tail. Audio DSP never needs subnormals.
+  {
+    uint32_t fpscr = __get_FPSCR();
+    fpscr |= (1u << 24) | (1u << 25);      // FZ | DN
+    __set_FPSCR(fpscr);
+  }
   mod_engine_init();                       // T3: engine defaults (plain .bss,
                                            // independent of the modules)
   kRackModules[RACK_BOOT_MODULE].init();   // registry: boot module, arena-placed
