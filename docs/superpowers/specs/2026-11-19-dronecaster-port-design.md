@@ -60,7 +60,7 @@ by plain g++; `-O3` via a `lib/dronecaster_engine/` wrapper (mirror of
 ```
 src/dronecaster/
 ├── sc_rgen.h           # exact port of scsynth's RGen LCG (seed-matched goldens)
-├── sc_defs.h           # rate struct (sr, kBlock=64), fold/clip/midicps, denormal flush
+├── sc_defs.h           # rate struct (sr, kBlock=64), fold/clip/midicps
 ├── sc_kit_osc.h        # SinOsc (SC 8192-pt sine wavetable, linear interp),
 │                       #   Saw/Pulse/VarSaw (SC 2-band-limit table scheme),
 │                       #   LFSaw/LFPar/LFPulse, SinOscFB, PMOsc, SawDPW/PulseDPW,
@@ -94,6 +94,22 @@ UGen, including the internals that decide sample accuracy (8192-pt sine
 wavetable, 2× oversampled osc tables, Paul Kellet pink filter, RGen's exact
 LCG constants). `ar` UGens run per-sample; `kr` UGens once per 64-sample
 internal block — exactly SC's rate semantics.
+
+**Optimization-context laws** (from the swede cab-conv inventory, ledger
+§optimization-techniques — commit fba4cb8):
+- **Denormals:** FPSCR FZ+DN is already set on BOTH cores at boot (main.cpp;
+  the M33 defaults to full denormal support and audio DSP decays into
+  denormals constantly). No per-UGen software denormal handling anywhere in
+  the kit.
+- **Sample-rate law:** every filter/time constant is derived from `sr` at
+  runtime using the SC algorithm's own formula — never baked 44.1 kHz
+  constants (the true-band HM-2 redesign lesson generalized; lira8's
+  44.1k-authored rlpf constants are the precedent of what happens otherwise).
+- **No dot products in the kit** (combs/allpasses/one-taps only) → the q15
+  SMLAD dual-MAC technique has no kit application; it stays reserved for
+  int16 storage paths (the phase-3 tape carve). If a MAC-bound UGen appears
+  (Klank/DynKlank resonator banks), use the 4-accumulator float unroll
+  (~1 MAC/cycle vs 3 serialized — the M33 VMLA latency lesson).
 
 **Rates / burst:** standalone 48 kHz; host grid 16 samples; engine bursts
 4×16 → 64 (the proven lira8-standalone pattern: I2S bank 8×16 ≈ 2.9 ms absorbs
@@ -165,6 +181,9 @@ by ear in phase 3 (mono 2 s = fallback). `static_assert` carves like lira8.
 - Budget overrun → the existing stall detector; no new machinery.
 - Unknown drone id (CC 51 out of ported range) → console note, keep current.
 - Tape arena exhaustion → Init falls back to a shorter cap.
+- **Observability:** the adapter extends the 2 s report with avg/max proc +
+  active drone id + swap count (integer hundredths — newlib-nano vsnprintf
+  has no `%f`; dbg line buffer is 560 B, not 400). No reflash-to-measure.
 
 ## Phases (each lands on hardware + ledger)
 
@@ -187,4 +206,8 @@ by ear in phase 3 (mono 2 s = fallback). `static_assert` carves like lira8.
 - MouseX/MouseY drones: gesture X → CC 55, gesture Y → CC 56 (these CCs are
   per-module, so they don't clash with lira8's sensor bank); done per drone
   during T-D2/T-D3.
-- Eno-class drones are compute-heaviest; profile at T-D3 before flashing.
+- Eno-class drones are compute-heaviest; profile at T-D3 before flashing. If
+  a drone overruns the 1333 µs budget, the established **core-0 offload**
+  pattern is the escalation lever (DMB ping-pong hand-off, budget-aware
+  bounded waits, level-matched bypass, never write the result in-place —
+  ledger §8-10); NOT planned for v1.
