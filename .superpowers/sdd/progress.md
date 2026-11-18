@@ -5176,13 +5176,3 @@ per-sample paths, and the -O3 wrapper's per-sample symbols (render_internal_bloc
 render_delay, ...) all SRAM-resident (0x2006xxxx). The 36 flash-resident lira symbols are ALL
 constructors + per-note prepare/refresh_tune/set paths (one cache-miss burst per note-on =
 microseconds, harmless). NO ACTION NEEDED — lira8 was already in the best shape of the four.
-
-## LIRA-8 measured on HW — covered, biggest headroom of the four (2026-11-19, latest)
-
-Challenged ("what about lira8?") and measured properly: switched, sensor notes on (36-43),
-st= meters active. Max Process **455-591 us against the 1451 us budget at 44.1 kHz** (31-41%),
-stalls 0. The marking audit: 38 LIRA8_TC marks across the engine headers, ZERO libm in the
-per-sample paths, and the -O3 wrapper's per-sample symbols (render_internal_block,
-render_delay, ...) all SRAM-resident (0x2006xxxx). The 36 flash-resident lira symbols are ALL
-constructors + per-note prepare/refresh_tune/set paths (one cache-miss burst per note-on =
-microseconds, harmless). NO ACTION NEEDED — lira8 was already in the best shape of the four.
