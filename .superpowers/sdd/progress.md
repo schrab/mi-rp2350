@@ -5079,3 +5079,34 @@ Rule: NEVER call libm per block; cache per parameter change.
 Ledger corrections: the timeline rows' "steady" avgs mixed engage-burst windows (the true
 quiet-state core-1 avg is ~120-126 both before and after this change; row 9's ~330 was the
 burst window).
+
+## Cross-engine optimization review — all four modules (2026-11-19, night)
+
+The 2 s report gained **w=** (the warps stage cost) and **r=** (the reverb Process cost),
+accumulated in Part::Process and reset by the printer (c7be6c7). fold's floorf-per-sample is
+FIXED (int cast — amp >= 0, one VCVT; was the powf-trap class, ~10-20 us/block on FOLD).
+
+**MEASURED (elements, core 1, idle):** engine ~278 us (MI core — previously SRAM-optimized;
+deeper cuts need profiling, no obvious wins) + warps 81 (engaged) + reverb 21 (ALWAYS runs,
+even at space 0 — bit-exact passthrough there, so gating it would save 21 us idle; marginal)
++ swede insert 44 + conv 124 on core 0. The four fast dist algos: ins=19 (cheap, now floor-free).
+
+**RANKED findings across the four engines:**
+1. **PLAITS — the one real exposure.** Only 6 functions SRAM-marked (tc_plaits 14,324 B);
+   the engines' out-of-line helper chains (oscillators/filters) run from XIP. MEASURED TODAY:
+   the currently-selected engine renders 25-27 us WITH notes — the XIP penalty is LATENT, not
+   urgent; the heavy exposed engines (modal/particle/va chains) may cost more. tc_plaits has
+   ~46 KB of A-slot headroom, so marking the exposed engines' hot chains fits. Follow-up bench:
+   sweep all exposed engines (1,7,14-19,25) with notes and mark the ones that measure hot.
+2. **WARPS 81 us/block** — already SRAM-resident (ProcessXmod at 0x2006c***; the Oscillator
+   helpers are the only flash part and are UNUSED at carrier_shape 0). Genuine compute (2x
+   oversampled SRC + xmod). Fits the budget; no action.
+3. **RINGS — covered.** 22 RINGS_RAM_CODE marks, tc_rings 59,196/60,416 B (98% full — no room
+   for more, none needed).
+4. **LIRA-8 — covered.** tc_lira8 20 KB + the process_block_o3 -O3 wrapper; voices measured
+   301-307 us at 44.1 kHz.
+5. **REVERB skip at space 0** (21 us idle, bit-exact per the host law) — available, marginal;
+   not implemented without a user call.
+6. **The elements engine ~278 us** — the largest single block; previously optimized; the next
+   lever there is per-stage bench counters inside Part::Process (resonator vs exciter vs
+   metering), not a code guess.
