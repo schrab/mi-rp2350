@@ -263,13 +263,20 @@ struct SpeakerConv {
       hist_[kSpeakerTaps - 1 + i] = 0.5f * (l[i] + r[i]);
     }
     // y[i] = sum_k ir[k] * hist_[i + kTaps - 1 - k]
+    // 4 independent accumulators: the M33 FPU's VMLA has 3-cycle latency /
+    // 1-cycle throughput, so a single serialized acc costs 3 cycles/MAC
+    // (gcc cannot reassociate float adds without -ffast-math). 4 chains
+    // hide the latency -> ~1 MAC/cycle, 3x faster than the naive loop.
     for (size_t i = 0; i < n; ++i) {
       const float* h = hist_ + i;
-      float acc = 0.0f;
-      for (size_t k = 0; k < kSpeakerTaps; ++k) {
-        acc += kSpeakerIr[k] * h[kSpeakerTaps - 1 - k];
+      float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
+      for (size_t k = 0; k < kSpeakerTaps; k += 4) {
+        a0 += kSpeakerIr[k] * h[kSpeakerTaps - 1 - k];
+        a1 += kSpeakerIr[k + 1] * h[kSpeakerTaps - 2 - k];
+        a2 += kSpeakerIr[k + 2] * h[kSpeakerTaps - 3 - k];
+        a3 += kSpeakerIr[k + 3] * h[kSpeakerTaps - 4 - k];
       }
-      const float y = acc * kSpeakerConvGain;
+      const float y = ((a0 + a1) + (a2 + a3)) * kSpeakerConvGain;
       l[i] = y;
       r[i] = y;
     }
