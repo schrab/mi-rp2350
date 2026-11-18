@@ -12,10 +12,12 @@
 // compile in every env — their state is ARENA-PLACED (rack_arena.h, no
 // file-scope module objects) and their hot sections share ONE SRAM window
 // via the tc_* OVERLAY in memmap_rack.ld (same VMA, sequential LMAs).
-// RACK_BOOT_MODULE (0 elements / 1 clouds / 2 plaits / 3 rings) selects the
-// BOOT module only: setup() copies that module's flash image into the window
-// as its ABSOLUTE FIRST action (crt0-like) and registry-inits it; after that
-// every env is identical and any module can be swapped in at runtime.
+// RACK_BOOT_MODULE (0 elements / 1 clouds / 2 plaits / 3 rings / 4 lira8;
+// new modules continue the ids) selects the BOOT module only: setup() copies
+// that module's flash image into the window as its ABSOLUTE FIRST action
+// (crt0-like) and registry-inits it; after that the build is identical and
+// any module can be swapped in at runtime. One env — the old five per-module
+// envs were a testing-phase artifact.
 //
 // Live swap (core 1, at a block boundary, max one per loop1 call):
 //   CC 32 (bank select) value 0-4 or serial `switch <id|name>` -> core 0
@@ -161,7 +163,7 @@ uint8_t pio_host_line_state(void);
 #endif
 
 #if !defined(RACK_BOOT_MODULE) || RACK_BOOT_MODULE < 0 || RACK_BOOT_MODULE > 4
-#error "RACK_BOOT_MODULE must be defined per env as 0 (elements), 1 (clouds), 2 (plaits), 3 (rings) or 4 (lira8)"
+#error "RACK_BOOT_MODULE must be defined in the env as 0 (elements), 1 (clouds), 2 (plaits), 3 (rings) or 4 (lira8)"
 #endif
 
 // Non-blocking core-0 diagnostic output (defined near loop()). The 2 s
