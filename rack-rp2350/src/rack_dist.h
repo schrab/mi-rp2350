@@ -443,16 +443,22 @@ struct SpeakerConv {
       // the two descending pointers to the stack every iteration and burned
       // ~6 movs shuffling the inline-asm operands (~15 instructions per 4
       // MACs). Register variables pin every operand — no allocator, no
-      // spill. Per iteration: ldr ir, ldmdb both W words, smladx (output
-      // 2r), pkhtb + smlad (output 2r+1) = 7 instructions for 4 MACs.
+      // spill. Per iteration: ldr ir, ldr b (post-dec), ldr a (plain),
+      // smladx (output 2r), pkhbt + smlad (output 2r+1) = 8 instructions
+      // for 4 MACs.
       {
         register size_t cnt __asm__("r3") = kSpeakerTaps / 2;
         register int32_t aa __asm__("r4") = 0;
         register int32_t ab __asm__("r5") = 0;
-        // ldmdb loads {a, b} = W[255+r-t], W[256+r-t] from base-8/base-4;
-        // start the base two words past the window top.
+        // Two SEPARATE loads, stride one word per pointer: the window pairs
+        // OVERLAP between iterations (b of iter t = W[256+r-t] is... the
+        // pairs are (W[255+r-t], W[256+r-t]) then (W[254+r-t], W[255+r-t]))
+        // so a single ldmdb of two regs — which slides the base by 8 —
+        // drifts one extra word per iteration and misaligns every FIR tap
+        // after the first (the constant-noise bug this file's first HW
+        // build produced; warps stays clean because it bypasses the conv).
         register const uint32_t* bp __asm__("r6") =
-            Ws + (kSpeakerTaps / 2 - 1 + r) + 2;
+            Ws + (kSpeakerTaps / 2 - 1 + r) + 1;      // &W[256+r] (b of t=0)
         register const uint32_t* irp __asm__("r7") = kSpeakerIrQ15;
         register uint32_t iw __asm__("r0");
         register uint32_t a __asm__("r1");
@@ -461,7 +467,8 @@ struct SpeakerConv {
         __asm__ __volatile__(
             "1:\n"
             "ldr.w  %[iw], [%[irp]], #4\n"
-            "ldmdb  %[bp]!, {%[a], %[b]}\n"
+            "ldr.w  %[b], [%[bp]], #-4\n"
+            "ldr.w  %[a], [%[bp]]\n"
             "smladx %[aa], %[iw], %[a], %[aa]\n"
             "pkhbt  %[x], %[a], %[b]\n"
             "smlad  %[ab], %[iw], %[x], %[ab]\n"
