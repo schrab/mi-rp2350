@@ -4793,3 +4793,66 @@ SMUAD rename — rebuild before flashing).
 - Levers left after this: 1024-tap @ 16 kHz (64 ms window, the same cost as the current 512),
   the SMLALD 64-bit accumulate (no coefficient scaling — the full 15-bit coefficients), or the
   FFT overlap-add (the clouds STFT pattern, ~10-15 us amortized) for multi-second IRs.
+
+## OPTIMIZATION TECHNIQUES INVENTORY — the swede cab chain (consolidated 2026-11-19)
+
+All techniques used to bring the swede chain from "starving" (avg 671-891 us, crackles/silence)
+to 466 -> 316 us avg with the conv offloaded (the q15 version pending HW measure). Each: what /
+where / measured effect.
+
+1. **FPU denormal control (FPSCR FZ+DN)** — main.cpp setup() AND setup1() (FPSCR is per-core;
+   both cores need it). The M33 defaults to FULL denormal support: the conv/FMV/biquad states
+   decaying into the denormal range cost ~30 cycles/hit -> recurring 1.7 ms render spikes.
+   Effect: -1.2 ms spikes. Audio DSP never needs subnormals.
+2. **SRAM-resident hot code (tc_* overlay)** — RACK_DIST_MARK/ELEMENTS_RAM_CODE land the dist
+   dispatch + cab IR table in the tc_elements SRAM window (57,728/60,416 B slot; XIP flash
+   cache-stall elimination for the whole swede chain incl. the FIR loops).
+3. **q15 int16 packed dual-MAC (SMLAD-family, Yiu ch.19.4)** — the conv IR quantized to int16
+   pairs packed in uint32 words (kSpeakerIrQ15), the v stream int16 (hist16_); per pair ONE
+   dual-MAC instruction = 2 MACs. Sum|ir16| <= 32700 -> the int32 accumulator provably cannot
+   overflow at full-scale int16 input (ch.19.5); the output rescaled via kSpeakerQ15Norm.
+   Expected: the conv 110-117 -> ~25-40 us. HW measure pending (Linux).
+   - The pairs pair DIRECTLY with plain SMLAD (lo=the newer x, hi=the older; ir chronological
+     lo=ir[2j], hi=ir[2j+1]). The first SMLADX attempt CROSSED the tap pairs — caught by the
+     naive law (err 0.33).
+   - The Windows GAS has NO working `smlad` opcode (any operands, any arch) while `smuad`
+     assembles — the SMUAD + add form is used at the same 1.5 cycles/MAC. armv8-M also imposes
+     Rd != Rn/Rm (a breaking change vs armv7E-M) -> the inline asm needs "=&l" + "l" constraints.
+   - On Linux GAS `smlad` works — the asm string may be swapped back to the real SMLAD.
+4. **4-accumulator float unroll** (the pre-q15 float conv) — the M33 FPU VMLA has 3-cycle
+   latency/1-cycle throughput; a single serialized acc = 3 cycles/MAC (gcc cannot reassociate
+   float without -ffast-math). 4 independent accumulators -> ~1 MAC/cycle. Superseded by the q15
+   path but the technique stands for any float dot-product.
+5. **Sample-rate decimation of the conv** — the IR is band-limited to 8 kHz (0.42% energy above;
+   a V30 cab has nothing up there): 31-tap halfband dec -> 512-tap FIR @ 16 kHz -> halfband
+   interp. MACs halved vs 512 taps @ 32 kHz, the window DOUBLED to 32 ms. The halfband's odd
+   interp phase is a FREE delayed passthrough (only the 14-tap even phase costs).
+6. **Pre-delay compaction** — distant mics put 10-30 ms of SILENCE before the IR transient
+   (the Hesu IR: the peak at 27.4 ms). Skip to 3% of the peak minus 1 ms: the taps are spent on
+   the body, not the air. (ir2array.py does it automatically.)
+7. **Energy-based truncation** — 512 taps = 98.8% of the compacted body energy (the measured
+   cumulative table: 384 = 98.0%, 768 = 99.7%, 1024 = 99.9%). Truncating BELOW the transient
+   start costs nothing; above, use the cumulative-energy table, not the tap count.
+8. **Core-0 offload (DMB ping-pong)** — the conv runs on core 0's loop() (2->3 slots, ~23% core-0
+   load); core 1 publishes the post-FMV mono and consumes the PREVIOUS block's result one block
+   later (+500 us, inaudible). __dmb() around EVERY flag flip (M33 is weakly ordered; volatile
+   alone is not a barrier). The conv result is written IN-PLACE into the first arg — it MUST be
+   copied to the out slot (the original silence bug).
+9. **Level-matched bypass** — on a core-0 miss the fallback emits the mono pre-conv signal x
+   speaker_bypass_gain() (= sqrt(sum ir^2) x conv gain) — the SAME loudness as the conv path, so
+   a miss is a brief timbre dip, never a volume jump. (The unmatched bypass was the "volume
+   inconsistent" bug: 36 misses/window x a ~4x level jump.)
+10. **Budget-aware bounded waits** — the hand-off waits are bounded by the elapsed time since
+    the insert start (400/460 us of the 500 us period), not absolute 250+250 which could overrun
+    the block on a miss.
+11. **True-band HM-2 redesign at 32 kHz** — the reference plugin's fixed-digital coefficients
+    were designed at 44.1 kHz: at 32 kHz every band sat 0.726x low. Solving (f0, gain, Q) from
+    them (round-trip-exact RBJ) and redesigning at 32 kHz restored 86 Hz/+900 Hz/1400 Hz.
+12. **Bit-exact host validation of DSP instructions** — the portable emu of SMLADX is
+    semantically identical to the hardware instruction, so the host tests validate the board's
+    algorithm without hardware. The int64 naive reference (sum ir16*v16) is bit-exact vs the
+    int32 acc (proven in range).
+13. **dbg_printf observability** — avg + per-stage counters in the 2 s report (proc avg,
+    ins=avg/max, cv=avg, miss count) + the runtime conv gate (CC 48): the cost breakdown without
+    reflashing. GOTCHAs fixed: the dbg line buffer was 400 B (the tail silently truncated ->
+    560); newlib-nano vsnprintf has NO %f support (integer hundredths instead).
