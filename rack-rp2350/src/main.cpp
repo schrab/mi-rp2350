@@ -3303,7 +3303,7 @@ void loop() {
       const uint16_t pz_peak = rack_piezo::report_peak();
       const uint32_t pz_rate = rack_piezo::report_sample_rate();
       // Elements FX insert bench (avg/max us since report; reset on print).
-      char elements_tail[80] = "";
+      char elements_tail[120] = "";
       if (g_active_module == RACK_MODULE_ELEMENTS) {
         const unsigned long ins_avg =
             (unsigned long)(
@@ -3318,12 +3318,18 @@ void loop() {
                           rack_modules::mod_elements::conv_us_count
                     : 0);
         snprintf(elements_tail, sizeof(elements_tail),
-                 "ins=%lu cv=%lu m=%lu p=%ld/%ld",
+                 "ins=%lu cv=%lu m=%lu p=%ld/%ld w=%lu r=%lu",
                  ins_avg,
                  conv_avg,
                  (unsigned long)rack_modules::mod_elements::conv_misses,
                  (long)(rack_modules::mod_elements::conv_in_peak * 100.0f),
-                 (long)(rack_modules::mod_elements::conv_out_peak * 100.0f));
+                 (long)(rack_modules::mod_elements::conv_out_peak * 100.0f),
+                 (unsigned long)(::g_bench_warps_n
+                                     ? ::g_bench_warps_us / ::g_bench_warps_n
+                                     : 0),
+                 (unsigned long)(::g_bench_reverb_n
+                                     ? ::g_bench_reverb_us / ::g_bench_reverb_n
+                                     : 0));
         rack_modules::mod_elements::shaper_us_max = 0;
         rack_modules::mod_elements::shaper_us_sum = 0;
         rack_modules::mod_elements::shaper_us_count = 0;
@@ -3333,6 +3339,10 @@ void loop() {
         rack_modules::mod_elements::conv_misses = 0;
         rack_modules::mod_elements::conv_in_peak = 0;
         rack_modules::mod_elements::conv_out_peak = 0;
+        ::g_bench_warps_us = 0;
+        ::g_bench_warps_n = 0;
+        ::g_bench_reverb_us = 0;
+        ::g_bench_reverb_n = 0;
       }
 #if RACK_ENABLE_USB_HOST
       dbg_printf("max Process: %u us avg %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s | %s | %s%s\r\n",

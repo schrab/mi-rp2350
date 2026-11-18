@@ -30,6 +30,17 @@
 
 #include "elements/resources.h"
 
+#if defined(RACK_RP2350_TC) && defined(ARDUINO)
+// Bench counters (the 2 s report's w=/r= fields): the warps stage and the
+// reverb Process cost per block, accumulated across the report window and
+// reset by the printer. DEFINED in the adapter (module_elements.h).
+#include "pico/time.h"
+extern "C" volatile uint32_t g_bench_warps_us;
+extern "C" volatile uint32_t g_bench_warps_n;
+extern "C" volatile uint32_t g_bench_reverb_us;
+extern "C" volatile uint32_t g_bench_reverb_n;
+#endif
+
 namespace elements {
 
 using namespace std;
@@ -277,6 +288,9 @@ void Part::Process(
   // excluded (vocoder stripped in the vendored warps copy). Zero cost when
   // patch_.warps_algorithm == 0 (no Process call, no buffers touched).
   if (warps_ && patch_.warps_algorithm > 0.0f) {
+#if defined(RACK_RP2350_TC) && defined(ARDUINO)
+    const uint32_t bw0 = time_us_32();
+#endif
     warps::ShortFrame w_in[kMaxBlockSize], w_out[kMaxBlockSize];
     for (size_t i = 0; i < size; ++i) {
       float c = main[i];
@@ -301,6 +315,10 @@ void Part::Process(
       main[i] += (w - main[i]) * patch_.warps_mix;
       aux[i] += (w - aux[i]) * patch_.warps_mix;
     }
+#if defined(RACK_RP2350_TC) && defined(ARDUINO)
+    g_bench_warps_us += time_us_32() - bw0;
+    ++g_bench_warps_n;
+#endif
   }
 #endif
 
@@ -314,6 +332,9 @@ void Part::Process(
 #endif
 
   // Apply reverb.
+#if defined(RACK_RP2350_TC) && defined(ARDUINO)
+  const uint32_t br0 = time_us_32();
+#endif
   
   reverb_.set_amount(reverb_amount);
   reverb_.set_diffusion(patch_.reverb_diffusion);
@@ -328,6 +349,10 @@ void Part::Process(
     reverb_.set_lp(patch_.reverb_lp);
   }
   reverb_.Process(main, aux, size);
+#if defined(RACK_RP2350_TC) && defined(ARDUINO)
+  g_bench_reverb_us += time_us_32() - br0;
+  ++g_bench_reverb_n;
+#endif
   
 }
 

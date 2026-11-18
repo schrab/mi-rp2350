@@ -579,10 +579,13 @@ static inline SpeakerConv& speaker_conv() {
 
 // Retroactor's Vult-generated Befaco wavefolder, from
 // ctag-tbd/components/ctagSoundProcessor/vult/vult_formantor.cpp.
-static inline float fold(float signal, float level) {
+static inline float fold(float signal, float level, float fold_gain) {
+  // amp >= 0 always, so a truncating int cast IS the floor — the libm
+  // floorf-from-XIP per sample cost ~10-20 us/block here (the powf-trap
+  // class); the cast compiles to one VCVT.
   const float sign = signal > 0.0f ? 1.0f : -1.0f;
-  const float amp = std::fabs(signal) * (1.0f + 8.0f * level);
-  const float base = std::floor(amp);
+  const float amp = std::fabs(signal) * fold_gain;
+  const float base = (float)(int32_t)amp;
   const float delta = amp - base;
   const bool odd = ((int32_t)base & 1) != 0;
   return (odd ? (1.0f - delta) : delta) * sign;
@@ -751,13 +754,14 @@ static inline void process(State* st, const Params& p,
     ws = shape_table();
   }
   float* chans[2] = {out, aux};
+  const float fold_gain = 1.0f + 8.0f * d;
   for (int c = 0; c < 2; ++c) {
     float lp = st->lp[c];
     for (size_t i = 0; i < n; ++i) {
       const float dry = chans[c][i];
       float wet;
       if (type == kFold) {
-        wet = fold(dry, d);
+        wet = fold(dry, d, fold_gain);
       } else if (type == kFuzz) {
         wet = (softclip(k * dry + bias) - bias_sub) * bias_norm;
       } else if (type == kShape) {

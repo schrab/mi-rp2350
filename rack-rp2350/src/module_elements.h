@@ -712,3 +712,11 @@ bool mod_trigger_cc(uint8_t cc, bool high) {
 
 }  // namespace mod_elements
 }  // namespace rack_modules
+
+// Warps-stage + reverb bench (accumulated inside Part::Process in the lib
+// TU; extern "C" linkage so part.inc declares the same symbols; reset by
+// the report printer). File scope — global, unmangled names.
+extern "C" volatile uint32_t g_bench_warps_us = 0;
+extern "C" volatile uint32_t g_bench_warps_n = 0;
+extern "C" volatile uint32_t g_bench_reverb_us = 0;
+extern "C" volatile uint32_t g_bench_reverb_n = 0;

@@ -86,10 +86,11 @@ static void test_shaper_curves() {
   expect_near("softclip sat-", rackdist::softclip(-4.0f), -1.0f, 1e-6f);
   expect_true("softclip bounded", std::fabs(rackdist::softclip(2.0f)) < 1.0f);
 
-  // Vult/Befaco Fold_do reference values
-  expect_near("fold even", rackdist::fold(0.5f, 0.0f), 0.5f, 1e-5f);
-  expect_near("fold odd+", rackdist::fold(0.25f, 0.5f), 0.75f, 1e-5f);
-  expect_near("fold odd-", rackdist::fold(-0.25f, 0.5f), -0.75f, 1e-5f);
+  // Vult/Befaco Fold_do reference values (gain = 1 + 8*level, hoisted by
+  // the caller since the int-cast fold fix).
+  expect_near("fold even", rackdist::fold(0.5f, 0.0f, 1.0f), 0.5f, 1e-5f);
+  expect_near("fold odd+", rackdist::fold(0.25f, 0.5f, 5.0f), 0.75f, 1e-5f);
+  expect_near("fold odd-", rackdist::fold(-0.25f, 0.5f, 5.0f), -0.75f, 1e-5f);
 
   // seeded curve is deterministic and spans the register
   const int32_t* w = rackdist::shape_table();
