@@ -108,6 +108,48 @@ int main() {
 
   // task sections are inserted above this line
 
+  printf("== trio goldens (float32) ==\n");
+  {
+    // Schedule mirrors gen_goldens.scd EXACTLY: voice before the first
+    // Process call (SC's \s_new is in block 0), gate off at block 2250
+    // (sample 144000), 192000 frames, hz 55, amp 0.4, fade 1.0 s.
+    struct GoldenCase { int id; const char* name; };
+    const GoldenCase cases[] = {{22, "Sine"}, {23, "Square"}, {29, "Triangle"}};
+    for (const GoldenCase& gc : cases) {
+      static uint8_t mem[160 * 1024];
+      sc::Engine e;
+      e.Init(48000.0f, mem, sizeof(mem));
+      e.set_amp(0.4f);
+      e.set_fade(1.0f);
+      e.set_hz_target(55.0f);
+      e.SetDrone(sc::Catalog(gc.id));         // SC: the synth exists at t = 0
+
+      const int total = 192000;
+      const int gate_off = 144000;
+      std::vector<float> pcm;
+      pcm.reserve(static_cast<size_t>(2 * total));
+      float l[16], r[16];
+      int written = 0;
+      while (written < total) {
+        if (written == gate_off) e.SetDrone(nullptr);
+        e.Process(l, r, 16);
+        for (int i = 0; i < 16 && written < total; ++i, ++written) {
+          pcm.push_back(l[i]);
+          pcm.push_back(r[i]);
+        }
+      }
+      char path[128];
+      snprintf(path, sizeof(path), "build/dc_%s_got.wav", gc.name);
+      l8test::WriteWavF32(path, pcm.data(), total, 2, 48000);
+      char ref[128];
+      snprintf(ref, sizeof(ref), "dronecaster_ref/goldens/%s.expected.wav", gc.name);
+      GoldenReport rep;
+      const bool ok = compare(ref, path, 1e-6, 0.999999, &rep);
+      printf("  %s: %s\n", gc.name, ok ? "GOLDEN PASS" : "GOLDEN FAIL");
+      if (!ok) ++g_failures;
+    }
+  }
+
   printf("== EnvAsr (Env.asr curve -4, kr; 3.14 ctor rollback) ==\n");
   {
     sc::EnvAsr e;

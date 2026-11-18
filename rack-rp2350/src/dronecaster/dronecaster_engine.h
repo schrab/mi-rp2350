@@ -125,6 +125,12 @@ class Engine {
     cued_->init(ctx_);
     env_.Init(sr_, fade_, fade_);
     env_.Gate(true);
+    // Golden-block-0 state: v(-1) = v(0) = 0. The synth's first internal
+    // block is multiplied by the ramp 0 -> v(0) = 0 (silent), the ramp
+    // v(0) -> v(1) starts on the next block.
+    env_prev_ = 0.0f;
+    env_cur_ = 0.0f;
+    env_done_ = false;
     current_ = cued_;
     cued_ = nullptr;
     phase_ = Phase::kPlaying;
@@ -135,14 +141,24 @@ class Engine {
     // hz slew: one-pole per internal block (~60 ms to 95%).
     hz_cur_ += (hz_target_ - hz_cur_) * (64.0f / (0.02f * sr_));
     ctx_.hz = hz_cur_;
-    if (phase_ == Phase::kReleasing && env_.done()) StartCued();
+    if (phase_ == Phase::kReleasing && env_done_) StartCued();
     if (phase_ == Phase::kPlaying || phase_ == Phase::kReleasing) {
       current_->process(ctx_, buf_l_, buf_r_, kBlock);
-      // EnvGen.kr: one value per internal block (Out.ar(snd * aenv)).
-      const float e = env_.Next();
+      // EnvGen.kr x ar multiply law (scsynth BinaryOp ak-loop, CALCSLOPE):
+      // block k is multiplied by the LINEAR RAMP from v(k-1) to v(k), where
+      // v(k) is the k-th EnvGen value — verified sample-exact against the
+      // scsynth goldens. Gate/swap intents are applied by the caller BEFORE
+      // Process(), so the Next() below sees them on the right block.
+      env_prev_ = env_cur_;
+      env_cur_ = env_.Next();
+      env_done_ = env_.done();
+      const float slope =
+          static_cast<float>((env_cur_ - env_prev_) * (1.0 / 64.0));
+      float e = env_prev_;
       for (uint32_t i = 0; i < kBlock; ++i) {
         buf_l_[i] *= e;
         buf_r_[i] *= e;
+        e += slope;
       }
     } else {
       for (uint32_t i = 0; i < kBlock; ++i) { buf_l_[i] = 0.0f; buf_r_[i] = 0.0f; }
@@ -158,6 +174,8 @@ class Engine {
   RGen rgen_;
   Ctx ctx_;
   EnvAsr env_;
+  float env_prev_ = 0.0f, env_cur_ = 0.0f;
+  bool env_done_ = false;
   Phase phase_ = Phase::kIdle;
   const DroneSpec* current_ = nullptr;
   const DroneSpec* cued_ = nullptr;
