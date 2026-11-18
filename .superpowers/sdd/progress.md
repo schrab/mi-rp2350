@@ -5176,3 +5176,15 @@ per-sample paths, and the -O3 wrapper's per-sample symbols (render_internal_bloc
 render_delay, ...) all SRAM-resident (0x2006xxxx). The 36 flash-resident lira symbols are ALL
 constructors + per-note prepare/refresh_tune/set paths (one cache-miss burst per note-on =
 microseconds, harmless). NO ACTION NEEDED — lira8 was already in the best shape of the four.
+
+## CLOUDS measured on HW — the healthiest module (2026-11-19, latest)
+
+The user called the missing module ("i told you ALL"). Audit + measurement: tc_clouds
+56,960 B and **ZERO clouds-namespace symbols in flash** — the entire DSP (granular/looping/
+wsola players, correlator, processor) is SRAM-resident; no libm in the hot paths. The only
+flash part = the CMSIS FFT twiddle TABLES (the documented T6b demotion; spectral still fine).
+Mode sweep on HW (CC 50, max Process vs the 1000 us budget at 32 kHz): granular 137, mode-1
+136, looping 194, spectral **190 us** — 14-19% utilization. NO ACTION. Full five-module
+scoreboard: elements (v=241 + stages / 496), plaits (28-113 / 496, promoted this session),
+rings (59.2/60.4 KB marked), lira8 (455-591 / 1451), clouds (137-190 / 1000). All in budget
+with margin; stalls 0 everywhere.
