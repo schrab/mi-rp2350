@@ -1,7 +1,7 @@
 # Rack RP2350 — five modules in one firmware, live-switchable
 
 ONE firmware running the four accepted MI ports (Elements, Clouds, Plaits
-98-engine, Rings MiniElements) plus the hand-ported **LIRA-8** (`rack-lira8`,
+98-engine, Rings MiniElements) plus the hand-ported **LIRA-8** (module id 4,
 a Pure Data patch port — not an MI library) on the RP2350 nano + PCM5102A,
 with LIVE MODULE SWITCHING (T2 of the combined plan,
 `docs/superpowers/plans/2026-11-04-combined-rp2350.md`) and a DIN MIDI input
@@ -9,21 +9,21 @@ with LIVE MODULE SWITCHING (T2 of the combined plan,
 
 ## Module selection (T2: boot-select + live swap)
 
-Five PlatformIO envs — they build the SAME unified binary and differ ONLY in
-which module boots:
+ONE PlatformIO env — all five module adapters compile into the same unified
+binary:
 
 ```sh
-pio run -d rack-rp2350 -e rack-elements   # or rack-clouds / rack-plaits / rack-rings / rack-lira8
-# → .pio/build/<env>/firmware.uf2
+pio run -d rack-rp2350
+# → .pio/build/rack/firmware.uf2
 ```
 
-`RACK_BOOT_MODULE` (0 elements / 1 clouds / 2 plaits / 3 rings / 4 lira8)
-selects the
-boot module: `setup()` copies that module's flash image into the SRAM window
-(first action, crt0-like) and registry-Inits it. All five adapters compile in
-every env (state is arena-placed); the module registry
+`RACK_BOOT_MODULE` (0 elements / 1 clouds / 2 plaits / 3 rings / 4 lira8 —
+new modules continue the ids) selects the boot module: `setup()` copies that
+module's flash image into the SRAM window (first action, crt0-like) and
+registry-Inits it; the build boots LIRA-8. The module registry
 (`src/module_registry.h`, table in `src/main.cpp`) dispatches init / render /
-note / CC hooks.
+note / CC hooks, and any module can be swapped in at runtime (MIDI CC 32 /
+serial `switch <id|name>`).
 
 ### Live swap — MIDI CC 32 (Bank Select)
 
@@ -142,7 +142,7 @@ ctag-tbd portability proof). Fidelity is gated against headless-Pd renders
 dry path matches within ±0.2 dB in every band; the fully-wet delay is
 documented as ~10 dB brighter at 12.5–16 kHz than Pd (open item).
 
-- **Module id 4**, boot env `rack-lira8`. **44.1 kHz standalone** (user call
+- **Module id 4**, the boot default. **44.1 kHz standalone** (user call
   2026-11-15; the Pd abstraction's rlpf constants are 44.1k-authored) and
   **32 kHz as a chain A** (the chain grid; the engine derives every filter/
   phasor constant from its construction rate). The int16 delay is 1 s in
@@ -231,12 +231,11 @@ between the resonator mixdown and the reverb — the canonical hardware patch
   easter egg, `kMaxBlockSize` 16) is pool-placed behind the reverb buffer,
   whose engine was sized down to its true 21,617-frame Dattorro span
   (65,536 → 43,264 B carve) — no new static .bss, no pool growth.
-- **Sources**: vendored under `WARPS/` (pristine pichenettes eurorack warps
-  via the ctag-tbd fork) → `rack-rp2350/lib/elements/warps/` by
-  `tools/sync_pio_libs.sh` + `tools/patches/warps/rack-port.patch`; the
-  stage itself is `tools/patches/elements/elements-warps-stage.patch`
-  (RACK_RP2350_TC-guarded — the standalone builds stay byte-identical).
-  Hot code rides the `.tc_elements.warps_*` sections (window A slot).
+- **Sources**: vendored in place at `rack-rp2350/lib/elements/warps/` (from
+  the pristine pichenettes eurorack warps via the ctag-tbd fork, then edited
+  directly — the repo no longer carries a patch/sync layer; the lib IS the
+  source of truth). Hot code rides the `.tc_elements.warps_*` sections
+  (window A slot).
 - **Excluded on this build**: the vocoder algorithm (its filter-bank SRCs
   silently drop block sizes not divisible by 3/4 — a 48-sample burst scheme
   would be needed; revisit as a phase-2 plan) and the easter-egg frequency

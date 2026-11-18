@@ -1,128 +1,25 @@
-# arduinoMI
-Ports of mutable intstruments eurorack code to arduino.
+# mi-rp2350 — rack synth monorepo
 
-    NOTE: I did these ports with version 1.8.19 and continue to use that version since 2.x has numerous issues. I'm working on it, but if you want to get going quickly, use 1.8.19. 
+One RP2350 rack synth, five live-switchable modules, one unified firmware.
 
-Current status, 16.12.2025:
-* braids works well on the RP2040/RP2350
-* tides works well, or so I believe on RP2040/RP2350
-* rings is working well with a polyphony of 4 on RP2350
-* elements RP2350 only
-* plaits works fine on the RP2350 only
-* clouds works with reservations :) it works well, but running at 48kHz is pushing it
+- **[`rack-rp2350/`](rack-rp2350/README.md)** — the synth firmware (PlatformIO,
+  Arduino/earlephilhower core on an RP2350 "nano" + PCM5102A I2S DAC):
+  Elements, Clouds, Plaits (98 engines), Rings MiniElements and the
+  hand-ported LIRA-8, live-switchable at runtime (MIDI CC 32 / serial
+  console), plus distortion + Warps FX and an ESP32-C3 UI link.
+- **[`rack-uimcu/`](rack-uimcu/README.md)** — the ESP32-C3 UI firmware
+  (ESP-IDF): pages, gestures, link protocol to the RP2350.
+- **`tools/`** — browser control panel (`rack_panel.html`), legacy
+  single-module panels, SysEx converter.
+- **`docs/`** — SDD plans and porting notes; `.superpowers/sdd/progress.md`
+  is the ledger (read it before debugging anything).
 
-This port was possible because of the work of Volker Boehm to bring MI modules to supercollider: https://github.com/v7b1/mi-UGens Very cool.
+The vendored Mutable Instruments DSP libs in `rack-rp2350/lib/` are **the
+source of truth** — they are edited directly. Upstream MI code is frozen and
+the pristine trees / patch-sync layer were removed on 2026-11-18; the git
+history still holds the pristine sources if a comparison is ever needed.
 
-A simple sketch with no other io other than PWM pin 22 is located in the examples folder of each submodule. It cycles through all voices with random parameters every 3 seoncds.
-
-The examples are duplicated as directories in this 'monorepo' since working on help files requires saving, yadayada. So:
-BraidsEngines, PlaitsEngines, RingsEngines, are just duplicates for ease of editing.
-
-A number of sketches for the tonetoys scarp (my button punching pico project https://github.com/poetaster/scarp) are included here as it's convenient. For me :)
-
-The marevlousMI submodule is for the mini modular synth including braids, plaits and rings. See https://github.com/poetaster/marvelousMI for more information
-
-To use the sketch, copy (or clone the submodules) STMLIB and BRAIDS (for instance) directories to you ~/Arduino/libraries folder, open the BraidsEngines sketch change 
-```
-#define PWMOUT 22
-```
-to match whatever pin your using and
-
-choose 250mHz overclocking (well, 200 will do it too, but, 250 is stable and some require all out 276mHz) and optimize -O2 (or -O3). Then install it on your pico. 
-
-You should hear it step through the patches making small changes as it goes.
-
-### A note for Macos
-
-There appear to be a couple of ways to get this compiling on the Mac. One method is to remove the 'module_all.cpp' include files in the 'src' directory' and let the linker find the files another is a named thing which works on linux and macOs (though I don't know about windows). That method renames all .cc files to, for instance, .inc and lists those files in the 'module_all.cpp' file. I'm working on some defines to deal with that.
-
-
-## Basic usage
-
-The STMLIB, BRAIDS and PLAITS directories can be placed in your Arduino/libraries/ folder and used as follows, for braids & plaits:
-```
-#pragma once
-
-#include <STMLIB.h>
-#include <BRAIDS.h>
-
-#include "braids/envelope.h"
-#include "braids/macro_oscillator.h"
-#include "braids/quantizer.h"
-#include "braids/signature_waveshaper.h"
-#include "braids/quantizer_scales.h"
-#include "braids/vco_jitter_source.h"
-
-
-#define     MI_SAMPLERATE      96000.f
-#define     BLOCK_SIZE          32      // --> macro_oscillator.h !
-#define     SAMP_SCALE          (float)(1.0 / 32756.0)
-#include <STMLIB.h>
-#include <BRAIDS.h>
-typedef struct
-{
-  braids::MacroOscillator *osc;
-
-  float       samps[BLOCK_SIZE] ;
-  int16_t     buffer[BLOCK_SIZE];
-  uint8_t     sync_buffer[BLOCK_SIZE];
-
-} PROCESS_CB_DATA ;
-
-char shared_buffer[16384];
-const size_t   kBlockSize = BLOCK_SIZE;
-
-struct Unit {
-  braids::Quantizer   *quantizer;
-  braids::SignatureWaveshaper *ws;
-  bool            last_trig;
-  // resampler
-  //SRC_STATE       *src_state;
-  PROCESS_CB_DATA pd;
-  float           *samples;
-  float           ratio;
-};
-
-static long src_input_callback(void *cb_data, float **audio);
-struct Unit voices[1];
-
-
-// plaits dsp
-#include <STMLIB.h>
-#include <PLAITS.h>
-
-#include "plaits/dsp/dsp.h"
-#include "plaits/dsp/voice.h"
-
-plaits::Modulations modulations;
-plaits::Patch patch;
-plaits::Voice voice;
-
-char shared_buffer[16384];
-stmlib::BufferAllocator allocator;
-
-//float a0 = (440.0 / 8.0) / kSampleRate; //48000.00;
-const size_t   kBlockSize = plaits::kBlockSize;
-
-plaits::Voice::Frame outputPlaits[ plaits::kBlockSize];
-
-struct Unit {
-  plaits::Voice       *voice_;
-  plaits::Modulations modulations;
-  plaits::Patch       patch;
-  float               transposition_;
-  float               octave_;
-  short               trigger_connected;
-  short               trigger_toggle;
-
-  char                *shared_buffer;
-  void                *info_out;
-  bool                prev_trig;
-  float               sr;
-  int                 sigvs;
-};
-
-```
-
-See the included sketches.
-
+The upstream Arduino port this started from is poetaster's
+[arduinoMI](https://github.com/poetaster/arduinoMI) (itself building on
+Volker Boehm's mi-UGens SuperCollider work) — see the git history for that
+era of the repo.

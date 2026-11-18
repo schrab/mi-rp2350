@@ -4518,3 +4518,41 @@ Uncommitted. User re-test pending.
   boosted signal into the tank) plus no saturation harmonics, not reverb degradation.
 - All 5 envs rebuilt green; RP2350 re-flashed + confirmed on elements (417 us / 496, 0 stalls).
   C3 unchanged since its last flash (the page-selector fix was RP2350-side). Uncommitted.
+
+## Repo restructure — patch system removed, ONE env, stale trees deleted (2026-11-18)
+
+User directive: upstream Mutable Instruments code is frozen (never updated), so the
+pristine-upstream + patch-sync layer is pointless AND harmful (agents diffing against it
+find nothing; the lib IS the truth). The five per-module envs were a testing-phase
+artifact — "now we have only one rack code"; new modules WILL be added in the future.
+
+- **Bake verification BEFORE deletion** (reverse-apply check, `patch -R --dry-run` in
+  GIT BASH — WSL patch rejects CRLF patches wholesale, 27/27 false MISMATCH there):
+  20/27 clean BAKED; 7 "MISMATCH" all verified semantically present in the lib:
+  clouds-cmsis-fft + clouds-ram-hot = "Reversed (or previously applied)" per patch tool;
+  plaits ram-hot trio (05/06/07) = 44 `PLAITS_RAM_CODE` markers ≥ patch counts + the
+  ram_code.h includes in engine.h/voice.h/square_oscillator.h; warps rack-port =
+  `kMaxBlockSize = 16`, vocoder branch stripped, 11 `WARPS_RAM_CODE` markers;
+  elements-warps-stage = superseded by lib evolution (pre-reverb insert hook +
+  raw_gain=0, build-green proof). Conclusion: the rack libs were already the source of
+  truth; the patches were stale descriptions.
+- **Removed**: `tools/patches/` (27 files) + `tools/sync_pio_libs.sh` (cdb3206).
+  The sync-revert caveat from the reverb entries is MOOT — nothing regenerates lib/.
+- **ONE env** (0450e7a): `platformio.ini` → single `[env:rack]`,
+  `RACK_BOOT_MODULE=4` (boots LIRA-8 — the board's current UF2). New modules continue
+  ids 5+: adapter in src/ + registry/window tables + the define. Runtime swap
+  unchanged (CC 32 / serial `switch`). main.cpp boot comments updated.
+- **Deleted 34 stale top-level trees** (3a8aac4): upstream forests + sketch dirs
+  (BRAIDS, CLOUDS, ELEMENTS, STMLIB, PLAITS, RINGS, TIDES, WARPS, the
+  `*Engines*`/`*Scarp*` folders, MMM, marvelousMI, EURORACK-STEREO, CloudyPlaits…,
+  Toepler/Peaches braids) + the four legacy standalone ports (elements/clouds/
+  plaits/rings-rp2350). Git history preserves everything (pristine sources included).
+  Top level is now: docs/ rack-rp2350/ rack-uimcu/ tools/.
+- **Docs**: AGENTS.md rewritten for the new reality (libs = source of truth, one env,
+  flash path `.pio/build/rack/`, new FxEngine pow2 + FX-chain-law constraints);
+  README.md replaced with a repo overview (upstream poetaster context → history);
+  PORTING-HIGHLIGHTS.md marked historical where it describes the sync/patch era;
+  rack-rp2350/README.md build/sources sections updated (single env, warps vendored
+  in place).
+- **Verified post-restructure**: `pio run -d rack-rp2350` (single env) SUCCESS;
+  `make test` 11/11 green (test_fx_chain now in TEST_BINS, ec2dcd3).

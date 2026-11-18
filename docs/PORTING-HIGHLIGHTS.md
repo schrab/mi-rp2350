@@ -1,9 +1,20 @@
 # PORTING HIGHLIGHTS — MI modules → RP2350 (Elements + Clouds experience)
 
+**STATUS 2026-11-18:** this document describes the EARLY single-module port
+era. The legacy standalone ports (`elements-rp2350/`, `clouds-rp2350/`, …)
+and the pristine-upstream + patch-sync layer are GONE — the rack libs in
+`rack-rp2350/lib/` are vendored copies edited directly (upstream MI is
+frozen; the sync script and `tools/patches/` were removed). Everything below
+that says "copy `<module>-rp2350/` as the template" or references the sync
+script / patches is HISTORICAL: the architecture lessons (SRAM/XIP law,
+native rate/block size, per-block call contract, profiling) still apply to
+new rack modules, but new modules slot into `rack-rp2350/src/` as adapters
+(see `module_*.h` + the registry in `main.cpp`), not as standalone projects.
+
 **Purpose:** distillation of everything that mattered while porting Elements
-(`elements-rp2350/`) and Clouds (`clouds-rp2350/`) to the RP2350 nano. Point a
-fresh session/agent at this file BEFORE it starts a RINGS or PLAITS port —
-every item below was a real bug, a wasted build cycle, or a shipped fix.
+and Clouds to the RP2350 nano. Point a fresh session/agent at this file
+BEFORE it starts a new module port — every item below was a real bug, a
+wasted build cycle, or a shipped fix.
 
 **The one-line summary:** copy `clouds-rp2350/` as the template, keep every
 LUT and hot function in SRAM from day one, run the module at its native rate
