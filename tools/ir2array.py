@@ -69,20 +69,16 @@ def main():
     fade = min(64, taps // 8)
     ramp = 0.5 * (1.0 + np.cos(np.linspace(0.0, math.pi, fade)))
     y[-fade:] *= ramp
+    # The float IR table is NOT emitted anymore: its only firmware consumer
+    # was the bypass-energy sum (speaker_bypass_gain) — that ships as the
+    # precomputed RMS constant below, saving the whole table from the
+    # tc_elements SRAM slot (the 1024-tap q15 set did not fit alongside it).
     print(f"// {path} -> {taps} taps @ {fs_out} Hz (peak-normalized, "
           f"pre-delay compacted from sample {start}, {fade}-sample tail fade; "
           f"source {fs_in} Hz, {len(x)} samples, {len(x)/fs_in:.2f} s)")
-    print("static const float kSpeakerIr[%d] = {" % taps)
-    for i in range(0, taps, 8):
-        parts = []
-        for v in y[i:i + 8]:
-            s = "%.9g" % v
-            if "." not in s and "e" not in s and "n" not in s:
-                s += ".0"  # keep the float literal well-formed (0f is not)
-            parts.append(s + "f")
-        row = ", ".join(parts)
-        print("    " + row + ("," if i + 8 < taps else ""))
-    print("};")
+    print("static const float kSpeakerIrRms = %.9gf;  // sqrt(sum y^2) over "
+          "the emitted taps (bypass loudness matching)"
+          % float(np.sqrt(np.sum(y * y))))
     # q15 packed pairs for the SMLALD dual-MAC conv (rack_dist.h): the IR
     # scaled so the PEAK coefficient hits full 15-bit scale (no sum|ir|
     # constraint — the 64-bit SMLALD accumulator cannot overflow:

@@ -304,33 +304,37 @@ static inline void swedish_process(float* out, float* aux, size_t n,
 // Mono-summed cab FIR (src/speaker_ir.h — the Hesu 2x12 V30 IR, resampled to
 // 16 kHz, pre-delay compacted, peak-normalized; see tools/ir2array.py), run
 // at the DECIMATED rate: the IR is band-limited to 8 kHz (0.42% energy
-// above), so a 31-tap halfband decimation -> 512-tap FIR @ 16 kHz (32 ms) ->
-// halfband interpolation quarters the MAC count of a 512-tap 32 kHz FIR
-// while keeping the full 32 ms body. The Barabas5532 plugin convolves a
-// speaker IR at the same chain point (after the amp + tonestack).
-//   Per 16-sample block: dec 16x16 + conv 8x512 + interp 8x14 ~= 4.5k MACs
-//   ~= 45 us at the ~3.25 cycles/MAC scalar floor (vs ~174 us undecimated).
-// Adds ~35 ms of latency — inaudible, the swede path is fully wet.
+// above), so a 31-tap halfband decimation -> 1024-tap FIR @ 16 kHz (64 ms) ->
+// halfband interpolation halves the MAC count of a 1024-tap 32 kHz FIR while
+// keeping the full 64 ms body (99.9% of the compacted energy; the 512-tap
+// window held 98.8%). The Barabas5532 plugin convolves a speaker IR at the
+// same chain point (after the amp + tonestack).
+//   Per 16-sample block: dec 16x16 + conv 8x1024 + interp 8x14 ~= 8.5k MACs
+//   (the dual-MAC kernel does that in 8 instructions per 4 MACs).
+// Adds ~67 ms of latency — inaudible, the swede path is fully wet.
 // The halfband (Blackman-windowed sinc, DC-normalized, center 0.5): the
 // decimator runs the full 31 taps on odd 32 kHz samples; the interpolator's
 // passthrough phase is the delayed v (free), the filtered phase is the
 // halfband's 14 nonzero even-index taps x2 (their DC sum is 0.5).
-static const size_t kSpeakerTaps = 512;   // @ 16 kHz = 32 ms
+static const size_t kSpeakerTaps = 1024;   // @ 16 kHz = 64 ms
 static const float kSpeakerConvGain = 0.25f;   // makeup for the normalized IR
 
 // RMS-matching gain for the pre-conv bypass: sqrt(sum ir^2) * conv gain, so
-// a bypass block (mono pre-cab signal) has the same loudness as a conv block
-// (the FIR is load-bound; this is computed once from the IR, not hardcoded).
+// a bypass block (mono pre-cab signal) has the same loudness as a conv block.
+// Precomputed by ir2array.py as kSpeakerIrRms (the float IR table itself was
+// dropped — its only consumer was this energy sum, and the 1024-tap q15 set
+// would not have fit the tc_elements A-slot alongside it).
 static inline float speaker_bypass_gain() {
-  static float g = 0.0f;
-  if (g == 0.0f) {
-    float e = 0.0f;
-    for (size_t k = 0; k < kSpeakerTaps; ++k) {
-      e += kSpeakerIr[k] * kSpeakerIr[k];
-    }
-    g = sqrtf(e) * kSpeakerConvGain;
-  }
-  return g;
+  return kSpeakerIrRms * kSpeakerConvGain;
+}
+
+// int64 -> float without the soft __aeabi_l2f (~100 cycles per call, 8 calls
+// per block): acc = hi*2^32 + lo, each half converts exactly (|hi| < 2^31,
+// lo < 2^31 as unsigned), the float sum differs from the direct conversion
+// by <= 1 ULP of the 24-bit mantissa (both round the same way to first
+// order; 1 ULP ~= -144 dB here).
+static inline float acc64_to_f(int64_t a) {
+  return (float)(int32_t)(a >> 32) * 4294967296.0f + (float)(uint32_t)a;
 }
 static const float kHalfbandDec[31] = {   // DC-normalized (sum = 1)
     2.94498535e-19f, 7.81558784e-20f, 0.000410322871f, -7.83790506e-19f,
@@ -354,7 +358,10 @@ struct SpeakerConv {
   // 32 kHz decimator: the last 31 mono samples (oldest first).
   float dec_[31] = {0};
   // 16 kHz conv history: kTaps-1 past v16 samples + up to 12 new per block.
-  int16_t hist16_[kSpeakerTaps - 1 + 12] = {0};
+  // 4-aligned so the shift and the Ws pack below can move it word-at-a-time
+  // (a 4-byte __builtin_memcpy per pair; element loops are the odd-n16
+  // fallback).
+  alignas(4) int16_t hist16_[kSpeakerTaps - 1 + 12] = {0};
   // 16 kHz conv-output history for the interpolator (float, 14 taps).
   float y16h_[14] = {0};
   // 16 kHz v-history for the interpolator's passthrough (7-deep delay).
@@ -382,40 +389,52 @@ struct SpeakerConv {
     for (size_t i = 0; i < 31; ++i) {
       dec_[i] = decw[n + i];
     }
-    // 4) conv at 16 kHz, q15 int16 dual-MAC (__SMLADX, M33 DSP extension —
-    //    Yiu ch.19.4): quantize v to int16, append to hist16, then the
-    //    packed dual-MAC FIR below (two outputs per iteration). The IR is
-    //    scaled so sum|ir16| <= 32700: the int32 accumulator cannot
-    //    overflow (ch. 19.5). Host fallback: the same dual-MAC math in
-    //    portable C (bit-exact vs the hardware instruction).
+    // 4) conv at 16 kHz, q15 int16 dual-MAC (SMLALD/SMLALDX, M33 DSP
+    //    extension — Yiu ch.19.4): quantize v to int16, append to hist16,
+    //    then the packed dual-MAC FIR below (two outputs per iteration,
+    //    64-bit accumulate, full 15-bit coefficients). Host fallback: the
+    //    same dual-MAC math in portable C (bit-exact vs the hardware).
     for (size_t j = 0; j < n16; ++j) {
       float q = v[j] * 32767.0f;
       if (q > 32767.0f) q = 32767.0f;
       if (q < -32768.0f) q = -32768.0f;
       hist16_[kSpeakerTaps - 1 + j] = (int16_t)q;
     }
-    // The packed FIR. hist16_ (511 old + n16 new v16 samples) is read as
-    // uint32 words W[k] = v16[2k] | v16[2k+1]<<16 (copied into Ws first —
-    // element-wise, no aliasing). Output j's window ends at m =
-    // kSpeakerTaps-1+j; its t-th tap pair is (v16[m-2t], v16[m-2t-1]) —
-    // DESCENDING consecutive samples, so per output parity:
-    //   m odd (j even): the pair = (W[k].hi, W[k].lo), k = 255+r-t —
-    //     SMLADX's Xm-half swap realigns it with (ir16[2t], ir16[2t+1]).
+    // The packed FIR. hist16_ (kTaps-1 old + n16 new v16 samples, 4-aligned)
+    // is read as uint32 words W[k] = v16[2k] | v16[2k+1]<<16 — packed into
+    // Ws first with one 4-byte memcpy per word (gcc emits a single ldr+str;
+    // the element-wise orr loop cost ~10 us per block). Output j's window
+    // ends at m = kSpeakerTaps-1+j; its t-th tap pair is (v16[m-2t],
+    // v16[m-2t-1]) — DESCENDING consecutive samples, so per output parity:
+    //   m odd (j even): the pair = (W[k].hi, W[k].lo), k = kTaps/2-1+r-t —
+    //     SMLALDX's Xm-half swap realigns it with (ir16[2t], ir16[2t+1]).
     //   m even (j odd): the pair straddles two adjacent words —
-    //     (W[k].lo, W[k-1].hi), k = 256+r-t — PKHTB re-packs it
-    //     (top from the older word, bottom from the newer); plain SMLAD.
+    //     (W[k].lo, W[k-1].hi), k = kTaps/2+r-t — PKHBT re-packs it
+    //     (top from the older word, bottom from the newer); plain SMLALD.
     // Both outputs share the same ir word and the same two W words (one
     // descending pointer pair). Splitting the parity RIGHT is what the
     // first SMLADX-everywhere attempt got wrong (crossed tap pairs, err
-    // 0.33 — the naive law caught it). Per pair of outputs this is ~5-6
-    // instructions for 4 MACs instead of ~12 for 2.
-    uint32_t Ws[262];
+    // 0.33 — the naive law caught it). Per pair of outputs this is 8
+    // instructions for 4 MACs.
+    uint32_t Ws[(kSpeakerTaps + 14) / 2];
     const size_t ns16 = kSpeakerTaps - 1 + n16;   // valid v16 samples
-    for (size_t k = 0; k < (ns16 + 1) / 2; ++k) {
-      const uint32_t lo = (uint16_t)hist16_[2 * k];
-      const uint32_t hi =
-          2 * k + 1 < ns16 ? (uint16_t)hist16_[2 * k + 1] : 0u;
-      Ws[k] = lo | (hi << 16);
+    if (n16 & 1) {
+      // n16 odd (never with the 16-sample block): the element-wise build.
+      for (size_t k = 0; k < (ns16 + 1) / 2; ++k) {
+        const uint32_t lo = (uint16_t)hist16_[2 * k];
+        const uint32_t hi =
+            2 * k + 1 < ns16 ? (uint16_t)hist16_[2 * k + 1] : 0u;
+        Ws[k] = lo | (hi << 16);
+      }
+    } else {
+      // Word-at-a-time pack (hist16_ is 4-aligned, n16 even). ns16 is odd
+      // here (kTaps-1 is odd), so the last word's hi half comes from stale
+      // history — mask it (it is never read, but keep the build
+      // deterministic).
+      for (size_t k = 0; k < (ns16 + 1) / 2; ++k) {
+        __builtin_memcpy(&Ws[k], &hist16_[2 * k], 4);
+      }
+      Ws[ns16 >> 1] &= 0x0000ffffu;
     }
     for (size_t r = 0; r < n16 / 2; ++r) {
       int64_t acc_a = 0, acc_b = 0;
@@ -434,14 +453,14 @@ struct SpeakerConv {
         register int32_t ab_lo __asm__("r8") = 0;
         register int32_t ab_hi __asm__("r9") = 0;
         // Two SEPARATE loads, stride one word per pointer: the window pairs
-        // OVERLAP between iterations (the pairs are (W[255+r-t],
-        // W[256+r-t]) then (W[254+r-t], W[255+r-t])) so a single ldmdb of
+        // OVERLAP between iterations (the pairs are (W[511+r-t],
+        // W[512+r-t]) then (W[510+r-t], W[511+r-t])) so a single ldmdb of
         // two regs — which slides the base by 8 — drifts one extra word
         // per iteration and misaligns every FIR tap after the first (the
         // constant-noise bug this file's first HW build produced; warps
         // stays clean because it bypasses the conv).
         register const uint32_t* bp __asm__("r6") =
-            Ws + (kSpeakerTaps / 2 - 1 + r) + 1;      // &W[256+r] (b of t=0)
+            Ws + (kSpeakerTaps / 2 - 1 + r) + 1;      // &W[512+r] (b of t=0)
         register const uint32_t* irp __asm__("r7") = kSpeakerIrQ15;
         register uint32_t iw __asm__("r0");
         register uint32_t a __asm__("r1");
@@ -468,21 +487,21 @@ struct SpeakerConv {
       }
 #else
       {
-        const uint32_t* pa = Ws + (kSpeakerTaps / 2 - 1 + r);  // W[255+r] ↓
-        const uint32_t* pb = pa + 1;                           // W[256+r] ↓
+        const uint32_t* pa = Ws + (kSpeakerTaps / 2 - 1 + r);  // W[511+r] ↓
+        const uint32_t* pb = pa + 1;                           // W[512+r] ↓
         const uint32_t* irp = kSpeakerIrQ15;
         for (size_t t = 0; t < kSpeakerTaps / 2; ++t) {
           const uint32_t iw = *irp++;
-          const uint32_t a = *pa--;                // W[255+r-t] (older)
-          const uint32_t b = *pb--;                // W[256+r-t] (newer)
+          const uint32_t a = *pa--;                // W[511+r-t] (older)
+          const uint32_t b = *pb--;                // W[512+r-t] (newer)
           acc_a = RACK_SMLALDX_ACC(acc_a, iw, a);  // output 2r   (m odd)
           acc_b = RACK_SMLALD_ACC(acc_b, iw,
                                   RACK_PKHTB(a, b));  // output 2r+1 (m even)
         }
       }
 #endif
-      v[2 * r] = (float)acc_a * kSpeakerQ15Norm * kSpeakerConvGain;
-      v[2 * r + 1] = (float)acc_b * kSpeakerQ15Norm * kSpeakerConvGain;
+      v[2 * r] = acc64_to_f(acc_a) * kSpeakerQ15Norm * kSpeakerConvGain;
+      v[2 * r + 1] = acc64_to_f(acc_b) * kSpeakerQ15Norm * kSpeakerConvGain;
     }
     if (n16 & 1) {   // never with the 16-sample rack block; kept correct
       const size_t j = n16 - 1;
@@ -494,10 +513,20 @@ struct SpeakerConv {
                           | ((uint32_t)(uint16_t)xp[-2 * (int)t - 1] << 16);
         acc = RACK_SMLALD_ACC(acc, kSpeakerIrQ15[t], xw);
       }
-      v[j] = (float)acc * kSpeakerQ15Norm * kSpeakerConvGain;
+      v[j] = acc64_to_f(acc) * kSpeakerQ15Norm * kSpeakerConvGain;
     }
-    for (size_t i = 0; i < kSpeakerTaps - 1; ++i) {
-      hist16_[i] = hist16_[n16 + i];
+    // 5) shift the conv history (the element loop cost ~8.5 us/block at
+    //    1023 halfwords; word-at-a-time with n16 even is ~2 us). kTaps-1 is
+    //    odd: full words + one halfword tail.
+    if (n16 & 1) {
+      for (size_t i = 0; i < kSpeakerTaps - 1; ++i) {
+        hist16_[i] = hist16_[n16 + i];
+      }
+    } else {
+      for (size_t k = 0; k < (kSpeakerTaps - 1) / 2; ++k) {
+        __builtin_memcpy(&hist16_[2 * k], &hist16_[n16 + 2 * k], 4);
+      }
+      hist16_[kSpeakerTaps - 2] = hist16_[n16 + kSpeakerTaps - 2];
     }
     // 5) interpolate: per v sample emit the pair (passthrough = the delayed
     //    conv output, filtered = the 14-tap even-phase sum x2), advancing
