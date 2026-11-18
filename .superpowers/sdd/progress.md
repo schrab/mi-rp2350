@@ -4932,4 +4932,4 @@ option. Fix: blend aux toward the SAME wet (mono warps out on both channels — 
 "only warps out, both channels"; at mix 0 both channels stay dry). Raw exciter still never
 reaches aux. test_warps_stage laws updated: staged aux == staged main at space 0 / mix 1
 (bit-exact), staged aux != base aux, aux-halving at w=0. All warps tests green. Flashed;
-ears pending.
+**USER-ACCEPTED** ("wait now its working" — first test ran against stale state, second confirmed).
