@@ -15,7 +15,7 @@ ENGINE_SRCS =   # e.g. lira8_engine.cpp
 WARPSFLAGS ?= -O2 -g -std=c++17 -Wall -Wextra -I../lib/elements -I../lib/stmlib -I.
 RACKFLAGS  ?= $(WARPSFLAGS) -DRACK_RP2350_TC
 
-TEST_BINS = test_wav_io test_pd_primitives test_voice test_engine test_harmony test_warps test_reverb test_warps_stage test_varg test_rings_chord
+TEST_BINS = test_wav_io test_pd_primitives test_voice test_engine test_harmony test_warps test_reverb test_warps_stage test_fx_chain test_varg test_rings_chord
 GOLDEN_BIN = render_golden
 
 all: $(TEST_BINS) $(GOLDEN_BIN)
