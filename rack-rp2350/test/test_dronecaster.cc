@@ -3,6 +3,9 @@
 // golden FAIL is trustworthy.
 #include "wav_io.h"
 
+#include "../src/dronecaster/sc_defs.h"
+#include "../src/dronecaster/sc_rgen.h"
+
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -98,6 +101,40 @@ int main() {
          g_failures ? "FAIL" : "PASS", g_failures);
 
   // task sections are inserted above this line
+
+  printf("== sc::RGen (taus88) ==\n");
+  {
+    sc::RGen r;
+    r.init(1);
+    CHECK(r.s1 == 681917145u && r.s2 == 3671622764u && r.s3 == 237148337u,
+          "init(1) state vector");
+    CHECK(r.trand() == 3477746156u, "trand(1)[0] == 3477746156");
+    CHECK(r.trand() == 3423392677u, "trand(1)[1] == 3423392677");
+    CHECK(r.trand() == 4088519076u, "trand(1)[2] == 4088519076");
+
+    sc::RGen a; a.init(1);
+    CHECK(a.frand0() == 1.809725760f, "frand0(1)[0] == 1.80972576");
+    CHECK(a.frand0() == 1.797070620f, "frand0(1)[1] == 1.79707062");
+    sc::RGen b; b.init(1);
+    CHECK(b.frand2() == 0.619451523f, "frand2(1)[0] == 0.619451523");
+    sc::RGen c; c.init(1);
+    CHECK(c.frand() == 0.809725761f, "frand(1)[0] == 0.809725761");
+    sc::RGen d; d.init(1);
+    CHECK(d.fcoin() == -1.0f, "fcoin(1)[0] == -1");
+
+    sc::RGen e; e.init(7);
+    CHECK(e.s1 == 4158996277u && e.s2 == 93880704u && e.s3 == 3512900957u,
+          "init(7) state vector");
+    CHECK(e.frand0() == 1.190675500f, "frand0(7)[0] == 1.1906755");
+    CHECK(e.frand0() == 1.194282050f, "frand0(7)[1] == 1.19428205");
+    sc::RGen f; f.init(7);
+    CHECK(f.frand2() == -0.618649006f, "frand2(7)[0] == -0.618649006");
+
+    sc::RGen g; g.init(sc::kGoldenSeed);
+    CHECK(g.s1 == 2304607986u && g.s2 == 2065709127u && g.s3 == 2950309018u,
+          "kGoldenSeed state vector");
+    CHECK(g.trand() == 592871963u, "kGoldenSeed trand[0] == 592871963");
+  }
 
   printf("test_dronecaster: %s (%d failures)\n",
          g_failures ? "FAIL" : "PASS", g_failures);
