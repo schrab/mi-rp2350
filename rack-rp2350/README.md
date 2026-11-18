@@ -282,7 +282,7 @@ notes (`src/rings_chord.h`) and re-strummed on every chord change. MIDI notes
 keep firing the strum while a VARG ARP is routed (e.g. `mod arp1 dest voice`).
 
 The four ctag-tbd fast distortion algorithms run **after the render in every
-Rings mode** (0–5), not just the chord mode (`src/rings_dist.h`, ported from
+Rings mode** (0–5), not just the chord mode (`src/rack_dist.h`, ported from
 ctag-tbd commits `2166c84c` / `4f086145` / `a62ad652`):
 
 - **CC 24** drive (0 = zero-cost bypass, default 0.55),
@@ -313,7 +313,7 @@ parallel execution, no SRAM overlay. **CC 42** is the FX type selector:
 
 The Warps controls are the **original T9 mapping** (CC 36-40), staged and
 applied to the Patch only when FX type = 6; in distortion/OFF modes they are
-zeroed so `Part::Process` skips Warps (zero cost). Likewise `ringdist::process`
+zeroed so `Part::Process` skips Warps (zero cost). Likewise `rackdist::process`
 is skipped in OFF and Warps modes. Switching FX preserves both sets of control
 values.
 

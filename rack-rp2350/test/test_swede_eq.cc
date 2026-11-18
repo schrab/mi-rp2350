@@ -20,7 +20,7 @@
 #include <cstdio>
 #include <cstring>
 
-#include "rings_dist.h"          // -I../src
+#include "rack_dist.h"          // -I../src
 
 static int g_fail = 0;
 #define CHECK(cond, ...)                                                    \
@@ -34,8 +34,8 @@ static int g_fail = 0;
   } while (0)
 
 // Reference MATLAB coefficients (Barabas5532 HM2Filter.cpp), as previously
-// hard-coded in rings_dist.h before the 32 kHz redesign.
-static const ringdist::SwedishBiquad kRef[3] = {
+// hard-coded in rack_dist.h before the 32 kHz redesign.
+static const rackdist::SwedishBiquad kRef[3] = {
     {1.016224171805848f, -1.996244766867333f, 0.980170456681741f,
      -1.996244766867333f, 0.996394628487589f},
     {1.048098514125369f, -1.946884930731663f, 0.914902628855116f,
@@ -62,7 +62,7 @@ static float render_rms(float bass, float mid, float treble, size_t blocks) {
       out[i] = noise() * 0.5f;
       aux[i] = out[i] * 0.5f;
     }
-    ringdist::swedish_process(out, aux, kBlock, 0.75f, bass, mid, treble);
+    rackdist::swedish_process(out, aux, kBlock, 0.75f, bass, mid, treble);
     if (b >= blocks) {
       for (size_t i = 0; i < kBlock; ++i) {
         sum2 += (double)out[i] * out[i];
@@ -80,8 +80,8 @@ int main() {
                                     {900.0f, 11.13f, 1.788f},
                                     {1400.0f, 19.08f, 0.980f}};
   for (int i = 0; i < 3; ++i) {
-    const ringdist::SwedishBiquad c =
-        ringdist::swedish_peaking(kSpec[i][0], kSpec[i][1], kSpec[i][2], kFs);
+    const rackdist::SwedishBiquad c =
+        rackdist::swedish_peaking(kSpec[i][0], kSpec[i][1], kSpec[i][2], kFs);
     const float err[] = {fabsf(c.b0 - kRef[i].b0), fabsf(c.b1 - kRef[i].b1),
                          fabsf(c.b2 - kRef[i].b2), fabsf(c.a1 - kRef[i].a1),
                          fabsf(c.a2 - kRef[i].a2)};
@@ -92,8 +92,8 @@ int main() {
           i + 1, mx);
   }
   // ...and the 32 kHz redesign actually moved the bands (not a no-op).
-  const ringdist::SwedishBiquad at32 =
-      ringdist::swedish_peaking(86.0f, 10.0f, 1.073f, 32000.0f);
+  const rackdist::SwedishBiquad at32 =
+      rackdist::swedish_peaking(86.0f, 10.0f, 1.073f, 32000.0f);
   CHECK(fabsf(at32.b0 - kRef[0].b0) > 1e-4f,
         "32 kHz design identical to the 44.1 kHz reference — redesign no-op?");
 
@@ -122,12 +122,12 @@ int main() {
         "B/M/T zeroed == maxed — knobs do nothing");
 
   // Law 4: the FMV design enters the knobs and stays finite.
-  ringdist::SwedishFmvCoefs f;
-  ringdist::swedish_fmv_design(0.05f, 0.5f, 0.5f, 32000.0f, &f);
+  rackdist::SwedishFmvCoefs f;
+  rackdist::swedish_fmv_design(0.05f, 0.5f, 0.5f, 32000.0f, &f);
   CHECK(std::isfinite(f.b0) && std::isfinite(f.a3) && std::isfinite(f.a1),
         "FMV coefficients not finite at defaults");
-  ringdist::SwedishFmvCoefs g2;
-  ringdist::swedish_fmv_design(1.0f, 1.0f, 1.0f, 32000.0f, &g2);
+  rackdist::SwedishFmvCoefs g2;
+  rackdist::swedish_fmv_design(1.0f, 1.0f, 1.0f, 32000.0f, &g2);
   CHECK(fabsf(g2.a1 - f.a1) > 1e-6f,
         "FMV denominator identical across knob extremes — knobs do not enter "
         "the design");

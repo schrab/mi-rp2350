@@ -6,7 +6,7 @@
 #include <cstring>
 
 #include "../src/rings_chord.h"
-#include "../src/rings_dist.h"
+#include "../src/rack_dist.h"
 
 static int g_fail = 0;
 
@@ -81,21 +81,21 @@ static void test_chord_from_pool() {
 }
 
 static void test_shaper_curves() {
-  expect_near("softclip 0", ringdist::softclip(0.0f), 0.0f, 1e-6f);
-  expect_near("softclip sat+", ringdist::softclip(4.0f), 1.0f, 1e-6f);
-  expect_near("softclip sat-", ringdist::softclip(-4.0f), -1.0f, 1e-6f);
-  expect_true("softclip bounded", std::fabs(ringdist::softclip(2.0f)) < 1.0f);
+  expect_near("softclip 0", rackdist::softclip(0.0f), 0.0f, 1e-6f);
+  expect_near("softclip sat+", rackdist::softclip(4.0f), 1.0f, 1e-6f);
+  expect_near("softclip sat-", rackdist::softclip(-4.0f), -1.0f, 1e-6f);
+  expect_true("softclip bounded", std::fabs(rackdist::softclip(2.0f)) < 1.0f);
 
   // Vult/Befaco Fold_do reference values
-  expect_near("fold even", ringdist::fold(0.5f, 0.0f), 0.5f, 1e-5f);
-  expect_near("fold odd+", ringdist::fold(0.25f, 0.5f), 0.75f, 1e-5f);
-  expect_near("fold odd-", ringdist::fold(-0.25f, 0.5f), -0.75f, 1e-5f);
+  expect_near("fold even", rackdist::fold(0.5f, 0.0f), 0.5f, 1e-5f);
+  expect_near("fold odd+", rackdist::fold(0.25f, 0.5f), 0.75f, 1e-5f);
+  expect_near("fold odd-", rackdist::fold(-0.25f, 0.5f), -0.75f, 1e-5f);
 
   // seeded curve is deterministic and spans the register
-  const int32_t* w = ringdist::shape_table();
+  const int32_t* w = rackdist::shape_table();
   expect_true("shape built", w[255] > 0 && w[0] < 0);
   expect_int("shape sentinel", w[256], w[255]);
-  expect_true("shape same pointer", ringdist::shape_table() == w);
+  expect_true("shape same pointer", rackdist::shape_table() == w);
 }
 
 static void test_process_bypass_and_types() {
@@ -104,24 +104,24 @@ static void test_process_bypass_and_types() {
   float keep[8], keep_aux[8];
   std::memcpy(keep, out, sizeof(out));
   std::memcpy(keep_aux, aux, sizeof(aux));
-  ringdist::State st{{0.0f, 0.0f}};
-  ringdist::Params p{};
+  rackdist::State st{{0.0f, 0.0f}};
+  rackdist::Params p{};
   p.drive = 0.0f;
-  ringdist::process(&st, p, out, aux, 8);
+  rackdist::process(&st, p, out, aux, 8);
   expect_true("bypass out", std::memcmp(out, keep, sizeof(out)) == 0);
   expect_true("bypass aux", std::memcmp(aux, keep_aux, sizeof(aux)) == 0);
   expect_near("bypass lp", st.lp[0], 0.0f, 1e-9f);
 
   for (int type = 0; type < 5; ++type) {
     for (int i = 0; i < 8; ++i) { out[i] = 0.2f * i - 0.6f; aux[i] = -out[i]; }
-    ringdist::State s2{{0.0f, 0.0f}};
-    ringdist::Params q{};
+    rackdist::State s2{{0.0f, 0.0f}};
+    rackdist::Params q{};
     q.type = (uint8_t)type;
     q.drive = 0.7f;
     q.bias = 0.3f;
     q.tone = 0.5f;
 
-    ringdist::process(&s2, q, out, aux, 8);
+    rackdist::process(&s2, q, out, aux, 8);
     bool finite = true, bounded = true;
     for (int i = 0; i < 8; ++i) {
       if (!std::isfinite(out[i]) || !std::isfinite(aux[i])) finite = false;
@@ -136,15 +136,15 @@ static void test_process_bypass_and_types() {
   {
     float o[24], a[24];
     for (int i = 0; i < 24; ++i) { o[i] = 0.2f * i - 2.0f; a[i] = -o[i]; }
-    ringdist::Params q{};
-    q.type = ringdist::kSwedish;
+    rackdist::Params q{};
+    q.type = rackdist::kSwedish;
     q.drive = 0.8f;
     q.bias = 0.8f;
     q.tone = 0.5f;
 
-    ringdist::State st{{0.0f, 0.0f}};
+    rackdist::State st{{0.0f, 0.0f}};
     for (int block = 0; block < 8; ++block) {
-      ringdist::process(&st, q, o, a, 24);
+      rackdist::process(&st, q, o, a, 24);
       for (int i = 0; i < 24; ++i) {
         if (!std::isfinite(o[i]) || !std::isfinite(a[i])) {
           expect_true("swedish finite", false);
@@ -161,20 +161,20 @@ static void test_process_bypass_and_types() {
 static void test_process_drive_and_state() {
   float out[4] = {0.5f, -0.5f, 0.25f, -0.25f};
   float aux[4] = {-0.5f, 0.5f, -0.25f, 0.25f};
-  ringdist::State st{{0.0f, 0.0f}};
-  ringdist::Params p{};
-  p.type = ringdist::kTube;
+  rackdist::State st{{0.0f, 0.0f}};
+  rackdist::Params p{};
+  p.type = rackdist::kTube;
   p.drive = 0.5f;
   p.tone = 1.0f;
   // Engaged: output is fully wet (no mix parameter), tone LP applied.
-  ringdist::process(&st, p, out, aux, 4);
+  rackdist::process(&st, p, out, aux, 4);
   for (int i = 0; i < 4; ++i) expect_true("wet output", std::fabs(out[i]) > 0.0f);
 
   // lp state persists across calls
   float o2[2] = {1.0f, 1.0f}, a2[2] = {1.0f, 1.0f};
-  ringdist::process(&st, p, o2, a2, 2);
+  rackdist::process(&st, p, o2, a2, 2);
   const float lp0 = st.lp[0];
-  ringdist::process(&st, p, o2, a2, 2);
+  rackdist::process(&st, p, o2, a2, 2);
   expect_true("lp persists", std::fabs(st.lp[0] - lp0) >= 0.0f);
 }
 

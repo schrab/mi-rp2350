@@ -41,7 +41,7 @@ test_harmony: test_harmony.cc ../src/lira8/lira_harmony.h | $(BUILD)
 test_varg: test_varg.cc ../src/varg.h ../src/gen_tables.h ../src/lira8/lira_harmony.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
 
-test_rings_chord: test_rings_chord.cc ../src/rings_chord.h ../src/rings_dist.h ../src/varg.h ../src/lira8/lira_harmony.h | $(BUILD)
+test_rings_chord: test_rings_chord.cc ../src/rings_chord.h ../src/rack_dist.h ../src/varg.h ../src/lira8/lira_harmony.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
 
 # T9: warps vendored copy (rack deltas under test), reverb engine size, and
@@ -96,9 +96,9 @@ build/test_reverb_upstream: reverb_ab.cc ../lib/elements/elements/dsp/fx/reverb.
 
 # T9 chain law: reverb is the LAST fx (distortion+warps BEFORE). Bypass is
 # bit-exact; the tail stays diffuse with the shaper active pre-reverb.
-test_fx_chain: test_fx_chain.cc ../lib/elements/elements/dsp/part.h ../src/rings_dist.h | build
+test_fx_chain: test_fx_chain.cc ../lib/elements/elements/dsp/part.h ../src/rack_dist.h | build
 	$(CXX) $(RACKFLAGS) -I../src test_fx_chain.cc ../lib/elements/warps/dsp/modulator.cc ../lib/elements/warps/dsp/oscillator.cc ../lib/elements/warps/resources.cc -o $(BUILD)$@
 
 # Swedish Chainsaw upgrade: 32 kHz HM-2 band redesign + FMV B/M/T knobs.
-test_swede_eq: test_swede_eq.cc ../src/rings_dist.h | build
+test_swede_eq: test_swede_eq.cc ../src/rack_dist.h | build
 	$(CXX) $(CXXFLAGS) -I../src test_swede_eq.cc -o $(BUILD)$@

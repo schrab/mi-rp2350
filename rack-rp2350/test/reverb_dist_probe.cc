@@ -1,8 +1,8 @@
-// Probe: what does the always-on post-reverb ringdist stage do to the
+// Probe: what does the always-on post-reverb rackdist stage do to the
 // Elements reverb tail? Renders the SAME musical phrase twice through the
 // real Part (strike exciter, modal resonator, reverb at space 0.95) —
-//   A) raw Part output (pre-ringdist; the true upstream reverb tail)
-//   B) firmware path: ringdist tube @ boot defaults (drive 0.55, tone 1.0)
+//   A) raw Part output (pre-rackdist; the true upstream reverb tail)
+//   B) firmware path: rackdist tube @ boot defaults (drive 0.55, tone 1.0)
 // Writes A/B WAVs and prints tail metrics (peak/RMS/crest + clip fraction).
 // The stage is the ONLY delta vs the pre-FX-session sound, so A = "how it
 // sounded all the time before", B = what the user hears now.
@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "elements/dsp/part.h"
-#include "rings_dist.h"          // -I../src
+#include "rack_dist.h"          // -I../src
 
 // Mirror lib/elements/elements_all.cpp: single-TU compilation of the port.
 #include "elements/dsp/exciter.inc"
@@ -78,9 +78,9 @@ int main() {
   raw.reserve(kBlocks * kBlock * 2);
   dist.reserve(kBlocks * kBlock * 2);
 
-  ringdist::State dist_state;
+  rackdist::State dist_state;
   memset(&dist_state, 0, sizeof(dist_state));
-  ringdist::Params dp{};
+  rackdist::Params dp{};
   dp.type = 0;                               // kTube (boot default fx_type=0)
   dp.drive = 0.55f;                          // boot default
   dp.bias = 0.0f;
@@ -96,7 +96,7 @@ int main() {
       r->perf.note = 48.0f;
       r->part.Process(r->perf, r->blow, r->strike, r->main, r->aux, kBlock);
     }
-    ringdist::process(&dist_state, dp, rig_b.main, rig_b.aux, kBlock);
+    rackdist::process(&dist_state, dp, rig_b.main, rig_b.aux, kBlock);
     for (size_t i = 0; i < kBlock; ++i) {
       raw.push_back(rig_a.main[i]);  raw.push_back(rig_a.aux[i]);
       dist.push_back(rig_b.main[i]); dist.push_back(rig_b.aux[i]);
@@ -115,7 +115,7 @@ int main() {
                      (int)(dist.size() / 2), 2, 32000);
   float rms_raw = sqrtf(sum2_raw / n), rms_dist = sqrtf(sum2_dist / n);
   printf("samples: %zu (%.1f s)\n", n, (float)n / 32000.0f);
-  printf("RAW   (pre-ringdist, upstream tail): peak %.3f  rms %.4f  crest %.2f  over-1.0 %.3f%%\n",
+  printf("RAW   (pre-rackdist, upstream tail): peak %.3f  rms %.4f  crest %.2f  over-1.0 %.3f%%\n",
          peak_raw, rms_raw, peak_raw / (rms_raw + 1e-9f), 100.0f * clip_raw / n);
   printf("DIST  (tube d=0.55, boot default):    peak %.3f  rms %.4f  crest %.2f  over-1.0 %.3f%%\n",
          peak_dist, rms_dist, peak_dist / (rms_dist + 1e-9f), 100.0f * clip_dist / n);

@@ -1,6 +1,6 @@
-// Quick probe: RMS gain of each ringdist algorithm vs drive, on a
+// Quick probe: RMS gain of each rackdist algorithm vs drive, on a
 // resonator-like two-tone input. Used to pick the FX-on level trim.
-#include "rings_dist.h"
+#include "rack_dist.h"
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -21,12 +21,12 @@ int main() {
   const float drives[3] = {0.25f, 0.55f, 1.0f};
   for (int type = 0; type < 5; ++type) {
     for (float d : drives) {
-      ringdist::State st{{0.0f, 0.0f}};
-      ringdist::Params p{};
+      rackdist::State st{{0.0f, 0.0f}};
+      rackdist::Params p{};
       p.type = (uint8_t)type; p.drive = d; p.bias = 0.0f; p.tone = 1.0f;
       memcpy(out, in, sizeof(in));
       memset(aux, 0, sizeof(aux));
-      ringdist::process(&st, p, out, aux, N);
+      rackdist::process(&st, p, out, aux, N);
       float rms = 0.0f, peak = 0.0f;
       for (size_t i = 0; i < N; ++i) {
         rms += out[i] * out[i];

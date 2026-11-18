@@ -29,7 +29,7 @@
 #include "rack_arena.h"
 #include "module_registry.h"     // RackModDestinations (T3 mod routing table)
 #include "rings_chord.h"         // VARG pool -> simultaneous chord notes
-#include "rings_dist.h"          // the 4 ctag-tbd distortion algos
+#include "rack_dist.h"          // the 4 ctag-tbd distortion algos
 #include "lira8/lira_harmony.h"  // published chord snapshot (same-core, no lock)
 
 namespace rack_modules {
@@ -109,8 +109,8 @@ struct State {
   int32_t applied_chord;
 
   // VARG chord mode (mode 5) + post-render distortion. The shape table lives
-  // in static rodata (rings_dist.h), NOT here — the arena pool is nearly full.
-  ringdist::State dist;
+  // in static rodata (rack_dist.h), NOT here — the arena pool is nearly full.
+  rackdist::State dist;
   volatile float dist_drive;      // CC 24, 0 = bypass
   volatile uint8_t dist_type;     // CC 27, 0 tube / 1 fold / 2 fuzz / 3 shape
   volatile float dist_bias;       // CC 28 (fuzz only)
@@ -228,8 +228,8 @@ static inline void fill_varg_chord(rings::PerformanceState& perf) {
 }
 
 // Snapshot the panel distortion settings (core 0 writes, core 1 renders).
-static inline ringdist::Params dist_params() {
-  ringdist::Params p{};
+static inline rackdist::Params dist_params() {
+  rackdist::Params p{};
   p.type = s->dist_type;
   p.drive = s->dist_drive;
   p.bias = s->dist_bias;
@@ -328,7 +328,7 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
   } else {
     s->part.Process(perf, patch, s->in, s->out, s->aux, n);
   }
-  ringdist::process(&s->dist, dist_params(), s->out, s->aux, n);
+  rackdist::process(&s->dist, dist_params(), s->out, s->aux, n);
   for (size_t i = 0; i < n; ++i) {
     out_l[i] = s->out[i] * s->shared_vca;
     out_r[i] = s->aux[i] * s->shared_vca;
@@ -432,7 +432,7 @@ void render() {
   } else {
     s->part.Process(perf, patch, s->in, s->out, s->aux, kBlockSize);
   }
-  ringdist::process(&s->dist, dist_params(), s->out, s->aux, kBlockSize);
+  rackdist::process(&s->dist, dist_params(), s->out, s->aux, kBlockSize);
   uint32_t dt = time_us_32() - t0;
   if (dt > proc_us_max) proc_us_max = dt;
 

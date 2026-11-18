@@ -51,7 +51,7 @@ rack-rp2350/
 │   ├── rack_arena.h      # unified 331,776 B SRAM pool + bump allocator
 │   ├── rack_window.h     # flash -> SRAM hot-code window copy
 │   ├── module_*.h        # five module adapters (elements/clouds/plaits/rings/lira8)
-│   ├── rings_dist.h      # shared 5-algo distortion (Rings + Elements pre-reverb insert)
+│   ├── rack_dist.h       # shared 5-algo distortion (Rings + Elements pre-reverb insert; incl. the Swedish Chainsaw)
 │   ├── lira8/            # hand-ported LIRA-8 engine (pure C++, host-testable)
 │   ├── ui_link.h         # ESP32-C3 UI link (non-blocking TX ring)
 │   ├── preset.h          # T4a presets / autosave

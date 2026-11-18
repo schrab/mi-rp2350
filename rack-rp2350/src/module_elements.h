@@ -25,7 +25,7 @@
 #include "elements/dsp/dsp.h"
 #include "elements/dsp/part.h"
 #include "warps/dsp/modulator.h"  // T9: warps stage state (pool-placed) — kept, currently bypassed
-#include "rings_dist.h"           // shared 5-algo distortion (Rings + Elements)
+#include "rack_dist.h"           // shared 5-algo distortion (Rings + Elements)
 #include "pico/time.h"           // time_us_32 (static inline in pico-sdk 2.x)
 #if RACK_HANG_DEBUG
 #include "hardware/watchdog.h"    // switchable core-1 hang breadcrumb
@@ -49,7 +49,7 @@ static const char* const kName = "elements";
 
 // FX TYPE (CC 42), mirrored in the C3 selector and the web panel. Source of
 // truth for which pre-reverb DSP runs — 0 = OFF (no FX at all). The distortion
-// indices are 1-based so OFF is representable; ringdist::Type is 0-based.
+// indices are 1-based so OFF is representable; rackdist::Type is 0-based.
 static const uint8_t kFxOff   = 0;
 static const uint8_t kFxTube  = 1;
 static const uint8_t kFxShape = 4;
@@ -121,7 +121,7 @@ struct State {
   // runtime, no SRAM overlay). Original T9 Warps controls on CC 36-40 are
   // staged here and applied to the Patch ONLY when fx_type == kFxWarps; else
   // the Patch fields are 0 so Part::Process skips Warps (zero cost).
-  ringdist::State dist;
+  rackdist::State dist;
   volatile uint8_t fx_type;         // kFxOff..kFxWarps (0 off, 1-5 dist, 6 warps)
   volatile float dist_drive;
   volatile float dist_bias;         // UI removed — stays 0 (fuzz floor internal)
@@ -234,7 +234,7 @@ void init_at(uint8_t* obj_base, uint8_t* buf_base) {
   s->dist.lp[0] = 0.0f;
   s->dist.lp[1] = 0.0f;
   s->fx_type = kFxOff;              // boot with NO FX before the reverb
-  // The shaper is fully wet whenever engaged (rings_dist has no dry blend),
+  // The shaper is fully wet whenever engaged (rack_dist has no dry blend),
   // and drive == 0 is an extra zero-cost bypass. D DRIVE 0 is safe even if a
   // distortion is selected; FX TYPE only picks which shaper runs.
   s->dist_drive = 0.0f;
@@ -254,9 +254,9 @@ void init() {
 }
 
 // Snapshot the panel distortion settings (core 0 writes, core 1 renders).
-static inline ringdist::Params dist_params() {
-  ringdist::Params p{};
-  // FX TYPE 1-5 map to the 0-based ringdist algos; 0 = OFF and 6 = Warps
+static inline rackdist::Params dist_params() {
+  rackdist::Params p{};
+  // FX TYPE 1-5 map to the 0-based rackdist algos; 0 = OFF and 6 = Warps
   // never reach the shaper (the trampoline below skips them).
   p.type = (uint8_t)(s->fx_type - 1u);
   p.drive = s->dist_drive;
@@ -275,27 +275,27 @@ static inline bool fx_is_warps() {
   return s->fx_type == kFxWarps;
 }
 
-// The ringdist algos are not level-matched: on the rack rig (0.12 RMS input)
+// The rackdist algos are not level-matched: on the rack rig (0.12 RMS input)
 // at drive 1.0 they measure TUBE 5.9x, FOLD 4.1x, FUZZ 4.8x, SHAPE 6.8x,
 // SWEDE 1.0x. Without compensation FX ON is far louder than FX OFF, which
 // also makes the reverb tail sound artificially dense/loud. These trims bring
 // each algo back near unity at the drive positions where it is usable.
 static inline float dist_level_trim(uint8_t type, float drive) {
   switch (type) {
-    case ringdist::kTube:  return 1.0f / (1.0f + 5.0f * drive);
-    case ringdist::kFold:  return 0.24f;
-    case ringdist::kFuzz:  return 1.0f / (1.0f + 3.0f * drive);
-    case ringdist::kShape: return 0.18f;
+    case rackdist::kTube:  return 1.0f / (1.0f + 5.0f * drive);
+    case rackdist::kFold:  return 0.24f;
+    case rackdist::kFuzz:  return 1.0f / (1.0f + 3.0f * drive);
+    case rackdist::kShape: return 0.18f;
     default:               return 1.0f;   // SWEDE is already ~unity
   }
 }
 
 // The adapter's pre-reverb insert (Part calls this inside Process, after the
 // warps stage, before reverb_). OFF and Warps skip it entirely; a selected
-// distortion is 100% wet (rings_dist has no dry blend), drive 0 also bypasses.
+// distortion is 100% wet (rack_dist has no dry blend), drive 0 also bypasses.
 static void pre_reverb_shaper(float* main, float* aux, size_t size, void* user) {
   if (s->fx_type == kFxOff || fx_is_warps()) return;
-  ringdist::process(static_cast<ringdist::State*>(user), dist_params(),
+  rackdist::process(static_cast<rackdist::State*>(user), dist_params(),
                     main, aux, size);
   const float trim = dist_level_trim((uint8_t)(s->fx_type - 1u), s->dist_drive);
   if (trim != 1.0f) {

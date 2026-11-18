@@ -6,7 +6,7 @@
 //      the tail. Proof: during gate-off stretches the insert's input is
 //      ~silent (voices render nothing) while Process's OUTPUT still rings
 //      (the reverb tail) — impossible if the insert sat after reverb_.
-//   2. Bypass law: an inert insert (drive 0, rings_dist's zero-cost bypass)
+//   2. Bypass law: an inert insert (drive 0, rack_dist's zero-cost bypass)
 //      and a capture-only insert both render BIT-EXACT vs no insert.
 //   3. Active law: drive 0.55 pre-reverb differs from the raw render (the
 //      shaper really is in the path) and stays bounded. Informational: the
@@ -23,7 +23,7 @@
 #include <vector>
 
 #include "elements/dsp/part.h"
-#include "rings_dist.h"          // -I../src (the adapter's shaper)
+#include "rack_dist.h"          // -I../src (the adapter's shaper)
 
 // Mirror lib/elements/elements_all.cpp: single-TU compilation of the port.
 #include "elements/dsp/exciter.inc"
@@ -71,10 +71,10 @@ struct Rig {
 };
 
 // --- adapter inserts (exactly what module_elements.h installs) ---
-static ringdist::Params g_params;            // set before each render
+static rackdist::Params g_params;            // set before each render
 
 static void shaper_insert(float* main, float* aux, size_t size, void* user) {
-  ringdist::process(static_cast<ringdist::State*>(user), g_params, main, aux,
+  rackdist::process(static_cast<rackdist::State*>(user), g_params, main, aux,
                     size);
 }
 
@@ -141,7 +141,7 @@ int main() {
   g_capture_output = false;
 
   // Law 2: inert shaper (drive 0) — bit-exact vs no insert.
-  static ringdist::State bypass_dist;
+  static rackdist::State bypass_dist;
   memset(&bypass_dist, 0, sizeof(bypass_dist));
   g_params = {};
   g_params.type = 0;
@@ -152,7 +152,7 @@ int main() {
   render(&bypass_rig, &bypass_out);
 
   // Law 3: active shaper (drive 0.55) pre-reverb.
-  static ringdist::State shaped_dist;
+  static rackdist::State shaped_dist;
   memset(&shaped_dist, 0, sizeof(shaped_dist));
   g_params = {};
   g_params.type = 0;                         // kTube

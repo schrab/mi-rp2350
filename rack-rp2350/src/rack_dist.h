@@ -1,8 +1,10 @@
-// Rings post-resonator distortion — the four fast algorithms from ctag-tbd's
-// TBDings/Elements distortion stage (commits 2166c84c, 4f086145, a62ad652).
+// Rack distortion stage — shared by Rings (post-resonator) and Elements
+// (pre-reverb insert). Origin: the four fast algorithms from ctag-tbd's
+// TBDings/Elements distortion stage (commits 2166c84c, 4f086145, a62ad652),
+// plus the Swedish Chainsaw (FX 5 "SWEDE") from Barabas5532/SwedishChainsaw.
 //
-// Ported verbatim into a pure C++ header (no MCU headers) so it is host-
-// testable and can run in the RINGS adapter's flash-resident per-sample loop.
+// Ported into a pure C++ header (no MCU headers) so it is host-testable and
+// can run in the adapters' flash-resident render loops.
 //   type 0 tube  : SoftClip(k*x)/SoftClip(k) — punch-preserving glue
 //   type 1 fold  : Vult/Befaco wavefolder Fold_do()
 //   type 2 fuzz  : biased asymmetric SoftClip with bounded normalization
@@ -19,14 +21,14 @@
 
 #include <cmath>
 
-namespace ringdist {
+namespace rackdist {
 
 enum Type : uint8_t {
   kTube = 0, kFold = 1, kFuzz = 2, kShape = 3,
   kSwedish = 4,  // Swedish Chainsaw: HM-2 EQ + cascaded tanh + FMV B/M/T stack
   kWarps = 5     // Elements-only: the T9 stage inside elements::Part::Process
                  // (carrier = main, mod = raw exciter). This adapter skips
-                 // ringdist::process(); Rings never selects it (no window room).
+                 // rackdist::process(); Rings never selects it (no window room).
 };
 
 struct State {
@@ -434,5 +436,5 @@ static inline void process(State* st, const Params& p,
   }
 }
 
-}  // namespace ringdist
+}  // namespace rackdist
 #endif  // RACK_SRC_RINGS_DIST_H_
