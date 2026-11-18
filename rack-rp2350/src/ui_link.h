@@ -218,7 +218,10 @@ static const UiPageCell kUiPageElementsP2[] = {
     {7,  "VCA",        kUiColorWhite},
     {42, "FX TYPE",    kUiColorWhite},
     {43, "D DRIVE",    kUiColorWhite},
-    {44, "D BIAS",     kUiColorWhite},
+    // D BIAS removed (2026-11-18, user): it is inaudible on tube/fold/shape
+    // (unused), a no-op floor on fuzz (asymmetric even at 0), and the swede
+    // "tight" HP toggle reads it only as an on/off switch — knobs are for
+    // continuous controls. Internal bias stays 0 (rings_dist needs the field).
     {45, "D TONE",     kUiColorWhite},
     {0,  "",           kUiColorWhite}, // dist MIX removed: drive is the amount
 };

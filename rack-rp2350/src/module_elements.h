@@ -73,7 +73,7 @@ static const char* const kCcMap =
     "28 model, 29 easter-egg, "
     "36-40 warps (algo/timbre/mod/car/mix, original T9), "
     "42 fx-type(0 off/1 tube/2 fold/3 fuzz/4 shape/5 swede/6 warps), "
-    "43 dist-drive, 44 dist-bias, 45 dist-tone, 64 play";
+    "43 dist-drive, 45 dist-tone, 64 play";
 // T3 mod destinations: every float-parameter CC of the map accepts continuous
 // modulation (1/11 included — note that velocity-scaled strength from note-on
 // is overridden while a source is routed to CC 11). Selectors 28/29 are
@@ -81,11 +81,11 @@ static const char* const kCcMap =
 // accepts trigger modulation (PLAY: triggers exciter strike & envelope).
 static const uint8_t kModContinuousCcs[] = {1, 7, 11, 14, 15, 16, 17, 18, 19,
                                             20, 21, 22, 23, 24, 25, 26, 27,
-                                            36, 37, 38, 39, 40, 43, 44, 45};
+                                            36, 37, 38, 39, 40, 43, 45};
 static const uint8_t kModTriggerCcs[] = {64};
 static const uint8_t kModTriggerKinds[] = {RACK_TRIG_PULSE};
 static const RackModDestinations kModDestinations = {
-    "elements: continuous 1,7,11,14-27 + 36-40 warps + 43-45 dist | triggers: 64 play (pulse)",
+    "elements: continuous 1,7,11,14-27 + 36-40 warps + 43,45 dist | triggers: 64 play (pulse)",
     25, kModContinuousCcs,
     1, kModTriggerCcs, kModTriggerKinds,
 };
@@ -472,7 +472,8 @@ void control_change(uint8_t cc, uint8_t val) {
       if (val <= kFxWarps) s->fx_type = static_cast<uint8_t>(val);
       break;
     case 43: s->dist_drive = v; break;
-    case 44: s->dist_bias = v; break;
+    // CC 44 (D BIAS) removed from the UI 2026-11-18: inaudible — internal
+    // bias stays at its boot default 0.
     case 45: s->dist_tone = v; break;
     // Resonator model selector: 0 modal / 1 string / 2 strings / 3 ominous.
     // Handed to core 1 via pending_resonator_model & pending_easter_egg.
@@ -542,9 +543,8 @@ bool mod_set_cc_float(uint8_t cc, float v) {
     case 40: s->warps_mix = v; break;
     case 42: if (v < 1.0f) s->fx_type = (uint8_t)(v * 7.0f); break;
     case 43: s->dist_drive = v; break;
-    case 44: s->dist_bias = v; break;
     case 45: s->dist_tone = v; break;
-    default: return false;    // 28/29 selectors + unknown CCs: not modulable
+    default: return false;    // 28/29 selectors + removed 44 + unknown CCs
   }
   return true;
 }
