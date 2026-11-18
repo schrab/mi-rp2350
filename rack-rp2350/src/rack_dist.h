@@ -56,7 +56,6 @@ struct Params {
   float bass;    // 0..1; swede FMV bass (plugin default 0.05)
   float mid;     // 0..1; swede FMV middle (plugin default 0.5)
   float treble;  // 0..1; swede FMV treble (plugin default 0.5)
-  bool conv;     // bench/runtime: cab FIR enabled (CC 48)
   // No wet/dry mix: drive == 0 is a zero-cost bypass, so DRIVE alone is the
   // distortion-amount control. The stage is always fully wet when engaged.
 };
@@ -504,8 +503,9 @@ static inline void process(State* st, const Params& p,
     // Rings blocks <= 24.
     const size_t m = n < 64u ? n : 64u;
     swedish_process(out, aux, m, d, p.bass, p.mid, p.treble);
-    if (p.conv)
-      speaker_conv().Process(out, aux, m);   // cab IR (mono-summed, +16 ms lat)
+    // The cab convolution moved OFF the audio core (2026-11-19): the adapter
+    // publishes the post-FMV mono block to core 0, which runs speaker_conv()
+    // and hands the result back one block later (see module_elements.h).
     float* chans[2] = {out, aux};
     for (int c = 0; c < 2; ++c) {
       float lp = st->lp[c];

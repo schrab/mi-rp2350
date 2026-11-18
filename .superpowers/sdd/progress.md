@@ -4669,3 +4669,30 @@ the Yiu book ch.19/20 (docs/Definitive Guide...md). Findings:
   mono -1), 13/13 host suite green.
 - Levers left if ears still object: SMLALD int16 conv (130 -> ~50 us), 16k->8k second decimation
   stage, or core-0 offload (double-buffered mono handoff; core 0 is mostly idle — USB/UI/console).
+
+## Cab conv offloaded to core 0 (2026-11-19, night) — swede avg 403/500 on the audio core
+
+User: "almost good but still some crackles. what about second core?" The residual crackles =
+the 708 us max spikes eroding the buffer under sustained play (avg 466 was under, but the max
+margin was thin). Core-0 offload implemented:
+
+- **Pipeline** (module_elements.h): core 1's pre-reverb insert publishes the post-FMV mono block
+  into a 2-slot ping-pong (s_conv_in), core 0's loop() runs conv_pump() which convolves ready
+  slots via rackdist::speaker_conv() (the dec/hist/vhist state now lives on core 0), core 1
+  consumes the PREVIOUS block's result one block later (+500 us, inaudible). Hand-off ordering
+  via __dmb() (pico-sdk) around the flag flips; bounded 250 us waits; a core-0 miss bypasses to
+  the mono pre-conv signal for one block and counts conv_misses (never stalls audio).
+- **Bench** (report `ins=a/b cv=c/d miss=n` tail, Elements-only, reset per report):
+  ins 43/55-290 us (audio-core shaper+FMV) | core0 conv 117/192-219 us | misses 0-1 (warmup).
+  Audio-core render avg 402-404 us vs the 500 us period — ~100 us headroom with the FULL swede
+  chain; max spikes 635-654 absorbed by the 4 ms I2S buffer; stall deltas 0 across all windows.
+- CC 48 (bench conv gate) now skips the whole hand-off — no spin-storm when gated off (the first
+  gated measurement spun 250 us x2 per block — the gate must short-circuit BEFORE the waits).
+- Params.conv removed from rack_dist (the gate lives in the adapter; rack_dist::process no longer
+  calls the conv at all). SpeakerConv::Process is invoked from core 0 only — the state singleton
+  has a single consumer. FZ/DN is set on BOTH cores (FPSCR is per-core — see the entry above).
+- Core-0 headroom: conv ~117 us of the 500 us frame (~23%) + USB/UI/console — fits. The conv avg
+  117 us vs ~58 us op-model = core-0 contention/IRQ jitter — irrelevant while misses stay 0; the
+  SMLALD int16 lever (ch.19.4, 1.5 cyc/MAC) halves it if ever needed.
+- 13/13 host suite green; flashed COM15, verify OK. User ears pending (expect: no crackles under
+  sustained swede play; if the SMLALD/miss counter ever spikes, the ins/cv/miss tail shows it).

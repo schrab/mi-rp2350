@@ -273,7 +273,6 @@ static inline rackdist::Params dist_params() {
   p.bass = s->dist_bass;
   p.mid = s->dist_mid;
   p.treble = s->dist_treble;
-  p.conv = s->dist_conv;
   return p;
 }
 
@@ -302,6 +301,51 @@ static inline float dist_level_trim(uint8_t type, float drive) {
 // The adapter's pre-reverb insert (Part calls this inside Process, after the
 // warps stage, before reverb_). OFF and Warps skip it entirely; a selected
 // distortion is 100% wet (rack_dist has no dry blend), drive 0 also bypasses.
+// ---- Core-0 cab convolution worker (2026-11-19) ---------------------------
+// The 512@16k cab FIR (~130 us) moved OFF the audio core: core 1 publishes
+// the post-FMV mono block into a ping-pong slot, core 0's loop() convolves
+// ready slots via conv_pump(), core 1 consumes the PREVIOUS block's result
+// (one-block delay, inaudible). Hand-off ordering uses __DMB() around the
+// flag flips (M33 is weakly ordered across cores). If core 0 has not
+// produced in time, core 1 bypasses with the mono pre-conv signal for that
+// block (a one-block timbre dip, never a stall) and counts a miss.
+static const size_t kConvSlots = 2;
+static float s_conv_in[kConvSlots][16];       // post-FMV mono (core 1 -> 0)
+static float s_conv_out[kConvSlots][16];      // convolved (core 0 -> 1)
+static volatile bool s_conv_in_ready[kConvSlots] = {false, false};
+static volatile bool s_conv_out_valid[kConvSlots] = {false, false};
+static volatile size_t s_conv_slot_n[kConvSlots] = {0, 0};
+static size_t s_conv_write = 0;               // core 1 only (slot producer)
+volatile uint32_t conv_us_max = 0;            // core 0 conv bench
+volatile uint32_t conv_us_sum = 0;
+volatile uint32_t conv_us_count = 0;
+volatile uint32_t conv_misses = 0;            // core 1 bypass count
+
+// Core 0 pump: called every loop() iteration; convolves ready slots. The
+// SpeakerConv state (dec/hist/vhist) lives here now — single consumer.
+void conv_pump() {
+  for (size_t slot = 0; slot < kConvSlots; ++slot) {
+    if (!s_conv_in_ready[slot]) continue;
+    if (!s->dist_conv) {                     // bench gate (CC 48)
+      s_conv_in_ready[slot] = false;
+      s_conv_out_valid[slot] = false;
+      continue;
+    }
+    __dmb();
+    const uint32_t t0 = time_us_32();
+    rackdist::speaker_conv().Process(s_conv_in[slot], s_conv_in[slot],
+                           s_conv_slot_n[slot]);
+    const uint32_t dt = time_us_32() - t0;
+    if (dt > conv_us_max) conv_us_max = dt;
+    conv_us_sum += dt;
+    ++conv_us_count;
+    __dmb();
+    s_conv_in_ready[slot] = false;
+    s_conv_out_valid[slot] = true;
+    __dmb();
+  }
+}
+
 // Bench counters (core 1 writes, the console report prints + resets).
 volatile uint32_t shaper_us_max = 0;
 volatile uint32_t shaper_us_sum = 0;
@@ -318,6 +362,60 @@ static void pre_reverb_shaper(float* main, float* aux, size_t size, void* user) 
       aux[i] *= trim;
     }
   }
+  // Cab conv hand-off to core 0: publish THIS block's mono, consume the
+  // PREVIOUS block's result. Bounded waits — a core-0 miss degrades to the
+  // mono pre-conv signal for one block instead of stalling the render.
+  // The bench gate (CC 48) skips the whole hand-off (no spin, no publish).
+  if (!s->dist_conv) {
+    const uint32_t dt0 = time_us_32() - t0;
+    if (dt0 > shaper_us_max) shaper_us_max = dt0;
+    shaper_us_sum += dt0;
+    ++shaper_us_count;
+    return;
+  }
+  const size_t slot = s_conv_write;
+  // (a) wait for core 0 to release this slot (bounded)
+  uint32_t wait0 = time_us_32();
+  while (s_conv_in_ready[slot] && time_us_32() - wait0 < 250) {
+  }
+  if (s_conv_in_ready[slot]) {
+    ++conv_misses;                           // slot still busy: skip publish
+  } else {
+    for (size_t i = 0; i < size; ++i) {
+      s_conv_in[slot][i] = 0.5f * (main[i] + aux[i]);
+    }
+    s_conv_slot_n[slot] = size;
+    __dmb();
+    s_conv_in_ready[slot] = true;
+    __dmb();
+  }
+  // (b) consume the previous block's conv output (the other slot)
+  const size_t prev = slot ^ 1u;
+  uint32_t wait1 = time_us_32();
+  while (!s_conv_out_valid[prev] && time_us_32() - wait1 < 250) {
+  }
+  if (s_conv_out_valid[prev] && s_conv_slot_n[prev] == size) {
+    __dmb();
+    for (size_t i = 0; i < size; ++i) {
+      main[i] = s_conv_out[prev][i];
+      aux[i] = s_conv_out[prev][i];
+    }
+    s_conv_out_valid[prev] = false;
+    __dmb();
+  } else {
+    // miss: fall back to the mono pre-conv signal for continuity
+    if (s_conv_in_ready[slot] == false) {    // our publish (if any) is usable
+      for (size_t i = 0; i < size; ++i) {
+        main[i] = 0.5f * (main[i] + aux[i]);
+      }
+    } else {
+      for (size_t i = 0; i < size; ++i) {
+        main[i] = 0.5f * (main[i] + aux[i]);
+      }
+    }
+    ++conv_misses;
+  }
+  s_conv_write = slot ^ 1u;
   const uint32_t dt = time_us_32() - t0;
   if (dt > shaper_us_max) shaper_us_max = dt;
   shaper_us_sum += dt;

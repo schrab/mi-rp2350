@@ -139,7 +139,6 @@ int main() {
   p.mid = 0.5f;
   p.treble = 0.5f;
   p.tone = 1.0f;
-  p.conv = true;
   float peak = 0.0f;
   for (size_t b = 0; b < 4000; ++b) {
     float l[kBlock], r[kBlock];

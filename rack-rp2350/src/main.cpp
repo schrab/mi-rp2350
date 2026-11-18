@@ -3092,6 +3092,11 @@ void loop() {
   // of core-0's work (USB/UI/console) runs after it.
   chain_b_worker();
 
+  // Elements cab convolution worker (core 0): convolves the ready post-FMV
+  // block published by the audio core's pre-reverb insert (see
+  // module_elements.h — one-block-delayed hand-off, DMB-ordered).
+  rack_modules::mod_elements::conv_pump();
+
   // Drain queued diagnostics without blocking the USB CDC.
   dbg_pump();
 
@@ -3298,18 +3303,34 @@ void loop() {
       const uint16_t pz_peak = rack_piezo::report_peak();
       const uint32_t pz_rate = rack_piezo::report_sample_rate();
       // Elements FX insert bench (avg/max us since report; reset on print).
-      char elements_tail[32] = "";
+      char elements_tail[80] = "";
       if (g_active_module == RACK_MODULE_ELEMENTS) {
-        snprintf(elements_tail, sizeof(elements_tail), "ins=%lu/%lu",
-                 (unsigned long)(
-                     rack_modules::mod_elements::shaper_us_count
-                         ? rack_modules::mod_elements::shaper_us_sum /
-                               rack_modules::mod_elements::shaper_us_count
-                         : 0),
-                 (unsigned long)rack_modules::mod_elements::shaper_us_max);
+        const unsigned long ins_avg =
+            (unsigned long)(
+                rack_modules::mod_elements::shaper_us_count
+                    ? rack_modules::mod_elements::shaper_us_sum /
+                          rack_modules::mod_elements::shaper_us_count
+                    : 0);
+        const unsigned long conv_avg =
+            (unsigned long)(
+                rack_modules::mod_elements::conv_us_count
+                    ? rack_modules::mod_elements::conv_us_sum /
+                          rack_modules::mod_elements::conv_us_count
+                    : 0);
+        snprintf(elements_tail, sizeof(elements_tail),
+                 "ins=%lu/%lu cv=%lu/%lu miss=%lu",
+                 ins_avg,
+                 (unsigned long)rack_modules::mod_elements::shaper_us_max,
+                 conv_avg,
+                 (unsigned long)rack_modules::mod_elements::conv_us_max,
+                 (unsigned long)rack_modules::mod_elements::conv_misses);
         rack_modules::mod_elements::shaper_us_max = 0;
         rack_modules::mod_elements::shaper_us_sum = 0;
         rack_modules::mod_elements::shaper_us_count = 0;
+        rack_modules::mod_elements::conv_us_max = 0;
+        rack_modules::mod_elements::conv_us_sum = 0;
+        rack_modules::mod_elements::conv_us_count = 0;
+        rack_modules::mod_elements::conv_misses = 0;
       }
 #if RACK_ENABLE_USB_HOST
       dbg_printf("max Process: %u us avg %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s | %s | %s%s\r\n",
@@ -3349,6 +3370,7 @@ void loop() {
                     modeng_tail,
                     g_active_module == RACK_MODULE_PLAITS ? plaits_tail
                         : (g_active_module == RACK_MODULE_LIRA8 ? lira8_tail : ""),
+                    g_active_module == RACK_MODULE_ELEMENTS ? elements_tail : "",
                     oc_tail);
 #endif
     }
