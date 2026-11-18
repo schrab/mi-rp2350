@@ -437,12 +437,15 @@ const MODULES = [
       steps: { labels:['NORMAL','OMINOUS'], bytes:[0,1] } },
     // FX selector (CC 42): 0 = OFF (no FX before reverb), 1-5 distortion
     // (tube/fold/fuzz/shape/swede), 6 = Warps. Only one DSP runs (both
-    // compiled in). Distortion params CC 43/45 (D BIAS removed — inaudible);
-    // Warps CC 36-40.
+    // compiled in). Distortion params CC 43/45; the swede FMV tonestack on
+    // 44/46/47 (defaults = the Barabas5532 plugin's); Warps CC 36-40.
     { cc:42, label:'FX TYPE',   variant:'white', def:0,
       steps: { labels:['OFF','TUBE','FOLD','FUZZ','SHAPE','SWEDE','WARPS'],
                bytes:[0,1,2,3,4,5,6] } },
     { cc:43, label:'D DRIVE',   variant:'white', def:70/127 },
+    { cc:44, label:'D BASS',    variant:'white', def:Math.round(0.05*127) },
+    { cc:46, label:'D MID',     variant:'white', def:64/127 },
+    { cc:47, label:'D TREBLE',  variant:'white', def:64/127 },
     { cc:45, label:'D TONE',    variant:'white', def:127/127 },
     // Original T9 Warps controls (active when FX TYPE = WARPS).
     // W ALGO is stepped: pure algorithms at p*8 = 0..5 (XFADE rides byte 1

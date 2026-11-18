@@ -23,7 +23,7 @@ namespace ringdist {
 
 enum Type : uint8_t {
   kTube = 0, kFold = 1, kFuzz = 2, kShape = 3,
-  kSwedish = 4,  // Swedish Chainsaw: HM-2 EQ + cascaded tanh
+  kSwedish = 4,  // Swedish Chainsaw: HM-2 EQ + cascaded tanh + FMV B/M/T stack
   kWarps = 5     // Elements-only: the T9 stage inside elements::Part::Process
                  // (carrier = main, mod = raw exciter). This adapter skips
                  // ringdist::process(); Rings never selects it (no window room).
@@ -34,10 +34,13 @@ struct State {
 };
 
 struct Params {
-  uint8_t type;  // 0..3
+  uint8_t type;  // 0..4 (kWarps never reaches this adapter)
   float drive;   // 0..1; 0 = zero-cost bypass
-  float bias;    // 0..1; fuzz bias / Swedish "tight" HP toggle
+  float bias;    // 0..1; fuzz asymmetry floor (UI removed — stays 0)
   float tone;    // 0..1; 1 = open
+  float bass;    // 0..1; swede FMV bass (plugin default 0.05)
+  float mid;     // 0..1; swede FMV middle (plugin default 0.5)
+  float treble;  // 0..1; swede FMV treble (plugin default 0.5)
   // No wet/dry mix: drive == 0 is a zero-cost bypass, so DRIVE alone is the
   // distortion-amount control. The stage is always fully wet when engaged.
 };
@@ -56,29 +59,136 @@ static inline float softclip(float x) {
 // ---- Swedish Chainsaw (Barabas5532/SwedishChainsaw, GPLv3) ---------------
 // The Entombed/Dismember "buzzsaw" is the Boss HM-2 graphic EQ with all four
 // bands maxed: three fixed peaking biquads (MATLAB coefficients from the
-// plugin's HM2Filter.cpp) wrapped in two tanh saturation stages. The plugin
-// also does 4x oversampling, an amp input HP and a JCM800 FMV tonestack; we
-// keep the pedal's defining HM2+tanh core at 32 kHz and reuse the common
-// tone-LP/dry-wet stage below. Coefficients are fixed-digital (the JUCE
-// prepare() ignores sampleRate), so at 32 kHz the bands sit ~0.73x lower.
+// plugin's HM2Filter.cpp) wrapped in two tanh saturation stages, then the
+// JCM800 FMV bass/middle/treble tonestack (the plugin's FMVDesign.cpp, ported
+// here verbatim-in-math). Not ported: 4x oversampling and the speaker IR.
+//
+// The HM-2 bands are REDESIGNED at the rack's 32 kHz: the plugin's fixed
+// digital coefficients were designed at 44.1 kHz — solving (f0, gain, Q) from
+// them gives 86 Hz +20.0 dB Q1.073 / 900 Hz +11.1 dB Q1.789 / 1400 Hz +19.1 dB
+// Q0.980 (round-trip-exact RBJ), and running them at 32 kHz pitched every
+// band 0.726x low (62/653/1016 Hz). Designing at 32 kHz restores the true
+// band centers.
 struct SwedishState {
   float hp_y[2];        // input high-pass output state
   float hp_x[2];        // input high-pass input state
   float bq[2][3][2];    // per-channel biquad z1/z2 for the 3 HM2 bands
   float pre_lp[2];      // 7 kHz post-HM2 one-pole
+  float fmv_z[2][3];    // per-channel FMV tonestack z1/z2/z3 (3rd-order DF2T)
 };
 static inline SwedishState& swedish_state() {
   static SwedishState s{};
   return s;
 }
 
+struct SwedishBiquad { float b0, b1, b2, a1, a2; };
+
+// RBJ peaking-EQ design (compute-once statics below).
+static inline SwedishBiquad swedish_peaking(float f0, float gain_db, float Q,
+                                            float fs) {
+  const float A = powf(10.0f, gain_db / 40.0f);
+  const float w0 = 6.2831853f * f0 / fs;
+  const float alpha = sinf(w0) / (2.0f * Q);
+  const float a0 = 1.0f + alpha / A;
+  SwedishBiquad c;
+  c.b0 = (1.0f + alpha * A) / a0;
+  c.b1 = (-2.0f * cosf(w0)) / a0;
+  c.b2 = (1.0f - alpha * A) / a0;
+  c.a1 = c.b1;  // RBJ peaking: b1 == a1
+  c.a2 = (1.0f - alpha / A) / a0;
+  return c;
+}
+static inline const SwedishBiquad* swedish_bands() {
+  static const SwedishBiquad k[3] = {
+      swedish_peaking(86.0f, 20.0f, 1.073f, 32000.0f),
+      swedish_peaking(900.0f, 11.13f, 1.788f, 32000.0f),
+      swedish_peaking(1400.0f, 19.08f, 0.980f, 32000.0f),
+  };
+  return k;
+}
+
 // Fixed HM2 bands: b0,b1,b2,a1,a2 (a0 = 1 in all three).
 static inline void swedish_biquad(float* z, float x,
-                                  float b0, float b1, float b2,
-                                  float a1, float a2, float& y) {
-  y = b0 * x + z[0];
-  z[0] = b1 * x - a1 * y + z[1];
-  z[1] = b2 * x - a2 * y;
+                                  const SwedishBiquad& c, float& y) {
+  y = c.b0 * x + z[0];
+  z[0] = c.b1 * x - c.a1 * y + z[1];
+  z[1] = c.b2 * x - c.a2 * y;
+}
+
+// ---- JCM800 FMV tonestack (Barabas5532/SwedishChainsaw FMVDesign.cpp,
+// GPLv3, (C) 2019 Barabas Raffai) — math ported verbatim -------------------
+// The analog 3rd-order transfer function of the JCM800 bass/middle/treble
+// network (R1 220k, R2 1M, R3 22k, R4 33k, C1 470pF, C2 C3 22nF); the knobs
+// scale RC time-constant products. Bilinear transform at the rack rate,
+// normalized by A0 for direct-form use.
+struct SwedishFmvCoefs { float b0, b1, b2, b3, a1, a2, a3; };
+static inline void swedish_fmv_design(float l, float m, float t, float fs,
+                                      SwedishFmvCoefs* out) {
+  const float R1 = 220e3f, R2 = 1e6f, R3 = 22e3f, R4 = 33e3f;
+  const float C1 = 470e-12f, C2 = 22e-9f, C3 = 22e-9f;
+
+  const float b1 = t * C1 * R1 + m * C3 * R3 + l * (C1 * R2 + C2 * R2) +
+      (C1 * R3 + C2 * R3);
+
+  const float b2 = t * (C1 * C2 * R1 * R4 + C1 * C3 * R1 * R4)
+      - m * m * (C1 * C3 * R3 * R3 + C2 * C3 * R3 * R3)
+      + m * (C1 * C3 * R1 * R3 + C1 * C3 * R3 * R3 + C2 * C3 * R3 * R3)
+      + l * (C1 * C2 * R1 * R2 + C1 * C2 * R2 * R4 + C1 * C3 * R2 * R4)
+      + l * m * (C1 * C3 * R2 * R3 + C2 * C3 * R2 * R3)
+      + (C1 * C2 * R1 * R3 + C1 * C2 * R3 * R4 + C1 * C3 * R3 * R4);
+
+  const float b3 = l * m * (C1 * C2 * C3 * R1 * R2 * R3 +
+                            C1 * C2 * C3 * R2 * R3 * R4)
+      - m * m * (C1 * C2 * C3 * R1 * R3 * R3 + C1 * C2 * C3 * R3 * R3 * R4)
+      + m * (C1 * C2 * C3 * R1 * R3 * R3 + C1 * C2 * C3 * R3 * R3 * R4)
+      + t * C1 * C2 * C3 * R1 * R3 * R4 - t * m * C1 * C2 * C3 * R1 * R3 * R4
+      + t * l * C1 * C2 * C3 * R1 * R2 * R4;
+
+  const float a1 = (C1 * R1 + C1 * R3 + C2 * R3 + C2 * R4 + C3 * R4)
+      + m * C3 * R3 + l * (C1 * R2 + C2 * R2);
+
+  const float a2 = m * (C1 * C3 * R1 * R3 - C2 * C3 * R3 * R4 +
+                        C1 * C3 * R3 * R3 + C2 * C3 * R3 * R3)
+      + l * m * (C1 * C3 * R2 * R3 + C2 * C3 * R2 * R3)
+      - m * m * (C1 * C3 * R3 * R3 + C2 * C3 * R3 * R3)
+      + l * (C1 * C2 * R2 * R4 + C1 * C2 * R1 * R2 + C1 * C3 * R2 * R4 +
+             C2 * C3 * R2 * R4)
+      + (C1 * C2 * R1 * R4 + C1 * C3 * R1 * R4 + C1 * C2 * R3 * R4 +
+         C1 * C2 * R1 * R3 + C1 * C3 * R3 * R4 + C2 * C3 * R3 * R4);
+
+  const float a3 = l * m * (C1 * C2 * C3 * R1 * R2 * R3 +
+                            C1 * C2 * C3 * R2 * R3 * R4)
+      - m * m * (C1 * C2 * C3 * R1 * R3 * R3 + C1 * C2 * C3 * R3 * R3 * R4)
+      + m * (C1 * C2 * C3 * R3 * R3 * R4 + C1 * C2 * C3 * R1 * R3 * R3 -
+             C1 * C2 * C3 * R1 * R3 * R4)
+      + l * C1 * C2 * C3 * R1 * R2 * R4 + C1 * C2 * C3 * R1 * R3 * R4;
+
+  // bilinear transform (c = 2*Fs), A0-normalized.
+  const float c = 2.0f * fs, c2 = c * c, c3 = c2 * c;
+  const float B0 = -b1 * c - b2 * c2 - b3 * c3;
+  const float B1 = -b1 * c + b2 * c2 + 3.0f * b3 * c3;
+  const float B2 = b1 * c + b2 * c2 - 3.0f * b3 * c3;
+  const float B3 = b1 * c - b2 * c2 + b3 * c3;
+  const float A0 = -1.0f - a1 * c - a2 * c2 - a3 * c3;
+  const float A1 = -3.0f - a1 * c + a2 * c2 + 3.0f * a3 * c3;
+  const float A2 = -3.0f + a1 * c + a2 * c2 - 3.0f * a3 * c3;
+  const float A3 = -1.0f + a1 * c - a2 * c2 + a3 * c3;
+  out->b0 = B0 / A0;
+  out->b1 = B1 / A0;
+  out->b2 = B2 / A0;
+  out->b3 = B3 / A0;
+  out->a1 = A1 / A0;
+  out->a2 = A2 / A0;
+  out->a3 = A3 / A0;
+}
+
+// 3rd-order transposed direct-form II section (a0-normalized).
+static inline void swedish_fmv_biquad3(float* z, float x,
+                                       const SwedishFmvCoefs& c, float& y) {
+  y = c.b0 * x + z[0];
+  z[0] = c.b1 * x - c.a1 * y + z[1];
+  z[1] = c.b2 * x - c.a2 * y + z[2];
+  z[2] = c.b3 * x - c.a3 * y;
 }
 
 // One-pole high-pass / low-pass (RC at 32 kHz Rings rate).
@@ -92,39 +202,37 @@ static inline float swedish_lp(float& y, float x, float a) {
   return y;
 }
 
-// One stereo block through the pedal core. `drive` = pedal gain, `bias`
-// >= 0.5 selects the tighter 700 Hz input HP. State is a singleton: there is
-// exactly one Rings adapter instance, and keeping it static avoids growing
-// the arena-placed State (chain rings+clouds has only ~128 B spare).
+// One stereo block through the pedal core. `drive` = pedal gain;
+// bass/mid/treble = the JCM800 FMV tonestack knobs (plugin defaults 0.05 /
+// 0.5 / 0.5). The input HP is the fixed 60 Hz circuit-measured one (the
+// plugin's "tight" 700 Hz switch is UI-only and was removed with D BIAS).
+// State is a singleton: there is exactly one Rings adapter instance, and
+// keeping it static avoids growing the arena-placed State (chain rings+clouds
+// has only ~128 B spare).
 static inline void swedish_process(float* out, float* aux, size_t n,
-                                   float drive, float bias) {
+                                   float drive, float bass, float mid,
+                                   float treble) {
   SwedishState& st = swedish_state();
-  const float a_hp = 1.0f / (1.0f + 6.2831853f * (bias >= 0.5f ? 700.0f
-                                                              : 60.0f)
-                                            / 32000.0f);
+  const float a_hp = 1.0f / (1.0f + 6.2831853f * 60.0f / 32000.0f);
   const float a_lp = 6.2831853f * 7000.0f / 32000.0f;
   const float pedal_gain = 1.0f + 19.0f * clamp01(drive);
   const float amp_gain = 1.0f + 9.0f * clamp01(drive);
+  SwedishFmvCoefs fmv;
+  swedish_fmv_design(clamp01(bass), clamp01(mid), clamp01(treble), 32000.0f,
+                     &fmv);
+  const SwedishBiquad* bands = swedish_bands();
   float* chans[2] = {out, aux};
   for (int c = 0; c < 2; ++c) {
     for (size_t i = 0; i < n; ++i) {
       float x = swedish_hp(st.hp_y[c], st.hp_x[c], chans[c][i], a_hp);
       x = softclip(x * pedal_gain);                    // pedal tanh
       float y;
-      swedish_biquad(st.bq[c][0], x,
-                     1.016224171805848f, -1.996244766867333f,
-                     0.980170456681741f, -1.996244766867333f,
-                     0.996394628487589f, y);
-      swedish_biquad(st.bq[c][1], y,
-                     1.048098514125369f, -1.946884930731663f,
-                     0.914902628855116f, -1.946884930731663f,
-                     0.963001142980485f, y);
-      swedish_biquad(st.bq[c][2], y,
-                     1.260798129602192f, -1.896438187817481f,
-                     0.674002337997260f, -1.896438187817481f,
-                     0.934800467599452f, y);
+      swedish_biquad(st.bq[c][0], x, bands[0], y);
+      swedish_biquad(st.bq[c][1], y, bands[1], y);
+      swedish_biquad(st.bq[c][2], y, bands[2], y);
       y = swedish_lp(st.pre_lp[c], y, a_lp);
       y = softclip(y * amp_gain);                      // amp tanh
+      swedish_fmv_biquad3(st.fmv_z[c], y, fmv, y);     // JCM800 B/M/T stack
       // makeup: the HM2 bands boost hard at max settings
       chans[c][i] = y * 0.35f;
     }
@@ -267,7 +375,7 @@ static inline void process(State* st, const Params& p,
   if (type == kSwedish) {
     // Block-oriented pedal core, then the common tone LP. Rings blocks <= 24.
     const size_t m = n < 64u ? n : 64u;
-    swedish_process(out, aux, m, d, p.bias);
+    swedish_process(out, aux, m, d, p.bass, p.mid, p.treble);
     float* chans[2] = {out, aux};
     for (int c = 0; c < 2; ++c) {
       float lp = st->lp[c];

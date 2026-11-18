@@ -15,7 +15,7 @@ ENGINE_SRCS =   # e.g. lira8_engine.cpp
 WARPSFLAGS ?= -O2 -g -std=c++17 -Wall -Wextra -I../lib/elements -I../lib/stmlib -I.
 RACKFLAGS  ?= $(WARPSFLAGS) -DRACK_RP2350_TC
 
-TEST_BINS = test_wav_io test_pd_primitives test_voice test_engine test_harmony test_warps test_reverb test_warps_stage test_fx_chain test_varg test_rings_chord
+TEST_BINS = test_wav_io test_pd_primitives test_voice test_engine test_harmony test_warps test_reverb test_warps_stage test_fx_chain test_swede_eq test_varg test_rings_chord
 GOLDEN_BIN = render_golden
 
 all: $(TEST_BINS) $(GOLDEN_BIN)
@@ -98,3 +98,7 @@ build/test_reverb_upstream: reverb_ab.cc ../lib/elements/elements/dsp/fx/reverb.
 # bit-exact; the tail stays diffuse with the shaper active pre-reverb.
 test_fx_chain: test_fx_chain.cc ../lib/elements/elements/dsp/part.h ../src/rings_dist.h | build
 	$(CXX) $(RACKFLAGS) -I../src test_fx_chain.cc ../lib/elements/warps/dsp/modulator.cc ../lib/elements/warps/dsp/oscillator.cc ../lib/elements/warps/resources.cc -o $(BUILD)$@
+
+# Swedish Chainsaw upgrade: 32 kHz HM-2 band redesign + FMV B/M/T knobs.
+test_swede_eq: test_swede_eq.cc ../src/rings_dist.h | build
+	$(CXX) $(CXXFLAGS) -I../src test_swede_eq.cc -o $(BUILD)$@

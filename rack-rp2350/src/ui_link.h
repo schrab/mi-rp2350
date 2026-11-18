@@ -218,12 +218,24 @@ static const UiPageCell kUiPageElementsP2[] = {
     {7,  "VCA",        kUiColorWhite},
     {42, "FX TYPE",    kUiColorWhite},
     {43, "D DRIVE",    kUiColorWhite},
-    // D BIAS removed (2026-11-18, user): it is inaudible on tube/fold/shape
-    // (unused), a no-op floor on fuzz (asymmetric even at 0), and the swede
-    // "tight" HP toggle reads it only as an on/off switch — knobs are for
-    // continuous controls. Internal bias stays 0 (rings_dist needs the field).
+    // D BIAS removed (2026-11-18, user): inaudible. CC 44 is now the swede
+    // FMV BASS (shown on the SWEDE page variant below).
     {45, "D TONE",     kUiColorWhite},
     {0,  "",           kUiColorWhite}, // dist MIX removed: drive is the amount
+};
+// Swede-mode P2 (CC 42 = 5): the Swedish Chainsaw FMV tonestack knobs
+// (Barabas5532 plugin defaults; bass is fine-grained — most of its change
+// is 0..0.1). CC 46/47 were unused on this module.
+static const UiPageCell kUiPageElementsP2Swede[] = {
+    {28, "MODEL",      kUiColorWhite},
+    {64, "PLAY",       kUiColorWhite},
+    {7,  "VCA",        kUiColorWhite},
+    {42, "FX TYPE",    kUiColorWhite},
+    {43, "D DRIVE",    kUiColorWhite},
+    {44, "D BASS",     kUiColorWhite},
+    {46, "D MID",      kUiColorWhite},
+    {47, "D TREBLE",   kUiColorWhite},
+    {45, "D TONE",     kUiColorWhite},
 };
 // Warps-mode P2 (CC 42 = 5): the original T9 controls on CC 36-40. All five
 // are on the C3 now — W MIX (CC 40) makes the stage audible, W CAR (CC 39) is
@@ -658,17 +670,25 @@ static uint32_t g_ui_last_rx_ms = 0;
 // clouds alias bank 40-48 without index arithmetic.
 static uint8_t g_ui_cc_cache[RACK_MODULE_COUNT][128];
 
-// Elements P2 is mode-dependent: CC 42 = 5 selects the T9 Warps stage. The
-// cache above already tracks CC 42 (single observation point), so no extra
-// state is needed. Every TELEM / pot lookup goes through this selector.
+// Elements P2 is mode-dependent: CC 42 = 5 selects the Swedish Chainsaw FMV
+// knobs, 6 the T9 Warps stage. The cache above already tracks CC 42 (single
+// observation point), so no extra state is needed. Every TELEM / pot lookup
+// goes through this selector.
 static inline const UiPageTable& ui_module_page(uint8_t mod, uint8_t page) {
-  // FX TYPE cache: 0 OFF / 1-5 distortion / 6 Warps (was 5 before the OFF
-  // state was added — keying on 5 relabeled SWEDE as the Warps page).
-  if (mod == RACK_MODULE_ELEMENTS && page == kUiPageP2 &&
-      g_ui_cc_cache[RACK_MODULE_ELEMENTS][42] == 6u) {
-    static const UiPageTable kElementsP2Warps = {
-        kUiPageElementsP2Warps, UI_PAGE_CELL_COUNT(kUiPageElementsP2Warps)};
-    return kElementsP2Warps;
+  // FX TYPE cache: 0 OFF / 1 tube / 2 fold / 3 fuzz / 4 shape / 5 swede /
+  // 6 warps.
+  if (mod == RACK_MODULE_ELEMENTS && page == kUiPageP2) {
+    const uint8_t fx = g_ui_cc_cache[RACK_MODULE_ELEMENTS][42];
+    if (fx == 6u) {
+      static const UiPageTable kElementsP2Warps = {
+          kUiPageElementsP2Warps, UI_PAGE_CELL_COUNT(kUiPageElementsP2Warps)};
+      return kElementsP2Warps;
+    }
+    if (fx == 5u) {
+      static const UiPageTable kElementsP2Swede = {
+          kUiPageElementsP2Swede, UI_PAGE_CELL_COUNT(kUiPageElementsP2Swede)};
+      return kElementsP2Swede;
+    }
   }
   return kUiPages[mod][ui_module_page_idx(page)];
 }

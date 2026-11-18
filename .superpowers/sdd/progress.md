@@ -4556,3 +4556,37 @@ artifact — "now we have only one rack code"; new modules WILL be added in the 
   in place).
 - **Verified post-restructure**: `pio run -d rack-rp2350` (single env) SUCCESS;
   `make test` 11/11 green (test_fx_chain now in TEST_BINS, ec2dcd3).
+
+## Swede (FX TYPE = SWEDE) upgraded to the full Swedish Chainsaw chain (2026-11-18, evening)
+
+User: "Chainsaw effect has Bass Middle and Treble controls. We dont have such" + compare with
+BrunoDG/Swedish_Chainsaw_Zig and Barabas5532/SwedishChainsaw. Our swede was a simplified port of
+Barabas5532 (identical MATLAB HM-2 biquads) WITHOUT the JCM800 FMV tonestack, oversampling, amp HP
+and speaker IR. BrunoDG = strictly simpler subset (single tanh, 2 knob bands) — nothing to take.
+
+- **D BIAS removed from UI first** (26d48e5): inaudible on tube/fold/shape, a no-op floor on fuzz,
+  on/off-only on swede → gone from C3 P2 (ui_link), panel, CC map + mod destinations; stays 0
+  internally (swede input HP fixed at the 60 Hz circuit-measured default).
+- **HM-2 bands redesigned at 32 kHz**: solved (f0, gain, Q) from the MATLAB coefficients — RBJ
+  peaking at **86 Hz +20.0 dB Q1.073 / 900 Hz +11.1 dB Q1.789 / 1400 Hz +19.1 dB Q0.980**, design
+  fs = 44100 (round-trip-exact; the clean 86/900/1400 numbers confirm it). The old fixed-digital
+  coefficients ran the bands 0.726x low at 32 kHz (62/653/1016 Hz). GOTCHA: first spec attempt used
+  20*log10 for the dB labels (RBJ peaking uses A = 10^(gain/40) → gain = 40*log10(A)); the host
+  band-check caught it (0.009..0.15 mismatches) before it reached the board.
+- **FMV tonestack ported verbatim-in-math** (FMVDesign.cpp, GPLv3 (C) 2019 Barabas Raffai —
+  license noted in rings_dist.h): analog 3rd-order JCM800 network (R1 220k/R2 1M/R3 22k/R4 33k,
+  C1 470p/C2 C3 22n), knobs scale RC time-constant products, bilinear at 32 kHz, A0-normalized
+  3rd-order DF2T per channel, coefficients recomputed per block. Knob defaults = the plugin's own
+  parameter defaults: bass 0.05 (fine-grained — most of its change is 0..0.1), middle 0.5,
+  treble 0.5.
+- **UI**: CC 44 = D BASS (re-purposed), 46 = D MID, 47 = D TREBLE (both unused on this module);
+  CC 45 stays the global D TONE. SWEDE-mode P2 variant (`kUiPageElementsP2Swede`, keyed on the
+  CC-42 cache = 5, same mechanism as the Warps variant) shows D DRIVE/BASS/MID/TREBLE/TONE; web
+  panel cells added. Swede chain order = reference: HP 60 → pedal clip → HM-2 biquads → 7k LP →
+  amp clip → **FMV stack** → makeup 0.35.
+- **test_swede_eq.cc** (in TEST_BINS): band-design round-trip vs the reference MATLAB coefficients
+  (<5e-4), 32 kHz redesign is not a no-op, stability at defaults + all 8 B/M/T corners, knobs
+  change the output, FMV design enters the knobs. Suite 12/12 green; single-env build SUCCESS.
+- Honest gaps vs the reference, deliberately not ported: 4x oversampling (aliasing of the
+  clippers) and the speaker IR (the plugin README requires one) — the FMV + true bands are the
+  missing "Bass Middle Treble" the user asked for. User ears pending (flash + FX TYPE = SWEDE).
