@@ -42,8 +42,9 @@ static float noise() {
 // definitions (v[m] = halfband at mono 2m-1; the conv runs in q15:
 // v16[m] = clamp(round(v[m]*32767)), y16[m] = (sum ir16[k]*v16[m-k]) *
 // kSpeakerQ15Norm * conv gain — the int64 reference is bit-exact vs the
-// hardware dual-MAC since sum|ir16| <= 32700 keeps the int32 accumulator
-// in range; the interpolator runs over the y16 stream: output pair per v:
+// hardware dual-MAC (the kernel accumulates in 64 bits too; full 15-bit
+// coefficients, sum|ir16| x 32767 ~= 1.2e10 << 2^63); the interpolator
+// runs over the y16 stream: output pair per v:
 // (filt[m] = 14-tap even-phase sum over y16[m-14..m-1], pass[m] = y16[m-7])).
 struct NaiveChain {
   std::vector<float> mono, v, y16;

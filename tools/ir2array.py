@@ -83,15 +83,19 @@ def main():
         row = ", ".join(parts)
         print("    " + row + ("," if i + 8 < taps else ""))
     print("};")
-    # q15 packed pairs for the SMLAD dual-MAC conv (rack_dist.h): the IR
-    # scaled so sum |ir16| <= 32767 (the int32 dual-MAC accumulator then
-    # cannot overflow at full-scale int16 input; Yiu ch.19.5), chronological
-    # pairs packed (lo = ir16[2j], hi = ir16[2j+1]) as uint32 words.
+    # q15 packed pairs for the SMLALD dual-MAC conv (rack_dist.h): the IR
+    # scaled so the PEAK coefficient hits full 15-bit scale (no sum|ir|
+    # constraint — the 64-bit SMLALD accumulator cannot overflow:
+    # sum|ir16| x 32767 ~= 1.2e10 << 2^63). Full-scale coefficients cut the
+    # coefficient-quantization noise ~11x vs the int32-sum-safe scaling
+    # (which squeezed them to ~12 bits = audible grit on sustained tones).
+    # Chronological pairs packed (lo = ir16[2j], hi = ir16[2j+1]) as uint32.
     abssum = float(np.sum(np.abs(y)))
-    scale = 32700.0 / abssum if abssum > 0 else 0.0   # margin: the rounding can add +-1 per tap
+    peak = float(np.max(np.abs(y))) if len(y) else 0.0
+    scale = 32767.0 / peak if peak > 0 else 0.0
     q15 = np.clip(np.round(y * scale), -32768, 32767).astype(np.int64)
     qsum = int(np.sum(np.abs(q15)))
-    print("// q15 packed pairs: scale=%.6f (sum|h|=%.4f -> sum|ir16|=%d <= 32700);"
+    print("// q15 packed pairs: scale=%.6f (sum|h|=%.4f, sum|ir16|=%d, int64 acc);"
           % (scale, abssum, qsum))
     print("// y_float = acc * kSpeakerQ15Norm, kSpeakerQ15Norm = %.9g"
           % (1.0 / (scale * 32767.0)))
