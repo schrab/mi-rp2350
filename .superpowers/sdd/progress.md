@@ -5142,3 +5142,27 @@ tc_plaits: 14,324 -> **40,756 B** (the A-slot budget is 60,416 — 19 KB spare).
 The XIP law quantified again: -46..-74% on the marked chains. 18/19 improved least (-12/-29%)
 — their remaining helpers are partly unmarked; 196-208 us is comfortably in budget, no more
 marks needed. Stalls 0 throughout the sweep. The board restored to elements + the swede state.
+
+## Round 2: drum class marks + the reverb skip + the voices counter (2026-11-19, latest)
+
+The user said continue; three more landed without asking:
+
+1. **The drum class bodies marked** (the engines' Rends were marked but the header-defined
+   classes compiled to out-of-line COMDAT in flash): hi_hat.h SquareNoise/RingModNoise/
+   RenderPair/HiHat::Render, analog+synthetic snare/bass Render (8 marks + the ram_code.h
+   include added to the five drum headers — the macro was out of scope there). Re-sweep:
+   snare 196 -> **76 us**, hi_hat 208 -> **60 us** (modal 110, wave_terrain 113 — unchanged
+   within noise). ALL exposed plaits engines now <= 113 us (was up to 355). tc_plaits
+   47,268 B / 60,416.
+2. **The reverb skip at amount 0** (part.inc): amount is 0 for the WHOLE lower half of the
+   SPACE knob (space < 0.5), where the engine was a bit-exact passthrough anyway (host law).
+   Skips the FxEngine entirely: r=0 idle, -21 us/block. CAVEAT documented in the code: the
+   tail tanks freeze during the skip — resuming plays the stale tail, which decays at the
+   set rt60 (processing silence would cost the full 21 us). test_warps_stage green.
+3. **The voices counter (v=)** in the 2 s report: the voices loop (kNumVoices x
+   Voice::Process + mixdown) = **241 us of the ~248 idle render** — the engine IS the
+   voices loop, everything else (metering/clipping/space math) is ~7 us. Any further
+   elements-engine cut = inside Voice::Process (the MI modal bank), no obvious win; the
+   counter will show playing-state load when the user next plays.
+
+Board restored to elements + the swede state; stalls 0 throughout.

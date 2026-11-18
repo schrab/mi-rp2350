@@ -41,6 +41,7 @@
 #include "stmlib/utils/random.h"
 
 #include "plaits/dsp/dsp.h"
+#include "plaits/dsp/ram_code.h"
 #include "plaits/dsp/oscillator/oscillator.h"
 
 namespace plaits {
@@ -54,8 +55,8 @@ class SquareNoise {
   void Init() {
     std::fill(&phase_[0], &phase_[6], 0);
   }
-    
-  void Render(
+
+  PLAITS_RAM_CODE(square_noise_render) void Render(
       float f0,
       float spread,
       float* temp_1,
@@ -115,8 +116,8 @@ class RingModNoise {
       oscillator_[i].Init();
     }
   }
-  
-  void Render(
+
+  PLAITS_RAM_CODE(ring_mod_noise_render) void Render(
       float f0,
       float spread,
       float* temp_1,
@@ -143,7 +144,7 @@ class RingModNoise {
   }
 
  private:
-  void RenderPair(
+  PLAITS_RAM_CODE(ring_mod_noise_render_pair) void RenderPair(
       Oscillator* osc,
       const float* f,
       float* temp_1,
@@ -212,8 +213,8 @@ class HiHat {
     noise_coloration_svf_.Init();
     hpf_.Init();
   }
-  
-  void Render(
+
+  PLAITS_RAM_CODE(hi_hat_voice_render) void Render(
       bool sustain,
       bool trigger,
       float accent,

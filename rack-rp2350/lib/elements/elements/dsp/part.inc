@@ -39,6 +39,8 @@ extern "C" volatile uint32_t g_bench_warps_us;
 extern "C" volatile uint32_t g_bench_warps_n;
 extern "C" volatile uint32_t g_bench_reverb_us;
 extern "C" volatile uint32_t g_bench_reverb_n;
+extern "C" volatile uint32_t g_bench_voices_us;
+extern "C" volatile uint32_t g_bench_voices_n;
 #endif
 
 namespace elements {
@@ -192,6 +194,9 @@ void Part::Process(
   float reverb_time = 0.35f + 1.2f * reverb_amount;
   
   // Render each voice.
+#if defined(RACK_RP2350_TC) && defined(ARDUINO)
+  const uint32_t bv0 = time_us_32();
+#endif
   for (size_t i = 0; i < kNumVoices; ++i) {
     float midi_pitch = note_[i] + performance_state.modulation;
     if (easter_egg_) {
@@ -242,6 +247,10 @@ void Part::Process(
       aux[j] += l + (raw_buffer_[j] - l) * raw_gain;
     }
   }
+#if defined(RACK_RP2350_TC) && defined(ARDUINO)
+  g_bench_voices_us += time_us_32() - bv0;
+  ++g_bench_voices_n;
+#endif
   
   // Pre-clipping
   if (!easter_egg_) {
@@ -331,24 +340,29 @@ void Part::Process(
   }
 #endif
 
-  // Apply reverb.
+  // Apply reverb. At amount 0 (space < 0.5) the FxEngine is a bit-exact
+  // passthrough (the host law in test_warps_stage) — skip the whole engine
+  // and bank the ~21 us/block. CAVEAT: the tail tanks FREEZE during the
+  // skip — resuming plays the stale tail, which then decays at the set
+  // rt60; the alternative (processing silence) costs the full 21 us.
 #if defined(RACK_RP2350_TC) && defined(ARDUINO)
   const uint32_t br0 = time_us_32();
 #endif
-  
-  reverb_.set_amount(reverb_amount);
-  reverb_.set_diffusion(patch_.reverb_diffusion);
+  if (reverb_amount > 0.0f) {
+    reverb_.set_amount(reverb_amount);
+    reverb_.set_diffusion(patch_.reverb_diffusion);
     bool freeze = patch_.space >= 1.1f;  // vb, 1.75f;
-  if (freeze) {
-    reverb_.set_time(1.0f);
-    reverb_.set_input_gain(0.0f);
-    reverb_.set_lp(1.0f);
-  } else {
-    reverb_.set_time(reverb_time);
-    reverb_.set_input_gain(0.2f);
-    reverb_.set_lp(patch_.reverb_lp);
+    if (freeze) {
+      reverb_.set_time(1.0f);
+      reverb_.set_input_gain(0.0f);
+      reverb_.set_lp(1.0f);
+    } else {
+      reverb_.set_time(reverb_time);
+      reverb_.set_input_gain(0.2f);
+      reverb_.set_lp(patch_.reverb_lp);
+    }
+    reverb_.Process(main, aux, size);
   }
-  reverb_.Process(main, aux, size);
 #if defined(RACK_RP2350_TC) && defined(ARDUINO)
   g_bench_reverb_us += time_us_32() - br0;
   ++g_bench_reverb_n;

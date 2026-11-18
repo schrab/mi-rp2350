@@ -37,6 +37,7 @@
 #include "stmlib/dsp/units.h"
 
 #include "plaits/dsp/dsp.h"
+#include "plaits/dsp/ram_code.h"
 #include "plaits/dsp/oscillator/sine_oscillator.h"
 
 namespace plaits {
@@ -70,8 +71,8 @@ class AnalogBassDrum {
       return 0.7f * x / (1.0f + fabsf(x));
     }
   }
-  
-  void Render(
+
+  PLAITS_RAM_CODE(bass_voice_render) void Render(
       bool sustain,
       bool trigger,
       float accent,

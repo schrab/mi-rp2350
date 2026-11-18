@@ -38,6 +38,7 @@
 #include "plaits/dsp/oscillator/sine_oscillator.h"
 
 namespace plaits {
+#include "plaits/dsp/ram_code.h"
 
 class SyntheticBassDrumClick {
  public:
@@ -125,8 +126,8 @@ class SyntheticBassDrum {
     s = (s - 0.6f) * gain;
     return 3.0f * s / (2.0f + fabsf(s)) + gain * 0.3f;
   }
-  
-  void Render(
+
+  PLAITS_RAM_CODE(synthetic_bass_render) void Render(
       bool sustain,
       bool trigger,
       float accent,

@@ -720,3 +720,5 @@ extern "C" volatile uint32_t g_bench_warps_us = 0;
 extern "C" volatile uint32_t g_bench_warps_n = 0;
 extern "C" volatile uint32_t g_bench_reverb_us = 0;
 extern "C" volatile uint32_t g_bench_reverb_n = 0;
+extern "C" volatile uint32_t g_bench_voices_us = 0;
+extern "C" volatile uint32_t g_bench_voices_n = 0;
