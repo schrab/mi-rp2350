@@ -218,10 +218,18 @@ namespace CTAG {
                     const uint8_t prevIdx = (uint8_t)(curSrc - 1);
                     RackLink::SendModSet(prevIdx, destParam(prevIdx), 0);
                 }
+                // One source = ONE destination on the RP2350. Reusing a source
+                // that is already routed would silently steal that earlier
+                // cell's mapping (e.g. assign PITCH on P1, then assign PLAY on
+                // P2 with the same source -> PITCH becomes unmapped). Refuse
+                // the duplicate with a banner so the earlier route survives;
+                // the user picks a different source for this pot.
                 for (uint8_t p = 0; p < 3; ++p) {
                     for (uint8_t i = 0; i < NPOTS; ++i) {
-                        if (s_potModSrc[p][i] == modChoice) {
-                            s_potModSrc[p][i] = 0;
+                        if ((p != pg || i != pot) &&
+                            s_potModSrc[p][i] == modChoice) {
+                            RackUI::ShowBanner("SRC IN USE");
+                            return;
                         }
                     }
                 }
@@ -605,12 +613,15 @@ namespace CTAG {
                 uint8_t bLo = t.value, bHi = t.value;
                 RackUI::GetPotBucketBounds(i, t, bLo, bHi);
                 // Discrete cells (switches / selectors) are LIVE: soft
-                // takeover is meaningless for a switch and made FM STRUCT,
-                // FAST, FM SRC etc. feel dead when the pot sat above the
-                // current bucket. The first movement sends the selection.
+                // takeover is meaningless for a switch. Arm to CURRENT value
+                // (not 0xFFFF): with the sentinel, the `atEnd` clause in
+                // potTask fires a spurious selection on a pot parked at an
+                // endstop on EVERY page switch / full TELEM — MOD-ARP DIV
+                // jumped to 8/1 (division 0) with zero user movement.
+                // A real >= RAW_HYST move still sends the new selection.
                 if (bLo != bHi) {
                     pickPending[i] = false;
-                    lastSent[i] = 0xFFFF;
+                    lastSent[i] = mapValue(i, filtRaw[i]);
                     lastSentRaw[i] = filtRaw[i];
                     continue;
                 }

@@ -103,6 +103,9 @@ namespace CTAG {
             static bool TakePendingAssign(uint8_t &pot, uint8_t &src);
             static void NoteModRide(uint8_t pot, uint8_t src, uint8_t param, uint8_t val);
 
+            // Short on-screen status banner (e.g. refused mod assign).
+            static void ShowBanner(const char* text, uint32_t durationMs = 2000);
+
             // `ui` console dump.
             static void DebugState();
         };

@@ -69,21 +69,23 @@ index e561604..2b4f36b 100644
    scaled_exciter_level_ = 0.0f;
    scaled_resonator_level_ = 0.0f;
    resonator_level_ = 0.0f;
-@@ -150,6 +164,13 @@ void Part::Process(
+@@ -150,6 +164,15 @@ void Part::Process(
    float space = patch_.space >= 1.0f ? 1.0f : patch_.space;
    float raw_gain = space <= 0.05f ? 1.0f : 
      (space <= 0.1f ? 2.0f - space * 20.0f : 0.0f);
 +#if defined(RACK_RP2350_TC)
-+  // Warps mode: the raw exciter is the MODULATOR consumed by the Warps stage
-+  // below — it must NOT bleed into aux (which feeds reverb/distortion).
-+  // Force aux to the clean stereo resonator so both DSPs get main without the
-+  // modulator. Reverb then treats the Warps result (in main) and clean aux.
-+  if (warps_ && patch_.warps_algorithm > 0.0f) raw_gain = 0.0f;
++  // Rack FX law (user): the raw exciter is a Warps MODULATOR ONLY — it must
++  // never bleed into aux, which feeds the pre-reverb distortion insert, the
++  // reverb tank and the right output channel. Force aux to the clean stereo
++  // resonator at EVERY space setting (main/aux = resonator R/L; at space 0
++  // both are the centre sum). This also kills the "crackles at non-zero
++  // contour": that was the sustained raw exciter leaking into the tail.
++  raw_gain = 0.0f;
 +#endif
    space = space >= 0.1f ? space - 0.1f : 0.0f;
    float spread = space <= 0.7f ? space : 0.7f;
    float reverb_amount = space >= 0.5f ? 1.0f * (space - 0.5f) : 0.0f;
-@@ -239,9 +260,42 @@ void Part::Process(
+@@ -239,9 +262,42 @@ void Part::Process(
  
    resonator_level *= 16.0f;
    scaled_resonator_level_ = resonator_level < 1.0f ? resonator_level : 1.0f;

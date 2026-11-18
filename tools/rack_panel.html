@@ -435,12 +435,12 @@ const MODULES = [
       steps: { labels:['MODAL','STRING','STRINGS'], bytes:[0,1,2] } },
     { cc:29, label:'OMINOUS',   variant:'white', def:0,
       steps: { labels:['NORMAL','OMINOUS'], bytes:[0,1] } },
-    // FX selector (CC 42): 0-4 distortion (tube/fold/fuzz/shape/swede),
-    // 5 = Warps. Only one DSP runs (both compiled in). Distortion params are
-    // CC 43/44/45; the original T9 Warps stage is CC 36-40.
+    // FX selector (CC 42): 0 = OFF (no FX before reverb), 1-5 distortion
+    // (tube/fold/fuzz/shape/swede), 6 = Warps. Only one DSP runs (both
+    // compiled in). Distortion params CC 43/44/45; Warps CC 36-40.
     { cc:42, label:'FX TYPE',   variant:'white', def:0,
-      steps: { labels:['TUBE','FOLD','FUZZ','SHAPE','SWEDE','WARPS'],
-               bytes:[0,1,2,3,4,5] } },
+      steps: { labels:['OFF','TUBE','FOLD','FUZZ','SHAPE','SWEDE','WARPS'],
+               bytes:[0,1,2,3,4,5,6] } },
     { cc:43, label:'D DRIVE',   variant:'white', def:70/127 },
     { cc:44, label:'D BIAS',    variant:'white', def:0 },
     { cc:45, label:'D TONE',    variant:'white', def:127/127 },

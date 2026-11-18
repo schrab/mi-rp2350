@@ -90,7 +90,20 @@ class Part {
 
   inline ResonatorModel resonator_model() const { return resonator_model_; }
   inline void set_resonator_model(ResonatorModel r) { resonator_model_ = r; }
-  
+
+#if defined(RACK_RP2350_TC)
+  // T9 chain law (user): REVERB IS THE LAST FX. Adapter-owned insert that
+  // runs inside Process() after mixdown/SoftLimit/Warps and BEFORE reverb_ —
+  // shaper grit feeds the reverb input, the tail itself is never shaped.
+  // nullptr (the Init default) = absent, upstream-exact behavior.
+  typedef void (*PreReverbInsert)(float* main, float* aux, size_t size,
+                                  void* user);
+  inline void set_pre_reverb_insert(PreReverbInsert insert, void* user) {
+    pre_reverb_insert_ = insert;
+    pre_reverb_user_ = user;
+  }
+#endif
+
  private:
   Patch patch_;
   Voice voice_[kNumVoices];
@@ -119,8 +132,11 @@ class Part {
   
 #if defined(RACK_RP2350_TC)
   warps::Modulator* warps_;   // T9: pool-placed by the module adapter; nullptr = stage off
+
+  PreReverbInsert pre_reverb_insert_;  // T9 chain law: runs before reverb_
+  void* pre_reverb_user_;
 #endif
-  
+
   ResonatorModel resonator_model_;
   
   DISALLOW_COPY_AND_ASSIGN(Part);

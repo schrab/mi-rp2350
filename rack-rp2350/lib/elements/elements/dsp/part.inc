@@ -80,6 +80,8 @@ void Part::Init(uint16_t* reverb_buffer) {
     wp->carrier_shape = 0;
     wp->note = 48.0f;
   }
+  pre_reverb_insert_ = nullptr;   // chain-law insert: adapter installs after Init
+  pre_reverb_user_ = nullptr;
 #endif
   
   scaled_exciter_level_ = 0.0f;
@@ -165,11 +167,13 @@ void Part::Process(
   float raw_gain = space <= 0.05f ? 1.0f : 
     (space <= 0.1f ? 2.0f - space * 20.0f : 0.0f);
 #if defined(RACK_RP2350_TC)
-  // Warps mode: the raw exciter is the MODULATOR consumed by the Warps stage
-  // below — it must NOT bleed into aux (which feeds reverb/distortion).
-  // Force aux to the clean stereo resonator so both DSPs get main without the
-  // modulator. Reverb then treats the Warps result (in main) and clean aux.
-  if (warps_ && patch_.warps_algorithm > 0.0f) raw_gain = 0.0f;
+  // Rack FX law (user): the raw exciter is a Warps MODULATOR ONLY — it must
+  // never bleed into aux, which feeds the pre-reverb distortion insert, the
+  // reverb tank and the right output channel. Force aux to the clean stereo
+  // resonator at EVERY space setting (main/aux = resonator R/L; at space 0
+  // both are the centre sum). This also kills the "crackles at non-zero
+  // contour": that was the sustained raw exciter leaking into the tail.
+  raw_gain = 0.0f;
 #endif
   space = space >= 0.1f ? space - 0.1f : 0.0f;
   float spread = space <= 0.7f ? space : 0.7f;
@@ -293,6 +297,15 @@ void Part::Process(
       float w = static_cast<float>(w_out[i].l) * (1.0f / 32768.0f);
       main[i] += (w - main[i]) * patch_.warps_mix;
     }
+  }
+#endif
+
+#if defined(RACK_RP2350_TC)
+  // T9 chain law: reverb is the LAST fx. The adapter's pre-reverb insert
+  // (distortion stage) runs HERE — after the warps stage, before the reverb —
+  // so shapers feed the reverb input and the tail is never shaped.
+  if (pre_reverb_insert_) {
+    pre_reverb_insert_(main, aux, size, pre_reverb_user_);
   }
 #endif
 

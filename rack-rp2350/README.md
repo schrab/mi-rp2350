@@ -308,31 +308,37 @@ parallel execution, no SRAM overlay. **CC 42** is the FX type selector:
 
 | CC 42 | FX | Controls |
 |---|---|---|
-| 0-4 | distortion (tube/fold/fuzz/shape/swede, same stage as Rings) | CC 43 drive / 44 bias / 45 tone |
-| 5 | **Warps** (original T9 internal cross-mod stage) | CC 36 algo / 37 timbre / 38 mod / 39 car / 40 mix |
+| 0 | **OFF** — no FX in the chain before reverb | — |
+| 1-5 | distortion (tube/fold/fuzz/shape/swede, same stage as Rings) | CC 43 drive / 44 bias / 45 tone |
+| 6 | **Warps** (original T9 internal cross-mod stage) | CC 36 algo / 37 timbre / 38 mod / 39 car / 40 mix |
 
 The Warps controls are the **original T9 mapping** (CC 36-40), staged and
-applied to the Patch only when FX type = 5; in distortion mode they are zeroed
-so `Part::Process` skips Warps (zero cost). Likewise `ringdist::process` is
-skipped in Warps mode. Switching FX preserves both sets of control values.
+applied to the Patch only when FX type = 6; in distortion/OFF modes they are
+zeroed so `Part::Process` skips Warps (zero cost). Likewise `ringdist::process`
+is skipped in OFF and Warps modes. Switching FX preserves both sets of control
+values.
 
-**Signal routing:** in Warps mode the raw exciter is the MODULATOR consumed by
-the Warps stage — `part.inc` forces `raw_gain = 0` so it does **not** bleed into
-`aux` (which feeds reverb/distortion). Carrier and modulator are mixed inside
-Warps; reverb and distortion receive the clean main signal. At `space=0` with
-Warps off, `aux` is the raw exciter as before. (Patch law: `lib/` is regenerated
-by `tools/sync_pio_libs.sh`; this delta lives in
-`tools/patches/elements/elements-warps-stage.patch` and is applied to both
-the rack and standalone libs, guarded by `RACK_RP2350_TC`.)
+**Signal routing (rack build):** the raw exciter is the Warps MODULATOR ONLY.
+`part.inc` forces `raw_gain = 0` at **every** space setting, so `main`/`aux`
+always carry the clean stereo resonator (R/L; at `space=0` both are the centre
+sum) into the pre-reverb distortion insert, the Dattorro tank and the I2S
+outputs. No exciter is heard directly — a non-zero CONTOUR (envelope shape)
+previously made the sustained raw exciter bleed into the tail as "crackles".
+Carrier and modulator are mixed only inside the Warps stage when FX TYPE = 6.
+The standalone build keeps upstream `raw_gain` (the delta is guarded by
+`RACK_RP2350_TC` and maintained in
+`tools/patches/elements/elements-warps-stage.patch`).
 
-The post-render distortion is the same 5-algo stage Rings uses; on Elements it
-runs after `Part::Process`, before VCA/I2S. Drive 0 = zero-cost bypass; drive
-alone is the amount (no wet/dry mix — what you hear at high drive is the
-waveshaper's carrier/fundamental, not a dry blend).
+The distortion is the same 5-algo stage Rings uses; on Elements it runs
+INSIDE `Part::Process`, after the mixdown/Warps stage and **before** the
+Dattorro reverb (reverb is the last FX — nothing shapes the tail). CC 42 picks
+the algorithm (1 tube / 2 fold / 3 fuzz / 4 shape / 5 swede; 0 = OFF); the
+shaper **replaces** the signal outright (100% wet, no dry path), drive 0 is an
+additional zero-cost bypass, and drive alone is the amount.
 
 The C3 P2 cells switch with the FX type (CC 42 cache): distortion shows FX
-TYPE + D DRIVE/BIAS/TONE; Warps shows FX TYPE + W ALGO/TIMBRE/MOD/CAR (W MIX
-stays on the web panel). No C3 reflash needed for label changes.
+TYPE + D DRIVE/BIAS/TONE; Warps shows FX TYPE + W ALGO/TIMBRE/MOD/MIX/CAR. No
+C3 reflash needed for label changes.
 
 ## SRAM architecture (T2 + T6/T6b two-slot window)
 

@@ -222,9 +222,10 @@ static const UiPageCell kUiPageElementsP2[] = {
     {45, "D TONE",     kUiColorWhite},
     {0,  "",           kUiColorWhite}, // dist MIX removed: drive is the amount
 };
-// Warps-mode P2 (CC 42 = 5): original T9 ALGO/TIMBRE/MOD/MIX on CC 36/37/38/40.
-// W MIX (CC 40) is here instead of W CAR (CC 39, available on web panel) so
-// the C3 alone can make Warps audible — without MIX the stage is fully dry.
+// Warps-mode P2 (CC 42 = 5): the original T9 controls on CC 36-40. All five
+// are on the C3 now — W MIX (CC 40) makes the stage audible, W CAR (CC 39) is
+// the carrier level (the user asked for it on the UI). 16 pots per page, so
+// the extra cell at index 8 costs nothing.
 static const UiPageCell kUiPageElementsP2Warps[] = {
     {28, "MODEL",      kUiColorWhite},
     {64, "PLAY",       kUiColorWhite},
@@ -234,7 +235,7 @@ static const UiPageCell kUiPageElementsP2Warps[] = {
     {37, "W TIMBRE",   kUiColorWhite},
     {38, "W MOD",      kUiColorWhite},
     {40, "W MIX",      kUiColorWhite},
-    // W CAR (CC 39) remains available on the web panel / mod engine.
+    {39, "W CAR",      kUiColorWhite},
 };
 // clouds — P1: SIZE/TEXTURE teal, POSITION/DENSITY pink, rest white.
 static const UiPageCell kUiPageCloudsP1[] = {
@@ -658,8 +659,10 @@ static uint8_t g_ui_cc_cache[RACK_MODULE_COUNT][128];
 // cache above already tracks CC 42 (single observation point), so no extra
 // state is needed. Every TELEM / pot lookup goes through this selector.
 static inline const UiPageTable& ui_module_page(uint8_t mod, uint8_t page) {
+  // FX TYPE cache: 0 OFF / 1-5 distortion / 6 Warps (was 5 before the OFF
+  // state was added — keying on 5 relabeled SWEDE as the Warps page).
   if (mod == RACK_MODULE_ELEMENTS && page == kUiPageP2 &&
-      g_ui_cc_cache[RACK_MODULE_ELEMENTS][42] == 5u) {
+      g_ui_cc_cache[RACK_MODULE_ELEMENTS][42] == 6u) {
     static const UiPageTable kElementsP2Warps = {
         kUiPageElementsP2Warps, UI_PAGE_CELL_COUNT(kUiPageElementsP2Warps)};
     return kElementsP2Warps;

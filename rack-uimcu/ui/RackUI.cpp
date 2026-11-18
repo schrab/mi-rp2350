@@ -191,6 +191,10 @@ namespace CTAG {
             s_stripDirty = true;
         }
 
+        void RackUI::ShowBanner(const char *text, uint32_t durationMs) {
+            showBanner(text, durationMs);
+        }
+
         // Rendered-cell diff snapshot (skip unchanged cells). pick: the
         // soft-takeover arrow state (0 none / 1 '<' left of value / 2 '>'
         // right of value) — tracked so arrow flips redraw even without any
@@ -259,7 +263,7 @@ namespace CTAG {
                 case 0: // Elements
                     if (cc == 28) return 4;   // MODEL: 0..3 (MODAL, STRING, STRINGS, OMINOUS)
                     if (cc == 29) return 2;   // OMINOUS: 0..1 (legacy)
-                    if (cc == 42) return 6;   // FX TYPE: 0..4 distortion (TUBE/FLD/FUZZ/SHAPE/SWEDE), 5 WARPS
+                    if (cc == 42) return 7;   // FX TYPE: 0 OFF, 1..5 distortion (TUBE/FLD/FUZZ/SHAPE/SWEDE), 6 WARPS
                     if (cc == 64) {
                         wireIsBool127 = true;
                         return 2;             // PLAY: <64 vs >=64
@@ -941,10 +945,10 @@ namespace CTAG {
                             static const char *const kElemModels[4] = { "MODAL", "STRING", "STRINGS", "OMINOUS" };
                             pName = (dispVal >= 0 && dispVal < 4) ? kElemModels[dispVal] : "---";
                         } else if (modForPage == 0 && c.cc == 42) {
-                            static const char *const kElemFxTypes[6] = {
-                                "TUBE", "FOLD", "FUZZ", "SHAPE", "SWEDE", "WARPS"
+                            static const char *const kElemFxTypes[7] = {
+                                "OFF", "TUBE", "FOLD", "FUZZ", "SHAPE", "SWEDE", "WARPS"
                             };
-                            pName = (dispVal >= 0 && dispVal < 6) ? kElemFxTypes[dispVal] : "---";
+                            pName = (dispVal >= 0 && dispVal < 7) ? kElemFxTypes[dispVal] : "---";
                         } else if (modForPage == 1 && (c.cc == 23 || c.cc == 49)) {
                             static const char *const kCloudModes[3] = { "GRAN", "STRE", "LOOP" };
                             pName = (dispVal >= 0 && dispVal < 3) ? kCloudModes[dispVal] : "---";
@@ -1442,6 +1446,12 @@ namespace CTAG {
             s_activePot = 0xFF;
             s_assignPot = 0xFF;
             s_assignArmed = false;      // T8d: a page change aborts assign mode
+            // A PUSH_SHORT can be pending between the UI task and the pot
+            // task; on a page change its latched pot index would be resolved
+            // against the NEW page and misroute/drop the assign.
+            s_pendingAssign = false;
+            s_pendingAssignPot = 0xFF;
+            s_pendingAssignSrc = 0;
             for (int i = 0; i < 16; ++i) s_lastWireSent[i] = 0xFFFF;
             s_pageDirty = true;
             s_stripDirty = true;

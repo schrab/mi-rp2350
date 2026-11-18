@@ -46,6 +46,16 @@ namespace rack_modules {
 namespace mod_elements {
 
 static const char* const kName = "elements";
+
+// FX TYPE (CC 42), mirrored in the C3 selector and the web panel. Source of
+// truth for which pre-reverb DSP runs — 0 = OFF (no FX at all). The distortion
+// indices are 1-based so OFF is representable; ringdist::Type is 0-based.
+static const uint8_t kFxOff   = 0;
+static const uint8_t kFxTube  = 1;
+static const uint8_t kFxShape = 4;
+static const uint8_t kFxSwede = 5;
+static const uint8_t kFxWarps = 6;
+
 static const uint32_t kSampleRate = 32000;
 static const size_t kBlockSize = elements::kMaxBlockSize;
 // Budget = 496 us: the standalone elements report's divide-first grouping
@@ -62,7 +72,7 @@ static const char* const kCcMap =
     "23 geometry, 24 brightness, 25 damping, 26 position, 27 space, "
     "28 model, 29 easter-egg, "
     "36-40 warps (algo/timbre/mod/car/mix, original T9), "
-    "42 fx-type(0 tube/1 fold/2 fuzz/3 shape/4 swede/5 warps), "
+    "42 fx-type(0 off/1 tube/2 fold/3 fuzz/4 shape/5 swede/6 warps), "
     "43 dist-drive, 44 dist-bias, 45 dist-tone, 64 play";
 // T3 mod destinations: every float-parameter CC of the map accepts continuous
 // modulation (1/11 included — note that velocity-scaled strength from note-on
@@ -107,12 +117,11 @@ struct State {
 
   // Both DSPs compiled in; only one active per block (no coexistence at
   // runtime, no SRAM overlay). Original T9 Warps controls on CC 36-40 are
-  // staged here and applied to the Patch ONLY when fx_type == kWarps; else
+  // staged here and applied to the Patch ONLY when fx_type == kFxWarps; else
   // the Patch fields are 0 so Part::Process skips Warps (zero cost).
   ringdist::State dist;
-  volatile uint8_t fx_type;         // 0-4 = ringdist::Type, 5 = kFxWarps
+  volatile uint8_t fx_type;         // kFxOff..kFxWarps (0 off, 1-5 dist, 6 warps)
   volatile float dist_drive;
-  volatile uint8_t dist_type;
   volatile float dist_bias;
   volatile float dist_tone;
   volatile float warps_algo, warps_timbre, warps_mod, warps_car, warps_mix;
@@ -145,6 +154,11 @@ static constexpr size_t buf_bytes() {
 static_assert(sizeof(warps::Modulator) <= 4096,
     "warps Modulator grew past its pool carve budget (T9)");
 
+// T9 chain law (user): reverb is the LAST fx. Installed as Part's pre-reverb
+// insert — the shaper feeds the reverb input; the tail itself is never
+// shaped. Defined below (needs fx_is_warps/dist_params); init_at installs it.
+static void pre_reverb_shaper(float* main, float* aux, size_t size, void* user);
+
 void init_at(uint8_t* obj_base, uint8_t* buf_base) {
   s = new (obj_base) State();
   // Buffer carve: uint16_t reverb[32768] = 64 KB from the caller's region.
@@ -169,6 +183,8 @@ void init_at(uint8_t* obj_base, uint8_t* buf_base) {
   warps::Modulator* warps_mod =
       new (buf_base + kReverbBytes) warps::Modulator();
   s->part.Init(reverb_buffer, warps_mod);
+  // Chain law: the distortion stage lives INSIDE Part::Process, pre-reverb.
+  s->part.set_pre_reverb_insert(pre_reverb_shaper, &s->dist);
   // Seed word count matches the field-proven Scarp sketch, but as a real
   // 3-word array — Seed() hashes all `size` words it is given.
   uint32_t seed[3] = {0x1fff7a10, 0x1fff7a10, 0x1fff7a10};
@@ -210,9 +226,11 @@ void init_at(uint8_t* obj_base, uint8_t* buf_base) {
   // Distortion defaults match Rings. FX selector defaults to distortion.
   s->dist.lp[0] = 0.0f;
   s->dist.lp[1] = 0.0f;
-  s->fx_type = 0u;
-  s->dist_drive = 0.55f;
-  s->dist_type = 0u;
+  s->fx_type = kFxOff;              // boot with NO FX before the reverb
+  // The shaper is fully wet whenever engaged (rings_dist has no dry blend),
+  // and drive == 0 is an extra zero-cost bypass. D DRIVE 0 is safe even if a
+  // distortion is selected; FX TYPE only picks which shaper runs.
+  s->dist_drive = 0.0f;
   s->dist_bias = 0.0f;
   s->dist_tone = 1.0f;
 }
@@ -226,18 +244,51 @@ void init() {
 // Snapshot the panel distortion settings (core 0 writes, core 1 renders).
 static inline ringdist::Params dist_params() {
   ringdist::Params p{};
-  p.type = s->dist_type;
+  // FX TYPE 1-5 map to the 0-based ringdist algos; 0 = OFF and 6 = Warps
+  // never reach the shaper (the trampoline below skips them).
+  p.type = (uint8_t)(s->fx_type - 1u);
   p.drive = s->dist_drive;
   p.bias = s->dist_bias;
   p.tone = s->dist_tone;
   return p;
 }
 
-// FX selector (CC 42): 0-4 = distortion, 5 = Warps. Both DSPs are compiled
-// in; only one runs per block. Warps' original T9 controls (CC 36-40) are
-// applied to the Patch here so Part::Process sees them only in Warps mode.
+// FX selector (CC 42): 0 = OFF (no FX before the reverb), 1-5 = distortion,
+// 6 = Warps. Both DSPs are compiled in; only one runs per block. Warps' T9
+// controls (CC 36-40) hit the Patch only in Warps mode.
 static inline bool fx_is_warps() {
-  return s->fx_type == ringdist::kWarps;
+  return s->fx_type == kFxWarps;
+}
+
+// The ringdist algos are not level-matched: on the rack rig (0.12 RMS input)
+// at drive 1.0 they measure TUBE 5.9x, FOLD 4.1x, FUZZ 4.8x, SHAPE 6.8x,
+// SWEDE 1.0x. Without compensation FX ON is far louder than FX OFF, which
+// also makes the reverb tail sound artificially dense/loud. These trims bring
+// each algo back near unity at the drive positions where it is usable.
+static inline float dist_level_trim(uint8_t type, float drive) {
+  switch (type) {
+    case ringdist::kTube:  return 1.0f / (1.0f + 5.0f * drive);
+    case ringdist::kFold:  return 0.24f;
+    case ringdist::kFuzz:  return 1.0f / (1.0f + 3.0f * drive);
+    case ringdist::kShape: return 0.18f;
+    default:               return 1.0f;   // SWEDE is already ~unity
+  }
+}
+
+// The adapter's pre-reverb insert (Part calls this inside Process, after the
+// warps stage, before reverb_). OFF and Warps skip it entirely; a selected
+// distortion is 100% wet (rings_dist has no dry blend), drive 0 also bypasses.
+static void pre_reverb_shaper(float* main, float* aux, size_t size, void* user) {
+  if (s->fx_type == kFxOff || fx_is_warps()) return;
+  ringdist::process(static_cast<ringdist::State*>(user), dist_params(),
+                    main, aux, size);
+  const float trim = dist_level_trim((uint8_t)(s->fx_type - 1u), s->dist_drive);
+  if (trim != 1.0f) {
+    for (size_t i = 0; i < size; ++i) {
+      main[i] *= trim;
+      aux[i] *= trim;
+    }
+  }
 }
 static inline void apply_fx_params() {
   elements::Patch* p = s->part.mutable_patch();
@@ -297,8 +348,6 @@ void chain_render_a(float* out_l, float* out_r, size_t n) {
     apply_fx_params();
     s->part.Process(s->perf_state, s->blow_in, s->strike_in, s->main_out,
                     s->aux_out, chunk);
-    if (!fx_is_warps())
-      ringdist::process(&s->dist, dist_params(), s->main_out, s->aux_out, chunk);
     for (size_t i = 0; i < chunk; ++i) {
       out_l[done + i] = s->main_out[i] * s->shared_vca;
       out_r[done + i] = s->aux_out[i] * s->shared_vca;
@@ -348,9 +397,6 @@ void render() {
 #if RACK_HANG_DEBUG
   watchdog_hw->scratch[1] = 0xB0000000u | 11u;   // after Part::Process
 #endif
-  if (!fx_is_warps())
-    ringdist::process(&s->dist, dist_params(), s->main_out, s->aux_out,
-                      kBlockSize);
   uint32_t dt = time_us_32() - t0;
   if (dt > proc_us_max) proc_us_max = dt;
 
@@ -423,7 +469,7 @@ void control_change(uint8_t cc, uint8_t val) {
     case 40: s->warps_mix = v; break;       // W MIX
     // FX selector (CC 42) + distortion params (CC 43-45). Only one DSP runs.
     case 42:
-      if (val <= ringdist::kWarps) s->fx_type = static_cast<uint8_t>(val);
+      if (val <= kFxWarps) s->fx_type = static_cast<uint8_t>(val);
       break;
     case 43: s->dist_drive = v; break;
     case 44: s->dist_bias = v; break;
@@ -494,7 +540,7 @@ bool mod_set_cc_float(uint8_t cc, float v) {
     case 38: s->warps_mod = v; break;
     case 39: s->warps_car = v; break;
     case 40: s->warps_mix = v; break;
-    case 42: if (v < 1.0f) s->fx_type = (uint8_t)(v * 6.0f); break;
+    case 42: if (v < 1.0f) s->fx_type = (uint8_t)(v * 7.0f); break;
     case 43: s->dist_drive = v; break;
     case 44: s->dist_bias = v; break;
     case 45: s->dist_tone = v; break;

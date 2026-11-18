@@ -160,11 +160,13 @@ static void test_stage_modifies_main_only() {
         base_peak);
   CHECK(memcmp(base.main, staged.main, sizeof(base.main)) != 0,
         "warps at alg 0.25 / mix 1 must transform main");
-  // Warps mode consumes the raw exciter as the modulator and forces aux to
-  // the clean stereo resonator (no raw-exciter bleed into reverb/distortion),
-  // so aux MUST differ from the warps-less Part at space=0.
-  CHECK(memcmp(base.aux, staged.aux, sizeof(base.aux)) != 0,
-        "warps mode must keep the raw modulator out of aux");
+  // Rack law: the raw exciter NEVER reaches aux (it is a Warps modulator
+  // only). At space=0 the stereo spread is zero, so aux must be bit-identical
+  // to main in BOTH rigs, and the Warps stage must leave aux untouched.
+  CHECK(memcmp(base.main, base.aux, sizeof(base.aux)) == 0,
+        "rack build must not bleed the raw exciter into aux at space 0");
+  CHECK(memcmp(staged.aux, base.aux, sizeof(staged.aux)) == 0,
+        "warps stage must not change aux (no modulator bleed)");
   for (size_t i = 0; i < kBlock; ++i) {
     CHECK(std::isfinite(staged.main[i]), "non-finite staged main[%zu]", i);
   }

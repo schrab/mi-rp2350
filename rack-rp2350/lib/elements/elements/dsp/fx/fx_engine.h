@@ -168,9 +168,9 @@ class FxEngine {
       STATIC_ASSERT(D::base + D::length <= size, delay_memory_full);
       T w = DataType<format>::Compress(accumulator_);
       if (offset == -1) {
-        buffer_[(write_ptr_ + D::base + D::length - 1) & MASK] = w;
+        buffer_[WrapAddress(write_ptr_ + D::base + D::length - 1)] = w;
       } else {
-        buffer_[(write_ptr_ + D::base + offset) & MASK] = w;
+        buffer_[WrapAddress(write_ptr_ + D::base + offset)] = w;
       }
       accumulator_ *= scale;
     }
@@ -196,9 +196,9 @@ class FxEngine {
       STATIC_ASSERT(D::base + D::length <= size, delay_memory_full);
       T r;
       if (offset == -1) {
-        r = buffer_[(write_ptr_ + D::base + D::length - 1) & MASK];
+        r = buffer_[WrapAddress(write_ptr_ + D::base + D::length - 1)];
       } else {
-        r = buffer_[(write_ptr_ + D::base + offset) & MASK];
+        r = buffer_[WrapAddress(write_ptr_ + D::base + offset)];
       }
       float r_f = DataType<format>::Decompress(r);
       previous_read_ = r_f;
@@ -225,9 +225,9 @@ class FxEngine {
       STATIC_ASSERT(D::base + D::length <= size, delay_memory_full);
       MAKE_INTEGRAL_FRACTIONAL(offset);
       float a = DataType<format>::Decompress(
-          buffer_[(write_ptr_ + offset_integral + D::base) & MASK]);
+          buffer_[WrapAddress(write_ptr_ + offset_integral + D::base)]);
       float b = DataType<format>::Decompress(
-          buffer_[(write_ptr_ + offset_integral + D::base + 1) & MASK]);
+          buffer_[WrapAddress(write_ptr_ + offset_integral + D::base + 1)]);
       float x = a + (b - a) * offset_fractional;
       previous_read_ = x;
       accumulator_ += x * scale;
@@ -240,9 +240,9 @@ class FxEngine {
       offset += amplitude * lfo_value_[index];
       MAKE_INTEGRAL_FRACTIONAL(offset);
       float a = DataType<format>::Decompress(
-          buffer_[(write_ptr_ + offset_integral + D::base) & MASK]);
+          buffer_[WrapAddress(write_ptr_ + offset_integral + D::base)]);
       float b = DataType<format>::Decompress(
-          buffer_[(write_ptr_ + offset_integral + D::base + 1) & MASK]);
+          buffer_[WrapAddress(write_ptr_ + offset_integral + D::base + 1)]);
       float x = a + (b - a) * offset_fractional;
       previous_read_ = x;
       accumulator_ += x * scale;
@@ -284,6 +284,22 @@ class FxEngine {
   enum {
     MASK = size - 1
   };
+  
+  // `& MASK` is a true modulo wrap ONLY when size is a power of two (every
+  // upstream instantiation). Arbitrary sizes — the rack reverb engine (T9)
+  // uses 21632 — alias otherwise: (wp + base + offset) beyond the buffer end
+  // scattered into random delay regions instead of wrapping. The delay
+  // regions are STATIC_ASSERTed below size, so any address is < 2*size and
+  // ONE conditional subtract is exact. The power-of-two branch is constant-
+  // folded, leaving the upstream mask AND untouched.
+  static inline int32_t WrapAddress(int32_t address) {
+    if ((size & (size - 1)) == 0) {
+      return address & MASK;
+    }
+    return address >= static_cast<int32_t>(size)
+        ? address - static_cast<int32_t>(size)
+        : address;
+  }
   
   int32_t write_ptr_;
   T* buffer_;

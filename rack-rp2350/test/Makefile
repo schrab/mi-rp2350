@@ -72,3 +72,29 @@ clean:
 	rm -rf $(BUILD) $(TEST_BINS)
 
 .PHONY: all test engine goldens clean
+
+# T9 reverb A/B: rack arm (FxEngine<21632>) vs upstream arm (FxEngine<32768>).
+# Law: a correct wrap makes engine size sound-neutral -> dumps MUST be
+# byte-identical. Any diff = the fx_engine.h `& (size-1)` wrap bug is live.
+reverb_ab: build/test_reverb_rack build/test_reverb_upstream
+	./build/test_reverb_rack build/reverb_rack.raw
+	./build/test_reverb_upstream build/reverb_upstream.raw
+	@if cmp -s build/reverb_rack.raw build/reverb_upstream.raw; then \
+	  echo "reverb A/B: BIT-IDENTICAL (wrap correct)"; \
+	else \
+	  echo "reverb A/B: DUMPS DIFFER — FxEngine<21632> masking bug LIVE"; \
+	  exit 1; \
+	fi
+
+build/test_reverb_rack: reverb_ab.cc ../lib/elements/elements/dsp/fx/reverb.h ../lib/elements/elements/dsp/fx/fx_engine.h | build
+	$(CXX) $(RACKFLAGS) reverb_ab.cc -o $(BUILD)test_reverb_rack
+
+build/test_reverb_upstream: reverb_ab.cc ../lib/elements/elements/dsp/fx/reverb.h ../lib/elements/elements/dsp/fx/fx_engine.h | build
+	$(CXX) $(WARPSFLAGS) reverb_ab.cc -o $(BUILD)test_reverb_upstream
+
+.PHONY: reverb_ab
+
+# T9 chain law: reverb is the LAST fx (distortion+warps BEFORE). Bypass is
+# bit-exact; the tail stays diffuse with the shaper active pre-reverb.
+test_fx_chain: test_fx_chain.cc ../lib/elements/elements/dsp/part.h ../src/rings_dist.h | build
+	$(CXX) $(RACKFLAGS) -I../src test_fx_chain.cc ../lib/elements/warps/dsp/modulator.cc ../lib/elements/warps/dsp/oscillator.cc ../lib/elements/warps/resources.cc -o $(BUILD)$@

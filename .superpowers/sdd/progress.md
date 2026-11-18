@@ -4337,3 +4337,184 @@ of truth for lib deltas; verify with `sync_pio_libs.sh` before finalizing.
 hangs; real multi-module soak + user's ears on Warps algorithms/reverb tail
 not yet signed off. Host test `test_warps_stage` could not be rebuilt here (no
 g++ on Windows; binaries are WSL ELFs) — run `make test_warps_stage` in WSL.
+
+
+## Reverb flange ROOT CAUSE — FxEngine<21632> broke fx_engine.h's power-of-two wrap (2026-11-17, evening)
+
+The handoff above called the high-space flange "upstream Elements character". **Wrong.** User pushed
+back ("find the misalignment with elements"); systematic diff found the DSP path byte-identical to
+pristine pichenettes (ctag-tbd `components/mutable/eurorack`) and poetaster ELEMENTS/src everywhere
+EXCEPT the T9 engine shrink — and the shrink itself is the bug:
+
+- `fx_engine.h` wraps **every** delay-line access with `& MASK` where `MASK = size - 1`. That is a
+  correct circular wrap only for **power-of-two** sizes. Upstream `FxEngine<32768>` = 2^15 ✓.
+  `342fd43` (2026-11-17 04:48, T9 SRAM reclaim) instantiated `FxEngine<21632>` — NOT a power of two.
+  Any access with `write_ptr_ + base + offset >= 21632` (constant: the delay regions span 21,626
+  frames — the Reserve chain sum 21,617 **plus 9 per-line `+1` gaps** — and `write_ptr_` cycles the
+  whole buffer) aliases to a scattered address instead of wrapping (e.g. `43257 & 21631` = 121 =
+  inside AP1's region). Reads/writes land in wrong slots → comb artifacts recirculated by the
+  krt-0.83 loop = the "flange". Inaudible below space 0.6 (reverb_amount 0 → dry bypass), worst at
+  95-100% space (max feedback) — exactly the reported symptom, and why neither the LFO taming
+  (ffd3d3b, reverted) nor raw_gain hacks touched it. The Nov 11 decay restore (8f48630) predates the
+  shrink, so "flange since 8f48630" was coincidence of first-audibility, not cause.
+- **Evidence** (host A/B, `test/reverb_ab.cc`, rack arm vs upstream arm, identical input/settings,
+  space=1.0 params): before fix checksums `1304711d` vs `2b128693`; outputs differ from the FIRST
+  sample, 100 % of samples, max |diff| 1.34 (beyond full scale — aliased garbage recirculating).
+  After fix: **BIT-IDENTICAL** (`2b128693` both) — engine size is provably sound-neutral once the
+  wrap is correct (delay lengths are compile-time; only absolute addresses move).
+- **Fix (direct lib edit, user decision — NO patch file)**: `fx_engine.h` gains `WrapAddress()`:
+  pow2 sizes keep `& MASK` (constant-folded; every other FxEngine instantiation in the repo —
+  clouds/rings/plaits fx — is pow2, so their behavior is byte-identical), non-pow2 wraps with ONE
+  conditional subtract (regions are STATIC_ASSERTed < size → any address < 2×size, single subtract
+  exact). `make reverb_ab` is the regression gate; `make test` + all 5 pio envs green after.
+- **Caveat**: the fix lives ONLY in the lib copy — a future `tools/sync_pio_libs.sh` run regenerates
+  `lib/elements` from pristine and **reverts it** (bug returns). Re-apply the WrapAddress edit after
+  any sync, or fold it into a patch then (user's call; they explicitly rejected the patch route now).
+- The `git diff 9466f43 HEAD -- reverb.h` canary still holds (reverb.h untouched); fx_engine.h now
+  intentionally deviates from upstream — that is the misalignment fix, not drift.
+
+### Second regression found + fixed: always-on post-reverb shaper, no bypass (2026-11-17, night)
+
+User re-tested after the wrap fix: "still phased or flanged noises like looped trails but heavily
+distorted and in mid range, this is not how reverb was soundin all time before." With the reverb DSP
+now provably upstream (bit-identical A/B), the remaining delta vs the pre-FX-session sound was the
+FX-session's ringdist stage: it sits AFTER reverb_ in the render path, runs EVERY non-Warps block,
+and boots at fx_type=0 (TUBE) drive=0.55 — and CC 42 has no OFF position, so the "dry + reverb"
+state was unreachable. Host probe (`test/reverb_dist_probe.cc`, real Part render, strike exciter,
+modal, space 0.95, identical phrase both arms):
+- pre-shaper (upstream tail): peak 0.68, RMS 0.078, crest 8.7 (diffuse/airy)
+- after tube @ 0.55: peak 0.999 (softclip ceiling), RMS 0.240 (**×3.1**), crest 4.2 (squashed wash)
+- mechanism: k = 1 + 9·d² = 3.72 into softclip; WAVs at test/build/tail_{raw,distorted}.wav.
+**Fix (user decision from 3 options — D DRIVE boots at 0)**: `module_elements.h` boot default
+`dist_drive 0.55 -> 0.0` — rings_dist's designed zero-cost bypass (`drive <= 0` returns before any
+read/write), so boot is bit-identical to the pre-FX-session chain; FX TYPE selects the shaper, D
+DRIVE engages it. No CC map / panel / C3 changes. Autosave does not cover FX state (verified —
+preset.h has no dist/fx fields), so the default governs every boot. rack-elements rebuilt clean.
+Still honest: user ears sign-off pending; commit pending.
+
+### Chain law implemented: REVERB IS THE LAST FX (2026-11-17, night; user directive)
+
+User: "reverb should be last fx in the chain. distortion and warps should be BEFORE!" Warps already
+complied (pre-reverb inside Part); the ringdist shaper did not (post-reverb, an inheritance artifact
+from the Rings "adapter-level post-render shaper" design — see the entry two above).
+
+- **Lib hook (direct edit, rack lib only)**: `part.h`/`part.inc` gain a `PreReverbInsert` — an
+  adapter-owned `void (*)(float* main, float* aux, size_t size, void* user)` called inside
+  `Part::Process` AFTER the warps stage and BEFORE `reverb_.Process` (guarded `RACK_RP2350_TC`;
+  `Init` sets it null → upstream-exact). The adapter installs it in `init_at`:
+  `part.set_pre_reverb_insert(pre_reverb_shaper, &s->dist)`; the trampoline skips itself in Warps
+  mode (one DSP per block) and rings_dist's `drive <= 0` is the zero-cost bypass. The two
+  post-reverb `ringdist::process` calls in `render()`/`chain_render_a()` are REMOVED.
+- **test_fx_chain.cc (new, Makefile)** laws, all GREEN: (1) structural — a capture-only insert is
+  recorded silent (<0.001) during gate-off stretches while the Process output still rings the tail
+  (>0.01): 13,780 proof samples — impossible for a post-reverb insert; (2) inert inserts
+  (capture-only AND drive-0 shaper) render BIT-EXACT vs no insert; (3) drive-0.55 runs pre-reverb,
+  bounded. Informational: the reverb OF a shaped signal has a denser deep-tail crest (3.8 → 2.0 on
+  the rig) — that is fuzz-into-reverb by design, not tail corruption. Note: whole-render crest
+  (8.7/4.2 numbers in the entry above) ≠ deep-tail crest (3.8 clean) — different statistics.
+- Warps ordering note: shaper insert sits AFTER the warps stage; moot — FX TYPE makes them
+  exclusive (one DSP per block). Rings keeps its own post-resonator shaper (no reverb downstream;
+  untouched). All 5 envs + full host suite green after the lib change.
+- Still honest: user ears pending; commit pending (whole changeset: wrap fix + boot drive 0 +
+  chain law + tests).
+
+### Four user-reported bugs after the chain fix (2026-11-18, rack-elements UF2 pending)
+
+User report: (a) reverb tails fixed but crackles "when contour non-zero — like bleeding of
+modulation signal"; (b) at SPACE 0 only the left channel carries Elements, the right carries the
+raw exciter — "no exciter should be heard, it only routed to Warps; now it routes to all distortion
+algos"; stereo sum of the resonator should feed them; (c) Warp CARRIER missing from the C3 UI;
+(d) FX TYPE only switches to Warps, the first 5 algos sound identical.
+
+Root causes + fixes:
+1. **Crackles == exciter bleed (same root as (b)).** The user's "contour non-zero" clue pins it:
+   a sustained raw exciter (`raw_buffer_`) was reaching `aux` via `raw_gain=1` at low space, so it
+   fed the pre-reverb shaper, the Dattorro input and the right output. Earlier (ledger 4317) a global
+   `raw_gain=0` was reverted as "starved reverb" — that diagnosis was wrong: `raw_gain` is already 0
+   for SPACE > 0.1, i.e. whenever reverb_amount > 0, so forcing it to 0 in the rack build cannot
+   touch the wet tail at all. Fix: `part.inc` RACK_RP2350_TC guard now forces `raw_gain = 0.0f`
+   UNCONDITIONALLY (was only `if (warps_ && warps_algorithm>0)`). `main`/`aux` now always carry the
+   clean stereo resonator (R/L; at SPACE 0 both are the centre sum) into the shaper, reverb and I2S.
+   Exciter stays available only as the Warps modulator. Patch-of-truth updated
+   (`tools/patches/elements/elements-warps-stage.patch`, same RACK guard); standalone unchanged.
+2. **Distortion algorithm switching.** `dist_params()` read `State::dist_type`, which was never
+   written by any CC — only `fx_type` (CC 42) was. So FX 0-4 all ran the same tube shaper and only
+   FX 5 (Warps) changed anything. Fix: removed `dist_type` (state, boot init, `dist_params()`);
+   `dist_params()` now uses `fx_type` directly (0-4, Warps never reaches the shaper). CC 42 / the mod
+   engine's `mod_set_cc_float(42)` remain the single source of truth.
+3. **C3 Warp CARRIER.** `kUiPageElementsP2Warps` had only ALGO/TIMBRE/MOD/MIX; W CAR (CC 39) was
+   web-panel-only. Added `{39, "W CAR"}` as cell index 8 (the C3 has 16 pots/page; TELEM count is
+   derived from the table). No C3 firmware reflash needed — the C3 renders whatever cells TELEM
+   sends and CC 39 needs no discrete-count entry. Web panel already had W CAR.
+4. **test harness rot found while verifying.** `test_fx_chain.cc` accumulated `g_output_main`
+   across all four renders but `g_insert_main` once → length check always failed; the structural
+   proof threshold (>8000) was calibrated to that 4× count. Also `Part::Init` does not zero `panic_`
+   (firmware's arena is zeroed, the stack test rig was not) → first block could skip the insert.
+   Fixes: `g_capture_output` scopes output capture to the capture rig; `init_rig` zeroes the whole
+   Rig; proof threshold is now >4000 for the single 8 s render. `test_warps_stage.cc` updated:
+   at SPACE 0 `main == aux` bit-exact in both rigs, and Warps leaves aux untouched (no bleed).
+
+Verification: all five rack envs build green (`pio run -d rack-rp2350`, 4m19s total); WSL host
+tests `test_warps_stage` + `test_fx_chain` both pass (5943 structural proof samples, deep-tail
+crest 3.81 clean / 2.04 shaped unchanged). Not flashed — user ears pending. Uncommitted.
+
+### Flashed + second round of user bugs (2026-11-18)
+
+Flashed rack-elements UF2 (1200-baud touch on COM15 → E: BOOTSEL → copy, board rebooted clean;
+`mod=elements`, 243 µs / 496 µs budget, 0 stalls). User then reported three more bugs; two independent
+deep investigations (subagents) found them:
+
+1. **C3 mod map loss** ("map PITCH on P1, map PLAY on P2, back to P1 → PITCH unmapped"): the RP2350
+   mod engine has exactly ONE destination per source (`mod_engine.h:226 dest_cc`, `mod_set_dest()`
+   overwrites it). The C3 assign gesture allowed source reuse and `RackPots.cpp:221-227` silently
+   cleared the older cell's bookkeeping while the new `SendModSet` re-pointed the source, so the old
+   cell's TELEM route flag vanished. Fix (C3): refuse a duplicate source with a `SRC IN USE` banner
+   instead of stealing — added `RackUI::ShowBanner()` wrapper (file-local `showBanner`) to the public
+   class, and replaced the uniqueness loop in `applyModAssign()`. Also cleared `s_pendingAssign*`
+   in `SetPage()` (secondary race: a pending confirm resolved against the new page).
+2. **MOD-ARP DIV jumps to 8/1 on page entry**: `PickupResync()` (`RackPots.cpp:619-623`) armed
+   discrete cells with `lastSent = 0xFFFF`; combined with the `atEnd` clause in `potTask()`
+   (`v==0||v==127 && v!=lastSent`), a pot parked at an endstop emitted a spurious CC/MOD_SET with
+   zero movement on every full TELEM (page switch, reconnect, 30 s refresh). DIV 0 → `kModDivisions[0]`
+   = "8/1". Fix: arm discrete cells at the CURRENT mapped value (`mapValue(i, filtRaw[i])`), so
+   `atEnd` is false at rest and only real >= RAW_HYST movement sends. The old `prevModBDiv` hack in
+   RackLink.cpp (page 3 cell 15) addressed only one symptom of this same bug; left in place, harmless.
+3. **FX TYPE needs an explicit OFF + 100% wet distortion**: added `kFxOff=0`, distortions 1-5,
+   `kFxWarps=6` across firmware (`module_elements.h`), C3 (`p1p2DiscreteCount` 7, name table with
+   OFF first) and web panel (7 stepped labels/bytes). Boot now FX TYPE = OFF. `pre_reverb_shaper`
+   skips OFF and Warps; a selected distortion is 100% wet — `rings_dist::process()` has no dry blend
+   (verified against the MIX-removal commit cad6a8a: `chans[c][i] = lp`), drive 0 is an additional
+   zero-cost bypass. No literal dry path exists anywhere in the render chain (grep of all
+   `part.Process`/`ringdist::process`/`i2s.write16` sites); if the user still hears an unshaped copy
+   with FX 1-5 / drive 100% / SPACE 0, it is inside the waveshaper's near-linear small-signal region
+   or stale reverb-tank content, and needs a scoped follow-up with those exact settings.
+
+Both devices rebuilt and flashed: all 5 rack envs green; C3 built via `cmd.exe //c tools\\build_uimcu.bat`
+(MSYSTEM must be cleared — idf.py skips main() when it is present) and flashed to COM22 (`-p` form
+still leaves the known harmless trailing `ninja: unknown target 'COM22'`). RP2350 re-flashed; switched
+back to elements via console (`switch elements`) after the C3 restored its cached rings page.
+Uncommitted. User re-test pending.
+
+### Third round: FX page labels, level matching, reverb audit (2026-11-18)
+
+- **SWEDE showed Warps cells / WARPS showed distortion cells**: `ui_link.h:663` still keyed the
+  mode-dependent Elements P2 table on `g_ui_cc_cache[ELEMENTS][42] == 5u` (old Warps value; 5 is now
+  SWEDE). Changed to `== 6u`. Only stale FX-value check in the tree (grepped RP2350 + C3).
+- **"Volume when FX off is much lower"** — measured with `test/dist_gain_probe.cc` (0.12 RMS two-tone
+  input, 32 kHz): TUBE 1.63x/3.34x/5.89x RMS gain at drive 0.25/0.55/1.0, FOLD 3.00/5.18/4.14,
+  FUZZ 1.17/2.59/4.76, SHAPE 4.86/6.08/6.75, SWEDE ~1.02 across all drives. So FX ON was 2-7x
+  louder than OFF. Added `dist_level_trim()` in `module_elements.h`, applied after the shaper in
+  `pre_reverb_shaper`: TUBE `1/(1+5d)`, FUZZ `1/(1+3d)`, FOLD 0.24, SHAPE 0.18, SWEDE 1.0.
+  Post-trim drive-1 gains ≈ 0.98 / 0.83 / 1.19 / 1.22 / 1.03 — FX ON/OFF now roughly matched.
+- **Reverb audit (user asked if reverb was changed during troubleshooting)**: NO reverb DSP math
+  changed. Verified patches, not just the generated lib: `elements-reverb-restore.patch` RESTORES
+  `reverb_time = 0.35 + 1.2*reverb_amount` (the pristine submodule has a broken `0.01f`) — this
+  predates all FX work and is the lush full-length decay. `elements-reverb-rack-size.patch` only
+  changes engine CAPACITY 32768 -> 21632 (delay lengths are compile-time constants, unchanged).
+  `elements-ram-hot.patch` moves `Reverb::Process` to SRAM (sound-neutral). The 80->16 LFO taming
+  was reverted in `511808c`. The only direct lib edit is `fx_engine.h WrapAddress()` — required
+  because 21632 is not a power of two; ledger A/B proves bit-identical output vs upstream.
+  The perceived "trimmed / not lush" tail is the missing shaper gain (FX OFF no longer feeds ~3-6x
+  boosted signal into the tank) plus no saturation harmonics, not reverb degradation.
+- All 5 envs rebuilt green; RP2350 re-flashed + confirmed on elements (417 us / 496, 0 stalls).
+  C3 unchanged since its last flash (the page-selector fix was RP2350-side). Uncommitted.
