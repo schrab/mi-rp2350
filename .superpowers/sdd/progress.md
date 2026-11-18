@@ -5110,3 +5110,35 @@ even at space 0 — bit-exact passthrough there, so gating it would save 21 us i
 6. **The elements engine ~278 us** — the largest single block; previously optimized; the next
    lever there is per-stage bench counters inside Part::Process (resonator vs exciter vs
    metering), not a code guess.
+
+## Plaits engines PROMOTED to SRAM — the sweep + the T6b demotion reversed (2026-11-19, late night)
+
+The exposed engines were swept with notes (CC 23 = the engine select, one capture per engine),
+then the exposed set's hot chains were promoted per the T6b design's own mechanism (DEMOTABLE
+-> PLAITS_RAM_CODE, "one token line" each) and the unmarked engines got fresh marks:
+
+- PROMOTED (11 lines): string.cc x2 + string.h + string_voice.cc + string_engine.cc (engine
+  15), resonator.cc x2 + modal_voice.cc x2 + modal_engine.cc (engine 16), particle_engine.cc
+  (engine 14).
+- NEW marks (7): wavetable_engine.cc Render + RenderInternal (7), wave_terrain_engine.cc (25),
+  bass/snare/hi_hat engines (17/18/19), va_dual_engine.cc (1).
+- LEFT DEMOTED: six_op/scanned/chord/fm chains (catalog 4/8/22-24 — NOT exposed via CC 23).
+
+tc_plaits: 14,324 -> **40,756 B** (the A-slot budget is 60,416 — 19 KB spare). Build clean.
+
+**The sweep, max Process with notes (before -> after):**
+| engine | before | after |
+|---|---|---|
+| 1 va_dual | 106 | **28** |
+| 7 wavetable | 296 | **95** |
+| 14 particle | 154 | **83** |
+| 15 string | 285 | **116** |
+| 16 modal | 355 | **107** |
+| 17 bass_drum | 238 | **109** |
+| 18 snare | 224 | 196 |
+| 19 hi_hat | 294 | 208 |
+| 25 wave_terrain | 333 | **132** |
+
+The XIP law quantified again: -46..-74% on the marked chains. 18/19 improved least (-12/-29%)
+— their remaining helpers are partly unmarked; 196-208 us is comfortably in budget, no more
+marks needed. Stalls 0 throughout the sweep. The board restored to elements + the swede state.

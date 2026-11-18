@@ -73,7 +73,7 @@ class String {
   // land in .text (XIP; their only callers, the string engines + StringVoice,
   // are demoted too); in the standalone the SRAM mark applies here.
   template<StringNonLinearity non_linearity>
-  PLAITS_RAM_CODE_DEMOTABLE(string_process_internal) void ProcessInternal(
+  PLAITS_RAM_CODE(string_process_internal) void ProcessInternal(
       float f0,
       float non_linearity_amount,
       float brightness,

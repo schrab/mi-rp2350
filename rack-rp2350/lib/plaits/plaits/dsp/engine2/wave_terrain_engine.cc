@@ -264,7 +264,7 @@ inline float WaveTerrainEngine::Terrain(float x, float y, int terrain_index) {
 }
 #endif  // PLAITS_HAS_TERRAIN_BANK
 
-void WaveTerrainEngine::Render(
+PLAITS_RAM_CODE(wave_terrain_render) void WaveTerrainEngine::Render(
     const EngineParameters& parameters,
     float* out,
     float* aux,
