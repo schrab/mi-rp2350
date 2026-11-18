@@ -638,6 +638,8 @@ Identical to the four standalone ports: PCM5102A BCK GP6 / DIN GP8 /
 LRCK GP7, XSMT 3V3; USB-A host D+ GP14 / D- GP15; WS2812 GP22; USB-C =
 CDC serial (115200) + USB MIDI device ("Rack RP2350"). T4 adds the MIDI
 DIN-IN jack on GP5 (6N138 opto — table above; GP4 = reserved UART1 TX).
+Full board pinout (edge/Qwiic/pads, peripheral inventory): see
+`docs/rp2350-board.md` — the NoLogo Mini USB RP2350 board reference.
 
 ## Boot-wedge notes (2026-11-04)
 

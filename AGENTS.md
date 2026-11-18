@@ -6,7 +6,9 @@ Guide for coding agents working in this repository.
 
 The rack synth monorepo: **`rack-rp2350/`** — one unified RP2350 firmware
 running five live-switchable modules (Elements, Clouds, Plaits 98-engine,
-Rings MiniElements, LIRA-8) on the RP2350 "nano" board + PCM5102A I2S DAC,
+Rings MiniElements, LIRA-8) on the **NoLogo Mini USB RP2350** board (the
+"RP2350 nano" — see [`docs/rp2350-board.md`](docs/rp2350-board.md)) +
+PCM5102A I2S DAC,
 with native USB MIDI device, DIN MIDI, an ESP32-C3 UI link
 (**`rack-uimcu/`**) and a WS2812 status LED on GP22 — plus **`tools/`**
 (browser control panels, SysEx converter) and **`docs/`**.
@@ -30,6 +32,7 @@ MIDI CC 32 or the serial console.
 |---|---|
 | [`.superpowers/sdd/progress.md`](.superpowers/sdd/progress.md) | **The ledger** — task status, commit hashes, and the authoritative investigation findings (build quirks, TinyUSB API facts, reverb root cause, FX chain law). Read this before debugging anything |
 | [`docs/PORTING-HIGHLIGHTS.md`](docs/PORTING-HIGHLIGHTS.md) | Distilled porting experience: SRAM/XIP law, build rules, profiling pattern, acceptance checklist (its sync/patch sections are historical — that layer is gone) |
+| [`docs/rp2350-board.md`](docs/rp2350-board.md) | **Board reference** — NoLogo Mini USB RP2350 pinout (edge/Qwiic/pads), peripheral inventory, crystal/VREF/flash facts, and how the rack uses each pin |
 | [`rack-rp2350/README.md`](rack-rp2350/README.md) | **Rack firmware docs**: five modules, chain mode, SRAM pool, wiring, MIDI/CC maps, console, soak checklist |
 | [`rack-uimcu/README.md`](rack-uimcu/README.md) | ESP32-C3 UI firmware: pages, gestures, link protocol, build/flash |
 | [`tools/rack_panel.html`](tools/rack_panel.html) | Browser control panel for the rack build: CC 32 module switching (tabs), all CC maps, mod-engine bench mux (CC 33/34/35), optional Web Serial console |
