@@ -5026,3 +5026,33 @@ was missed — the real causes were XIP + spill + word assembly, see rows 6-7); 
 Linux 2.47 GAS); 1024-tap @ 16 kHz; SMLALD 64-bit full-scale coefficients.
 **The one lever left**: FFT overlap-add (the clouds STFT pattern): ~10-15 us amortized for ANY
 IR length — the multiscale leap, only if multi-second IRs are ever wanted.
+
+## Upstream comparison — the swede vs Barabas5532/SwedishChainsaw (2026-11-19, night)
+
+Full audit against a fresh clone of the upstream (Source/PluginProcessor.cpp processBlock,
+Waveshaper.cpp, HM2Filter.cpp, FMVDesign.cpp). VERDICT: the chain is fully implemented; FMV
+re-verified TERM-BY-TERM identical (all b/a coefficients + the bilinear form); the HM-2 bands
+carry the round-trip-verified 32k redesign; HP60/LP7k/conv/stereo all present.
+
+DELIBERATE (documented) gaps: 4x oversampling before each clipper (aliasing vs CPU); the TIGHT
+toggle (HP 700 pre-clip — upstream default OFF == the rack's fixed 60 Hz, the D BIAS removal
+26d48e5 covered it); user-selectable IR file (the plugin ships with NO IR — the rack always
+has the Hesu V30).
+
+DIVERGENCES (known, user decides if any change):
+1. The clippers are stmlib SoftClip (x(27+x^2)/(27+9x^2), hard flat beyond |x|=3), NOT tanh —
+   since day one (0b627da); the in-code comments say "pedal tanh" and the ledger claimed
+   "tanh verbatim". Numerically it IS the classic tanh approximation: ~2.5% deviation at the
+   knee at moderate drive, identical saturation at heavy drive (both ~+-1 within 0.005 =
+   -46 dB). Minor knee-shape difference only; the comments/ledger labels were wrong.
+2. UPSTREAM BUG changes the plugin's audible chain: prepare() intends HP 600 before the amp
+   but `ampInputFilter.coefficients = makeLowPass(7000)` OVERWRITES it, and ampLowpassFilter
+   (the "removes some harshness" LP) never gets coefficients = identity. So the plugin
+   effectively LPs at 7 kHz TWICE into the amp clip; the rack has one LP 7k. Porting the bug
+   (one extra one-pole) or the intent (HP 600 pre-amp) = user's ear call; neither ported.
+3. Drive range: the rack's single DRIVE maps to both stages (pedal 1-20x + amp 1-10x, total
+   200x at max) vs upstream's two knobs (20-40 dB / 0-30 dB, defaults 30/15 = 177x total).
+   The rack covers the upstream DEFAULT; the extremes (100x/31.6x) are unreachable. Ear-tuned.
+4. Gain-before-HP ordering (upstream) vs after (rack) — commutes, no difference.
+5. IR length: the plugin convolves the FULL user file (size 0, no trim); the rack = 1024 taps
+   (64 ms, 99.9% compacted energy) + pre-delay compaction.
