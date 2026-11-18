@@ -4998,27 +4998,31 @@ THE BASELINE for any future optimization: a change is only real if it moves a ro
 | 3 | 512-tap @ 16 kHz DECIMATED float conv (halfband dec/interp), offloaded to core 0 (DMB ping-pong, 2 slots) | 633 | 369 (swede) / 320 (OFF) | +9 avg on core 1; ~130 us on core 0 | miss 0-1 (the spin-storm phase in between: the ungated wait burned 250x2 us/block -> avg 607) | 5a12e87 |
 | 4 | The gate short-circuit (CC 48 skips the hand-off before the waits) | 593 | 360 (noconv) | — | stalls 0 | pre-761c290 |
 | 5 | Level-matched bypass + 3 slots + budget-aware waits (400/460); q15 PENDING | 708 | 466 (conv) / 293 (OFF) | conv 110-117 us on core 0; miss 0-36/window (36 during the C3 bursts) | 0 stalls | 761c290-era |
-| 6 | **q15 int16 dual-MAC conv (SMLAD-family) on core 0 — BUILT, NOT YET MEASURED ON HW** | TBD | TBD | expected ~25-40 us (vs 117) | TBD | 9d0d2ba |
+| 6 | q15 int16 dual-MAC, SMUAD+add C-loop form (the Windows workaround as shipped) | 749 (burst) / 486-500 (steady) | ~318 | **cv= 202-263** (WORSE than the float 117: the q15 IR table was XIP-resident + gcc spilled the acc to the stack per iteration + per-pair word assembly) | miss 0-1/win, stalls 0 | 9d0d2ba |
+| 7 | Register-pinned SMLAD kernel (8 instr/4 MACs) + SRAM-marked IR table + real 4-operand `smlad` — first build had an ldmdb window-stride bug (constant NOISE on every dist algo, warps clean), fixed same session | 545-739 (burst) | ~318 | **cv= 79-83** | miss 0/win, stalls 0 | 3e7ef20 + 8f8060c |
+| 8 | SMLALD 64-bit accumulate + FULL 15-bit coefficients (the 12-bit int32-safe scaling was ~-44 dB quantization grit = "sounds dirty"; not host-test-detectable — the naive reference is q15 too) | 536-549 (burst) | ~318 | **cv= 86** (+3 for the 64-bit acc) | miss 0/win, stalls 0 — **ears ACCEPTED** | 5582716 |
+| 9 | 1024-tap @ 16 kHz (64 ms window, 99.9% energy) + word-wide plumbing (alignas hist, 4-byte memcpy shift+pack, hi/lo acc64->f) + float IR table dropped (kSpeakerIrRms; tc_elements 57,352 -> 55,936 B) | 486-500 (steady) | ~330 | **cv= 125** (+39: 2x MACs, plumbing -6) | miss 0 steady (1 during the CC burst), stalls 0 — ears pending | 6431529 |
 
 **Fixed sub-costs (measured, stable across configs)**:
 - Shaper + FMV tonestack (the insert without the conv): **+43 us avg** (the op model ~35 — the
   per-block FMV design + 3 biquads + 2 softclips + tone LP).
 - The hand-off overhead on core 1 (mono-sum publish + consume copy): **+9 us avg**.
-- The core-0 conv (float 512@16k): **117 us avg / ~200 max** (the q15 target ~25-40).
+- The core-0 conv: float 512@16k **117 us / ~200 max** -> q15 SMLALD 512 **86 us** -> 1024
+  **125 us** (the kernel ~34 us @ 512 taps; the residual cv-8 = pump copies + DMB + loop()
+  contention, not MACs).
 - OFF baseline (exciter + 52-mode resonator + reverb): **avg 293-320, max 450-516** — the floor
   ANY fx adds on top of.
 
-**The op model (for predicting changes)**: the conv MACs = n16 x taps (8 x 512 = 4096/block);
+**The op model (for predicting changes)**: the conv MACs = n16 x taps (8 x 1024 = 8192/block);
 the scalar float floor ~3.25 cycles/MAC (13 instructions per 4-MAC iteration, disassembly-
-verified) + load-use stalls (~5-7 cycles/MAC real); SMLAD-family int16 dual-MAC ~1.5 cycles/MAC
-(the book ch.19.4; the SMUAD+add form measures the same); the block deadline 500 us; the I2S
-buffer 4 ms (the spikes absorbed, the SUSTAINED average over 500 = erosion = starvation).
+verified) + load-use stalls (~5-7 cycles/MAC real); the hand-written SMLALD kernel = **8
+instructions per 4 MACs** (~1.75 cycles/MAC incl. the two ldr + pkhbt); the block deadline
+500 us; the I2S buffer 4 ms (the spikes absorbed, the SUSTAINED average over 500 = erosion =
+starvation).
 
-**The levers NOT yet pulled** (in the order of the expected gain):
-1. The q15 HW measurement (the row 6 TBD) — the Linux machine's first task.
-2. The REAL `smlad` opcode on Linux GAS (the Windows GAS lacks it; smuad+add costs +1
-   instruction per dual-MAC).
-3. 1024-tap @ 16 kHz (64 ms window — the same cost as 512@32k, a deeper cab body).
-4. SMLALD 64-bit accumulate (the full 15-bit coefficients, no scale margin needed).
-5. FFT overlap-add (the clouds STFT pattern): ~10-15 us amortized for ANY IR length — the
-   multiscale leap, only if multi-second IRs are ever wanted.
+**The levers pulled (all measured in rows 6-9)**: the q15 HW measurement (the 25-40 us target
+was missed — the real causes were XIP + spill + word assembly, see rows 6-7); the REAL
+`smlad`/`smlald` opcodes (4-operand form only — 3-operand is unparseable on Windows 2.43.1 AND
+Linux 2.47 GAS); 1024-tap @ 16 kHz; SMLALD 64-bit full-scale coefficients.
+**The one lever left**: FFT overlap-add (the clouds STFT pattern): ~10-15 us amortized for ANY
+IR length — the multiscale leap, only if multi-second IRs are ever wanted.
