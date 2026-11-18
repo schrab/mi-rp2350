@@ -15,7 +15,7 @@ ENGINE_SRCS =   # e.g. lira8_engine.cpp
 WARPSFLAGS ?= -O2 -g -std=c++17 -Wall -Wextra -I../lib/elements -I../lib/stmlib -I.
 RACKFLAGS  ?= $(WARPSFLAGS) -DRACK_RP2350_TC
 
-TEST_BINS = test_wav_io test_pd_primitives test_voice test_engine test_harmony test_warps test_reverb test_warps_stage test_fx_chain test_swede_eq test_speaker_ir test_varg test_rings_chord
+TEST_BINS = test_wav_io test_pd_primitives test_voice test_engine test_harmony test_warps test_reverb test_warps_stage test_fx_chain test_swede_eq test_speaker_ir test_varg test_rings_chord test_dronecaster
 GOLDEN_BIN = render_golden
 
 all: $(TEST_BINS) $(GOLDEN_BIN)
@@ -25,6 +25,14 @@ $(BUILD):
 
 test_wav_io: test_wav_io.cc wav_io.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
+
+# Dronecaster host tests: engine headers are header-only; the wildcard keeps
+# the dependency list honest as tasks add files.
+DC_HEADERS = $(wildcard ../src/dronecaster/*.h) \
+             $(wildcard ../src/dronecaster/drones/*.h)
+
+test_dronecaster: test_dronecaster.cc wav_io.h $(DC_HEADERS) | $(BUILD)
+	$(CXX) $(CXXFLAGS) -I../src/dronecaster -I. $< -o $(BUILD)$@
 
 test_pd_primitives: test_pd_primitives.cc ../src/lira8/pd_primitives.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
