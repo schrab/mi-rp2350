@@ -6,7 +6,8 @@
 //     nullptr = stage off (standalone-compatible path stays 1-arg);
 //   - warps_algorithm == 0 -> stage bypass with ZERO observable effect
 //     (bit-exact main/aux vs a nullptr-warp Part);
-//   - the stage touches ONLY main (aux passes through untouched);
+//   - the stage crossfades BOTH main and aux to the SAME wet signal (mono
+//     warps out on both channels; the raw exciter still never reaches aux);
 //   - the algorithm is clamped to 0.625 (pure comparator): alg 1.0 must be
 //     indistinguishable from alg 0.625 (the vocoder zone is excluded);
 //   - with the modulator level at 0 the warps output is exactly 0, so
@@ -162,11 +163,15 @@ static void test_stage_modifies_main_only() {
         "warps at alg 0.25 / mix 1 must transform main");
   // Rack law: the raw exciter NEVER reaches aux (it is a Warps modulator
   // only). At space=0 the stereo spread is zero, so aux must be bit-identical
-  // to main in BOTH rigs, and the Warps stage must leave aux untouched.
+  // to main in the bypass rig; the Warps stage crossfades BOTH channels to
+  // the same wet signal, so at mix 1 the staged aux must equal the staged
+  // main bit-exact (mono warps out on both channels).
   CHECK(memcmp(base.main, base.aux, sizeof(base.aux)) == 0,
         "rack build must not bleed the raw exciter into aux at space 0");
-  CHECK(memcmp(staged.aux, base.aux, sizeof(staged.aux)) == 0,
-        "warps stage must not change aux (no modulator bleed)");
+  CHECK(memcmp(staged.aux, base.aux, sizeof(staged.aux)) != 0,
+        "warps stage must crossfade aux too (dry right channel is gone)");
+  CHECK(memcmp(staged.aux, staged.main, sizeof(staged.aux)) == 0,
+        "staged aux must equal staged main at space 0 / mix 1 (mono wet)");
   for (size_t i = 0; i < kBlock; ++i) {
     CHECK(std::isfinite(staged.main[i]), "non-finite staged main[%zu]", i);
   }
@@ -217,6 +222,16 @@ static void test_silent_modulator_halves_main_exactly() {
       CHECK(false, "staged main[%zu] = %.9g, expected exactly %.9g "
                    "(zero warps output at mix 0.5)", i, staged.main[i],
             base.main[i] * 0.5f);
+      break;
+    }
+  }
+  // The new blending law: aux crossfades to the same (zero) wet — the same
+  // exact halving must hold on the right channel.
+  for (size_t i = 0; i < kBlock; ++i) {
+    if (staged.aux[i] != base.aux[i] * 0.5f) {
+      CHECK(false, "staged aux[%zu] = %.9g, expected exactly %.9g "
+                   "(zero warps output at mix 0.5)", i, staged.aux[i],
+            base.aux[i] * 0.5f);
       break;
     }
   }

@@ -267,8 +267,11 @@ void Part::Process(
 
 #if defined(RACK_RP2350_TC)
   // T9 warps cross-modulation stage: carrier = main (post-SoftLimit resonator
-  // R channel), modulator = raw_buffer_ (the raw exciter), output mono into
-  // main. After metering/panic (the panic guard keeps measuring the pre-Warps
+  // R channel), modulator = raw_buffer_ (the raw exciter), output crossfaded
+  // into BOTH main and aux (the wet is mono — w_out.r is the vendored
+  // Modulator's aux path, not the cross-mod; leaving aux dry made the right
+  // channel carry the untreated resonator whenever mix > 0). After
+  // metering/panic (the panic guard keeps measuring the pre-Warps
   // resonator level) and before the reverb. Algorithm is clamped to 0.625 =
   // pure comparator: the vocoder zone (>= 0.675) and the NOP blend are
   // excluded (vocoder stripped in the vendored warps copy). Zero cost when
@@ -296,6 +299,7 @@ void Part::Process(
     for (size_t i = 0; i < size; ++i) {
       float w = static_cast<float>(w_out[i].l) * (1.0f / 32768.0f);
       main[i] += (w - main[i]) * patch_.warps_mix;
+      aux[i] += (w - aux[i]) * patch_.warps_mix;
     }
   }
 #endif

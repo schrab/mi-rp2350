@@ -4856,3 +4856,80 @@ where / measured effect.
     ins=avg/max, cv=avg, miss count) + the runtime conv gate (CC 48): the cost breakdown without
     reflashing. GOTCHAs fixed: the dbg line buffer was 400 B (the tail silently truncated ->
     560); newlib-nano vsnprintf has NO %f support (integer hundredths instead).
+
+## q15 conv kernel on HW — 3 stacked causes, ldmdb stride bug, then SMLALD full-scale (2026-11-19, Linux session)
+
+The handoff's next-steps executed (Linux machine). Audio **USER-ACCEPTED** at the end ("ok, now
+it sounds fine"). The measured arc of `cv=` (core-0 conv cost per 16-sample block):
+
+| build | cv= | verdict |
+|---|---|---|
+| float 4-acc (761c290 era) | 110-117 us | accepted baseline |
+| q15 SMUAD+add (9d0d2ba) | 202-263 us | WORSE — three stacked causes (below); user ear-accepted anyway ("sounds fine" was casual) |
+| register-pinned SMLAD kernel (3e7ef20-era) | 79-83 us | NOISE bug (ldmdb, below) — fixed in 8f8060c -> 83 |
+| SMLALD 64-bit + full-scale coefficients (5582716) | **86 us** | **clean + accepted** |
+
+**Cause 1 — the q15 IR table was XIP-resident.** 9d0d2ba added `kSpeakerIrQ15` WITHOUT a
+RACK_DIST_MARK; the float `kSpeakerIr` had one. 2048 sequential word loads per block from XIP
+flash. Fix: `RACK_DIST_MARK(dist_speaker_ir_q15)` (now tc_elements SRAM, adjacent to the float
+table, no overlap — verified by nm).
+
+**Cause 2 — the SMUAD+add form made gcc SPILL the accumulator to the stack every iteration**
+(`ldr r3,[sp,#8] / add / str` around each MAC; ~12 instructions per 2 MACs). The `=&l` fresh-dest
+constraint forbids reusing acc's register as the destination. Fix: accumulate-form asm.
+
+**GAS FACTS (binutils 2.4x — Windows 2.43.1 AND Linux 2.47):** the 3-operand Thumb `smlad`/
+`smladx` DO NOT PARSE ("bad arguments", any arch) — the handoff's "on Linux GAS smlad works"
+was wrong. The 4-operand form `smlad Xd, Xn, Xm, Xa` (T32 requires Xa == Xd) assembles — the
+same form gcc 16's arm_acle `__smlad(a, b, acc)` emits. `pkhtb` QUIRK: the no-shift
+`pkhtb Rd, Rn, Rm` canonicalizes to the PKHBT encoding with operands SWAPPED (top/bottom roles
+invert silently) — always spell `pkhbt`. `smlald/smlaldx` parse fine in their native 4-operand
+form. `pkhbt`/`smuad` parse fine.
+
+**Cause 3 — the x word was assembled per pair** (2 halfword loads + orr inside the MAC loop).
+Fix: hand-written kernel with REGISTER-PINNED operands (CMSIS q15-FIR pattern): gcc spilled one
+of the two descending pointers to the stack in the C-loop version and burned ~6 movs shuffling
+asm operands. Final kernel = 8 instructions per 4 MACs: `ldr ir` (post-inc) / `ldr b`
+(post-dec) / `ldr a` (plain) / `smlaldx` (even output) / `pkhbt` (straddle re-pack) / `smlald`
+(odd output) / subs / bne. Two outputs per iteration off packed W words; even-j pairs via the
+SMLALDX swap, odd-j via pkhbt (the parity split the first SMLADX-everywhere attempt got wrong).
+
+**The ldmdb NOISE bug (8f8060c):** replacing the two pointer loads with ONE `ldmdb` of two regs
+slides the base 8 B/iter — but the FIR window slides ONE WORD/iter (consecutive tap pairs
+OVERLAP: b of iter t = a of iter t+1's neighbor). Every tap after the first summed a pair
+shifted by an accumulating extra word. Symptom: constant background noise on EVERY dist algo
+(the conv output REPLACES the audio while CC 48 is on) while warps stayed CLEAN (bypasses the
+dist insert). Lesson: adjacent-word loads via ldm only work when the window stride equals the
+load count.
+
+**The DIRTY bug (5582716):** noise gone but "sounds dirty" — NOT starvation (playing counters
+clean: max 188-213 us, stalls 0, miss=0; the 739 us max in the transcripts was the console CC +
+preset-PART burst on core 0, not playback). Root cause: the int32-SMLAD scaling
+(sum|ir16| <= 32700, ch.19.5) squeezed the coefficients to ~12 bits = ~-44 dB quantization
+noise riding the cab output. The host test STRUCTURALLY could not catch it: the naive reference
+is q15 too (bit-exact impl-vs-naive, not q15-vs-float audio). Fix: 64-bit accumulate
+(SMLALD/SMLALDX register pairs; C int64 on host) -> NO scaling cap -> full 15-bit coefficients
+(peak at 32767; 361961 x 32767 ~= 1.2e10 << 2^63) -> ~11x less quantization noise. ir2array.py
+now emits the full-scale table. cv 83 -> 86 (+3 for the 64-bit acc). Ears: ACCEPTED.
+(Levers left if ever needed: 1024-tap @ 16 kHz same cost; FFT overlap-add for long IRs.)
+
+**Plumbing note:** the residual cv - 8 (kernel ~34 us @ 240 MHz + hist16_ 511-halfword shift
+~8 us + Ws scratch build ~5 us + dec/interp ~6). The shift/scratch are the next optimizations
+if the conv ever needs to shrink below ~60 us.
+
+**Host-suite note:** `test_reverb` is FLAKY at HEAD (fails ~2/6 runs, "impulse response does
+not decay" with DIFFERENT peak values per run — uninitialized state somewhere in the FxEngine
+test path; matches the documented FxEngine power-of-two wrap issue). `test_reverb_rack`/
+`test_reverb_upstream` binaries in test/build/ are stale and not executable (the suite loop
+reports FAIL spuriously). Unrelated to the conv work.
+
+## Warps mix: dry right channel — aux now crossfades to the wet (2026-11-19, evening)
+
+USER REPORT: turning W MIX from 0, the warps wet came out LEFT and the untreated resonator
+RIGHT. Root cause: the T9 stage (part.inc) crossfaded ONLY main — aux never touched the wet;
+w_out.r is the vendored Modulator's aux path (not the cross-mod), so using it was never an
+option. Fix: blend aux toward the SAME wet (mono warps out on both channels — the user's spec:
+"only warps out, both channels"; at mix 0 both channels stay dry). Raw exciter still never
+reaches aux. test_warps_stage laws updated: staged aux == staged main at space 0 / mix 1
+(bit-exact), staged aux != base aux, aux-halving at w=0. All warps tests green. Flashed;
+ears pending.
