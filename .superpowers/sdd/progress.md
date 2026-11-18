@@ -4590,3 +4590,33 @@ and speaker IR. BrunoDG = strictly simpler subset (single tanh, 2 knob bands) �
 - Honest gaps vs the reference, deliberately not ported: 4x oversampling (aliasing of the
   clippers) and the speaker IR (the plugin README requires one) — the FMV + true bands are the
   missing "Bass Middle Treble" the user asked for. User ears pending (flash + FX TYPE = SWEDE).
+
+## Speaker cab convolution for the Swedish Chainsaw (2026-11-19)
+
+User supplied the IR: tools/"Hesu 2x12 V30 - 440 center edge.wav" (44.1 kHz mono 24-bit, 1.83 s).
+Firmware flashed first (COM15, earlephilhower uploader 1200-baud touch -> BOOTSEL -> UF2, verify
+OK + "device was rebooted").
+
+- **MI FIR/IR survey**: clouds dsp/pvoc/stft = STFT overlap-add already ported to CMSIS
+  arm_rfft_fast_f32 on this board (port note: ShyFFT 7 ms/4096-pt vs CMSIS under the I2S buffer
+  depth); warps SRC = scipy-remez static polyphase FIR banks (48-tap); plaits 4x_downsampler =
+  small static FIR. CMSIS DSP is vendored (arm_fir_f32/rfft available).
+- **IR prep** (tools/ir2array.py, prints to stdout — python never writes sources): FFT-domain
+  resample 44.1->32 kHz, **pre-delay compaction** (the Hesu IR has ~26 ms of silent mic-distance
+  lead-in — peak at 27.4 ms; skip to 3% of peak, back off 1 ms), truncate 1024 taps (32 ms =
+  99.9% of the IR's energy; the full tail adds nothing until 2048+), peak-normalize, 64-sample
+  raised-cosine tail fade. Result baked as rodata: src/speaker_ir.h (4 KB).
+- **DSP**: SpeakerConv in rack_dist.h — mono-summed 1024-tap linear-history FIR (per-sample dot,
+  contiguous windows, block-wise history shift), conv gain 0.25, +1023 samples (~32 ms) latency
+  (inaudible, swede is fully wet), ~51 µs per 500 µs block at 320 MHz (1024 MACs/sample mono at
+  ~1 MAC/cycle). Applied swede-only, AFTER the FMV stack, BEFORE the global D TONE — the
+  reference plugin's chain position. State: singleton like SwedishState (host-testable, no CMSIS
+  dependency — pure header discipline kept).
+- **test_speaker_ir.cc** laws, all GREEN: (1) impulse law — a 1.0 impulse yields exactly
+  kSpeakerIr * kSpeakerConvGain (end-to-end MAC/delay bookkeeping); (2) block impl == naive
+  direct convolution (y[i] = Σ ir[k]·x[i−k]) within 2e-5 across 40 blocks — first attempt's
+  naive reference was itself misaligned (hist-frame indexing) and the conv was right; (3)
+  stability at defaults. Suite 12/12 green; single-env build SUCCESS.
+- Cost note: the conv is gated on the swede branch — tube/fold/fuzz/shape and OFF pay nothing.
+  If the ~10% block cost shows up as stalls on the 2 s report, drop to 512 taps (16 ms) or add
+  CMSIS arm_fir_f32 (asm-optimized, ~2 MAC/cycle).

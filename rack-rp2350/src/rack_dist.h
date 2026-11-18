@@ -13,13 +13,15 @@
 // exact zero-cost bypass. The 257-entry int32 shape table is FILE-STATIC
 // (function-local static), never in the arena-placed Rings State — the rack
 // pool has only 128 B spare in the worst chain.
-#ifndef RACK_SRC_RINGS_DIST_H_
-#define RACK_SRC_RINGS_DIST_H_
+#ifndef RACK_SRC_RACK_DIST_H_
+#define RACK_SRC_RACK_DIST_H_
 
 #include <stddef.h>
 #include <stdint.h>
 
 #include <cmath>
+
+#include "speaker_ir.h"  // swede cab IR (rodata; see tools/ir2array.py)
 
 namespace rackdist {
 
@@ -241,6 +243,47 @@ static inline void swedish_process(float* out, float* aux, size_t n,
   }
 }
 
+// ---- Speaker cab convolution (swede only) ---------------------------------
+// Mono-summed 1024-tap FIR of the cab IR (src/speaker_ir.h — the Hesu 2x12
+// V30 IR, resampled to 32 kHz, pre-delay compacted, peak-normalized; see
+// tools/ir2array.py). The Barabas5532 plugin convolves a speaker IR at the
+// same chain point (after the amp + tonestack). Linear-history block FIR:
+// each output's tap window is contiguous so the dot products vectorize;
+// 1024 MACs/sample mono ~= 51 us per 500 us block at 320 MHz. Adds 1023
+// samples (~32 ms) of latency — inaudible, the swede path is fully wet.
+static const size_t kSpeakerTaps = 1024;
+static const float kSpeakerConvGain = 0.25f;  // makeup for the normalized IR
+
+struct SpeakerConv {
+  float hist_[kSpeakerTaps - 1 + 64] = {0};  // running history, oldest first
+  void Process(float* l, float* r, size_t n) {
+    if (n > 64u) n = 64u;
+    // mono-sum the new samples into the history tail
+    for (size_t i = 0; i < n; ++i) {
+      hist_[kSpeakerTaps - 1 + i] = 0.5f * (l[i] + r[i]);
+    }
+    // y[i] = sum_k ir[k] * hist_[i + kTaps - 1 - k]
+    for (size_t i = 0; i < n; ++i) {
+      const float* h = hist_ + i;
+      float acc = 0.0f;
+      for (size_t k = 0; k < kSpeakerTaps; ++k) {
+        acc += kSpeakerIr[k] * h[kSpeakerTaps - 1 - k];
+      }
+      const float y = acc * kSpeakerConvGain;
+      l[i] = y;
+      r[i] = y;
+    }
+    // shift the history: keep the last kTaps-1 samples
+    for (size_t i = 0; i < kSpeakerTaps - 1; ++i) {
+      hist_[i] = hist_[n + i];
+    }
+  }
+};
+static inline SpeakerConv& speaker_conv() {
+  static SpeakerConv s{};   // zero-initialized history
+  return s;
+}
+
 // Retroactor's Vult-generated Befaco wavefolder, from
 // ctag-tbd/components/ctagSoundProcessor/vult/vult_formantor.cpp.
 static inline float fold(float signal, float level) {
@@ -375,9 +418,11 @@ static inline void process(State* st, const Params& p,
   const float lp_k = 0.04f + 0.96f * clamp01(p.tone);
   const int type = (int)(p.type % 5u);
   if (type == kSwedish) {
-    // Block-oriented pedal core, then the common tone LP. Rings blocks <= 24.
+    // Block-oriented pedal core, then the cab IR and the common tone LP.
+    // Rings blocks <= 24.
     const size_t m = n < 64u ? n : 64u;
     swedish_process(out, aux, m, d, p.bass, p.mid, p.treble);
+    speaker_conv().Process(out, aux, m);   // cab IR (mono-summed, +32 ms lat)
     float* chans[2] = {out, aux};
     for (int c = 0; c < 2; ++c) {
       float lp = st->lp[c];

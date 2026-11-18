@@ -15,7 +15,7 @@ ENGINE_SRCS =   # e.g. lira8_engine.cpp
 WARPSFLAGS ?= -O2 -g -std=c++17 -Wall -Wextra -I../lib/elements -I../lib/stmlib -I.
 RACKFLAGS  ?= $(WARPSFLAGS) -DRACK_RP2350_TC
 
-TEST_BINS = test_wav_io test_pd_primitives test_voice test_engine test_harmony test_warps test_reverb test_warps_stage test_fx_chain test_swede_eq test_varg test_rings_chord
+TEST_BINS = test_wav_io test_pd_primitives test_voice test_engine test_harmony test_warps test_reverb test_warps_stage test_fx_chain test_swede_eq test_speaker_ir test_varg test_rings_chord
 GOLDEN_BIN = render_golden
 
 all: $(TEST_BINS) $(GOLDEN_BIN)
@@ -102,3 +102,7 @@ test_fx_chain: test_fx_chain.cc ../lib/elements/elements/dsp/part.h ../src/rack_
 # Swedish Chainsaw upgrade: 32 kHz HM-2 band redesign + FMV B/M/T knobs.
 test_swede_eq: test_swede_eq.cc ../src/rack_dist.h | build
 	$(CXX) $(CXXFLAGS) -I../src test_swede_eq.cc -o $(BUILD)$@
+
+# Speaker cab convolution (swede): impulse law + naive-reference law.
+test_speaker_ir: test_speaker_ir.cc ../src/rack_dist.h ../src/speaker_ir.h | build
+	$(CXX) $(CXXFLAGS) -I../src test_speaker_ir.cc -o $(BUILD)$@
