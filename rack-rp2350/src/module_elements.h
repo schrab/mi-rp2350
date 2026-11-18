@@ -309,17 +309,19 @@ static inline float dist_level_trim(uint8_t type, float drive) {
 // flag flips (M33 is weakly ordered across cores). If core 0 has not
 // produced in time, core 1 bypasses with the mono pre-conv signal for that
 // block (a one-block timbre dip, never a stall) and counts a miss.
-static const size_t kConvSlots = 2;
+static const size_t kConvSlots = 3;           // absorbs core-0 loop jitter
 static float s_conv_in[kConvSlots][16];       // post-FMV mono (core 1 -> 0)
 static float s_conv_out[kConvSlots][16];      // convolved (core 0 -> 1)
-static volatile bool s_conv_in_ready[kConvSlots] = {false, false};
-static volatile bool s_conv_out_valid[kConvSlots] = {false, false};
-static volatile size_t s_conv_slot_n[kConvSlots] = {0, 0};
+static volatile bool s_conv_in_ready[kConvSlots] = {false, false, false};
+static volatile bool s_conv_out_valid[kConvSlots] = {false, false, false};
+static volatile size_t s_conv_slot_n[kConvSlots] = {0, 0, 0};
 static size_t s_conv_write = 0;               // core 1 only (slot producer)
 volatile uint32_t conv_us_max = 0;            // core 0 conv bench
 volatile uint32_t conv_us_sum = 0;
 volatile uint32_t conv_us_count = 0;
 volatile uint32_t conv_misses = 0;            // core 1 bypass count
+volatile float conv_in_peak = 0;              // |mono| peak published (core 1)
+volatile float conv_out_peak = 0;             // conv output peak (core 0)
 
 // Core 0 pump: called every loop() iteration; convolves ready slots. The
 // SpeakerConv state (dec/hist/vhist) lives here now — single consumer.
@@ -335,6 +337,14 @@ void conv_pump() {
     const uint32_t t0 = time_us_32();
     rackdist::speaker_conv().Process(s_conv_in[slot], s_conv_in[slot],
                            s_conv_slot_n[slot]);
+    // SpeakerConv::Process writes its result IN-PLACE into the first
+    // argument — move it to the out slot (this copy IS the audio path;
+    // without it core 1 consumes the zero-initialized s_conv_out = silence).
+    for (size_t i = 0; i < s_conv_slot_n[slot]; ++i) {
+      s_conv_out[slot][i] = s_conv_in[slot][i];
+      const float a = fabsf(s_conv_out[slot][i]);
+      if (a > conv_out_peak) conv_out_peak = a;
+    }
     const uint32_t dt = time_us_32() - t0;
     if (dt > conv_us_max) conv_us_max = dt;
     conv_us_sum += dt;
@@ -374,25 +384,31 @@ static void pre_reverb_shaper(float* main, float* aux, size_t size, void* user) 
     return;
   }
   const size_t slot = s_conv_write;
-  // (a) wait for core 0 to release this slot (bounded)
-  uint32_t wait0 = time_us_32();
-  while (s_conv_in_ready[slot] && time_us_32() - wait0 < 250) {
+  // (a) wait for core 0 to release this slot — bounded by the REMAINING
+  //     block budget (the noconv render is ~340 us of the 500 us period, so
+  //     ~150 us of waiting is safe; 400 us since t0 leaves margin).
+  while (s_conv_in_ready[slot] && time_us_32() - t0 < 400) {
   }
   if (s_conv_in_ready[slot]) {
     ++conv_misses;                           // slot still busy: skip publish
   } else {
     for (size_t i = 0; i < size; ++i) {
       s_conv_in[slot][i] = 0.5f * (main[i] + aux[i]);
+      const float a = fabsf(s_conv_in[slot][i]);
+      if (a > conv_in_peak) conv_in_peak = a;
     }
     s_conv_slot_n[slot] = size;
     __dmb();
     s_conv_in_ready[slot] = true;
     __dmb();
   }
-  // (b) consume the previous block's conv output (the other slot)
-  const size_t prev = slot ^ 1u;
-  uint32_t wait1 = time_us_32();
-  while (!s_conv_out_valid[prev] && time_us_32() - wait1 < 250) {
+  // (b) consume the conv output for the PREVIOUS block (the slot published
+  //     last block). Waiting is budget-aware too; on a miss the bypass is
+  //     LEVEL-MATCHED (speaker_bypass_gain = sqrt(sum ir^2) * conv gain) so
+  //     the volume does not jump between the conv path and the raw mono.
+  const size_t prev =
+      (slot + kConvSlots - 1) % kConvSlots;
+  while (!s_conv_out_valid[prev] && time_us_32() - t0 < 460) {
   }
   if (s_conv_out_valid[prev] && s_conv_slot_n[prev] == size) {
     __dmb();
@@ -403,19 +419,14 @@ static void pre_reverb_shaper(float* main, float* aux, size_t size, void* user) 
     s_conv_out_valid[prev] = false;
     __dmb();
   } else {
-    // miss: fall back to the mono pre-conv signal for continuity
-    if (s_conv_in_ready[slot] == false) {    // our publish (if any) is usable
-      for (size_t i = 0; i < size; ++i) {
-        main[i] = 0.5f * (main[i] + aux[i]);
-      }
-    } else {
-      for (size_t i = 0; i < size; ++i) {
-        main[i] = 0.5f * (main[i] + aux[i]);
-      }
+    const float bg = rackdist::speaker_bypass_gain();
+    for (size_t i = 0; i < size; ++i) {
+      main[i] = 0.5f * (main[i] + aux[i]) * bg;
+      aux[i] = main[i];
     }
     ++conv_misses;
   }
-  s_conv_write = slot ^ 1u;
+  s_conv_write = (slot + 1) % kConvSlots;
   const uint32_t dt = time_us_32() - t0;
   if (dt > shaper_us_max) shaper_us_max = dt;
   shaper_us_sum += dt;

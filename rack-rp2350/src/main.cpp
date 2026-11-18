@@ -3037,7 +3037,7 @@ static uint16_t g_dbg_head = 0, g_dbg_tail = 0, g_dbg_count = 0;
 static uint32_t g_dbg_dropped = 0;
 
 void dbg_printf(const char* fmt, ...) {
-  char line[400];
+  char line[560];
   va_list ap;
   va_start(ap, fmt);
   int n = vsnprintf(line, sizeof(line), fmt, ap);
@@ -3318,12 +3318,12 @@ void loop() {
                           rack_modules::mod_elements::conv_us_count
                     : 0);
         snprintf(elements_tail, sizeof(elements_tail),
-                 "ins=%lu/%lu cv=%lu/%lu miss=%lu",
+                 "ins=%lu cv=%lu m=%lu p=%ld/%ld",
                  ins_avg,
-                 (unsigned long)rack_modules::mod_elements::shaper_us_max,
                  conv_avg,
-                 (unsigned long)rack_modules::mod_elements::conv_us_max,
-                 (unsigned long)rack_modules::mod_elements::conv_misses);
+                 (unsigned long)rack_modules::mod_elements::conv_misses,
+                 (long)(rack_modules::mod_elements::conv_in_peak * 100.0f),
+                 (long)(rack_modules::mod_elements::conv_out_peak * 100.0f));
         rack_modules::mod_elements::shaper_us_max = 0;
         rack_modules::mod_elements::shaper_us_sum = 0;
         rack_modules::mod_elements::shaper_us_count = 0;
@@ -3331,6 +3331,8 @@ void loop() {
         rack_modules::mod_elements::conv_us_sum = 0;
         rack_modules::mod_elements::conv_us_count = 0;
         rack_modules::mod_elements::conv_misses = 0;
+        rack_modules::mod_elements::conv_in_peak = 0;
+        rack_modules::mod_elements::conv_out_peak = 0;
       }
 #if RACK_ENABLE_USB_HOST
       dbg_printf("max Process: %u us avg %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s | %s | %s%s\r\n",

@@ -4696,3 +4696,27 @@ margin was thin). Core-0 offload implemented:
   SMLALD int16 lever (ch.19.4, 1.5 cyc/MAC) halves it if ever needed.
 - 13/13 host suite green; flashed COM15, verify OK. User ears pending (expect: no crackles under
   sustained swede play; if the SMLALD/miss counter ever spikes, the ins/cv/miss tail shows it).
+
+## Volume inconsistency fixed: level-matched bypass + 3-slot hand-off (2026-11-19, night)
+
+User: "the volume is inconsistent... volume changing with distortion off and other distortion
+modules too". Read-only console state (no flashing) localized it:
+
+- **`miss=36` per report window** — the core-0 conv hand-off missed its 250 us deadline ~30x/s
+  (core-0 bursts: the C3 UI-link TELEM replies + the report printer). EVERY miss bypassed with
+  the RAW mono-sum at FULL level while the conv path runs at 0.25 gain + cab attenuation — the
+  output jumped between two level families = the volume inconsistency. (The level-matching edit
+  existed in rack_dist.h but was never wired into the adapter's bypass.)
+- **With distortion OFF**: mod source 10 (VARG ARP) is routed `dest=1(voice+trig on elements)`
+  (chord=pc6 pool=[0,6,7,12]) + the hardware button strikes (btn=29/window) — the volume/pitch
+  following the ARP pattern + strikes is the instrument working, not a bug.
+- **Fixes**: bypass = mono x speaker_bypass_gain() (= sqrt(sum ir^2) x conv gain, RMS-matched,
+  computed once from the IR); waits budget-aware (400/460 us since insert start instead of
+  absolute 250+250 which could overrun the block); kConvSlots 2 -> 3 (core-0 jitter headroom);
+  slot advance (slot+1)%3.
+- **Verified on board (strikes during capture)**: miss 0 across all windows, peaks in 0.35 /
+  out 0.25 (the cab-attenuated signal flowing through the core-0 pipeline), render avg 316 us
+  (184 us headroom), max 632-653 (strike spikes, absorbed), stall deltas 0. 13/13 host suite.
+- Note: dbg_printf's line buffer was 400 B — the report line (avg + 4 tails) exceeded it and
+  silently truncated the bench tail; enlarged to 560. newlib-nano vsnprintf has NO %f support
+  (printed `p=/`) — integer hundredths used for the peaks.

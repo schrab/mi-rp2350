@@ -272,6 +272,21 @@ static inline void swedish_process(float* out, float* aux, size_t n,
 // halfband's 14 nonzero even-index taps x2 (their DC sum is 0.5).
 static const size_t kSpeakerTaps = 512;   // @ 16 kHz = 32 ms
 static const float kSpeakerConvGain = 0.25f;   // makeup for the normalized IR
+
+// RMS-matching gain for the pre-conv bypass: sqrt(sum ir^2) * conv gain, so
+// a bypass block (mono pre-cab signal) has the same loudness as a conv block
+// (the FIR is load-bound; this is computed once from the IR, not hardcoded).
+static inline float speaker_bypass_gain() {
+  static float g = 0.0f;
+  if (g == 0.0f) {
+    float e = 0.0f;
+    for (size_t k = 0; k < kSpeakerTaps; ++k) {
+      e += kSpeakerIr[k] * kSpeakerIr[k];
+    }
+    g = sqrtf(e) * kSpeakerConvGain;
+  }
+  return g;
+}
 static const float kHalfbandDec[31] = {   // DC-normalized (sum = 1)
     2.94498535e-19f, 7.81558784e-20f, 0.000410322871f, -7.83790506e-19f,
     -0.00223028552f, 2.53383519e-18f, 0.00710085713f, -5.64234343e-18f,
