@@ -4933,3 +4933,52 @@ option. Fix: blend aux toward the SAME wet (mono warps out on both channels — 
 reaches aux. test_warps_stage laws updated: staged aux == staged main at space 0 / mix 1
 (bit-exact), staged aux != base aux, aux-halving at w=0. All warps tests green. Flashed;
 **USER-ACCEPTED** ("wait now its working" — first test ran against stale state, second confirmed).
+
+## Dronecaster T-D1 — SC 3.13.1 port facts (plan review, 2026-11-19)
+
+The first T-D1 plan draft assumed pre-3.8 SuperCollider internals. The plan was
+re-derived against the actual **Version-3.13.1** tag; these facts are
+authoritative and must not be re-guessed (plan:
+`docs/superpowers/plans/2026-11-19-dronecaster-td1.md`, rev 2):
+
+- **RGen is taus88** (`include/plugin_interface/SC_RGen.h`), seeded
+  `Hash(seed) ^ {1243598713U, 3093459404U, 1821928721U}` with
+  `s1<2/s2<8/s3<16` guards. `frand0`=[1,2), `frand2`=[-1,1), `frand`=[0,1),
+  `frand8`, `fcoin`; **there is no `frand1`**. The Numerical-Recipes LCG
+  (`s*1664525+1013904223`) is from an older SC and appears nowhere in 3.13.
+- **Pulse is a sine/cosecant BLIT** (`server/plugins/OscUGens.cpp:2510-2720`),
+  not a wavetable: `N=int(sr/2/f)`, `scale=.5/N`,
+  `phaseoff=duty*2^28` with a first-block slope, an N-change crossfade, and the
+  leaky integrator `y1=(pul1-pul2)*scale+0.999*y1`. No `gPulseTable` /
+  `kPulseTableSize` / `gInvAmp*` exist.
+- **Env.asr's default curve is -4** (`Env.sc:198`) and `EnvGen.kr` is
+  **control rate**: one value per 64-sample block, `counter=dur*(sr/64)`, curve
+  law `a1/a2/b1/grow` (`LFUGens.cpp:2670-2682`); `EnvGen_Ctor` primes one
+  block. A linear per-sample ASR differs by ~5,000 LSB mid-attack.
+- **SinOsc**: int32 fixed-point phase, double `cpstoinc`/`lomask` in
+  `TableLookup`, reads then increments; the ctor's priming call is undone by
+  `m_phase = initPhase`. **LFTri**: double phase, `4/sr`, `iphase` 0; the ctor
+  advances once and does NOT reset. Both ported with uint32 phase state to keep
+  the wrap defined (same bits).
+- **SC tables**: `kSineSize=8192`; `gSine`/`gInvSine` 8193 floats;
+  `gSineWavetable` is 16384 floats of interleaved pairs `{2a-b, b-a}`;
+  `kBadValue=1e20f` with ±8-index bands. `KitTables` = **131,080 B**.
+- **scsynth NRT**: score events apply at block boundaries; the world RGen is
+  time-seeded (`SC_World.cpp:400`) — `RandSeed.kr(1, seed)` in the SynthDef is
+  the server-seed hook. `Score:recordNRT` is async (`unixCmd`) — render with
+  `Score:writeOSCFile` + `systemCmd`. Goldens are **float32** with a block-
+  aligned schedule (voice at sample 0, gate off at 144000) and a host gate of
+  `max|Δ| ≤ 1e-6`, `corr ≥ 0.999999`.
+- **Integration surfaces missed by the first draft**: 6 modules grow the preset
+  blob to 1215 B → `kPresetBlobMax` and the C3's `PresetBank::kMaxRp` must be
+  1216; the C3 needs module 5 in `RackUI.cpp` (`kModNames`/`kModuleCount`) and
+  `RackLink.cpp` (`SendSwitch`, `kModuleSlots`); the RP2350's `ui_link.h`
+  needs a dronecaster P1 page row (`kUiPages`); `__rack_flash_end` must move to
+  the new last overlay member; the O3 wrapper (not the inline callees) carries
+  `DRONECASTER_TC`.
+- **Host validation done**: the revised plan's engine headers, comparator and
+  test suite compile and pass at -O2 and under ASan/UBSan (all non-golden
+  sections; the goldens require WSL SuperCollider, not installed in this
+  session). The wrapper compiled with `-DRACK_RP2350_TC` puts the whole engine
+  in `.tc_dronecaster.process_dronecaster_o3` (0x551 B); the adapter compiles
+  and runs against stub rack headers.

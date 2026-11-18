@@ -59,11 +59,13 @@ by plain g++; `-O3` via a `lib/dronecaster_engine/` wrapper (mirror of
 
 ```
 src/dronecaster/
-├── sc_rgen.h           # exact port of scsynth's RGen LCG (seed-matched goldens)
+├── sc_rgen.h           # exact port of scsynth's RGen (taus88 + Hash seeding;
+│                       #   frand0=[1,2), frand2=[-1,1) — seed-matched goldens)
 ├── sc_defs.h           # rate struct (sr, kBlock=64), fold/clip/midicps
-├── sc_kit_osc.h        # SinOsc (SC 8192-pt sine wavetable, linear interp),
-│                       #   Saw/Pulse/VarSaw (SC 2-band-limit table scheme),
+├── sc_kit_osc.h        # SinOsc (SC 8192-pt interleaved sine wavetable +
+│                       #   lookupi1), LFTri (double phase, 4/sr), Saw/VarSaw,
 │                       #   LFSaw/LFPar/LFPulse, SinOscFB, PMOsc, SawDPW/PulseDPW,
+│                       #   Pulse is its own file: sine/cosecant BLIT (sc_kit_pulse.h),
 │                       #   chaos: HenonC, LorenzL, FBSineN
 ├── sc_kit_noise.h      # LFNoise0/1/2, LFDNoise3, White/Pink/Brown, Dust/Dust2,
 │                       #   Crackle, Impulse/Trig
@@ -72,7 +74,9 @@ src/dronecaster/
 │                       #   OnePole, LeakDC, Lag/LagUD/VarLag
 │                       #   phase 2: MoogLadder, MoogFF, DFM1, SVF, FreeVerb/GVerb/
 │                       #   Greyhole, Compander, Limiter
-├── sc_kit_env.h        # EnvGen (asr/perc/new, curve shapes), Linen, Decay2,
+├── sc_kit_env.h        # EnvGen subset (asr/perc/new, curve shapes). Env.asr's
+│                       #   default curve is -4 and EnvGen.kr is CONTROL rate (one
+│                       #   value per 64-sample block), Linen, Decay2,
 │                       #   Amplitude, Peak
 ├── sc_kit_delay.h      # DelayN/C/L, CombN/C/L, AllpassN/C, Pluck; phase 3: tape
 │                       #   BufDelay*/BufRd/BufWr/Phasor over the int16 tape carve
@@ -81,19 +85,24 @@ src/dronecaster/
 │                       #   InsideOut, LinExp/LinLin, A2K/K2A, DC
 ├── sc_kit_spatial.h    # Pan2, Balance2, Rotate2, Splay/SplayAz, XFade2
 ├── sc_kit_dist.h       # SineShaper, CrossoverDistortion, Decimator, DiodeRingMod
-├── sc_arena.h          # bump allocator over the drone's SRAM carve (reset per voice)
-├── drone.h             # DroneSpec interface: init(sr, seeds)/process(f32 L,R)/
-│                       #   buffer_bytes() + the fixed 37-entry catalog (norns order)
-├── drones/drone_<name>.h   # one struct per .scd — line-for-line C++ mirror
+├── sc_arena.h          # bump allocator over the drone's SRAM carve (reset per
+│                       #   voice to a savepoint that keeps the kit tables)
+├── drones/drone_trio.h # T-D1 drone structs + the 37-entry catalog (DroneSpec is
+│                       #   declared in dronecaster_engine.h); one file per phase
 └── dronecaster_engine.h    # SynthSocket port: mono voice, Env.asr gate, down+up
-                          #   swap; hz/amp/fade controls; per-block NaN guard
+                          #   swap; hz/amp/fade controls; EnvGen.kr block envelope
+                          #   (one env value per internal block); per-block NaN guard
 ```
 
 **Faithfulness law:** every kit UGen is ported from the scsynth source of that
-UGen, including the internals that decide sample accuracy (8192-pt sine
-wavetable, 2× oversampled osc tables, Paul Kellet pink filter, RGen's exact
-LCG constants). `ar` UGens run per-sample; `kr` UGens once per 64-sample
-internal block — exactly SC's rate semantics.
+UGen, including the internals that decide sample accuracy (the 8192-pt
+interleaved sine wavetable + `lookupi1` phase law, Pulse's sine/cosecant BLIT
+with its 0.999 leaky integrator, SinOsc's int32 fixed-point phase and
+double `cpstoinc`, LFTri's double phase, EnvGen's curve -4, the taus88 RGen
+with `Hash` seeding, Paul Kellet's pink filter). `ar` UGens run per-sample;
+`kr` UGens once per 64-sample internal block — exactly SC's rate semantics.
+SC 3.13.x is the reference; every port cites the exact `file:line` in its
+header and in the implementation plan.
 
 **Optimization-context laws** (from the swede cab-conv inventory, ledger
 §optimization-techniques — commit fba4cb8):
@@ -112,7 +121,7 @@ internal block — exactly SC's rate semantics.
   (~1 MAC/cycle vs 3 serialized — the M33 VMLA latency lesson).
 
 **Rates / burst:** standalone 48 kHz; host grid 16 samples; engine bursts
-4×16 → 64 (the proven lira8-standalone pattern: I2S bank 8×16 ≈ 2.9 ms absorbs
+4×16 → 64 (the proven lira8-standalone pattern: I2S bank 8×16 ≈ 2.7 ms absorbs
 the 4× burst). Reported budget = the 64-sample period = 1333 µs.
 
 **LocalIn/LocalOut** (phase 2): per-voice feedback buffer — `LocalOut` writes
@@ -122,13 +131,16 @@ block-boundary semantics).
 ## Rack integration
 
 - **Window/flash**: new `tc_dronecaster` overlay member in `memmap_rack.ld` +
-  `__rack_flash_dronecaster_*` LMA symbols; `rack_window.h` section table +
-  symbols; `RACK_MODULE_COUNT` 5→6; `RACK_BOOT_MODULE` untouched (currently 0
-  = Elements). Hot code tagged with a `DRONECASTER_RAM_CODE()` macro with
-  unique section names. Phase-1 hot code expected ~20–40 KB — under both the
-  118 KB window and the 58 KB chain A-slot.
-- **Adapter shape**: lira8 pattern — arena-placed state, pending slots for
-  CCs/notes, `render()` = one 16-sample host block (engine bursts),
+  `__rack_flash_dronecaster_*` LMA symbols (and `__rack_flash_end` moves to the
+  new last member); `rack_window.h` section table + symbols; `RACK_MODULE_COUNT`
+  5→6; `RACK_BOOT_MODULE` untouched (currently 0 = Elements). Hot code is the
+  `-O3` wrapper in `lib/dronecaster_engine` tagged `DRONECASTER_TC(token)` (the
+  lira8 pattern — only the wrapper carries the section token; inline callees
+  must not). Phase-1 hot code expected ~20–40 KB — under both the 118 KB window
+  and the 58 KB chain A-slot.
+- **Adapter shape**: lira8 pattern — arena-placed state, pending slots for the
+  block-aligned intents (drone select, recast), atomic single-word float params
+  (amp/fade/hz), `render()` = one 16-sample host block (engine bursts),
   float→int16 at output. Registry entry: `sample_rate=48000, block_size=16,
   budget_us=1333, i2s_buffers=8, i2s_words=16`.
 - **CC map** (avoids rack-reserved 32 / 33-35 / 64):
@@ -144,35 +156,56 @@ block-boundary semantics).
   - PLAY button (pseudo-CC 64) = recast: release + restart current drone
   - Mod destinations: continuous CC 52/53/54; no triggers
 - **Presets**: autosave drone id + amp/fade/hz-offset via the existing
-  `preset.h` path.
+  `preset.h` path. Six modules grow the blob to 1215 B → `kPresetBlobMax` 1216
+  and the C3's `PresetBank::kMaxRp` 1216; version bumps to 5.
+- **UI**: RP2350 `ui_link.h` gains a `kUiPageDronecasterP1` row (CC 51-54) in
+  the registry page tables; the C3 gains the module name/slot 5
+  (`RackUI.cpp`, `RackLink.cpp`) so the hardware selector can reach it.
 - **Panel** (`tools/rack_panel.html`): `dronecaster` tab — labeled drone
   dropdown (ported ids only), amp/fade/hz sliders, CC map, console link.
 
 ## Golden harness (`test/dronecaster_ref/`)
 
-- Vendor the 37 `.scd` files into `test/dronecaster_ref/drones/` (GPL-3
-  attribution note) — no external checkout dependency.
-- WSL: `apt install supercollider` (sclang + scsynth).
-- `gen_goldens.scd`: per drone — load `.scd`, wrap exactly like
-  `SynthSocket.wrapDef` (hz/amp/out/gate/attack/release + `Env.asr`), fix the
-  **sclang seed** (graph-construction randomness, e.g. Eno's `Rand(0.78,1.32)`)
-  and the **server RGen seed** (`s.seed_`), NRT-render 4 s @ 48 kHz (defaults
-  hz=55, amp=0.4) → WAV.
+- Vendor the 37 `.scd` files **and `Dronecaster_SynthSocket.sc`** into
+  `test/dronecaster_ref/` (GPL-3 attribution note, pinned upstream commit) —
+  no external checkout dependency; the socket file documents the exact wrap
+  semantics the renderer reproduces.
+- WSL: `apt install supercollider` (sclang + scsynth). The host test and the
+  renderer run on the same glibc, so `sin`/`exp` double results match bit-for-bit.
+- `gen_goldens.scd`: per drone — load the `.scd` function, wrap exactly like
+  `SynthSocket.wrapDef` (`fn.value(K2A.ar(hz), K2A.ar(amp), 0)`,
+  `EnvGen.kr(Env.asr(attack, 1, release), gate, doneAction: 2)`,
+  `Out.ar(out, snd * aenv)`), fix the **sclang seed** (graph construction) and
+  the **server RGen seed** with `RandSeed.kr(1, 16rC0FFEE)` inside the SynthDef
+  (scsynth's world RGen is otherwise time-seeded — `SC_World.cpp:400`), and
+  NRT-render 4 s @ 48 kHz (hz=55, amp=0.4) to a **float32** WAV.
+- **Schedule is block-aligned**: voice at sample 0 (block 0), gate off at
+  sample 144000 (block 2250), 192000 frames. scsynth applies score events at
+  block boundaries; the C++ harness starts the voice before its first
+  `Process` call, so both renders are sample-aligned.
+- Rendering is **synchronous**: `Score:recordNRT` uses `unixCmd` and races the
+  file copy — write the OSC score with `Score:writeOSCFile`, then run
+  `scsynth -N` with `systemCmd`.
 - `test/test_dronecaster.cc`: same seeds on the C++ side, render 4 s, compare
-  max|Δ| + RMS-of-Δ — target **sample-exact** for deterministic drones (few-LSB
-  int16 tolerance for float summation order), plus NaN/denormal/RMS smoke
-  checks. A drone is "ported" only when its golden passes.
+  in the **float domain** — `max|Δ| ≤ 1e-6` and `corr ≥ 0.999999` for
+  deterministic drones, plus NaN/denormal/RMS smoke checks. A drone is
+  "ported" only when its golden passes. Do not weaken the gate; a 1e-6
+  failure is a port bug.
 - Two-seed model: sclang-side randomness is fixed by the sclang seed;
   server-side UGen noise (`LFNoise*`, `Dust`, `TChoose`, `rrand`) is fixed by
-  the server seed + the exact RGen port.
+  the `RandSeed` re-seed + the exact taus88 RGen port.
 
 ## Memory
 
 When dronecaster is active it owns the 331,776 B SRAM pool: `sc_arena`
-bump-allocates per voice and resets on drone swap. Phase-1 drones need only
-small delay buffers (worst case FreeVerb ≈ 64 KB). Phase-3 tape cap: **1 s
-stereo int16 = 192 KB** (vs SC's 60 s float) — the honest MCU ceiling; revisit
-by ear in phase 3 (mono 2 s = fallback). `static_assert` carves like lira8.
+bump-allocates per voice and resets on drone swap **to a savepoint**, so the
+kit tables (built once) survive swaps. The tables are **131,080 B**: the
+interleaved sine wavetable (2 × 8192 floats) plus `gSine` and `gInvSine`
+(8193 floats each; Pulse's numerator/denominator). The T-D1 voice carve is
+136 KiB (`static_assert`ed). Phase-1 drones need only small delay buffers on
+top (worst case FreeVerb ≈ 64 KB). Phase-3 tape cap: **1 s stereo int16 =
+192 KB** (vs SC's 60 s float) — the honest MCU ceiling; revisit by ear in
+phase 3 (mono 2 s = fallback). `static_assert` carves like lira8.
 
 ## Error handling
 
@@ -189,20 +222,27 @@ by ear in phase 3 (mono 2 s = fallback). `static_assert` carves like lira8.
 
 | Phase | Content | HW flash |
 |---|---|---|
-| T-D1 | Kit core (RGen, osc/noise/env/delay/logic/spatial basics) + goldens infra (WSL scsynth, gen script, comparison) + Sine/Square/Triangle **bit-exact** + minimal end-to-end module (adapter/window/CC/panel/presets) | ✅ — integration proven on the trivial trio |
+| T-D1 | Kit core limited to what the trio + socket need: RGen (taus88), SinOsc/LFTri (wavetable/analytic) + Pulse (sine/cosecant BLIT), Env.asr (curve -4 at kr), arena; goldens infra (WSL scsynth float32 NRT, comparison) + Sine/Square/Triangle **bit-exact** + minimal end-to-end module (adapter/window/CC/panel/presets/C3 UI) | ✅ — integration proven on the trivial trio |
 | T-D2 | Mid-tier kit (biquads, Resonz, Butterworth, FreeVerb, Limiter) + ~12 curated drones chosen by greedy UGen-coverage over the 37 files | ✅ |
 | T-D3 | Demand family, MoogLadder/MoogFF/DFM1/SVF, LocalIn/Out feedback, PitchShift, chaos UGens + remaining 19 non-tape drones | ✅ |
 | T-D4 | Tape buffer (1 s stereo int16 carve) + the 4 in-scope tape drones (UNEABLIN, Shields, Takita, Belong — UNREANTH excluded with the FFT drones) | ✅ |
 
 ## Risks / open items
 
-- RGen LCG constants + sine wavetable must be extracted from scsynth source —
-  verify against the installed WSL version.
+- ~~RGen constants + sine wavetable must be extracted from the scsynth source~~
+  **Resolved:** SC 3.13's RGen is taus88 (`SC_RGen.h`, Hash-seeded); the sine
+  wavetable/cosecant tables and the Pulse BLIT are pinned in the T-D1 plan
+  with `file:line` references. Verify the installed WSL version's tag before
+  porting (3.13.x internals are stable).
+- Host-vs-device exactness: the host test is the acceptance gate and runs on
+  the same glibc as scsynth. The RP2350's newlib `sin`/`exp` differ by ulps,
+  so device audio is "same algorithm", not bit-identical to the golden. Do
+  not chase device-side LSB diffs.
 - sclang seed determinism for graph-construction randomness needs proving
   early (T-D1): if `Rand()` at build time can't be pinned, those drones get
   statistical (not sample-exact) goldens — acceptable, decided per drone.
 - Hot-code size unknown until the first full build — window ASSERTs will catch
-  a regression (expected headroom is large).
+  a regression (expected headroom is large: the trio's hot code is small).
 - MouseX/MouseY drones: gesture X → CC 55, gesture Y → CC 56 (these CCs are
   per-module, so they don't clash with lira8's sensor bank); done per drone
   during T-D2/T-D3.
