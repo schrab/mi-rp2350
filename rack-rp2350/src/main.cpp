@@ -894,6 +894,16 @@ static volatile bool g_host_alarm_pool_ready = false;
 #endif
 
 void setup1() {
+  // Flush-to-zero + default-NaN on the AUDIO CORE (2026-11-19): FPSCR is
+  // per-core — setup()'s write covers core 0 only, and this core runs the
+  // render. Without FZ the resonator/reverb/conv/biquad tails decay into
+  // denormals and every hit costs ~30 cycles (measured: recurring max-Process
+  // spikes to ~1.7 ms, 3.4x the 496 us budget, while idle-with-tail).
+  {
+    uint32_t fpscr = __get_FPSCR();
+    fpscr |= (1u << 24) | (1u << 25);      // FZ | DN
+    __set_FPSCR(fpscr);
+  }
 #if RACK_ENABLE_USB_HOST
   // Must run BEFORE the audio_ready wait: core 0's host init (in setup(),
   // before i2s.begin) consumes this pool.

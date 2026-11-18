@@ -11,6 +11,9 @@
 namespace rackdist {
 
 // tools/Hesu 2x12 V30 - 440 center edge.wav -> 1024 taps @ 32000 Hz (peak-normalized, pre-delay compacted from sample 842, 64-sample tail fade; source 44100 Hz, 80640 samples, 1.83 s)
+// RACK_DIST_MARK (when the including adapter defines it) lands this 4 KB
+// table in the tc_* SRAM window — XIP-cache-friendly for the per-sample FIR.
+RACK_DIST_MARK(dist_speaker_ir)
 static const float kSpeakerIr[1024] = {
     -0.000783356971f, -0.00075246724f, -0.000866514349f, -0.000944095425f, -0.00107748075f, -0.00103095605f, -0.00101301978f, -0.000887206225f,
     -0.000819240451f, -0.000664373381f, -0.000762816484f, -0.000833585852f, -0.00103589215f, -0.00116981992f, -0.00143942407f, -0.00133736003f,

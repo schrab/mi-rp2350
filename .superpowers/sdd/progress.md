@@ -4620,3 +4620,24 @@ OK + "device was rebooted").
 - Cost note: the conv is gated on the swede branch — tube/fold/fuzz/shape and OFF pay nothing.
   If the ~10% block cost shows up as stalls on the 2 s report, drop to 512 taps (16 ms) or add
   CMSIS arm_fir_f32 (asm-optimized, ~2 MAC/cycle).
+
+## Measured: swede FX cost on the board + two real fixes (2026-11-19, night)
+
+**Denormal storm, part 2 — FPSCR is per-core.** The FZ/DN write in setup() covered core 0 only;
+the render runs on core 1 (setup1/loop1), whose FPU still flushed nothing. Log evidence: with FX
+OFF, max Process crept 624 -> 955 -> 1027 us (budget 496) — spikes even without the shaper. Fix:
+same FZ|DN write at the top of setup1() (the audio core). Result: OFF max dropped to 520 us.
+NOTE for the future: any per-core FPU mode must be set on BOTH cores.
+
+**Measured swede cost** (tools/measure_fx.py: bounce lira8->elements to force the swap-side
+proc_us_max reset — the self-swap guard skips switch-to-same — then 8 s per phase, D DRIVE 0.71):
+- FX OFF: max 520 us (0 stalls)
+- FX TYPE = SWEDE: max 721 us (0 stalls)
+- delta = +201 us = 40.5% of the 496 us nominal budget (shaper + per-block FMV design + 1024-tap
+  cab FIR + tone LP). Worst single block; typical lower. 0 stalls over 16 s incl. the autosave
+  PART burst. The 4-accumulator unroll (f7259ee) + SRAM-marked dist code (tc_elements 51,664 ->
+  57,728 B, window slot 60,416 B, 2.7 KB spare) are part of this result.
+- Boot default changed to Elements (RACK_BOOT_MODULE=0) — testing focus; runtime switch unchanged.
+- If swede stalls ever appear under sustained load: 512-tap IR (halves the conv) or CMSIS
+  arm_fir_f32 built with -ffast-math (see the 4-accumulator analysis — CMSIS-as-built saves
+  nothing without it).

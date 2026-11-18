@@ -21,6 +21,17 @@
 
 #include <cmath>
 
+// Per-TU SRAM-placement hook: the including adapter may define
+// RACK_DIST_MARK(token) (-> ELEMENTS_RAM_CODE) BEFORE including this header
+// to land the hot dispatch + cab IR in its tc_* SRAM window. The header is
+// included by TWO TUs (elements + rings adapters); a shared section name
+// across both would collide (see ram_code.h's token rule), so the default is
+// a no-op — the rings TU's copies stay in flash (rings never selects swede,
+// and its four fast algos keep their own placement decision).
+#ifndef RACK_DIST_MARK
+#define RACK_DIST_MARK(token)
+#endif
+
 #include "speaker_ir.h"  // swede cab IR (rodata; see tools/ir2array.py)
 
 namespace rackdist {
@@ -418,6 +429,9 @@ static inline const int32_t* shape_table() {
 
 // Shape the stereo pair in place. State carries the per-channel tone LP
 // between blocks. drive == 0 returns immediately (no reads, no writes).
+// RACK_DIST_MARK: the whole dispatcher (4 fast algos + swede chain incl. the
+// cab FIR) lives in the including adapter's SRAM window when provided.
+RACK_DIST_MARK(dist_process)
 static inline void process(State* st, const Params& p,
                            float* out, float* aux, size_t n) {
   if (p.drive <= 0.0f) return;

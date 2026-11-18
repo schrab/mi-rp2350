@@ -25,6 +25,12 @@
 #include "elements/dsp/dsp.h"
 #include "elements/dsp/part.h"
 #include "warps/dsp/modulator.h"  // T9: warps stage state (pool-placed) — kept, currently bypassed
+
+// Land the rack_dist hot dispatch + cab IR in the tc_elements SRAM window
+// (this TU only — the rings TU keeps its unmarked copies; it never runs the
+// swede). ELEMENTS_RAM_CODE is available via the ELEMENTS.h include above.
+// MUST precede the rack_dist.h include.
+#define RACK_DIST_MARK(token) ELEMENTS_RAM_CODE(token)
 #include "rack_dist.h"           // shared 5-algo distortion (Rings + Elements)
 #include "pico/time.h"           // time_us_32 (static inline in pico-sdk 2.x)
 #if RACK_HANG_DEBUG

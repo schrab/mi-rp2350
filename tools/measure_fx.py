@@ -45,7 +45,13 @@ time.sleep(0.3)
 send("")                      # newline: stale-byte recovery after flash
 send("module")
 time.sleep(0.5)
-send("switch 0")              # Elements; proc_us_max resets on the swap
+# Force TWO real swaps: proc_us_max resets on every swap (the self-swap
+# guard would skip switch-to-same-module), so bouncing lira8 -> elements
+# gives a clean per-phase counter for the OFF baseline.
+send("switch 4")
+time.sleep(1.0)
+send("switch 0")
+time.sleep(1.0)
 max_off, stalls_off, lines_off = collect(8.0)
 send("cc 42 5")               # FX TYPE = SWEDE
 send("cc 43 90")              # D DRIVE ~0.71 — the shaper + IR engaged
