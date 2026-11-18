@@ -4720,3 +4720,11 @@ modules too". Read-only console state (no flashing) localized it:
 - Note: dbg_printf's line buffer was 400 B — the report line (avg + 4 tails) exceeded it and
   silently truncated the bench tail; enlarged to 560. newlib-nano vsnprintf has NO %f support
   (printed `p=/`) — integer hundredths used for the peaks.
+
+**CORRECTION (user, 2026-11-19)**: the ARP-routing explanation for the earlier "volume changing
+with distortion off" report was WRONG — mod source 10 was routed AFTER that observation ("i routed
+it later, this is not the cause"; the report is "not actual anymore" — the audio is clean now on
+the current build). The actual cause of that transient observation was never pinned. Candidate if
+it recurs: the C3 pot->CC mapping vs the elements P2 cell list (the D BIAS cell removal shifted the
+cell count — a C3 pot may send an unintended CC, e.g. VCA). Check RackPots.cpp/RackUI.cpp against
+the live TELEM cells before touching DSP code. Audio acceptance: "ok now it sounds clean" (user).
