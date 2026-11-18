@@ -132,6 +132,7 @@ struct State {
   volatile float dist_drive;
   volatile float dist_bias;         // UI removed — stays 0 (fuzz floor internal)
   volatile float dist_tone;
+  volatile bool dist_conv;          // bench: runtime cab-conv gate (CC 48)
   // Swede (FX TYPE = SWEDE) JCM800 FMV tonestack knobs — plugin defaults
   // (bass is hyper-sensitive there: 0.05 ≈ its own default).
   volatile float dist_bass;
@@ -246,6 +247,7 @@ void init_at(uint8_t* obj_base, uint8_t* buf_base) {
   s->dist_drive = 0.0f;
   s->dist_bias = 0.0f;
   s->dist_tone = 1.0f;
+  s->dist_conv = true;
   // Swede FMV knob defaults = the Barabas5532 plugin's own parameter
   // defaults (bass is fine-grained there: most of its change is 0..0.1).
   s->dist_bass = 0.05f;
@@ -262,7 +264,7 @@ void init() {
 // Snapshot the panel distortion settings (core 0 writes, core 1 renders).
 static inline rackdist::Params dist_params() {
   rackdist::Params p{};
-  // FX TYPE 1-5 map to the 0-based rackdist algos; 0 = OFF and 6 = Warps
+  // FX TYPE 1-5 map to the 0-based ringdist algos; 0 = OFF and 6 = Warps
   // never reach the shaper (the trampoline below skips them).
   p.type = (uint8_t)(s->fx_type - 1u);
   p.drive = s->dist_drive;
@@ -271,6 +273,7 @@ static inline rackdist::Params dist_params() {
   p.bass = s->dist_bass;
   p.mid = s->dist_mid;
   p.treble = s->dist_treble;
+  p.conv = s->dist_conv;
   return p;
 }
 
@@ -299,8 +302,13 @@ static inline float dist_level_trim(uint8_t type, float drive) {
 // The adapter's pre-reverb insert (Part calls this inside Process, after the
 // warps stage, before reverb_). OFF and Warps skip it entirely; a selected
 // distortion is 100% wet (rack_dist has no dry blend), drive 0 also bypasses.
+// Bench counters (core 1 writes, the console report prints + resets).
+volatile uint32_t shaper_us_max = 0;
+volatile uint32_t shaper_us_sum = 0;
+volatile uint32_t shaper_us_count = 0;
 static void pre_reverb_shaper(float* main, float* aux, size_t size, void* user) {
   if (s->fx_type == kFxOff || fx_is_warps()) return;
+  const uint32_t t0 = time_us_32();
   rackdist::process(static_cast<rackdist::State*>(user), dist_params(),
                     main, aux, size);
   const float trim = dist_level_trim((uint8_t)(s->fx_type - 1u), s->dist_drive);
@@ -310,6 +318,10 @@ static void pre_reverb_shaper(float* main, float* aux, size_t size, void* user) 
       aux[i] *= trim;
     }
   }
+  const uint32_t dt = time_us_32() - t0;
+  if (dt > shaper_us_max) shaper_us_max = dt;
+  shaper_us_sum += dt;
+  ++shaper_us_count;
 }
 static inline void apply_fx_params() {
   elements::Patch* p = s->part.mutable_patch();
@@ -420,6 +432,8 @@ void render() {
 #endif
   uint32_t dt = time_us_32() - t0;
   if (dt > proc_us_max) proc_us_max = dt;
+  proc_us_sum += dt;
+  ++proc_us_count;
 
   // Meters: Part's meters carry the original fast-attack / slow-release
   // smoothing (~31 ms exciter / ~62 ms resonator tails) — status LED + report.
@@ -498,6 +512,8 @@ void control_change(uint8_t cc, uint8_t val) {
     case 45: s->dist_tone = v; break;
     case 46: s->dist_mid = v; break;
     case 47: s->dist_treble = v; break;
+    // CC 48: bench gate for the swede cab convolution (val >= 64 on).
+    case 48: s->dist_conv = (val >= 64); break;
     // Resonator model selector: 0 modal / 1 string / 2 strings / 3 ominous.
     // Handed to core 1 via pending_resonator_model & pending_easter_egg.
     case 28:

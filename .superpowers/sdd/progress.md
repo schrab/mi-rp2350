@@ -4641,3 +4641,31 @@ proc_us_max reset — the self-swap guard skips switch-to-same — then 8 s per 
 - If swede stalls ever appear under sustained load: 512-tap IR (halves the conv) or CMSIS
   arm_fir_f32 built with -ffast-math (see the 4-accumulator analysis — CMSIS-as-built saves
   nothing without it).
+
+## Swede cab conv — decimated to 16 kHz + real avg measurement (2026-11-19, late)
+
+User: "not comfortable... still with distortion caused by starvation" + pointed at CMSIS-DSP and
+the Yiu book ch.19/20 (docs/Definitive Guide...md). Findings:
+
+- **CMSIS-DSP verdict**: we ALREADY vendor it; arm_fir_f32 on M33 scalar = the same acc chain as
+  our C loop (our cmsis builds at plain -O3 — arm_math.h wants -Ofast). The book ch.19.4: the REAL
+  lever is SMLALD int16 dual-MAC = 1.5 cycles/MAC (Fig 19.4 = the FIR dual-MAC pattern) — 2x over
+  the float scalar floor, available via __SMLALD (the build already uses
+  -march=armv8-m.main+fp+dsp). Kept as the next lever; NOT needed yet.
+- **avg instrumentation**: the report now prints `avg N us` (proc_us_sum/count, reset on print +
+  swap/chain resets) and an Elements-only `ins=avg/max` tail (the pre-reverb insert timed).
+- **Measured (tools/measure_fx.py, 3 phases via the runtime conv gate CC 48)**:
+  OFF avg 293 / max 450 | SWEDE noconv avg 336 / max 496 (shaper+FMV = +43 avg — matches the
+  op model) | SWEDE conv avg 466 / max 708. The 1024-tap float conv measured +174 us avg
+  (~5-7 cycles/MAC — load-use stall bound, not MAC-bound; the disasm shows a clean 13-instr/4-MAC
+  VMLA loop, so no codegen bug — it is the scalar float shape's floor).
+- **Fix: decimated cab path** — the IR is band-limited to 8 kHz (0.42% energy above), so:
+  31-tap halfband dec (32k->16k) -> 512-tap FIR @ 16 kHz (32 ms, 4,096 MACs) -> 31-tap halfband
+  interp (its odd phase = the delayed passthrough, free; even phase = 14 taps x2). Conv delta
+  174 -> 130 us avg; **swede avg 466 < 500 us block period = no sustained erosion = starvation
+  gone** (max spikes 708 are absorbed by the 4 ms I2S buffer, 0 stalls measured).
+- test_speaker_ir.cc rewritten: naive full-decimated-chain reference (dec/conv/interp per the
+  definitions, zero-padded histories, the impl's dec anchors at mono 2m-1 — the first v is at
+  mono -1), 13/13 host suite green.
+- Levers left if ears still object: SMLALD int16 conv (130 -> ~50 us), 16k->8k second decimation
+  stage, or core-0 offload (double-buffered mono handoff; core 0 is mostly idle — USB/UI/console).

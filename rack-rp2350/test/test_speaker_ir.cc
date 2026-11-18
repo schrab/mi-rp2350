@@ -1,15 +1,15 @@
 // Speaker cab convolution tests (swede FX, src/speaker_ir.h + SpeakerConv).
 //
-// Laws:
-//   1. IMPULSE LAW: a single 1.0 sample into the conv produces exactly the
-//      chronological kSpeakerIr array at the output (a cab conv's response
-//      to an impulse IS the IR) — verifies delay bookkeeping and the MAC
-//      order end-to-end.
-//   2. REFERENCE LAW: the block implementation matches a naive O(T*n)
-//      time-domain convolution of the mono-summed input, sample-exact within
-//      float tolerance, across several consecutive blocks (history carry-over
-//      between blocks is exercised).
-//   3. Stability: full swede chain at defaults + IR, driven with noise,
+// The conv runs DECIEMATED: 31-tap halfband dec (32k -> 16k), 512-tap FIR at
+// 16 kHz (the IR is band-limited to 8 kHz), 31-tap halfband interpolation
+// (16k -> 32k). Laws:
+//   1. REFERENCE LAW: the block implementation matches an independently
+//      written naive implementation of the full decimated chain (per the
+//      definitions in rack_dist.h: v[m] = halfband at mono 2m+1,
+//      y[m] = sum ir[k]*v[m-k], pairs (filt, pass) per v), sample-exact
+//      within float tolerance across many consecutive blocks (history
+//      carry-over + the dec/interp phase alignment exercised).
+//   2. Stability: the full swede chain at defaults + IR, driven with noise,
 //      stays bounded.
 #include <cmath>
 #include <cstdint>
@@ -38,66 +38,98 @@ static float noise() {
   return (float)(int32_t)g_seed / (float)0x40000000;
 }
 
-int main() {
-  // Law 1: impulse -> the IR emerges verbatim.
-  SpeakerConv conv;
-  const size_t kBlock = 16;
-  std::vector<float> out_l, out_r;
-  for (size_t b = 0; b < (kSpeakerTaps / kBlock) + 4; ++b) {
-    float l[kBlock], r[kBlock];
-    for (size_t i = 0; i < kBlock; ++i) {
-      const size_t t = b * kBlock + i;
-      l[i] = (t == 5) ? 1.0f : 0.0f;   // impulse 5 samples in
-      r[i] = (t == 5) ? 1.0f : 0.0f;
+// Naive reference of the full decimated chain, straight from the
+// definitions (v[m] = halfband at mono 2m-1; y16[m] = sum ir[k]*v[m-k]
+// scaled by the conv gain; the interpolator runs over the Y16 stream:
+// output pair per v: (filt[m] = 14-tap even-phase sum over y16[m-14..m-1],
+// pass[m] = y16[m-7])).
+struct NaiveChain {
+  std::vector<float> mono, v, y16;
+  // halfband value at mono index 2m-1 (zero-padded history; the impl's
+  // decimator anchors its center tap there — the first v is at mono -1)
+  float halfband(size_t m) const {
+    float acc = 0.0f;
+    for (size_t k = 0; k < 31; ++k) {
+      const long long idx = (long long)(2 * m - 1) - (long long)k;
+      if (idx >= 0 && idx < (long long)mono.size()) {
+        acc += kHalfbandDec[k] * mono[(size_t)idx];
+      }
     }
-    conv.Process(l, r, kBlock);
-    for (size_t i = 0; i < kBlock; ++i) {
-      out_l.push_back(l[i]);
-      out_r.push_back(r[i]);
+    return acc;
+  }
+  float conv(size_t m) const {
+    float acc = 0.0f;
+    for (size_t k = 0; k < kSpeakerTaps; ++k) {
+      const long long idx = (long long)m - (long long)k;
+      if (idx >= 0 && idx < (long long)v.size()) {
+        acc += kSpeakerIr[k] * v[(size_t)idx];
+      }
     }
+    return acc * kSpeakerConvGain;
   }
-  // mono-sum: impulse 1.0 + 1.0 -> 0.5*(1+1) = 1.0 into the history, so the
-  // response is exactly the (peak-normalized) IR scaled by the conv gain.
-  for (size_t i = 0; i < kSpeakerTaps; ++i) {
-    const size_t t = 5 + i;
-    const float want = kSpeakerIr[i] * kSpeakerConvGain;
-    CHECK(t < out_l.size() && fabsf(out_l[t] - want) < 1e-6f &&
-              fabsf(out_r[t] - want) < 1e-6f,
-          "impulse response mismatch at %zu: %.9f vs %.9f", i, out_l[t],
-          want);
-    if (g_fail) break;
+  float filt(size_t m) const {   // the interpolator's filtered phase
+    float acc = 0.0f;
+    for (size_t k = 0; k < 14; ++k) {
+      const long long idx = (long long)m - (long long)(14 - k);
+      if (idx >= 0 && idx < (long long)y16.size()) {
+        acc += kHalfbandInt[k] * y16[(size_t)idx];
+      }
+    }
+    return acc;
   }
+  float pass(size_t m) const {   // the delayed passthrough phase
+    const long long idx = (long long)m - 7;
+    return idx >= 0 && idx < (long long)y16.size() ? y16[(size_t)idx] : 0.0f;
+  }
+};
 
-  // Law 2: block impl == naive time-domain convolution of the mono sum.
-  const size_t kBlocks = 40;
-  SpeakerConv conv2;
-  std::vector<float> mono;   // the mono-summed signal, chronological
-  std::vector<float> got_l;
+int main() {
+  const size_t kBlock = 16;
+  const size_t kBlocks = 60;
+
+  SpeakerConv conv;
+  NaiveChain naive;
+  std::vector<float> got, want;
   for (size_t b = 0; b < kBlocks; ++b) {
     float l[kBlock], r[kBlock];
     for (size_t i = 0; i < kBlock; ++i) {
       l[i] = noise() * 0.4f;
       r[i] = noise() * 0.4f;
-      mono.push_back(0.5f * (l[i] + r[i]));
     }
-    conv2.Process(l, r, kBlock);
-    for (size_t i = 0; i < kBlock; ++i) got_l.push_back(l[i]);
+    // naive: mono append, then the v's this block produces, then the pairs
+    for (size_t i = 0; i < kBlock; ++i) {
+      naive.mono.push_back(0.5f * (l[i] + r[i]));
+    }
+    const size_t v0 = naive.v.size();
+    for (size_t j = 0; j < kBlock / 2; ++j) {
+      naive.v.push_back(naive.halfband(v0 + j));
+    }
+    for (size_t j = 0; j < kBlock / 2; ++j) {
+      const size_t m = v0 + j;
+      naive.y16.push_back(naive.conv(m));     // the interp runs over y16
+    }
+    for (size_t j = 0; j < kBlock / 2; ++j) {
+      const size_t m = v0 + j;
+      want.push_back(naive.filt(m));          // even output
+      want.push_back(naive.pass(m));          // odd output
+    }
+    // implementation
+    conv.Process(l, r, kBlock);
+    for (size_t i = 0; i < kBlock; ++i) got.push_back(l[i]);
   }
+
+  CHECK(got.size() == want.size(),
+        "output count mismatch: %zu vs %zu", got.size(), want.size());
   float max_err = 0.0f;
-  for (size_t i = 0; i < mono.size(); ++i) {
-    // direct definition: y[i] = sum_k ir[k] * x[i-k]
-    float ref = 0.0f;
-    for (size_t k = 0; k < kSpeakerTaps && k <= i; ++k) {
-      ref += kSpeakerIr[k] * mono[i - k];
-    }
-    ref *= 0.25f;
-    const float e = fabsf(got_l[i] - ref);
+  const size_t n = got.size() < want.size() ? got.size() : want.size();
+  for (size_t i = 0; i < n; ++i) {
+    const float e = fabsf(got[i] - want[i]);
     if (e > max_err) max_err = e;
   }
-  CHECK(max_err < 2e-5f, "block impl vs naive convolution: max err %g",
-        max_err);
+  CHECK(max_err < 5e-5f,
+        "block impl vs naive decimated chain: max err %g", max_err);
 
-  // Law 3: full swede chain at defaults + IR stays bounded.
+  // stability: full swede chain at defaults + IR, driven with noise.
   rackdist::State st;
   memset(&st, 0, sizeof(st));
   rackdist::Params p{};
@@ -107,6 +139,7 @@ int main() {
   p.mid = 0.5f;
   p.treble = 0.5f;
   p.tone = 1.0f;
+  p.conv = true;
   float peak = 0.0f;
   for (size_t b = 0; b < 4000; ++b) {
     float l[kBlock], r[kBlock];

@@ -56,6 +56,7 @@ struct Params {
   float bass;    // 0..1; swede FMV bass (plugin default 0.05)
   float mid;     // 0..1; swede FMV middle (plugin default 0.5)
   float treble;  // 0..1; swede FMV treble (plugin default 0.5)
+  bool conv;     // bench/runtime: cab FIR enabled (CC 48)
   // No wet/dry mix: drive == 0 is a zero-cost bypass, so DRIVE alone is the
   // distortion-amount control. The stage is always fully wet when engaged.
 };
@@ -224,6 +225,7 @@ static inline float swedish_lp(float& y, float x, float a) {
 // State is a singleton: there is exactly one Rings adapter instance, and
 // keeping it static avoids growing the arena-placed State (chain rings+clouds
 // has only ~128 B spare).
+RACK_DIST_MARK(dist_swedish)
 static inline void swedish_process(float* out, float* aux, size_t n,
                                    float drive, float bass, float mid,
                                    float treble) {
@@ -255,31 +257,77 @@ static inline void swedish_process(float* out, float* aux, size_t n,
 }
 
 // ---- Speaker cab convolution (swede only) ---------------------------------
-// Mono-summed 1024-tap FIR of the cab IR (src/speaker_ir.h — the Hesu 2x12
-// V30 IR, resampled to 32 kHz, pre-delay compacted, peak-normalized; see
-// tools/ir2array.py). The Barabas5532 plugin convolves a speaker IR at the
-// same chain point (after the amp + tonestack). Linear-history block FIR:
-// each output's tap window is contiguous so the dot products vectorize;
-// 1024 MACs/sample mono ~= 51 us per 500 us block at 320 MHz. Adds 1023
-// samples (~32 ms) of latency — inaudible, the swede path is fully wet.
-static const size_t kSpeakerTaps = 1024;
-static const float kSpeakerConvGain = 0.25f;  // makeup for the normalized IR
+// Mono-summed cab FIR (src/speaker_ir.h — the Hesu 2x12 V30 IR, resampled to
+// 16 kHz, pre-delay compacted, peak-normalized; see tools/ir2array.py), run
+// at the DECIMATED rate: the IR is band-limited to 8 kHz (0.42% energy
+// above), so a 31-tap halfband decimation -> 512-tap FIR @ 16 kHz (32 ms) ->
+// halfband interpolation quarters the MAC count of a 512-tap 32 kHz FIR
+// while keeping the full 32 ms body. The Barabas5532 plugin convolves a
+// speaker IR at the same chain point (after the amp + tonestack).
+//   Per 16-sample block: dec 16x16 + conv 8x512 + interp 8x14 ~= 4.5k MACs
+//   ~= 45 us at the ~3.25 cycles/MAC scalar floor (vs ~174 us undecimated).
+// Adds ~35 ms of latency — inaudible, the swede path is fully wet.
+// The halfband (Blackman-windowed sinc, DC-normalized, center 0.5): the
+// decimator runs the full 31 taps on odd 32 kHz samples; the interpolator's
+// passthrough phase is the delayed v (free), the filtered phase is the
+// halfband's 14 nonzero even-index taps x2 (their DC sum is 0.5).
+static const size_t kSpeakerTaps = 512;   // @ 16 kHz = 32 ms
+static const float kSpeakerConvGain = 0.25f;   // makeup for the normalized IR
+static const float kHalfbandDec[31] = {   // DC-normalized (sum = 1)
+    2.94498535e-19f, 7.81558784e-20f, 0.000410322871f, -7.83790506e-19f,
+    -0.00223028552f, 2.53383519e-18f, 0.00710085713f, -5.64234343e-18f,
+    -0.0179170304f, 9.93628146e-18f, 0.0401074177f, -1.4544273e-17f,
+    -0.0901069221f, 1.81325764e-17f, 0.312633322f, 0.500004637f,
+    0.312633322f, 1.81325764e-17f, -0.0901069221f, -1.4544273e-17f,
+    0.0401074177f, 9.93628146e-18f, -0.0179170304f, -5.64234343e-18f,
+    0.00710085713f, 2.53383519e-18f, -0.00223028552f, -7.83790506e-19f,
+    0.000410322871f, 7.81558784e-20f, 2.94498535e-19f};
+// The interpolator's filtered phase: the halfband's even-index taps x2
+// (causal indices 28..2, descending to pair with v[m-14..m-1]; index 15 is
+// the passthrough center; the symmetric filter makes either order valid).
+static const float kHalfbandInt[14] = {
+    0.000820645742f, -0.00446057104f, 0.0142017143f, -0.0358340608f,
+    0.0802148354f, -0.180213844f, 0.625266644f, 0.625266644f,
+    -0.180213844f, 0.0802148354f, -0.0358340608f, 0.0142017143f,
+    -0.00446057104f, 0.000820645742f};
 
 struct SpeakerConv {
-  float hist_[kSpeakerTaps - 1 + 64] = {0};  // running history, oldest first
+  // 32 kHz decimator: the last 31 mono samples (oldest first).
+  float dec_[31] = {0};
+  // 16 kHz conv history: kTaps-1 past v-samples + up to 12 new per block.
+  float hist_[kSpeakerTaps - 1 + 12] = {0};
+  // 16 kHz v-history for the interpolator's filtered phase (14 taps).
+  float vhist_[14] = {0};
+  RACK_DIST_MARK(dist_speaker_conv)
   void Process(float* l, float* r, size_t n) {
-    if (n > 64u) n = 64u;
-    // mono-sum the new samples into the history tail
-    for (size_t i = 0; i < n; ++i) {
-      hist_[kSpeakerTaps - 1 + i] = 0.5f * (l[i] + r[i]);
+    if (n > 24u) n = 24u;
+    // 1) mono-sum into the decimator window tail (31 history + n new)
+    float decw[31 + 24];
+    for (size_t i = 0; i < 31; ++i) decw[i] = dec_[i];
+    for (size_t i = 0; i < n; ++i) decw[31 + i] = 0.5f * (l[i] + r[i]);
+    // 2) decimate: one 16 kHz sample per odd 32 kHz sample, full 31-tap dot
+    //    anchored at the center tap (causal index 15): v[j] over the window.
+    const size_t n16 = n / 2;
+    float v[12];
+    for (size_t j = 0; j < n16; ++j) {
+      const float* w = decw + 30 + 2 * j;   // newest sample of this pair
+      float acc = 0.0f;
+      for (size_t k = 0; k < 31; ++k) {
+        acc += kHalfbandDec[k] * w[-k];
+      }
+      v[j] = acc;
     }
-    // y[i] = sum_k ir[k] * hist_[i + kTaps - 1 - k]
-    // 4 independent accumulators: the M33 FPU's VMLA has 3-cycle latency /
-    // 1-cycle throughput, so a single serialized acc costs 3 cycles/MAC
-    // (gcc cannot reassociate float adds without -ffast-math). 4 chains
-    // hide the latency -> ~1 MAC/cycle, 3x faster than the naive loop.
-    for (size_t i = 0; i < n; ++i) {
-      const float* h = hist_ + i;
+    // 3) shift the decimator history: keep the last 31 mono samples
+    for (size_t i = 0; i < 31; ++i) {
+      dec_[i] = decw[n + i];
+    }
+    // 4) conv at 16 kHz: append the v samples, dot per output (4 accs
+    //    unrolled), shift.
+    for (size_t j = 0; j < n16; ++j) {
+      hist_[kSpeakerTaps - 1 + j] = v[j];
+    }
+    for (size_t j = 0; j < n16; ++j) {
+      const float* h = hist_ + j;
       float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
       for (size_t k = 0; k < kSpeakerTaps; k += 4) {
         a0 += kSpeakerIr[k] * h[kSpeakerTaps - 1 - k];
@@ -287,13 +335,26 @@ struct SpeakerConv {
         a2 += kSpeakerIr[k + 2] * h[kSpeakerTaps - 3 - k];
         a3 += kSpeakerIr[k + 3] * h[kSpeakerTaps - 4 - k];
       }
-      const float y = ((a0 + a1) + (a2 + a3)) * kSpeakerConvGain;
-      l[i] = y;
-      r[i] = y;
+      v[j] = ((a0 + a1) + (a2 + a3)) * kSpeakerConvGain;
     }
-    // shift the history: keep the last kTaps-1 samples
     for (size_t i = 0; i < kSpeakerTaps - 1; ++i) {
-      hist_[i] = hist_[n + i];
+      hist_[i] = hist_[n16 + i];
+    }
+    // 5) interpolate: per v sample emit the pair (passthrough = the delayed
+    //    v from the v history, filtered = the 14-tap even-phase sum x2),
+    //    advancing the v history with the new v sample.
+    for (size_t j = 0; j < n16; ++j) {
+      float acc = 0.0f;
+      for (size_t k = 0; k < 14; ++k) {
+        acc += kHalfbandInt[k] * vhist_[k];
+      }
+      for (size_t k = 0; k < 13; ++k) vhist_[k] = vhist_[k + 1];
+      vhist_[13] = v[j];
+      const float pass = vhist_[6];   // v delayed 7 (the halfband center)
+      l[2 * j] = acc;
+      r[2 * j] = acc;
+      l[2 * j + 1] = pass;
+      r[2 * j + 1] = pass;
     }
   }
 };
@@ -443,7 +504,8 @@ static inline void process(State* st, const Params& p,
     // Rings blocks <= 24.
     const size_t m = n < 64u ? n : 64u;
     swedish_process(out, aux, m, d, p.bass, p.mid, p.treble);
-    speaker_conv().Process(out, aux, m);   // cab IR (mono-summed, +32 ms lat)
+    if (p.conv)
+      speaker_conv().Process(out, aux, m);   // cab IR (mono-summed, +16 ms lat)
     float* chans[2] = {out, aux};
     for (int c = 0; c < 2; ++c) {
       float lp = st->lp[c];

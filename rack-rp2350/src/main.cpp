@@ -331,6 +331,10 @@ volatile uint32_t note_on_count = 0;
 volatile float rack_meter_a = 0.0f;
 volatile float rack_meter_b = 0.0f;
 volatile uint32_t proc_us_max = 0;
+// Per-report-window average (starvation comes from the SUSTAINED load, not
+// the max): sum/count of the per-block Process times, reset on print.
+volatile uint32_t proc_us_sum = 0;
+volatile uint32_t proc_us_count = 0;
 volatile uint32_t i2s_stall_count = 0;
 volatile float g_render_gain = 1.0f;     // swap-mute ramp (see midi.h)
 // T6 chain grid overrides for the mod engine (declared in mod_engine.h):
@@ -1043,6 +1047,8 @@ static void do_module_swap(uint8_t new_id) {
 
   g_active_module = new_id;
   proc_us_max = 0;              // the swap gap must not read as a Process max
+  proc_us_sum = 0;
+  proc_us_count = 0;
   rack_meter_a = 0.0f;
   rack_meter_b = 0.0f;
 
@@ -1136,6 +1142,8 @@ static void chain_render_block_sync() {
       kChainBlockSize);
   const uint32_t dt = time_us_32() - t0;
   if (dt > proc_us_max) proc_us_max = dt;
+  proc_us_sum += dt;
+  ++proc_us_count;
   chain_write_b();
 }
 
@@ -1208,6 +1216,8 @@ static void chain_render_block_pipe() {
   ++g_chain_pipe_seq;
   const uint32_t dt = time_us_32() - t0;
   if (dt > proc_us_max) proc_us_max = dt;
+  proc_us_sum += dt;
+  ++proc_us_count;
   chain_write_b();
 }
 
@@ -1474,6 +1484,8 @@ static void do_chain_engage(uint8_t new_a, uint8_t new_b) {
   g_mod_chain_grid = kChainBlockSize;
   g_mod_chain_rate_khz = (uint8_t)(kChainRate / 1000);
   proc_us_max = 0;              // the transition must not read as a max
+  proc_us_sum = 0;
+  proc_us_count = 0;
   g_mod_engine.mod_us_max = 0;
   rack_meter_a = 0.0f;
   rack_meter_b = 0.0f;
@@ -1540,6 +1552,8 @@ static void do_chain_disengage() {
   g_mod_chain_grid = 0;
   g_mod_chain_rate_khz = 0;
   proc_us_max = 0;
+  proc_us_sum = 0;
+  proc_us_count = 0;
   g_mod_engine.mod_us_max = 0;
   rack_meter_a = 0.0f;
   rack_meter_b = 0.0f;
@@ -1596,6 +1610,8 @@ static void do_chain_a_reinit() {
       break;
   }
   proc_us_max = 0;
+  proc_us_sum = 0;
+  proc_us_count = 0;
   rack_meter_a = 0.0f;
   rack_meter_b = 0.0f;
   preset_replay_module(a);       // T4a: restore observed CC values on A
@@ -3281,9 +3297,24 @@ void loop() {
       // T2 piezo: peak since last report (raw 0-4095) + measured rate.
       const uint16_t pz_peak = rack_piezo::report_peak();
       const uint32_t pz_rate = rack_piezo::report_sample_rate();
+      // Elements FX insert bench (avg/max us since report; reset on print).
+      char elements_tail[32] = "";
+      if (g_active_module == RACK_MODULE_ELEMENTS) {
+        snprintf(elements_tail, sizeof(elements_tail), "ins=%lu/%lu",
+                 (unsigned long)(
+                     rack_modules::mod_elements::shaper_us_count
+                         ? rack_modules::mod_elements::shaper_us_sum /
+                               rack_modules::mod_elements::shaper_us_count
+                         : 0),
+                 (unsigned long)rack_modules::mod_elements::shaper_us_max);
+        rack_modules::mod_elements::shaper_us_max = 0;
+        rack_modules::mod_elements::shaper_us_sum = 0;
+        rack_modules::mod_elements::shaper_us_count = 0;
+      }
 #if RACK_ENABLE_USB_HOST
-      dbg_printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s | %s%s\r\n",
+      dbg_printf("max Process: %u us avg %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | host: conn=%u st=%u dev=%u midi=%u frame=%u | mod=%s | %s | %s | %s%s\r\n",
                     proc_us_max,
+                    (unsigned)(proc_us_count ? proc_us_sum / proc_us_count : 0),
                     (unsigned)budget,
                     stalls, stalls - last_stall_total,
                     (unsigned)(rack_meter_a * 1000.0f),
@@ -3300,10 +3331,12 @@ void loop() {
                     mod_field,
                     modeng_tail,
                     plaits_tail,
+                    elements_tail,
                     oc_tail);
 #else
-      dbg_printf("max Process: %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | mod=%s | %s | %s%s\r\n",
+      dbg_printf("max Process: %u us avg %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | mod=%s | %s | %s | %s%s\r\n",
                     proc_us_max,
+                    (unsigned)(proc_us_count ? proc_us_sum / proc_us_count : 0),
                     (unsigned)budget,
                     stalls, stalls - last_stall_total,
                     (unsigned)(rack_meter_a * 1000.0f),
@@ -3321,6 +3354,8 @@ void loop() {
     }
     last_stall_total = stalls;
     proc_us_max = 0;
+    proc_us_sum = 0;
+    proc_us_count = 0;
     g_mod_engine.mod_us_max = 0;    // max-since-report (engine block cost)
     g_mod_engine.telem_midi_ticks = 0;
     rack_meter_a = 0.0f;            // max-since-report meters (see adapters)

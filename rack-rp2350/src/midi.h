@@ -46,6 +46,8 @@ extern volatile float rack_meter_b;
 
 // --- perf telemetry (core1 writes, core0 prints; DEFINED in main.cpp) ---
 extern volatile uint32_t proc_us_max;      // worst module Process since report
+extern volatile uint32_t proc_us_sum;      // Process us accumulated this window
+extern volatile uint32_t proc_us_count;    // blocks this window (avg = sum/count)
 extern volatile uint32_t i2s_stall_count;  // slow I2S write-block loops
 
 // Swap-mute ramp multiplier (core 1 writes, core 1 reads in the adapters'

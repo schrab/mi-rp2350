@@ -24,8 +24,9 @@ def collect(secs):
     """Read report lines; return (last_max_us, last_stalls, lines)."""
     lines = []
     last_max = None
+    last_avg = None
     last_stalls = None
-    pat = re.compile(r"max Process: (\d+) us .* i2s stalls: (\d+)")
+    pat = re.compile(r"max Process: (\d+) us avg (\d+) us .* i2s stalls: (\d+)")
     t_end = time.monotonic() + secs
     while time.monotonic() < t_end:
         data = ser.read(4096)
@@ -37,8 +38,9 @@ def collect(secs):
             m = pat.search(chunk)
             if m:
                 last_max = int(m.group(1))
-                last_stalls = int(m.group(2))
-    return last_max, last_stalls, lines
+                last_avg = int(m.group(2))
+                last_stalls = int(m.group(3))
+    return last_max, last_avg, last_stalls, lines
 
 
 time.sleep(0.3)
@@ -52,21 +54,28 @@ send("switch 4")
 time.sleep(1.0)
 send("switch 0")
 time.sleep(1.0)
-max_off, stalls_off, lines_off = collect(8.0)
+max_off, avg_off, stalls_off, lines_off = collect(8.0)
 send("cc 42 5")               # FX TYPE = SWEDE
 send("cc 43 90")              # D DRIVE ~0.71 — the shaper + IR engaged
-max_sw, stalls_sw, lines_sw = collect(8.0)
+send("cc 48 0")               # bench: cab conv OFF
+max_nc, avg_nc, stalls_nc, lines_nc = collect(8.0)
+send("cc 48 100")             # bench: cab conv ON
+max_sw, avg_sw, stalls_sw, lines_sw = collect(8.0)
 
 print("== last OFF report ==")
-for l in lines_off[-3:]:
+for l in lines_off[-2:]:
     print(l)
-print("== last SWEDE report ==")
-for l in lines_sw[-3:]:
+print("== last SWEDE (conv OFF) report ==")
+for l in lines_nc[-2:]:
+    print(l)
+print("== last SWEDE (conv ON) report ==")
+for l in lines_sw[-2:]:
     print(l)
 if max_off is not None and max_sw is not None:
-    print(f"\nOFF max Process:   {max_off} us")
-    print(f"SWEDE max Process: {max_sw} us")
-    print(f"delta (conv + shaper + FMV): {max_sw - max_off} us "
-          f"({(max_sw - max_off) / 496.0 * 100:.1f}% of the 496 us budget)")
-    print(f"i2s stalls: OFF={stalls_off} SWEDE={stalls_sw}")
+    print(f"\nOFF          max: {max_off} us  avg: {avg_off} us")
+    print(f"SWEDE noconv max: {max_nc} us  avg: {avg_nc} us")
+    print(f"SWEDE conv   max: {max_sw} us  avg: {avg_sw} us")
+    print(f"shaper(noconv) - OFF = {avg_nc - avg_off} us avg")
+    print(f"conv delta = {avg_sw - avg_nc} us avg")
+    print(f"i2s stalls: OFF={stalls_off} noconv={stalls_nc} conv={stalls_sw}")
 ser.close()
