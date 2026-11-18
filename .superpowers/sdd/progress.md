@@ -4982,3 +4982,43 @@ authoritative and must not be re-guessed (plan:
   session). The wrapper compiled with `-DRACK_RP2350_TC` puts the whole engine
   in `.tc_dronecaster.process_dronecaster_o3` (0x551 B); the adapter compiles
   and runs against stub rack headers.
+
+## MEASUREMENT TIMELINE — swede chain render cost (consolidated 2026-11-19)
+
+All numbers on the NoLogo board at 320 MHz, Elements, the 2 s console report (max + avg of the
+per-block Process time, us; the block period = 500 us; the nominal budget line = 496). The conv
+variants in evolution order — the per-config deltas are the optimization evidence. THE TABLE IS
+THE BASELINE for any future optimization: a change is only real if it moves a row.
+
+| # | Configuration (conv variant + core placement) | render max | render avg | conv cost (avg) | miss/stalls | Era/commit |
+|---|---|---|---|---|---|---|
+| 0 | 1024@32k float conv, core 0, NO FZ/DN (the denormal storm), silence bug (un-copied out-slot) | **1641-1731** | ~403 | n/a (the output was silence) | miss 36/win, stalls 0 | pre-805ffa3 |
+| 1 | FZ/DN core 0 only (FPSCR is per-core — core 1 still storming), the silence bug fixed | 628-681 | 331 | n/a | stalls 0 | pre-805ffa3 |
+| 2 | FZ/DN both cores; 1024@32k float conv, ~5-7 cyc/MAC (load-use stall bound), INLINE on core 1 | 708 | 466 (swede) / 293 (OFF) | +130 avg (466-336) | miss 0-1/win | 805ffa3 |
+| 3 | 512-tap @ 16 kHz DECIMATED float conv (halfband dec/interp), offloaded to core 0 (DMB ping-pong, 2 slots) | 633 | 369 (swede) / 320 (OFF) | +9 avg on core 1; ~130 us on core 0 | miss 0-1 (the spin-storm phase in between: the ungated wait burned 250x2 us/block -> avg 607) | 5a12e87 |
+| 4 | The gate short-circuit (CC 48 skips the hand-off before the waits) | 593 | 360 (noconv) | — | stalls 0 | pre-761c290 |
+| 5 | Level-matched bypass + 3 slots + budget-aware waits (400/460); q15 PENDING | 708 | 466 (conv) / 293 (OFF) | conv 110-117 us on core 0; miss 0-36/window (36 during the C3 bursts) | 0 stalls | 761c290-era |
+| 6 | **q15 int16 dual-MAC conv (SMLAD-family) on core 0 — BUILT, NOT YET MEASURED ON HW** | TBD | TBD | expected ~25-40 us (vs 117) | TBD | 9d0d2ba |
+
+**Fixed sub-costs (measured, stable across configs)**:
+- Shaper + FMV tonestack (the insert without the conv): **+43 us avg** (the op model ~35 — the
+  per-block FMV design + 3 biquads + 2 softclips + tone LP).
+- The hand-off overhead on core 1 (mono-sum publish + consume copy): **+9 us avg**.
+- The core-0 conv (float 512@16k): **117 us avg / ~200 max** (the q15 target ~25-40).
+- OFF baseline (exciter + 52-mode resonator + reverb): **avg 293-320, max 450-516** — the floor
+  ANY fx adds on top of.
+
+**The op model (for predicting changes)**: the conv MACs = n16 x taps (8 x 512 = 4096/block);
+the scalar float floor ~3.25 cycles/MAC (13 instructions per 4-MAC iteration, disassembly-
+verified) + load-use stalls (~5-7 cycles/MAC real); SMLAD-family int16 dual-MAC ~1.5 cycles/MAC
+(the book ch.19.4; the SMUAD+add form measures the same); the block deadline 500 us; the I2S
+buffer 4 ms (the spikes absorbed, the SUSTAINED average over 500 = erosion = starvation).
+
+**The levers NOT yet pulled** (in the order of the expected gain):
+1. The q15 HW measurement (the row 6 TBD) — the Linux machine's first task.
+2. The REAL `smlad` opcode on Linux GAS (the Windows GAS lacks it; smuad+add costs +1
+   instruction per dual-MAC).
+3. 1024-tap @ 16 kHz (64 ms window — the same cost as 512@32k, a deeper cab body).
+4. SMLALD 64-bit accumulate (the full 15-bit coefficients, no scale margin needed).
+5. FFT overlap-add (the clouds STFT pattern): ~10-15 us amortized for ANY IR length — the
+   multiscale leap, only if multi-second IRs are ever wanted.
