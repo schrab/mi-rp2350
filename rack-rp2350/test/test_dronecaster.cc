@@ -8,6 +8,9 @@
 #include "../src/dronecaster/sc_kit_osc.h"
 #include "../src/dronecaster/sc_kit_pulse.h"
 #include "../src/dronecaster/sc_arena.h"
+#include "../src/dronecaster/sc_kit_env.h"
+#include "../src/dronecaster/dronecaster_engine.h"
+#include "../src/dronecaster/drones/drone_trio.h"
 
 #include <cmath>
 #include <cstdio>
@@ -104,6 +107,97 @@ int main() {
          g_failures ? "FAIL" : "PASS", g_failures);
 
   // task sections are inserted above this line
+
+  printf("== EnvAsr (Env.asr curve -4, kr; 3.14 ctor rollback) ==\n");
+  {
+    sc::EnvAsr e;
+    e.Init(48000.0f, 1.0f, 1.0f);
+    e.Gate(true);
+    // 3.14.1: the ctor-priming call is rolled back, so the first rendered
+    // control sample is the attack's step-0 value (0.0) — every plan (3.13)
+    // vector appears one call later.
+    CHECK(e.Next() == 0.0f, "env block0 == 0 (3.14 rollback)");
+    CHECK(fabsf(e.Next() - 0.00541837746f) < 1e-7f, "env block1 == 0.005418377");
+    for (int i = 2; i < 376; ++i) (void)e.Next();
+    CHECK(fabsf(e.Next() - 0.881530404f) < 1e-6f, "env 0.5 s == 0.881530404");
+    for (int i = 377; i < 751; ++i) (void)e.Next();
+    CHECK(e.Next() == 1.0f, "env sustain == 1");
+    e.Gate(false);
+    CHECK(e.Next() == 1.0f, "release first block == 1");
+    CHECK(fabsf(e.Next() - 0.994581640f) < 1e-6f, "release second == 0.99458164");
+    for (int i = 2; i < 748; ++i) (void)e.Next();
+    CHECK(fabsf(e.Next() - 0.000200077018f) < 1e-7f, "release block749");
+    CHECK(fabsf(e.Next() - 9.97717434e-05f) < 1e-8f, "release block750");
+    // The done-call outputs the curve's step-750 residue: a2 - b1 is
+    // mathematically 0 but carries ~1e-15 of accumulated rounding (SC's
+    // shape_Step outputs level before the done clamp; the rev-2 plan's
+    // 3.13 model clamped to a hard 0 instead).
+    CHECK(fabsf(e.Next()) < 1e-6f, "release end ~0");
+    CHECK(e.done(), "env done");
+  }
+
+  printf("== socket engine ==\n");
+  {
+    static uint8_t mem[160 * 1024];           // tables 131,080 B + voice
+    sc::Engine e;
+    e.Init(48000.0f, mem, sizeof(mem));
+    CHECK(strcmp(e.current_name(), "--") == 0, "idle: no current drone");
+
+    e.SetDrone(sc::Catalog(22));              // Sine
+    float l[16], r[16];
+    e.Process(l, r, 16);
+    CHECK(strcmp(e.current_name(), "Sine") == 0, "Sine starts immediately when idle");
+    float pk = 0;
+    for (int i = 0; i < 16; ++i) pk = pk > fabsf(l[i]) ? pk : fabsf(l[i]);
+    CHECK(pk < 0.01f, "attack ramp: near-silence at t=0");
+
+    // 1.5 s in (block 4500): attack done (env 1.0). Take the max over
+    // 100 blocks (~18 periods at 55 Hz) so a zero crossing cannot mask it.
+    for (int b = 0; b < 4500; ++b) e.Process(l, r, 16);
+    pk = 0;
+    for (int b = 0; b < 100; ++b) {
+      e.Process(l, r, 16);
+      for (int i = 0; i < 16; ++i) pk = pk > fabsf(l[i]) ? pk : fabsf(l[i]);
+    }
+    CHECK(pk > 0.38f && pk < 0.42f, "sustain: peak ~amp 0.4");
+
+    // down+up: gate off, quick fade -> silence gap -> idle, name cleared.
+    // Skip the release tail (0.01 s = ~7 internal blocks) before measuring
+    // the gap: the first release block legitimately outputs the full level.
+    e.set_fade(0.01f);
+    e.SetDrone(nullptr);
+    for (int b = 0; b < 100; ++b) e.Process(l, r, 16);   // ~25 internal blocks
+    float gap_pk = 0;
+    for (int b = 0; b < 300; ++b) {
+      e.Process(l, r, 16);
+      for (int i = 0; i < 16; ++i) gap_pk = gap_pk > fabsf(l[i]) ? gap_pk : fabsf(l[i]);
+    }
+    CHECK(strcmp(e.current_name(), "--") == 0, "gate-off: env ended, idle again");
+    CHECK(gap_pk < 1e-6f, "down+up: silence in the gap");
+
+    // recast: PLAY releases + restarts the current drone. With fade 1 s the
+    // release takes 3000 host blocks; measure the restart after it.
+    e.set_fade(1.0f);
+    e.SetDrone(sc::Catalog(29));              // Triangle
+    e.Process(l, r, 16);
+    e.Recast();
+    pk = 0;
+    for (int b = 0; b < 3100; ++b) {
+      e.Process(l, r, 16);
+      if (b >= 3000) {
+        for (int i = 0; i < 16; ++i) pk = pk > fabsf(l[i]) ? pk : fabsf(l[i]);
+      }
+    }
+    CHECK(strcmp(e.current_name(), "Triangle") == 0, "recast: same drone restarted");
+    CHECK(pk > 0.01f, "recast: restarted voice sounding");
+    CHECK(e.swap_count() >= 3, "swap counter advances");
+
+    // SetDrone(nullptr) after a completed recast must clear the name.
+    e.set_fade(0.01f);
+    e.SetDrone(nullptr);
+    for (int b = 0; b < 400; ++b) e.Process(l, r, 16);
+    CHECK(strcmp(e.current_name(), "--") == 0, "second gate-off clears the name");
+  }
 
   printf("== Pulse (BLIT) ==\n");
   {
