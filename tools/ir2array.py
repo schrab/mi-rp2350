@@ -83,6 +83,28 @@ def main():
         row = ", ".join(parts)
         print("    " + row + ("," if i + 8 < taps else ""))
     print("};")
+    # q15 packed pairs for the SMLAD dual-MAC conv (rack_dist.h): the IR
+    # scaled so sum |ir16| <= 32767 (the int32 dual-MAC accumulator then
+    # cannot overflow at full-scale int16 input; Yiu ch.19.5), chronological
+    # pairs packed (lo = ir16[2j], hi = ir16[2j+1]) as uint32 words.
+    abssum = float(np.sum(np.abs(y)))
+    scale = 32700.0 / abssum if abssum > 0 else 0.0   # margin: the rounding can add +-1 per tap
+    q15 = np.clip(np.round(y * scale), -32768, 32767).astype(np.int64)
+    qsum = int(np.sum(np.abs(q15)))
+    print("// q15 packed pairs: scale=%.6f (sum|h|=%.4f -> sum|ir16|=%d <= 32700);"
+          % (scale, abssum, qsum))
+    print("// y_float = acc * kSpeakerQ15Norm, kSpeakerQ15Norm = %.9g"
+          % (1.0 / (scale * 32767.0)))
+    nw = taps // 2
+    print("static const uint32_t kSpeakerIrQ15[%d] = {" % nw)
+    for i in range(0, nw, 6):
+        parts = []
+        for j in range(i, min(i + 6, nw)):
+            lo = int(q15[2 * j]) & 0xFFFF
+            hi = int(q15[2 * j + 1]) & 0xFFFF
+            parts.append("0x%08xu" % (lo | (hi << 16)))
+        print("    " + ", ".join(parts) + ("," if i + 6 < nw else ""))
+    print("};" )
 
 
 if __name__ == "__main__":

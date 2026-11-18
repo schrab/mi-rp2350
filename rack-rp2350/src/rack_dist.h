@@ -21,6 +21,35 @@
 
 #include <cmath>
 
+// q15 dual-MAC for the speaker FIR (the M33 DSP extension — Yiu ch.19.4:
+// SMLAD Xd, Xn, Xm = two MACs per instruction, 1.5 cycles/MAC with LDMIA
+// unrolling). CAVEAT: the Windows toolchain's GAS has NO working `smlad`
+// opcode ("bad arguments" for ANY operands, armv7e-m and armv8-m alike,
+// while `smuad` assembles fine) — so the equivalent SMUAD + add form is
+// used: SMUAD Xd, Xn, Xm computes the same dual product pair without the
+// accumulate; the add folds into the acc update at the same 1.5 cycles/MAC.
+// On the board (__ARM_FEATURE_DSP — the build targets
+// -march=armv8-m.main+fp+dsp) this is the hardware instruction via inline
+// asm; on the host the identical math in portable C — bit-exact, so the
+// host tests validate the board's path.
+#if defined(__ARM_FEATURE_DSP) && (defined(__arm__) || defined(__thumb__))
+static inline int32_t rack_smuad(int32_t a, int32_t b) {
+  int32_t r;
+  __asm__("smuad %0, %1, %2" : "=&l"(r) : "l"(a), "l"(b));
+  return r;
+}
+#else
+static inline int32_t rack_smuad(int32_t a, int32_t b) {
+  const uint32_t ua = (uint32_t)a, ub = (uint32_t)b;
+  const int16_t al = (int16_t)(ua & 0xffffu);
+  const int16_t ah = (int16_t)((ua >> 16) & 0xffffu);
+  const int16_t bl = (int16_t)(ub & 0xffffu);
+  const int16_t bh = (int16_t)((ub >> 16) & 0xffffu);
+  return (int32_t)al * bl + (int32_t)ah * bh;
+}
+#endif
+#define RACK_SMUAD(a, b) rack_smuad((a), (b))
+
 // Per-TU SRAM-placement hook: the including adapter may define
 // RACK_DIST_MARK(token) (-> ELEMENTS_RAM_CODE) BEFORE including this header
 // to land the hot dispatch + cab IR in its tc_* SRAM window. The header is
@@ -308,9 +337,11 @@ static const float kHalfbandInt[14] = {
 struct SpeakerConv {
   // 32 kHz decimator: the last 31 mono samples (oldest first).
   float dec_[31] = {0};
-  // 16 kHz conv history: kTaps-1 past v-samples + up to 12 new per block.
-  float hist_[kSpeakerTaps - 1 + 12] = {0};
-  // 16 kHz v-history for the interpolator's filtered phase (14 taps).
+  // 16 kHz conv history: kTaps-1 past v16 samples + up to 12 new per block.
+  int16_t hist16_[kSpeakerTaps - 1 + 12] = {0};
+  // 16 kHz conv-output history for the interpolator (float, 14 taps).
+  float y16h_[14] = {0};
+  // 16 kHz v-history for the interpolator's passthrough (7-deep delay).
   float vhist_[14] = {0};
   RACK_DIST_MARK(dist_speaker_conv)
   void Process(float* l, float* r, size_t n) {
@@ -335,36 +366,46 @@ struct SpeakerConv {
     for (size_t i = 0; i < 31; ++i) {
       dec_[i] = decw[n + i];
     }
-    // 4) conv at 16 kHz: append the v samples, dot per output (4 accs
-    //    unrolled), shift.
+    // 4) conv at 16 kHz, q15 int16 dual-MAC (__SMLADX, M33 DSP extension —
+    //    Yiu ch.19.4): quantize v to int16, append to hist16, then per
+    //    output 256 packed dual-MACs (the IR words ascend, the x words
+    //    descend; the halves pair via the SMLADX swap). The IR is scaled so
+    //    sum|ir16| <= 32700: the int32 accumulator cannot overflow (ch.
+    //    19.5). Host fallback: the same dual-MAC math in portable C
+    //    (bit-exact vs the hardware instruction).
     for (size_t j = 0; j < n16; ++j) {
-      hist_[kSpeakerTaps - 1 + j] = v[j];
+      float q = v[j] * 32767.0f;
+      if (q > 32767.0f) q = 32767.0f;
+      if (q < -32768.0f) q = -32768.0f;
+      hist16_[kSpeakerTaps - 1 + j] = (int16_t)q;
     }
     for (size_t j = 0; j < n16; ++j) {
-      const float* h = hist_ + j;
-      float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
-      for (size_t k = 0; k < kSpeakerTaps; k += 4) {
-        a0 += kSpeakerIr[k] * h[kSpeakerTaps - 1 - k];
-        a1 += kSpeakerIr[k + 1] * h[kSpeakerTaps - 2 - k];
-        a2 += kSpeakerIr[k + 2] * h[kSpeakerTaps - 3 - k];
-        a3 += kSpeakerIr[k + 3] * h[kSpeakerTaps - 4 - k];
+      const int16_t* xp = hist16_ + (kSpeakerTaps - 1 + (int)j);
+      int32_t acc = 0;
+      for (size_t t = 0; t < kSpeakerTaps / 2; ++t) {
+        // the pair (ir16[2t], ir16[2t+1]) x (v16[m-2t], v16[m-2t-1]):
+        // the halves (lo = the older, hi = the newer) pair via the SMLADX
+        // swap: acc += ir16[2t]*v16[m-2t] + ir16[2t+1]*v16[m-2t-1]
+        const uint32_t xw = (uint32_t)(uint16_t)xp[-2 * (int)t]
+                          | ((uint32_t)(uint16_t)xp[-2 * (int)t - 1] << 16);
+        acc += RACK_SMUAD(kSpeakerIrQ15[t], xw);
       }
-      v[j] = ((a0 + a1) + (a2 + a3)) * kSpeakerConvGain;
+      v[j] = (float)acc * kSpeakerQ15Norm * kSpeakerConvGain;
     }
     for (size_t i = 0; i < kSpeakerTaps - 1; ++i) {
-      hist_[i] = hist_[n16 + i];
+      hist16_[i] = hist16_[n16 + i];
     }
     // 5) interpolate: per v sample emit the pair (passthrough = the delayed
-    //    v from the v history, filtered = the 14-tap even-phase sum x2),
-    //    advancing the v history with the new v sample.
+    //    conv output, filtered = the 14-tap even-phase sum x2), advancing
+    //    both histories with the new conv output.
     for (size_t j = 0; j < n16; ++j) {
       float acc = 0.0f;
       for (size_t k = 0; k < 14; ++k) {
-        acc += kHalfbandInt[k] * vhist_[k];
+        acc += kHalfbandInt[k] * y16h_[k];
       }
-      for (size_t k = 0; k < 13; ++k) vhist_[k] = vhist_[k + 1];
-      vhist_[13] = v[j];
-      const float pass = vhist_[6];   // v delayed 7 (the halfband center)
+      for (size_t k = 0; k < 13; ++k) y16h_[k] = y16h_[k + 1];
+      y16h_[13] = v[j];
+      const float pass = y16h_[6];    // conv output delayed 7 (the center)
       l[2 * j] = acc;
       r[2 * j] = acc;
       l[2 * j + 1] = pass;

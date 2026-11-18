@@ -39,12 +39,15 @@ static float noise() {
 }
 
 // Naive reference of the full decimated chain, straight from the
-// definitions (v[m] = halfband at mono 2m-1; y16[m] = sum ir[k]*v[m-k]
-// scaled by the conv gain; the interpolator runs over the Y16 stream:
-// output pair per v: (filt[m] = 14-tap even-phase sum over y16[m-14..m-1],
-// pass[m] = y16[m-7])).
+// definitions (v[m] = halfband at mono 2m-1; the conv runs in q15:
+// v16[m] = clamp(round(v[m]*32767)), y16[m] = (sum ir16[k]*v16[m-k]) *
+// kSpeakerQ15Norm * conv gain — the int64 reference is bit-exact vs the
+// hardware dual-MAC since sum|ir16| <= 32700 keeps the int32 accumulator
+// in range; the interpolator runs over the y16 stream: output pair per v:
+// (filt[m] = 14-tap even-phase sum over y16[m-14..m-1], pass[m] = y16[m-7])).
 struct NaiveChain {
   std::vector<float> mono, v, y16;
+  std::vector<int16_t> v16;
   // halfband value at mono index 2m-1 (zero-padded history; the impl's
   // decimator anchors its center tap there — the first v is at mono -1)
   float halfband(size_t m) const {
@@ -57,15 +60,25 @@ struct NaiveChain {
     }
     return acc;
   }
+  static int16_t quant15(float v) {
+    float q = v * 32767.0f;
+    if (q > 32767.0f) q = 32767.0f;
+    if (q < -32768.0f) q = -32768.0f;
+    return (int16_t)(q >= 0.0f ? q + 0.5f : q - 0.5f);
+  }
   float conv(size_t m) const {
-    float acc = 0.0f;
+    int64_t acc = 0;
     for (size_t k = 0; k < kSpeakerTaps; ++k) {
       const long long idx = (long long)m - (long long)k;
-      if (idx >= 0 && idx < (long long)v.size()) {
-        acc += kSpeakerIr[k] * v[(size_t)idx];
-      }
+      const int16_t x = idx >= 0 && idx < (long long)v16.size()
+                            ? v16[(size_t)idx]
+                            : (int16_t)0;
+      const int16_t lo = (int16_t)(kSpeakerIrQ15[k >> 1] & 0xffffu);
+      const int16_t hi = (int16_t)((kSpeakerIrQ15[k >> 1] >> 16) & 0xffffu);
+      acc += (int64_t)(k & 1u ? hi : lo) * (int64_t)x;
     }
-    return acc * kSpeakerConvGain;
+    return (float)((double)acc * (double)kSpeakerQ15Norm *
+                   (double)kSpeakerConvGain);
   }
   float filt(size_t m) const {   // the interpolator's filtered phase
     float acc = 0.0f;
@@ -103,6 +116,7 @@ int main() {
     const size_t v0 = naive.v.size();
     for (size_t j = 0; j < kBlock / 2; ++j) {
       naive.v.push_back(naive.halfband(v0 + j));
+      naive.v16.push_back(naive.quant15(naive.v.back()));
     }
     for (size_t j = 0; j < kBlock / 2; ++j) {
       const size_t m = v0 + j;

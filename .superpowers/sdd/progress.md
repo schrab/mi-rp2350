@@ -4728,3 +4728,68 @@ the current build). The actual cause of that transient observation was never pin
 it recurs: the C3 pot->CC mapping vs the elements P2 cell list (the D BIAS cell removal shifted the
 cell count — a C3 pot may send an unintended CC, e.g. VCA). Check RackPots.cpp/RackUI.cpp against
 the live TELEM cells before touching DSP code. Audio acceptance: "ok now it sounds clean" (user).
+
+## HANDOFF — q15 SMLAD conv implemented (Windows session ends), continue on Linux (2026-11-19, late night)
+
+Audio ACCEPTED CLEAN by the user (post 761c290: "no volume drops anymore"). The session then
+implemented the q15 SMLAD conv per the user's "SMLALD is a must" — **implemented + host-verified,
+NOT yet flashed/measured on HW** (the user stopped the Windows flash-test loop; the Linux machine
+continues).
+
+**The full arc of this session** (all committed on rack-rp2350):
+1. Silence root cause: the core-0 conv pump never copied the conv result to s_conv_out (core 1
+   consumed the zero-initialized buffer) — fixed with the in-place result move (in the conv_pump
+   commit e36b545-era, refined later).
+2. Volume inconsistency: the conv hand-off missed its 250 us deadline 36x/window (core-0 bursts:
+   the C3 TELEM replies + the report printer) and EVERY miss bypassed with the LOUD raw mono-sum
+   vs the 0.25-gain conv path. Fixed: level-matched bypass (speaker_bypass_gain = sqrt(sum ir^2)
+   * conv gain), 3-slot ping-pong, budget-aware waits (761c290).
+3. Denormal storm (max-Process spikes to 1.7 ms): FPSCR FZ/DN must be set on BOTH cores (FPSCR is
+   per-core; setup1() got the audio-core write) (955728e/805ffa3).
+4. The CMSIS-DSP question answered: we already vendor it; arm_fir_f32 on M33 = the same acc chain
+   as our C loop (our cmsis builds at plain -O3); the REAL lever is the book ch.19.4 int16
+   dual-MAC (SMLAD/SMLALD = 1.5 cycles/MAC).
+5. The repo restructure: the patch system + sync script REMOVED (the libs are the source of
+   truth), ONE env `rack` (boots Elements), 34 stale trees deleted (cdb3206/0450e7a/3a8aac4).
+6. Board docs: docs/rp2350-board.md (NoLogo Mini USB RP2350, fbc7451).
+7. The rack renamed: rings_dist.h -> rack_dist.h, namespace rackdist (bacf4e7).
+
+**The q15 SMLAD conv (the current uncommitted-then-committed state)**:
+- tools/ir2array.py emits BOTH the float IR (speaker_bypass_gain + the reference) AND the q15
+  packed pairs kSpeakerIrQ15[256] (uint32: lo = ir16[2j], hi = ir16[2j+1], chronological pairs),
+  scaled so sum|ir16| = 32700 <= 32700 (the int32 acc cannot overflow: |acc| <= 32700*32767 <
+  2^31; Yiu ch.19.5). kSpeakerQ15Norm = 1/(scale*32767) converts acc -> the float domain (the
+  unity conv; kSpeakerConvGain 0.25 applies after). GOTCHA fixed: the norm was first printed as
+  sum|h|/(scale*32767) — off by sum|h|.
+- rack_dist.h SpeakerConv: hist_ (float) -> hist16_ (int16, the v stream clamped to q15); the
+  conv loop: per output 256 packed dual-MACs, the x word assembled from 2 int16 loads
+  (lo = the newer v16, hi = the older) — the halves pair DIRECTLY with the chronological ir word
+  via plain SMLAD (NOT SMLADX — the first SMLADX attempt crossed the tap pairs, caught by the
+  naive law, err 0.33).
+- **The Windows toolchain GAS GAP: `smlad` does not assemble AT ALL** ("bad arguments" for ANY
+  operands, armv7e-m and armv8-m alike — `smuad r3,r0,r1` works, `smlad r0,r0,r0` fails;
+  binutils 2.43.1 Windows build). The equivalent SMUAD + add form is used (the same 1.5
+  cycles/MAC as the book's SMLALD count). ALSO: armv8-M SMLAD has the Rd != Rn/Rm constraint
+  (a breaking change vs armv7E-M — M4 allowed Rd == Rn) — the inline asm needs the early-clobber
+  "=&l" + "l" constraints so gcc never allocates the dest over the inputs.
+- test_speaker_ir.cc: the naive reference REWRITTEN to the q15 int64 definition (v16 quantized
+  with the same clamp; y16 = the int64 sum * norm * gain) — the impl vs the naive must be
+  BIT-EXACT (the int32 acc is provably in range). 13/13 host suite GREEN with the SMUAD form.
+
+**STATE: NOT flashed. The board still runs the pre-q15 float conv (flashed at the 761c290-era
+build).** The tree builds clean for the firmware (the last full pio build pre-dates the final
+SMUAD rename — rebuild before flashing).
+
+**Next steps on the Linux machine (in order)**:
+1. `pio run -d rack-rp2350 -e rack` (the single env) — verify SUCCESS.
+2. `pio run -d rack-rp2350 -t upload --upload-port <port>` — flash.
+3. Engage: cc 42 5 / cc 43 110 / cc 48 100 / cc 20 100; strike via cc 64 edges or the button.
+4. Read the `ins=a/b cv=c/d m=n` tail: **cv= should drop from ~110-117 us to ~25-40 us** (the
+   q15 dual-MAC at ~1.5-2 cycles/MAC + the packing). miss= expected 0.
+5. Ears: the cab tone should be UNCHANGED (the q15 quantization: the 12-bit effective
+   coefficients — inaudible under the chainsaw).
+6. If the cv= does not drop or miss > 0: the SMLAD asm on Linux GAS (which HAS a working smlad)
+   could use the REAL SMLAD opcode instead of the SMUAD+add — swap the asm string, re-measure.
+- Levers left after this: 1024-tap @ 16 kHz (64 ms window, the same cost as the current 512),
+  the SMLALD 64-bit accumulate (no coefficient scaling — the full 15-bit coefficients), or the
+  FFT overlap-add (the clouds STFT pattern, ~10-15 us amortized) for multi-second IRs.
