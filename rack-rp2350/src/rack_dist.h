@@ -119,9 +119,13 @@ static inline float softclip(float x) {
 // ---- Swedish Chainsaw (Barabas5532/SwedishChainsaw, GPLv3) ---------------
 // The Entombed/Dismember "buzzsaw" is the Boss HM-2 graphic EQ with all four
 // bands maxed: three fixed peaking biquads (MATLAB coefficients from the
-// plugin's HM2Filter.cpp) wrapped in two tanh saturation stages, then the
-// JCM800 FMV bass/middle/treble tonestack (the plugin's FMVDesign.cpp, ported
-// here verbatim-in-math). Not ported: 4x oversampling and the speaker IR.
+// plugin's HM2Filter.cpp) wrapped in two saturation stages, then the JCM800
+// FMV bass/middle/treble tonestack (the plugin's FMVDesign.cpp, ported here
+// verbatim-in-math) and the speaker cab convolution. The clippers are
+// stmlib::SoftClip — the classic tanh approximation (~2.5% knee deviation at
+// moderate drive, identical saturation beyond |x| = 2.5; the upstream's
+// waveshape() is std::tanh). Not ported: 4x oversampling (aliasing vs CPU)
+// and the TIGHT toggle (upstream default OFF == the fixed 60 Hz HP below).
 //
 // The HM-2 bands are REDESIGNED at the rack's 32 kHz: the plugin's fixed
 // digital coefficients were designed at 44.1 kHz — solving (f0, gain, Q) from
@@ -134,7 +138,14 @@ struct SwedishState {
   float hp_x[2];        // input high-pass input state
   float bq[2][3][2];    // per-channel biquad z1/z2 for the 3 HM2 bands
   float pre_lp[2];      // 7 kHz post-HM2 one-pole
+  float amp_lp[2];      // 7 kHz pre-amp one-pole (the upstream BUG-faithful
+                        // stage, see swedish_process)
   float fmv_z[2][3];    // per-channel FMV tonestack z1/z2/z3 (3rd-order DF2T)
+  // The dB gains are cached: the powf pair is libm from XIP (~us-scale per
+  // call) and the knobs move rarely — recompute on drive change only.
+  float last_drive = -1.0f;
+  float pedal_gain = 0.0f;
+  float amp_gain = 0.0f;
 };
 static inline SwedishState& swedish_state() {
   static SwedishState s{};
@@ -276,8 +287,16 @@ static inline void swedish_process(float* out, float* aux, size_t n,
   SwedishState& st = swedish_state();
   const float a_hp = 1.0f / (1.0f + 6.2831853f * 60.0f / 32000.0f);
   const float a_lp = 6.2831853f * 7000.0f / 32000.0f;
-  const float pedal_gain = 1.0f + 19.0f * clamp01(drive);
-  const float amp_gain = 1.0f + 9.0f * clamp01(drive);
+  // Upstream-faithful drive ranges (PluginProcessor.cpp): pedalGain 20-40 dB,
+  // ampGain 0-30 dB (defaults 30/15 land at drive 0.5 on the diagonal the
+  // single DRIVE knob sweeps). Upstream applies them as juce gain dB values.
+  if (drive != st.last_drive) {
+    st.pedal_gain = powf(10.0f, (20.0f + 20.0f * clamp01(drive)) / 20.0f);
+    st.amp_gain = powf(10.0f, 30.0f * clamp01(drive) / 20.0f);
+    st.last_drive = drive;
+  }
+  const float pedal_gain = st.pedal_gain;
+  const float amp_gain = st.amp_gain;
   SwedishFmvCoefs fmv;
   swedish_fmv_design(clamp01(bass), clamp01(mid), clamp01(treble), 32000.0f,
                      &fmv);
@@ -286,13 +305,20 @@ static inline void swedish_process(float* out, float* aux, size_t n,
   for (int c = 0; c < 2; ++c) {
     for (size_t i = 0; i < n; ++i) {
       float x = swedish_hp(st.hp_y[c], st.hp_x[c], chans[c][i], a_hp);
-      x = softclip(x * pedal_gain);                    // pedal tanh
+      x = softclip(x * pedal_gain);                    // pedal clip
       float y;
       swedish_biquad(st.bq[c][0], x, bands[0], y);
       swedish_biquad(st.bq[c][1], y, bands[1], y);
       swedish_biquad(st.bq[c][2], y, bands[2], y);
       y = swedish_lp(st.pre_lp[c], y, a_lp);
-      y = softclip(y * amp_gain);                      // amp tanh
+      // BUG-FAITHFUL to the plugin's AUDIBLE chain: its prepare() intends a
+      // 600 Hz amp-input high-pass but the assignment is aimed at
+      // ampInputFilter with makeLowPass(7000) (copy-paste slip), overwriting
+      // the HP — while ampLowpassFilter (the "removes harshness" LP) never
+      // gets coefficients = identity. Net effect: the HM-2 output is
+      // band-limited at 7 kHz TWICE into the amp clip. Ported as heard.
+      y = swedish_lp(st.amp_lp[c], y, a_lp);
+      y = softclip(y * amp_gain);                      // amp clip
       swedish_fmv_biquad3(st.fmv_z[c], y, fmv, y);     // JCM800 B/M/T stack
       // makeup: the HM2 bands boost hard at max settings
       chans[c][i] = y * 0.35f;
