@@ -6,6 +6,7 @@
 #include "../src/dronecaster/sc_defs.h"
 #include "../src/dronecaster/sc_rgen.h"
 #include "../src/dronecaster/sc_kit_osc.h"
+#include "../src/dronecaster/sc_kit_pulse.h"
 #include "../src/dronecaster/sc_arena.h"
 
 #include <cmath>
@@ -103,6 +104,55 @@ int main() {
          g_failures ? "FAIL" : "PASS", g_failures);
 
   // task sections are inserted above this line
+
+  printf("== Pulse (BLIT) ==\n");
+  {
+    static sc::KitTables t;
+    sc::InitKitTables(&t);
+    sc::Pulse p;
+    p.Init(&t, 48000.0, 55.0f, 0.5f);
+    float buf[64];
+    p.ProcessBlock(buf, 8);
+    CHECK(buf[0] == 0.0f, "pulse sample0 == 0");
+    CHECK(fabsf(buf[1] - 0.0214609262f) < 1e-7f, "pulse sample1 == 0.021460926");
+    CHECK(fabsf(buf[2] - 0.0401634201f) < 1e-7f, "pulse sample2 == 0.040163420");
+    CHECK(fabsf(buf[3] - 0.0533128008f) < 1e-7f, "pulse sample3 == 0.053312801");
+    CHECK(fabsf(buf[4] - 0.0614881404f) < 1e-7f, "pulse sample4 == 0.061488140");
+    CHECK(fabsf(buf[5] - 0.0637175143f) < 1e-7f, "pulse sample5 == 0.063717514");
+    CHECK(fabsf(buf[6] - 0.0623465441f) < 1e-7f, "pulse sample6 == 0.062346544");
+    CHECK(fabsf(buf[7] - 0.0577567518f) < 1e-7f, "pulse sample7 == 0.057756752");
+
+    sc::Pulse q;
+    q.Init(&t, 48000.0, 55.0f, 0.5f);
+    float pk = 0.0f, prev = 0.0f;
+    int zc = 0;
+    for (int b = 0; b < 750; ++b) {                 // 1 s
+      q.ProcessBlock(buf, 64);
+      for (int i = 0; i < 64; ++i) {
+        const float v = buf[i];
+        if (fabsf(v) > fabsf(pk)) pk = v;
+        if ((v >= 0.0f) != (prev >= 0.0f)) ++zc;
+        prev = v;
+      }
+    }
+    CHECK(fabsf(pk) > 1.0f && fabsf(pk) < 1.2f, "pulse 1 s peak ~1.08");
+    CHECK(zc >= 110 && zc <= 116, "pulse 1 s zero crossings ~113");
+
+    // Frequency-change path (crossfade): finite and bounded.
+    sc::Pulse r;
+    r.Init(&t, 48000.0, 55.0f, 0.5f);
+    bool finite = true;
+    float qpk = 0.0f;
+    for (int b = 0; b < 100; ++b) {
+      r.SetFreq(b < 50 ? 55.0f : 110.0f);
+      r.ProcessBlock(buf, 64);
+      for (int i = 0; i < 64; ++i) {
+        if (!std::isfinite(buf[i])) finite = false;
+        if (fabsf(buf[i]) > qpk) qpk = fabsf(buf[i]);
+      }
+    }
+    CHECK(finite && qpk < 2.5f, "pulse crossfade path finite/bounded");
+  }
 
   printf("== kit tables + arena ==\n");
   {
