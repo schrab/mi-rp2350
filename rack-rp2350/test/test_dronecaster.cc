@@ -5,6 +5,8 @@
 
 #include "../src/dronecaster/sc_defs.h"
 #include "../src/dronecaster/sc_rgen.h"
+#include "../src/dronecaster/sc_kit_osc.h"
+#include "../src/dronecaster/sc_arena.h"
 
 #include <cmath>
 #include <cstdio>
@@ -101,6 +103,69 @@ int main() {
          g_failures ? "FAIL" : "PASS", g_failures);
 
   // task sections are inserted above this line
+
+  printf("== kit tables + arena ==\n");
+  {
+    static sc::KitTables t;
+    sc::InitKitTables(&t);
+    CHECK(t.sine[0] == 0.0f, "sine[0] == 0");
+    CHECK(t.sine[sc::kSineSize / 4] == 1.0f, "sine[2048] == 1");
+    CHECK(t.sine[1024] == 0.707106769f, "sine[1024] exact");
+    CHECK(t.sine[1] == 0.000766990299f, "sine[1] exact");
+    CHECK(fabsf(t.sine[sc::kSineSize]) < 1e-6f, "sine guard ~0");
+    CHECK(t.sine_wt[0] == -0.000766990299f && t.sine_wt[1] == 0.000766990299f,
+          "wavetable pair[0] exact");
+    CHECK(t.cosecant[0] == sc::kBadValue && t.cosecant[1] == sc::kBadValue &&
+              t.cosecant[8] == sc::kBadValue,
+          "cosecant sentinels (0 and +-8 bands)");
+    CHECK(t.cosecant[9] == 144.867523f, "cosecant[9] exact (band ends at 8)");
+    CHECK(fabsf(t.cosecant[100] - 1.0f / t.sine[100]) < 1e-3f, "cosecant = 1/sine");
+
+    static uint8_t mem[64 * 1024];
+    sc::Arena a;
+    a.Init(mem, sizeof(mem));
+    void* p1 = a.Alloc(16);
+    const size_t mark = a.Mark();
+    void* p2 = a.Alloc(64);
+    CHECK(p1 != nullptr && p2 != nullptr && a.used() >= mark + 64, "arena alloc");
+    a.ResetTo(mark);
+    CHECK(a.used() == mark, "arena savepoint restores");
+    a.Reset();
+    CHECK(a.used() == 0, "arena reset");
+  }
+
+  printf("== SinOsc / LFTri ==\n");
+  {
+    static sc::KitTables t;
+    sc::InitKitTables(&t);
+
+    sc::SinOsc so;
+    so.Init(&t, 48000.0, 55.0f);
+    CHECK(so.Process() == 0.0f, "SinOsc sample0 == 0");
+    CHECK(fabsf(so.Process() - 0.00719941361f) < 1e-7f, "SinOsc sample1 == 0.007199414");
+    CHECK(fabsf(so.Process() - 0.0143984547f) < 1e-7f, "SinOsc sample2 == 0.014398455");
+    CHECK(fabsf(so.Process() - 0.0215967484f) < 1e-7f, "SinOsc sample3 == 0.021596748");
+    CHECK(so.phase() == 2460656u, "SinOsc phase after 4 samples == 2460656");
+    sc::SinOsc so2;
+    so2.Init(&t, 48000.0, 55.0f);
+    for (int i = 0; i < 48000; ++i) (void)so2.Process();
+    CHECK(so2.phase() == 3758068224u, "SinOsc phase after 48000 samples exact");
+
+    sc::LFTri tri;
+    tri.Init(48000.0, 55.0f);
+    // 3.14.1 LFTri_Ctor resets the phase after priming: sample0 = z(0) = 0.
+    CHECK(tri.Process() == 0.0f, "LFTri sample0 == 0 (3.14 ctor rollback)");
+    CHECK(fabsf(tri.Process() - 0.00458333315f) < 1e-9f, "LFTri sample1 == 0.004583333");
+    CHECK(fabsf(tri.Process() - 0.00916666631f) < 1e-9f, "LFTri sample2 == 0.009166666");
+    float pk = 0.0f, dc = 0.0f;
+    for (int i = 0; i < 48000; ++i) {
+      const float v = tri.Process();
+      dc += v;
+      if (fabsf(v) > fabsf(pk)) pk = v;
+    }
+    CHECK(fabsf(pk) > 0.99f && fabsf(pk) <= 1.0f, "LFTri peak ~1");
+    CHECK(fabsf(dc / 48000.0f) < 1e-3f, "LFTri DC ~0");
+  }
 
   printf("== sc::RGen (taus88) ==\n");
   {
