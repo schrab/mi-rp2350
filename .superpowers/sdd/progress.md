@@ -5056,3 +5056,26 @@ DIVERGENCES (known, user decides if any change):
 4. Gain-before-HP ordering (upstream) vs after (rack) — commutes, no difference.
 5. IR length: the plugin convolves the FULL user file (size 0, no trim); the rack = 1024 taps
    (64 ms, 99.9% compacted energy) + pre-delay compaction.
+
+## Swede upstream alignment LANDED + the powf-per-block trap (2026-11-19, late night)
+
+The two user-approved audit items are IN (20dd227): (1) the plugin's AUDIBLE chain ported
+bug-faithfully — a second 7 kHz one-pole between the pedal LP and the amp clip
+(SwedishState.amp_lp; upstream's prepare() typo overwrites the intended 600 Hz HP with
+makeLowPass(7000), so the HM-2 output is band-limited twice into the amp clip); (2) the drive
+ranges aligned to PluginProcessor.cpp — pedalGain 20-40 dB, ampGain 0-30 dB, the single DRIVE
+sweeping the diagonal (the upstream defaults 30/15 land at drive 0.5). The same knob positions
+now sound much hotter than the old 1-20x/1-10x mapping — the user re-ears (they called the old
+ear tests quick/raw).
+
+**THE POWF-PER-BLOCK TRAP (the session's biggest measurement catch):** the dB gain conversion
+(pedal/amp) ran TWO newlib powf calls PER BLOCK — ~265 us/block on core 1 (quiet avg 122 ->
+391, the hand-off waits engaged: ins 33 -> 84, max 206 -> 658-721). Soft-float libm from XIP,
+once per block, for knobs that move rarely = pure waste. Fix: cache pedal_gain/amp_gain in
+SwedishState, recompute only when drive changes (one hotter block per knob turn, absorbed by
+the I2S bank). Post-fix: cv=124, ins=33-37, quiet avg 122-126, max 206-233, miss 0, stalls 0.
+Rule: NEVER call libm per block; cache per parameter change.
+
+Ledger corrections: the timeline rows' "steady" avgs mixed engage-burst windows (the true
+quiet-state core-1 avg is ~120-126 both before and after this change; row 9's ~330 was the
+burst window).
