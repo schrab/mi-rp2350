@@ -23,6 +23,7 @@
 #include "../src/dronecaster/sc_kit_localio.h"
 #include "../src/dronecaster/sc_kit_reverb.h"
 #include "../src/dronecaster/sc_kit_pan.h"
+#include "../src/dronecaster/sc_kit_greyhole.h"
 #include <cstdio>
 
 #include <cmath>
@@ -545,6 +546,22 @@ int main() {
         u.ProcessBlock(a.data() + i * 64, b.data() + i * 64,
                        l.data() + i * 64, r.data() + i * 64, 64, 0.3f);
       if (!ref_check("Rotate2ar", l.data(), 48000)) ++g_failures; }
+  }
+
+  printf("== T-D2 GreyholeRaw vs NRT reference ==\n");
+  {
+    static sc::KitTables kt; sc::InitKitTables(&kt);
+    std::vector<float> a(48000), b(48000), l(48000), r(48000);
+    { sc::Saw s; s.Init(&kt, 48000.0, 220.0f);
+      for (int i = 0; i < 750; ++i) s.ProcessBlock(a.data() + i * 64, 64); }
+    { sc::Saw s; s.Init(&kt, 48000.0, 330.0f);
+      for (int i = 0; i < 750; ++i) s.ProcessBlock(b.data() + i * 64, 64); }
+    sc::GreyholeRaw g; g.Init(48000.0);
+    for (int i = 0; i < 750; ++i)
+      g.ProcessBlock(a.data() + i * 64, b.data() + i * 64,
+                     l.data() + i * 64, r.data() + i * 64, 64,
+                     0.f, 2.f, 0.5f, 0.9f, 0.1f, 2.f, 1.f);
+    if (!ref_check("GreyholeRaw", l.data(), 48000)) ++g_failures;
   }
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");

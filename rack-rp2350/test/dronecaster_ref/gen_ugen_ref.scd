@@ -149,6 +149,11 @@
         ["Balance2ar", { Out.ar(0, Balance2.ar(Saw.ar(220), Saw.ar(330), 0.3, 0.8)) }],
         ["Rotate2ar",  { Out.ar(0, Rotate2.ar(Saw.ar(220), Saw.ar(330), 0.3)) }],
 
+        // ---- Task 9 cont.: GreyholeRaw (faust, separate header) ----
+        // GreyholeRaw needs scsynth (supernova cannot load the UGen at all);
+        // the Faust plugin segfaults at SHUTDOWN after writing a complete wav.
+        ["GreyholeRaw", { Out.ar(0, GreyholeRaw.ar(Saw.ar(220), Saw.ar(330), 0, 2, 0.5, 0.9, 0.1, 2, 1)) }],
+
         // ---- T-D2 dynamics family (core: Amplitude/Compander/Limiter) ----
         ["Amplitude",  { Out.ar(0, Amplitude.ar(Saw.ar(220), 0.01, 0.1)) }],
         ["Compander",  { Out.ar(0, Compander.ar(Saw.ar(220), Saw.ar(1), 0.5, 2, 1.5, 0.01, 0.1)) }],
@@ -208,6 +213,10 @@
                 if (stable.not) { Error("DFM1 epoch never stable").throw };
             } {
                 rc = cmd.systemCmd;
+                if (name == "GreyholeRaw" && rc != 0) {
+                    ("GreyholeRaw: scsynth exit rc=" ++ rc ++ " after writing wav").postln;
+                    rc = 0;
+                };
                 if (rc != 0) { Error("scsynth failed for " ++ name).throw };
             };
             File.delete(oscPath);

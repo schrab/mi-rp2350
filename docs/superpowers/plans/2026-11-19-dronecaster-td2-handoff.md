@@ -37,9 +37,10 @@ Commits on branch `rack-rp2350` (pushed):
 | `ce6b755` | LocalIn/LocalOut — 1/1 exact (Task 8 complete, 17/17) |
 | `3f712ca` | FreeVerb — 1/1 exact |
 | `be6ab28` | GVerb — 1/1 exact (core reverbs done; GreyholeRaw remains) |
-| *(this commit)* | Pan2/Balance2/Rotate2 — 3/3 exact (Task 10 core done) |
+| `3a45564` | Pan2/Balance2/Rotate2 — 3/3 exact (Task 10 core done) |
+| *(this commit)* | GreyholeRaw — 1/1 exact (Task 9 complete: 3/3) |
 
-**Done and reference-exact (99 UGens + the trio):**
+**Done and reference-exact (100 UGens + the trio):**
 
 - `sc_kit_noise.h` — WhiteNoise, ClipNoise, GrayNoise, PinkNoise, BrownNoise,
   Crackle, Dust, Dust2, LFNoise0/1/2 (ar + kr), LFClipNoise, LFDNoise0,
@@ -83,12 +84,17 @@ Commits on branch `rack-rp2350` (pushed):
   diffusers) **2/2 exact**. GVerb traps: `zapgremlins` is `1e-15 < |x| < 1e15`
   (not 3.4e38), slopes clear every block, and ramped level locals are NOT
   written back (only the setter's target) — else a 1-ULP re-ramp repeats.
+- `sc_kit_greyhole.h` — GreyholeRaw **1/1 exact**. The faust-generated `mydsp`
+  class is embedded VERBATIM (renamed + a `SetParams` helper + stub `dsp`/`UI`/
+  `Meta`/`primes`); do not hand-transcribe its ~450-line compute loop. It needs
+  **scsynth** (supernova cannot load the UGen) and scsynth exits 139 at shutdown
+  after writing a complete wav — the harness accepts rc 139 for this name only.
 - `sc_kit_pan.h` — Pan2/Balance2/Rotate2 **3/3 exact**, using `KitTables::sine`
   (= `ft->mSine`) and CALCSLOPE on amplitude / rotation coefs.
 
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
-— expects `PASS (0 failures)` (99 active refs as of the pan commit;
+— expects `PASS (0 failures)` (100 active refs as of the GreyholeRaw commit;
 `ugen_ref/Klankar.expected.wav` is a tracked orphan from an earlier attempt —
 Klank is skipped, so no test reads it).
 
@@ -140,7 +146,7 @@ Klank is skipped, so no test reads it).
 | ~~sc3p filters~~ | ~~SVF, MoogLadder, DFM1~~ **DONE** 3/3 | `/tmp/sc3p_full/source/BlackrainUGens/`, `BhobUGens/BhobFilt.cpp`, `TJUGens/Dfm1.cpp` (+ Dfm1Lut) | `sc_kit_sc3p_filter.h` quotes each license. DFM1's RNG is seeded from `time(NULL)`, so the renderer writes the epoch to `ugen_ref/DFM1.seed.txt` (retrying if a second boundary is crossed) and `Dfm1::Init` takes it as an explicit seed. Tables generated from pin `25eacaf7`. |
 | ~~delays~~ | ~~DelayN/L/C, CombN/L/C, AllpassN/L/C, Pluck, BufDelayN/L/C, BufAllpassN/L/C, PitchShift~~ **DONE** 16/16 | DelayUGens.cpp | All in `sc_kit_delay.h`. Buf* use `InitBuf` (external power-of-two SndBuf, dsamp clipped to `bufSamples-1`); a real engine still needs arena-backed SndBuf plumbing (pair with Task 12). PitchShift uses the shared voice RGen and 4 crossfading heads. |
 | ~~localio~~ | ~~LocalIn, LocalOut~~ **DONE** 1/1 | IOUGens.cpp | `sc_kit_localio.h` `LocalBus` holds the touched/block-counter law. Firmware still needs a per-voice LocalBus area in the arena and audio-loop wiring (engine task, not kit). |
-| ~~reverbs (core)~~ | ~~FreeVerb, GVerb~~ **DONE** 2/2; GreyholeRaw remains | ReverbUGens.cpp | Both in `sc_kit_reverb.h`. FreeVerb = 8 comb + 4 allpass. GVerb = 4th-order FDN + diffusers/dampers. GreyholeRaw (faust) goes in `sc_kit_greyhole.h`. |
+| ~~reverbs~~ | ~~FreeVerb, GVerb, GreyholeRaw~~ **DONE** 3/3 | ReverbUGens.cpp / sc3p DEINDUGens | FreeVerb + GVerb in `sc_kit_reverb.h`; GreyholeRaw faust class embedded verbatim in `sc_kit_greyhole.h` (scsynth + rc-139 tolerance). |
 | sc3p reverb | GreyholeRaw (Greyhole class wraps it) | `sc3p/source/DEINDUGens/GreyholeRaw.cpp` (faust-generated) | Port after the core reverbs pass; it is large. |
 | ~~pan (core)~~ | ~~Pan2, Balance2, Rotate2~~ **DONE** 3/3; Splay/SplayAz remain (sugar) | PanUGens.cpp | `sc_kit_pan.h` uses `KitTables::sine` + CALCSLOPE. Splay/SplayAz are classlib helpers — port in the sugar task. |
 | demand | Demand, Dseq, Drand, Dxrand, Dseries, Dbrown, Dbufrd, Dbufwr | DemandUGens.cpp | Demand-rate machinery: a demand UGen is PULLED by a triggering UGen. Model as a per-voice demand clock the drone calls once per block; Dseq/Drand keep their own state. |
