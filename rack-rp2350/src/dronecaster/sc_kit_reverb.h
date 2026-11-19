@@ -40,41 +40,48 @@ struct FreeVerb {
     const float exc = 1.500000e-02f * x;
 
     float t[12];
-    static const int kSize[12] = {225, 341, 441, 556, 1617, 1557,
-                                  1491, 1422, 1277, 1116, 1188, 1356};
+    // Flat delay memory: the 12 lines have DIFFERENT lengths. The old
+    // array-of-1617 allocated 19,404 floats; the exact sum is 12,587 —
+    // 27,412 bytes saved per instance with zero numerical change (only the
+    // indexing base changes). M33-relevant: 50.3 KB instead of 77.7 KB.
     for (int i = 0; i < 12; ++i) {
       if (++iota_[i] == kSize[i]) iota_[i] = 0;
-      t[i] = lines_[i][iota_[i]];
+      t[i] = lines_[static_cast<size_t>(kOffset[i] + iota_[i])];
     }
     // 8 comb stages (indices 4..11), each with its own low-pass state.
     for (int k = 0; k < 8; ++k) {
       const int line = k + 4, rlo = k * 2 + 4, rhi = rlo + 1;
       r_[rhi] = invd * r_[rlo] + d * r_[rhi];
-      lines_[line][iota_[line]] = exc + fb * r_[rhi];
+      lines_[static_cast<size_t>(kOffset[line] + iota_[line])] = exc + fb * r_[rhi];
       r_[rlo] = t[line];
     }
     const float ftemp8 = r_[16] + r_[18];
-    lines_[3][iota_[3]] =
+    lines_[static_cast<size_t>(kOffset[3] + iota_[3])] =
         ((0.5f * r_[3] + r_[4]) + (r_[6] + r_[8])) +
         ((r_[10] + r_[12]) + (r_[14] + ftemp8));
     r_[3] = t[3];
     ar_[3] = r_[3] - ((r_[4] + r_[6]) + (r_[8] + r_[10]) +
                       ((r_[12] + r_[14]) + ftemp8));
-    lines_[2][iota_[2]] = 0.5f * r_[2] + ar_[3];
+    lines_[static_cast<size_t>(kOffset[2] + iota_[2])] = 0.5f * r_[2] + ar_[3];
     r_[2] = t[2];
     ar_[2] = r_[2] - ar_[3];
-    lines_[1][iota_[1]] = 0.5f * r_[1] + ar_[2];
+    lines_[static_cast<size_t>(kOffset[1] + iota_[1])] = 0.5f * r_[1] + ar_[2];
     r_[1] = t[1];
     ar_[1] = r_[1] - ar_[2];
-    lines_[0][iota_[0]] = 0.5f * r_[0] + ar_[1];
+    lines_[static_cast<size_t>(kOffset[0] + iota_[0])] = 0.5f * r_[0] + ar_[1];
     r_[0] = t[0];
     ar_[0] = r_[0] - ar_[1];
     out = dry * x + mix * ar_[0];
   }
+  static constexpr int kSize[12] = {225, 341, 441, 556, 1617, 1557,
+                                    1491, 1422, 1277, 1116, 1188, 1356};
+  static constexpr int kOffset[12] = {0, 225, 566, 1007, 1563, 3180,
+                                      4737, 6228, 7650, 8927, 10043, 11231};
+  static constexpr int kTotal = 12587;
   std::array<int, 12> iota_{};
   std::array<float, 20> r_{};
   std::array<float, 4> ar_{};
-  std::array<std::array<float, 1617>, 12> lines_{};
+  std::array<float, kTotal> lines_{};
 };
 
 // GVerb — ReverbUGens.cpp:1269 (ctor), 1387 (next), helpers 1038-1267.

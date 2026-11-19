@@ -5359,10 +5359,11 @@ so none of the new ports affect the current audio build. No HW claim made.
 **Would-be per-voice RAM (host `sizeof`, kit structs):** most are small
 (Amplitude 12, MoogFF 72, BEQFilter 88, Dfm1 128, DelayLine 80, Pan2 24,
 DSeq 48, …) but two are integration blockers:
-- `FreeVerb` **77,760 B** — `std::array<std::array<float,1617>,12>` allocates
-  every comb line at the MAX length. Exact per-line lengths sum to 13,587
-  floats (54,348 B) — a flat array + offsets would save ~23 KB with no
-  numerical change.
+- `FreeVerb` **77,760 B → 50,492 B (FIXED)** — the old
+  `array<array<float,1617>,12>` allocated every comb at the MAX length.
+  Replaced with one flat `array<float,12587>` + exact per-line offsets
+  (12,587 floats = 50,348 B + state): 27,268 B saved per instance, ZERO
+  numerical change (gate still `max_abs = 0`), commit follows.
 - `GreyholeRawDsp` **2,630,376 B (2.5 MB)** — the faust-generated class's
   internal 131,072-float buffers. Cannot fit the 331,776 B rack arena as-is;
   needs a dedicated carve or a rewrite.
