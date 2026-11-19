@@ -11,6 +11,7 @@
 #include "../src/dronecaster/sc_kit_env.h"
 #include "../src/dronecaster/dronecaster_engine.h"
 #include "../src/dronecaster/drones/drone_trio.h"
+#include "../src/dronecaster/sc_kit_noise.h"
 
 #include <cmath>
 #include <cstdio>
@@ -70,6 +71,71 @@ static void write_constant_wav(const char* path, float v, int frames) {
   l8test::WriteWavF32(path, x.data(), frames, 2, 48000);
 }
 
+// ---- T-D2 UGen reference harness: compare a port's 48,000-sample stream
+// against dronecaster_ref/ugen_ref/<Name>.expected.wav channel 0 ----
+static bool ref_check(const char* name, const float* got, long n) {
+  char path[192];
+  snprintf(path, sizeof(path),
+           "dronecaster_ref/ugen_ref/%s.expected.wav", name);
+  l8test::WavFile w = l8test::ReadWav(path);
+  const long wf = static_cast<long>(w.samples.size() / (w.channels ? w.channels : 1));
+  if (w.channels < 1 || wf != n) {
+    printf("  REF %-12s FAIL: layout ref=%ldf got=%ld\n", name, wf, n);
+    return false;
+  }
+  double max_abs = 0.0, num = 0.0, da = 0.0, db = 0.0;
+  for (long i = 0; i < n; ++i) {
+    const double a = w.samples[static_cast<size_t>(i) * w.channels];
+    const double b = got[i];
+    const double d = a - b;
+    if (fabs(d) > max_abs) max_abs = fabs(d);
+    num += a * b; da += a * a; db += b * b;
+  }
+  const double corr = (da > 0 && db > 0) ? num / sqrt(da * db) : (da == db ? 1.0 : 0.0);
+  const bool ok = max_abs <= 1e-6 && corr >= 0.999999;
+  printf("  REF %-12s %s: max=%.9f corr=%.9f\n", name, ok ? "ok" : "FAIL",
+         max_abs, corr);
+  return ok;
+}
+
+// Fill `out` (48,000) from an ar UGen.
+template <typename U>
+static bool ref_ar_fill(const char* name, U& u, std::vector<float>& out) {
+  out.assign(48000, 0.0f);
+  for (int b = 0; b < 750; ++b) u.ProcessBlock(out.data() + b * 64, 64);
+  return ref_check(name, out.data(), 48000);
+}
+
+// Fill `out` from a kr UGen as K2A renders it: ControlRateInput's CALCSLOPE
+// ramp. The SC 3.14.1 x86 build uses nova's SSE vector_ramp_argument, whose
+// arithmetic is NOT a plain accumulation — replicate it bit-for-bit
+// (nova-simd vec_sse.hpp set_slope): lanes [s, s+slope, s+2slope,
+// s+2slope+slope], group increment 4*slope via repeated adds.
+template <typename U>
+static bool ref_kr_fill(const char* name, U& u, std::vector<float>& out) {
+  out.assign(48000, 0.0f);
+  float prev = u.ctor_value();
+  for (int b = 0; b < 750; ++b) {
+    const float v = u.ProcessKr();
+    const float slope = static_cast<float>((v - prev) * (1.0 / 64.0));
+    const float slope2 = slope + slope;
+    const float v0 = prev;
+    const float v1 = prev + slope;
+    const float v2 = prev + slope2;
+    const float v3 = prev + slope2 + slope;
+    float acc = 0.0f;
+    for (int g = 0; g < 16; ++g) {
+      out[b * 64 + g * 4 + 0] = v0 + acc;
+      out[b * 64 + g * 4 + 1] = v1 + acc;
+      out[b * 64 + g * 4 + 2] = v2 + acc;
+      out[b * 64 + g * 4 + 3] = v3 + acc;
+      acc += slope2 + slope2;
+    }
+    prev = v;
+  }
+  return ref_check(name, out.data(), 48000);
+}
+
 int main() {
   printf("== comparator self-tests ==\n");
   {
@@ -107,6 +173,52 @@ int main() {
          g_failures ? "FAIL" : "PASS", g_failures);
 
   // task sections are inserted above this line
+
+  printf("== T-D2 noise kit vs NRT references ==\n");
+  {
+    std::vector<float> out;
+    int fails_before = g_failures;
+    sc::RGen r;
+
+    r.init(sc::kGoldenSeed); { sc::WhiteNoise u; u.Init(&r); if (!ref_ar_fill("WhiteNoise", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::ClipNoise u; u.Init(&r); if (!ref_ar_fill("ClipNoise", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::GrayNoise u; u.Init(&r); if (!ref_ar_fill("GrayNoise", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::PinkNoise u; u.Init(&r); if (!ref_ar_fill("PinkNoise", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::BrownNoise u; u.Init(&r); if (!ref_ar_fill("BrownNoise", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::Crackle u; u.Init(&r, 1.95f); if (!ref_ar_fill("Crackle", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::Dust u; u.Init(&r, 48000.0, 1000.0f); if (!ref_ar_fill("Dust", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::Dust2 u; u.Init(&r, 48000.0, 1000.0f); if (!ref_ar_fill("Dust2", u, out)) ++g_failures; }
+
+    // LF noise: kr(10) at the control rate (sr/64 = 750) and ar(400).
+    r.init(sc::kGoldenSeed); { sc::LFNoise0 u; u.Init(&r, 750.0, 10.0f); if (!ref_kr_fill("LFNoise0kr", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::LFNoise1 u; u.Init(&r, 750.0, 10.0f); if (!ref_kr_fill("LFNoise1kr", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::LFNoise2 u; u.Init(&r, 750.0, 10.0f); if (!ref_kr_fill("LFNoise2kr", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::LFNoise0 u; u.Init(&r, 48000.0, 400.0f); if (!ref_ar_fill("LFNoise0ar", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::LFNoise1 u; u.Init(&r, 48000.0, 400.0f); if (!ref_ar_fill("LFNoise1ar", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::LFNoise2 u; u.Init(&r, 48000.0, 400.0f); if (!ref_ar_fill("LFNoise2ar", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::LFClipNoise u; u.Init(&r, 48000.0, 400.0f); if (!ref_ar_fill("LFClipNoise", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::LFDNoise0 u; u.Init(&r, 750.0, 3.0f); if (!ref_kr_fill("LFDNoise0kr", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::LFDNoise0 u; u.Init(&r, 48000.0, 400.0f); if (!ref_ar_fill("LFDNoise0ar", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::LFDNoise3 u; u.Init(&r, 750.0, 3.0f); if (!ref_kr_fill("LFDNoise3kr", u, out)) ++g_failures; }
+    r.init(sc::kGoldenSeed); { sc::LFDNoise3 u; u.Init(&r, 48000.0, 400.0f); if (!ref_ar_fill("LFDNoise3ar", u, out)) ++g_failures; }
+
+    // Init-time randoms: the reference is a constant; compare the single value.
+    {
+      int fails = 0;
+      r.init(sc::kGoldenSeed); const float rv = sc::RandIrg(&r, 0.25f, 0.75f);
+      r.init(sc::kGoldenSeed); const float iv = static_cast<float>(sc::IRandIrg(&r, 0, 100));
+      r.init(sc::kGoldenSeed); const float nv = sc::NRandIrg(&r, 0.0f, 1.0f, 4);
+      r.init(sc::kGoldenSeed); const float lv = sc::LinRandIrg(&r, 0.0f, 1.0f, 0);
+      r.init(sc::kGoldenSeed); const float ev = sc::ExpRandIrg(&r, 0.1f, 10.0f);
+      const struct { const char* n; float v; } cases[] = {
+          {"Rand", rv}, {"IRand", iv}, {"NRand", nv}, {"LinRand", lv}, {"ExpRand", ev}};
+      for (const auto& c : cases) {
+        std::vector<float> consts(48000, c.v);
+        if (!ref_check(c.n, consts.data(), 48000)) { fails++; ++g_failures; }
+      }
+    }
+    (void)fails_before;
+  }
 
   printf("== trio goldens (float32) ==\n");
   {

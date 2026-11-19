@@ -5,6 +5,7 @@
 // Verified against the Version-3.14.1 tag (brace-only diff vs 3.13.1).
 #ifndef RACK_SRC_DRONECASTER_SC_RGEN_H_
 #define RACK_SRC_DRONECASTER_SC_RGEN_H_
+#include <cmath>
 #include <cstdint>
 
 namespace sc {
@@ -56,6 +57,18 @@ class RGen {
   float frand2() { return bits_to_float(0x40000000u | (trand() >> 9)) - 3.0f; }
   float frand8() { return bits_to_float(0x3E800000u | (trand() >> 9)) - 0.375f; }
   float fcoin()  { return bits_to_float(0x3F800000u | (0x80000000u & trand())); }
+
+  // SC_RGen.h drand(): a double in [0,1) from one trand (the hi word is
+  // 0x41300000 = 2^20..2^21). Little-endian word order as in the source
+  // (the RP2350 M33 and every host we build on are LE).
+  double drand() {
+    union { uint32_t w[2]; double d; } du;
+    du.w[0] = trand();          // lo word first (little-endian, as the source)
+    du.w[1] = 0x41300000u;      // hi word
+    return du.d - 1048576.0;
+  }
+  int32_t irand(int32_t scale) { return static_cast<int32_t>(floor(scale * drand())); }
+  double drand2(double scale) { return 2.0 * scale * drand() - scale; }
 
   uint32_t s1 = 0, s2 = 0, s3 = 0;
 };
