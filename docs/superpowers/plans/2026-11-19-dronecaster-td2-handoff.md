@@ -200,6 +200,13 @@ Klank is skipped, so no test reads it).
   work. Also `&&` with a Function operand and `while({ a and { b } }, …)` hang
   — prefer `N.do { … }` with a flag. The old failure mode (unresolved classes /
   late `var`) still applies.
+- **Core delay UGens (DelayN/L/C, CombN/L/C, AllpassN/L/C) make scsynth
+  3.14.1-6 exit 139 AFTER writing a complete, correct WAV** — the crash is at
+  shutdown/`RTFree` of the delay line, not during rendering. The script's
+  `rc != 0` check throws and leaves sclang hung. Supernova runs the same
+  `DelayUGens.cpp` law cleanly (rc 0) and produced byte-identical channel data
+  to scsynth's completed render. All nine delay refs therefore carry the
+  `supernova` engine override. Do not delete them thinking they are corrupt.
 - **Limiter AND Normalizer segfault scsynth 3.14.1-6** (rc 139, any input or
   `dur`) — same trap class as Klank, and a failed `systemCmd` leaves sclang
   hung after the error dump (the .scd's `0.exit` never runs). Fix: render

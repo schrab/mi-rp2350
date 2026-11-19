@@ -5317,3 +5317,9 @@ test reads it.
 - **sclang parse trap: bare `a and b` hangs silently** (no error, stays after
   the welcome banner) — use `a.and(b)` or `a && b`. `while({… and {…}},…)` and
   a `var` late in a function have the same symptom.
+- **Delay family needs supernova too**: DelayN/L/C, CombN/L/C, AllpassN/L/C
+  make scsynth 3.14.1-6 exit 139 at SHUTDOWN (after writing a complete, correct
+  WAV — the `RTFree` of the power-of-two delay line). The nonzero rc throws in
+  `gen_ugen_ref.scd` and hangs sclang, which looks like a render failure but
+  isn't. Supernova (rc 0) produces byte-identical channel data; all nine delay
+  refs carry the `supernova` engine override.
