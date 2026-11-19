@@ -1,0 +1,3 @@
+[submodule "PicoCollider"]
+	path = PicoCollider
+	url = https://github.com/schrab/PicoCollider.git

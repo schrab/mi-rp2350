@@ -5398,3 +5398,17 @@ One free fix landed: `Splay` scratch buffers moved off the heap (`2c8a180`).
 - Two law traps cost iterations: (1) inside a kr UGen SC's `SAMPLERATE` is the
   CONTROL rate (750 Hz), not 48 kHz — segment counters are in control blocks;
   (2) `Impulse.kr(2)` re-triggers at block 376, not 375 (sampling phase).
+
+## PicoCollider extraction (2026-11-19, this session)
+
+The porting kit is NOT Dronecaster-specific — it is a set of reusable SC DSP
+building blocks. Extracted to a standalone repo:
+- `https://github.com/schrab/PicoCollider.git` (`main`, commit `966c660`).
+- Layout: `include/picocollider/*.h` (26 headers), `test/test_kit.cc` +
+  `test/wav_io.h` + `test/ref/` (129 reference WAVs + render scripts),
+  `test/Makefile`, `README.md`, `LICENSE.md` (per-source license matrix),
+  `library.json` for PlatformIO.
+- Standalone gate: `cd PicoCollider/test && make test` → `test_kit: PASS (0 failures)`.
+- Added as a git submodule at `mi-rp2350/PicoCollider` (`.gitmodules`).
+- The in-tree `rack-rp2350/src/dronecaster/sc_*.h` copies remain for the
+  firmware build; deduplicating them to include the submodule is a follow-up.

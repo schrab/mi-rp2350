@@ -27,6 +27,16 @@ registry/window tables,
 bump the define in `platformio.ini`. Any module is reachable at runtime via
 MIDI CC 32 or the serial console.
 
+## PicoCollider submodule
+
+`PicoCollider/` (git submodule, https://github.com/schrab/PicoCollider.git) is
+the standalone library of reusable, reference-exact SuperCollider DSP building
+blocks extracted from the Dronecaster porting work. It owns 26 header-only
+kit headers and a 129-reference host gate (`cd PicoCollider/test && make test`).
+Future Pico2 projects should consume it as the DSP foundation. The headers still
+under `rack-rp2350/src/dronecaster/` are the original in-tree copies used by the
+firmware; deduplicating them into the submodule is a follow-up task.
+
 ## Document map
 
 | Document | What it holds |
