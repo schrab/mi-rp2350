@@ -541,6 +541,18 @@ const MODULES = [
       steps: { labels:['1','2','3','4'], bytes:[0,48,80,112] } },
   ],
 },
+{
+  name: 'DRONECASTER', key: 'dronecaster',
+  info: '48 kHz \u00B7 16-sample blocks \u00B7 budget 1333 \u00B5s \u00B7 norns Dronecaster port (T-D1 trio)',
+  ccMap: '51 drone(0-36) \u00B7 52 amp \u00B7 53 fade(atk=rel) \u00B7 54 hz-offset \u00B7 notes = re-hz \u00B7 PLAY 64 = recast',
+  knobs: [
+    { cc:51, label:'DRONE', steps: { labels:['SINE','SQUARE','TRIANGLE'], bytes:[22,23,29] }, def: 0 },
+    { cc:52, label:'AMP', variant:'white', def: 51/127 },
+    { cc:53, label:'FADE', variant:'white', def: 32/127 },
+    { cc:54, label:'HZ\u2009OFF', variant:'white', def:.5,
+      fmt: c => { const st = (b127(c.v) - 64) * 24 / 64; return (st >= 0 ? '+' : '') + st.toFixed(1); } },
+  ],
+},
 ];
 
 /* mod-engine destination tables (the adapters' kModDestinations) */
@@ -552,6 +564,7 @@ const MOD_DESTS = {
   clouds:   { cont: [40,41,42,43,44,45,46,47,48], trig: [65,66] },
   plaits:   { cont: [14,15,16,17,18,19,20,21,22,25], trig: [64] },
   rings:    { cont: [1,14,15,16,17,23], trig: [64] },
+  dronecaster: { cont: [52,53,54], trig: [] },
 };
 const TRIG_CC_NAMES = { 64: 'TRIG/STRUM', 65: 'FREEZE (latch)', 66: 'TRIG' };
 
