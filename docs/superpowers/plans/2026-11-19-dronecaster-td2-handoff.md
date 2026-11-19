@@ -34,9 +34,11 @@ Commits on branch `rack-rp2350` (pushed):
 | `f6852fd` | core delay family — DelayN/L/C, CombN/L/C, AllpassN/L/C, 9/9 exact |
 | `2c3e95f` | Pluck (Karplus-Strong) — 1/1 exact |
 | `53b5809` | Buf* delays (6) + PitchShift — 7/7 exact |
-| *(this commit)* | LocalIn/LocalOut — 1/1 exact (Task 8 complete, 17/17) |
+| `ce6b755` | LocalIn/LocalOut — 1/1 exact (Task 8 complete, 17/17) |
+| `3f712ca` | FreeVerb — 1/1 exact |
+| *(this commit)* | GVerb — 1/1 exact (core reverbs done; GreyholeRaw remains) |
 
-**Done and reference-exact (94 UGens + the trio):**
+**Done and reference-exact (96 UGens + the trio):**
 
 - `sc_kit_noise.h` — WhiteNoise, ClipNoise, GrayNoise, PinkNoise, BrownNoise,
   Crackle, Dust, Dust2, LFNoise0/1/2 (ar + kr), LFClipNoise, LFDNoise0,
@@ -76,10 +78,14 @@ Commits on branch `rack-rp2350` (pushed):
 - `sc_kit_localio.h` — LocalIn/LocalOut per-voice feedback bus: **1/1 exact**.
   The host-testable `LocalBus` carries the block counter / touched law; the
   firmware still needs it wired into the voice arena and audio loop.
+- `sc_kit_reverb.h` — FreeVerb (8 comb + 4 allpass) and GVerb (4th-order FDN +
+  diffusers) **2/2 exact**. GVerb traps: `zapgremlins` is `1e-15 < |x| < 1e15`
+  (not 3.4e38), slopes clear every block, and ramped level locals are NOT
+  written back (only the setter's target) — else a 1-ULP re-ramp repeats.
 
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
-— expects `PASS (0 failures)` (94 active refs as of the LocalIO commit;
+— expects `PASS (0 failures)` (96 active refs as of the GVerb commit;
 `ugen_ref/Klankar.expected.wav` is a tracked orphan from an earlier attempt —
 Klank is skipped, so no test reads it).
 
@@ -131,7 +137,7 @@ Klank is skipped, so no test reads it).
 | ~~sc3p filters~~ | ~~SVF, MoogLadder, DFM1~~ **DONE** 3/3 | `/tmp/sc3p_full/source/BlackrainUGens/`, `BhobUGens/BhobFilt.cpp`, `TJUGens/Dfm1.cpp` (+ Dfm1Lut) | `sc_kit_sc3p_filter.h` quotes each license. DFM1's RNG is seeded from `time(NULL)`, so the renderer writes the epoch to `ugen_ref/DFM1.seed.txt` (retrying if a second boundary is crossed) and `Dfm1::Init` takes it as an explicit seed. Tables generated from pin `25eacaf7`. |
 | ~~delays~~ | ~~DelayN/L/C, CombN/L/C, AllpassN/L/C, Pluck, BufDelayN/L/C, BufAllpassN/L/C, PitchShift~~ **DONE** 16/16 | DelayUGens.cpp | All in `sc_kit_delay.h`. Buf* use `InitBuf` (external power-of-two SndBuf, dsamp clipped to `bufSamples-1`); a real engine still needs arena-backed SndBuf plumbing (pair with Task 12). PitchShift uses the shared voice RGen and 4 crossfading heads. |
 | ~~localio~~ | ~~LocalIn, LocalOut~~ **DONE** 1/1 | IOUGens.cpp | `sc_kit_localio.h` `LocalBus` holds the touched/block-counter law. Firmware still needs a per-voice LocalBus area in the arena and audio-loop wiring (engine task, not kit). |
-| reverbs | FreeVerb, GVerb | ReverbUGens.cpp | FreeVerb = 8 comb + 4 allpass per channel. GVerb is larger (its own buffer layout). |
+| ~~reverbs (core)~~ | ~~FreeVerb, GVerb~~ **DONE** 2/2; GreyholeRaw remains | ReverbUGens.cpp | Both in `sc_kit_reverb.h`. FreeVerb = 8 comb + 4 allpass. GVerb = 4th-order FDN + diffusers/dampers. GreyholeRaw (faust) goes in `sc_kit_greyhole.h`. |
 | sc3p reverb | GreyholeRaw (Greyhole class wraps it) | `sc3p/source/DEINDUGens/GreyholeRaw.cpp` (faust-generated) | Port after the core reverbs pass; it is large. |
 | pan | Pan2, Balance2, Rotate2 | PanUGens.cpp | Pan2 = equal-power with CALCSLOPE on pos/level; Balance2 = the balance law; Rotate2 = rotation matrix. Splay/SplayAz/InsideOut are classlib/`MCLDDistortionUGens` — Splay is a classlib helper that pans an array. |
 | demand | Demand, Dseq, Drand, Dxrand, Dseries, Dbrown, Dbufrd, Dbufwr | DemandUGens.cpp | Demand-rate machinery: a demand UGen is PULLED by a triggering UGen. Model as a per-voice demand clock the drone calls once per block; Dseq/Drand keep their own state. |

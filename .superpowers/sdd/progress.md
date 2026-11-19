@@ -5281,13 +5281,21 @@ Kit-only task; no drone ports until T-D3. Host gate:
 | core delays | done | f6852fd | DelayN/L/C + CombN/L/C + AllpassN/L/C, 9/9 exact via one shared ring buffer |
 | Pluck | done | 2c3e95f | Karplus-Strong, 1/1 exact (same ring core) |
 | Buf* delays + PitchShift | done | 53b5809 | BufDelayN/L/C + BufAllpassN/L/C 6/6 + PitchShift 1/1 — all exact |
-| localio | done | *(this commit)* | LocalIn/LocalOut 1/1 exact via host-testable LocalBus; engine arena wiring still pending |
-| remaining | waiting | — | VarLag (Env/sugar), reverbs, pan, demand, buffers, chaos, sc3p dyn, sugar, hw |
+| localio | done | ce6b755 | LocalIn/LocalOut 1/1 exact via host-testable LocalBus; engine arena wiring still pending |
+| core reverbs | done | *(this commit)* | FreeVerb + GVerb 2/2 exact (GVerb needed three law fixes, see below) |
+| remaining | waiting | — | GreyholeRaw, VarLag (Env/sugar), pan, demand, buffers, chaos, sc3p dyn, sugar, hw |
 
-Verified: `test_dronecaster: PASS (0 failures)`, 94 active per-UGen refs after
-the LocalIO commit (all new refs max_abs = 0, corr = 1.0). 95 ref FILES exist;
+Verified: `test_dronecaster: PASS (0 failures)`, 96 active per-UGen refs after
+the GVerb commit (all new refs max_abs = 0, corr = 1.0). 97 ref FILES exist;
 `Klankar.expected.wav` is a tracked orphan — Klank is skipped and no test
-reads it. Task 8 (delays + localio) is complete.
+reads it. Tasks 8 (delays + localio) and 9-core (FreeVerb/GVerb) complete.
+
+- **GVerb's three traps** (each cost a wrong-ref cycle): `zapgremlins` is
+  `1e-15 < |x| < 1e15`, not 3.4e38; all ramp slopes are cleared at the end of
+  every block; and the ramped level locals are NOT stored back to the unit
+  (only the setter's target is) — storing them causes a 1-ULP re-ramp every
+  block (max_abs 9.8e-5). Its ctor alpha uses double `pow((double)0.001f,
+  1./(sr*revtime))`, not the `powf` used by set_revtime.
 
 ### T-D2 findings (load-bearing, 5449caa)
 

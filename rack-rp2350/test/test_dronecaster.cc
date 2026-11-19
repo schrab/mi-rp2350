@@ -509,6 +509,16 @@ int main() {
       fv.ProcessBlock(in.data() + b * 64, out.data() + b * 64, 64,
                       0.5f, 0.5f, 0.2f);
     if (!ref_check("FreeVerbar", out.data(), 48000)) ++g_failures;
+    // GVerb defaults: roomsize 10, revtime 3, damping .5, bw .5, spread 15,
+    // dry 1, early .7, tail .5, maxroomsize 300. Reference is channel 0.
+    { std::vector<float> right(48000);
+      sc::GVerb g; g.Init(48000.0, 10.f, 3.f, 0.5f, 0.5f, 15.f,
+                          1.f, 0.7f, 0.5f, 300.f);
+      for (int b = 0; b < 750; ++b)
+        g.ProcessBlock(in.data() + b * 64, out.data() + b * 64,
+                       right.data() + b * 64, 64,
+                       10.f, 3.f, 0.5f, 0.5f, 1.f, 0.7f, 0.5f);
+      if (!ref_check("GVerbar", out.data(), 48000)) ++g_failures; }
   }
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");

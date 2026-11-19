@@ -142,6 +142,7 @@
 
         // ---- T-D2 Task 9: reverbs ----
         ["FreeVerbar", { Out.ar(0, FreeVerb.ar(Saw.ar(220), 0.5, 0.5, 0.2)) }, "supernova"],
+        ["GVerbar",    { Out.ar(0, GVerb.ar(Saw.ar(220))) }, "supernova"],
 
         // ---- T-D2 dynamics family (core: Amplitude/Compander/Limiter) ----
         ["Amplitude",  { Out.ar(0, Amplitude.ar(Saw.ar(220), 0.01, 0.1)) }],
