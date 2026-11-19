@@ -9,6 +9,7 @@
 #include <cstddef>
 #include "sc_kit_osc.h"
 #include "sc_kit_pulse.h"
+#include "drone_t2.h"
 #include "../dronecaster_engine.h"
 
 namespace sc {
@@ -68,9 +69,12 @@ inline const DroneSpec* Catalog(int id) {
       nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
       nullptr, nullptr,
       /* 22 */ &kDroneSine, /* 23 */ &kDroneSquare,
-      /* 24 .. 28 */ nullptr, nullptr, nullptr, nullptr, nullptr,
+      /* 24 */ nullptr,
+      /* 25 */ nullptr,             // Supersaw DEFERRED (see drone_t2.h header)
+      /* 26 .. 28 */ nullptr, nullptr, nullptr,
       /* 29 */ &kDroneTriangle,
-      /* 30 .. 36 */ nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+      /* 30 .. 35 */ nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+      /* 36 */ &kDroneHarmsWay,
   };
   if (id < 0 || id >= kCatalogCount) return nullptr;
   return kCatalog[id];

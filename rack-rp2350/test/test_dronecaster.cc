@@ -11,6 +11,7 @@
 #include "sc_kit_env.h"
 #include "dronecaster_engine.h"
 #include "drone_trio.h"
+#include "drone_t2.h"
 #include "sc_kit_noise.h"
 #include "sc_kit_lfo.h"
 #include "sc_kit_trig.h"
@@ -1033,13 +1034,14 @@ int main() {
     }
   }
 
-  printf("== trio goldens (float32) ==\n");
+  printf("== goldens (float32) ==\n");
   {
     // Schedule mirrors gen_goldens.scd EXACTLY: voice before the first
     // Process call (SC's \s_new is in block 0), gate off at block 2250
     // (sample 144000), 192000 frames, hz 55, amp 0.4, fade 1.0 s.
     struct GoldenCase { int id; const char* name; };
-    const GoldenCase cases[] = {{22, "Sine"}, {23, "Square"}, {29, "Triangle"}};
+    const GoldenCase cases[] = {{22, "Sine"}, {23, "Square"}, {29, "Triangle"},
+                                {36, "harms way"}};
     for (const GoldenCase& gc : cases) {
       static uint8_t mem[160 * 1024];
       sc::Engine e;
@@ -1074,6 +1076,10 @@ int main() {
       if (!ok) ++g_failures;
     }
   }
+
+  printf("== T-D2 catalog ==\n");
+  CHECK(sc::Catalog(36) != nullptr, "id 36 ported");
+  CHECK(sc::Catalog(25) == nullptr, "id 25 deferred (inert)");
 
   printf("== EnvAsr (Env.asr curve -4, kr; 3.14 ctor rollback) ==\n");
   {
