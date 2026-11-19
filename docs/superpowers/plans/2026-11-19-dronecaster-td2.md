@@ -119,9 +119,11 @@ do not port them again.
 16. **MouseX/MouseY** — CC-driven constant sources (`MouseX.kr(lo,hi)` maps the
     drone's param 0-1 pot); NRT reference renders use the class defaults; the
     C++ defaults must match the class default arg (verify in the classlib).
-17. **Full-suite + memory**: all families host-tested, `tc_dronecaster` slot
-    measured, RAM headroom checked (the kit adds mostly per-voice state, the
-    engine arena grows; 136 KiB carve may need +X KiB — re-derive and ASSERT).
+17. **Full-suite + memory** — DONE (audit `bff75a0`): 129 host refs green,
+    `tc_dronecaster` slot 0x4d0 = 1,232 B, firmware RAM 72.9% / Flash 38.0%.
+    Kit is in the `PicoCollider` submodule; two would-be blockers documented:
+    FreeVerb repacked 77.8→50.5 KB (bit-exact), GreyholeRaw 2.63 MB deferred.
+    Engine wiring + HW acceptance remain the user's integration phase.
 
 ## Constraints
 

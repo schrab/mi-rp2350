@@ -43,6 +43,7 @@ and hot-code token.
 
 | Document | What it holds |
 |---|---|
+| [`PicoCollider/`](PicoCollider/README.md) | **Reusable SC DSP kit** (git submodule): 26 header-only UGens + a 129-reference host gate. Source of truth for all `sc::*` ports; firmware/host include it via `-I` roots. |
 | [`.superpowers/sdd/progress.md`](.superpowers/sdd/progress.md) | **The ledger** — task status, commit hashes, and the authoritative investigation findings (build quirks, TinyUSB API facts, reverb root cause, FX chain law). Read this before debugging anything |
 | [`docs/PORTING-HIGHLIGHTS.md`](docs/PORTING-HIGHLIGHTS.md) | Distilled porting experience: SRAM/XIP law, build rules, profiling pattern, acceptance checklist (its sync/patch sections are historical — that layer is gone) |
 | [`docs/rp2350-board.md`](docs/rp2350-board.md) | **Board reference** — NoLogo Mini USB RP2350 pinout (edge/Qwiic/pads), peripheral inventory, crystal/VREF/flash facts, and how the rack uses each pin |

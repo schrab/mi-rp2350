@@ -12,7 +12,8 @@ T-D1 (the trio engine) is CLOSED and user-accepted; ledger tail has its entry.
 ## 1. Mission
 
 Port **every scsynth/sc3-plugins UGen the 34 remaining Dronecaster drones
-need** into `rack-rp2350/src/dronecaster/`, each verified **sample-exact**
+need** (now in the standalone [`PicoCollider`](../../../PicoCollider/README.md)
+submodule, `include/picocollider/`), each verified **sample-exact**
 against an NRT scsynth reference render. No drone ports in T-D2 — drones come
 after the kit is complete (T-D3).
 
@@ -114,7 +115,7 @@ Commits on branch `rack-rp2350` (pushed):
 
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
-— expects `PASS (0 failures)` (129 active refs as of the EnvGen commit;
+— expects `PASS (0 failures)` (129 active refs as of the dedup commit `bff75a0`;
 all ref files are read by a test — the old `Klankar` orphan was replaced with
 a real supernova render).
 
@@ -167,14 +168,13 @@ a real supernova render).
 | ~~delays~~ | ~~DelayN/L/C, CombN/L/C, AllpassN/L/C, Pluck, BufDelayN/L/C, BufAllpassN/L/C, PitchShift~~ **DONE** 16/16 | DelayUGens.cpp | All in `sc_kit_delay.h`. Buf* use `InitBuf` (external power-of-two SndBuf, dsamp clipped to `bufSamples-1`); a real engine still needs arena-backed SndBuf plumbing (pair with Task 12). PitchShift uses the shared voice RGen and 4 crossfading heads. |
 | ~~localio~~ | ~~LocalIn, LocalOut~~ **DONE** 1/1 | IOUGens.cpp | `sc_kit_localio.h` `LocalBus` holds the touched/block-counter law. Firmware still needs a per-voice LocalBus area in the arena and audio-loop wiring (engine task, not kit). |
 | ~~reverbs~~ | ~~FreeVerb, GVerb, GreyholeRaw~~ **DONE** 3/3 | ReverbUGens.cpp / sc3p DEINDUGens | FreeVerb + GVerb in `sc_kit_reverb.h`; GreyholeRaw faust class embedded verbatim in `sc_kit_greyhole.h` (scsynth + rc-139 tolerance). |
-| sc3p reverb | GreyholeRaw (Greyhole class wraps it) | `sc3p/source/DEINDUGens/GreyholeRaw.cpp` (faust-generated) | Port after the core reverbs pass; it is large. |
 | ~~pan~~ | ~~Pan2, Balance2, Rotate2, PanAz, Splay, SplayAz~~ **DONE** 6/6 | PanUGens.cpp + Splay.sc | All in `sc_kit_pan.h` via `KitTables::sine` + CALCSLOPE. |
-| demand | Demand, Dseq, Drand, Dxrand, Dseries, Dbrown, Dbufrd, Dbufwr | DemandUGens.cpp | Demand-rate machinery: a demand UGen is PULLED by a triggering UGen. Model as a per-voice demand clock the drone calls once per block; Dseq/Drand keep their own state. |
-| buffers | LocalBuf, BufRd, BufWr, BufFrames, BufRateScale, BufSampleRate, SampleRate, ControlRate | DelayUGens.cpp (they live there) | LocalBuf allocates from the voice arena; BufRd's interpolation modes (1/2/4) matter. |
+| ~~demand~~ | ~~Demand, Dseq, Drand, Dxrand, Dseries, Dbrown, Dbufrd~~ **DONE** 7/7; Dbufwr law-only | DemandUGens.cpp | Value generators reference-exact; Dbufrd exact; Dbufwr law-only (NRT write is a no-op). |
+| ~~buffers~~ | ~~BufRd(1/2/4), BufWr, BufFrames, BufRateScale, BufSampleRate, SampleRate, ControlRate~~ **DONE** 8/8 | DelayUGens.cpp | `sc_kit_buf.h`; BufRd interp 2/4 refs need neighbour frames pre-written (uninitialized LocalBuf otherwise). |
 | chaos | LorenzL, HenonC, FBSineN | ChaosUGens.cpp | `sc_kit_chaos.h` law port exists but refs fail: chaotic sensitivity amplifies a ~1 ULP difference to >1e-6 within 25-730 samples. Needs a bit-exact math path or a shorter ref before it can be marked done. |
-| sc3p dyn | Decimator, CrossoverDistortion, SineShaper, DiodeRingMod, InsideOut | `sc3p/source/DistortionUGens/`, `DEINDUGens/DiodeRingMod.cpp`, `MCLDUGens/MCLDDistortionUGens.cpp` | Quote licenses. |
-| sugar | PMOsc, DynKlank, Linen, Env, VarLag, Gaussian, Mix, Splay, SplayAz, SelectX, TChoose | classlib (`/tmp/sc_full/SCClassLibrary/`) | Port the EXPANSION LAWS as documented helpers (Mix = array sum; SelectX = interpolating select; TChoose = RGen-indexed; Env/EnvGen = the full EnvGen law — reuse/extend `sc_kit_env.h`; Linen = EnvGen with rise/sustain/decay). |
-| hw | MouseX, MouseY | UIUGens.cpp | Map to drone params (CC-driven constants); NRT refs use the class defaults (check `MouseX.sc` defaults). |
+| ~~sc3p dyn~~ | ~~Decimator, CrossoverDistortion, SineShaper, DiodeRingMod, InsideOut~~ **DONE** 5/5 | sc3p Distortion/DEIND/MCLD | `sc_kit_sc3p_dyn.h`, licenses quoted verbatim. |
+| ~~sugar~~ | ~~SelectX, TChoose, Splay, SplayAz, Linen, PMOsc, DynKlank, EnvGen, VarLag, Mix~~ **DONE** 9 exact + law-only helpers | classlib (`SCClassLibrary/`) | `sc_sugar.h` + `sc_kit_envgen.h`; full EnvGen law (all shapes) reference-exact, VarLag expansion law-only. |
+| ~~hw~~ | ~~MouseX, MouseY~~ **DONE** 2/2 | UIUGens.cpp | `sc_kit_hw.h`; CC-driven constants, NRT global = 0.5. |
 
 ## 6. Laws discovered (all load-bearing — do not re-derive differently)
 
