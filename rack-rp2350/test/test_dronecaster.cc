@@ -13,6 +13,7 @@
 #include "../src/dronecaster/drones/drone_trio.h"
 #include "../src/dronecaster/sc_kit_noise.h"
 #include "../src/dronecaster/sc_kit_lfo.h"
+#include "../src/dronecaster/sc_kit_trig.h"
 
 #include <cmath>
 #include <cstdio>
@@ -172,6 +173,96 @@ int main() {
   }
   printf("comparator self-tests: %s (%d failures)\n",
          g_failures ? "FAIL" : "PASS", g_failures);
+
+
+  printf("== T-D2 trig kit vs NRT references ==\n");
+  {
+    // Triggers at kr (750): the ctor primes then rolls back, so K2A's block 0
+    // is flat at v(0) — capture the first output and use it as the ramp base.
+    auto kr_stream = [](auto& u, auto&& next_fn, std::vector<float>& out) {
+      float prev = next_fn();
+      const float first = prev;
+      out.assign(48000, 0.0f);
+      for (int b = 0; b < 750; ++b) {
+        const float v = (b == 0) ? first : next_fn();
+        const float slope = static_cast<float>((v - prev) * (1.0 / 64.0));
+        const float s2 = slope + slope;
+        const float v0 = prev, v1 = prev + slope, v2 = prev + s2, v3 = prev + s2 + slope;
+        float acc = 0.0f;
+        for (int g = 0; g < 16; ++g) {
+          out[b * 64 + g * 4 + 0] = v0 + acc;
+          out[b * 64 + g * 4 + 1] = v1 + acc;
+          out[b * 64 + g * 4 + 2] = v2 + acc;
+          out[b * 64 + g * 4 + 3] = v3 + acc;
+          acc += s2 + s2;
+        }
+        prev = v;
+      }
+    };
+    ((void)kr_stream);
+    std::vector<float> out;
+    { // Trig1.kr(Impulse.kr(2), 0.1)
+      sc::Impulse imp; imp.Init(750.0, 2.0f);
+      sc::Trig1 u; u.Init();
+      kr_stream(u, [&]() { return u.Next(imp.ProcessKr(), 0.1f, 750.0f); }, out);
+      if (!ref_check("Trig1kr", out.data(), 48000)) ++g_failures;
+    }
+    { // Trig.kr(Impulse.kr(2), 0.1)
+      sc::Impulse imp; imp.Init(750.0, 2.0f);
+      sc::Trig u; u.Init();
+      kr_stream(u, [&]() { return u.Next(imp.ProcessKr(), 0.1f, 750.0f); }, out);
+      if (!ref_check("Trigkr", out.data(), 48000)) ++g_failures;
+    }
+    { // TDelay.kr(Impulse.kr(2), 0.1)
+      sc::Impulse imp; imp.Init(750.0, 2.0f);
+      sc::TDelay u; u.Init();
+      kr_stream(u, [&]() { return u.Next(imp.ProcessKr(), 0.1f, 750.0f); }, out);
+      if (!ref_check("TDelaykr", out.data(), 48000)) ++g_failures;
+    }
+    { // Latch.kr(SinOsc.kr(5), Impulse.kr(3))
+      static sc::KitTables kt; sc::InitKitTables(&kt);
+      sc::SinOsc osc; osc.Init(&kt, 750.0, 5.0f);
+      sc::Impulse imp; imp.Init(750.0, 3.0f);
+      sc::Latch u; u.Init();
+      kr_stream(u, [&]() { return u.Next(osc.Process(), imp.ProcessKr()); }, out);
+      if (!ref_check("Latchkr", out.data(), 48000)) ++g_failures;
+    }
+    { // SetResetFF.kr(Impulse.kr(2), Impulse.kr(0.7))
+      sc::Impulse hi; hi.Init(750.0, 2.0f);
+      sc::Impulse lo; lo.Init(750.0, 0.7f);
+      sc::SetResetFF u; u.Init();
+      kr_stream(u, [&]() { return u.Next(hi.ProcessKr(), lo.ProcessKr()); }, out);
+      if (!ref_check("SetResetkr", out.data(), 48000)) ++g_failures;
+    }
+    { // Peak.kr(SinOsc.kr(7), Impulse.kr(1))
+      static sc::KitTables kt; sc::InitKitTables(&kt);
+      sc::SinOsc osc; osc.Init(&kt, 750.0, 7.0f);
+      sc::Impulse imp; imp.Init(750.0, 1.0f);
+      sc::Peak u; u.Init();
+      kr_stream(u, [&]() { return u.Next(osc.Process(), imp.ProcessKr()); }, out);
+      if (!ref_check("Peakkr", out.data(), 48000)) ++g_failures;
+    }
+    { // Gate.ar(SinOsc.ar(440), LFPulse.kr(2)) — ar block loop
+      static sc::KitTables kt; sc::InitKitTables(&kt);
+      sc::SinOsc osc; osc.Init(&kt, 48000.0, 440.0f);
+      sc::LFPulse lp; lp.Init(750.0, 2.0f, 0.0f, 0.5f);
+      sc::Gate g; g.Init();
+      out.assign(48000, 0.0f);
+      float inb[64], outb[64];
+      for (int b = 0; b < 750; ++b) {
+        osc.ProcessBlock(inb, 64);
+        g.ProcessBlock(inb, lp.ProcessKr(), outb, 64);
+        memcpy(out.data() + b * 64, outb, 64 * sizeof(float));
+      }
+      if (!ref_check("Gatear", out.data(), 48000)) ++g_failures;
+    }
+    { // Changed.kr(LFPulse.kr(5))
+      sc::LFPulse lp; lp.Init(750.0, 5.0f, 0.0f, 0.5f);
+      sc::Changed u; u.Init();
+      kr_stream(u, [&]() { return u.Next(lp.ProcessKr()); }, out);
+      if (!ref_check("Changedkr", out.data(), 48000)) ++g_failures;
+    }
+  }
 
   // task sections are inserted above this line
 

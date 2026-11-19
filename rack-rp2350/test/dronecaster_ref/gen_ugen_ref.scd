@@ -63,6 +63,16 @@
         ["Foldkr",     { Out.ar(0, K2A.ar(Fold.kr(SinOsc.kr(5) * 3, -0.5, 0.5)).dup) }],
         ["DCkr",       { Out.ar(0, K2A.ar(DC.kr(0.25)).dup) }],
         ["A2Kar",      { Out.ar(0, K2A.ar(A2K.kr(SinOsc.ar(440))).dup) }],
+
+        // ---- T-D2 trig family (kr forms; trig inputs from Impulse.kr) ----
+        ["Trig1kr",    { Out.ar(0, K2A.ar(Trig1.kr(Impulse.kr(2), 0.1)).dup) }],
+        ["Trigkr",     { Out.ar(0, K2A.ar(Trig.kr(Impulse.kr(2), 0.1)).dup) }],
+        ["TDelaykr",   { Out.ar(0, K2A.ar(TDelay.kr(Impulse.kr(2), 0.1)).dup) }],
+        ["Latchkr",    { Out.ar(0, K2A.ar(Latch.kr(SinOsc.kr(5), Impulse.kr(3))).dup) }],
+        ["SetResetkr", { Out.ar(0, K2A.ar(SetResetFF.kr(Impulse.kr(2), Impulse.kr(0.7))).dup) }],
+        ["Peakkr",     { Out.ar(0, K2A.ar(Peak.kr(SinOsc.kr(7), Impulse.kr(1))).dup) }],
+        ["Gatear",     { Out.ar(0, Gate.ar(SinOsc.ar(440), LFPulse.kr(2))) }],
+        ["Changedkr",  { Out.ar(0, K2A.ar(Changed.kr(LFPulse.kr(5))).dup) }],
     ];
 
     "ugen_ref: begin".postln;
