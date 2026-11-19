@@ -21,6 +21,7 @@
 #include "../src/dronecaster/sc_kit_dfm1.h"
 #include "../src/dronecaster/sc_kit_delay.h"
 #include "../src/dronecaster/sc_kit_localio.h"
+#include "../src/dronecaster/sc_kit_reverb.h"
 #include <cstdio>
 
 #include <cmath>
@@ -495,6 +496,19 @@ int main() {
         lo.ProcessBlock(bus, ins, b, 64);
       }
       if (!ref_check("LocalIO", dest.data(), 48000)) ++g_failures; }
+  }
+
+  printf("== T-D2 Task 9 reverb vs NRT reference ==\n");
+  {
+    static sc::KitTables kt; sc::InitKitTables(&kt);
+    std::vector<float> in(48000), out(48000);
+    { sc::Saw src; src.Init(&kt, 48000.0, 220.0f);
+      for (int b = 0; b < 750; ++b) src.ProcessBlock(in.data() + b * 64, 64); }
+    sc::FreeVerb fv; fv.Init(0.5f, 0.5f, 0.2f, in[0]);
+    for (int b = 0; b < 750; ++b)
+      fv.ProcessBlock(in.data() + b * 64, out.data() + b * 64, 64,
+                      0.5f, 0.5f, 0.2f);
+    if (!ref_check("FreeVerbar", out.data(), 48000)) ++g_failures;
   }
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");

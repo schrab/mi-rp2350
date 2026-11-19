@@ -140,6 +140,9 @@
                          LocalOut.ar(sig * 0.5);
                          Out.ar(0, sig) }, "supernova"],
 
+        // ---- T-D2 Task 9: reverbs ----
+        ["FreeVerbar", { Out.ar(0, FreeVerb.ar(Saw.ar(220), 0.5, 0.5, 0.2)) }, "supernova"],
+
         // ---- T-D2 dynamics family (core: Amplitude/Compander/Limiter) ----
         ["Amplitude",  { Out.ar(0, Amplitude.ar(Saw.ar(220), 0.01, 0.1)) }],
         ["Compander",  { Out.ar(0, Compander.ar(Saw.ar(220), Saw.ar(1), 0.5, 2, 1.5, 0.01, 0.1)) }],
