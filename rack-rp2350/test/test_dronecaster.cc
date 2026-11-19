@@ -20,6 +20,7 @@
 #include "../src/dronecaster/sc_kit_sc3p_filter.h"
 #include "../src/dronecaster/sc_kit_dfm1.h"
 #include "../src/dronecaster/sc_kit_delay.h"
+#include "../src/dronecaster/sc_kit_localio.h"
 #include <cstdio>
 
 #include <cmath>
@@ -475,6 +476,25 @@ int main() {
       for (int b = 0; b < 750; ++b)
         u.ProcessBlock(in.data() + b * 64, out.data() + b * 64, 64, &r);
       if (!ref_check("PitchShiftar", out.data(), 48000)) ++g_failures; }
+    { sc::LocalBus bus; bus.Init(1);
+      sc::LocalIn li; li.Init(1); sc::LocalOut lo; lo.Init(1);
+      std::vector<float> fb(64), sig(64), dry(64), lout(64), dest(48000);
+      const float def0 = 0.f;
+      static sc::KitTables kt2; sc::InitKitTables(&kt2);
+      sc::Saw src; src.Init(&kt2, 48000.0, 220.0f);
+      for (int b = 0; b < 750; ++b) {
+        src.ProcessBlock(dry.data(), 64);
+        float* outs[1] = { fb.data() };
+        li.ProcessBlock(bus, outs, &def0, b, 64);
+        for (int i = 0; i < 64; ++i) {
+          sig[i] = dry[i] + fb[i] * 0.5f;
+          dest[b * 64 + i] = sig[i];
+          lout[i] = sig[i] * 0.5f;
+        }
+        const float* ins[1] = { lout.data() };
+        lo.ProcessBlock(bus, ins, b, 64);
+      }
+      if (!ref_check("LocalIO", dest.data(), 48000)) ++g_failures; }
   }
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");

@@ -134,6 +134,11 @@
         ["BufAllpassLar", { var b = LocalBuf(1024); Out.ar(0, BufAllpassL.ar(b, Saw.ar(220), 0.005, 0.1)) }, "supernova"],
         ["BufAllpassCar", { var b = LocalBuf(1024); Out.ar(0, BufAllpassC.ar(b, Saw.ar(220), 0.005, 0.1)) }, "supernova"],
         ["PitchShiftar", { Out.ar(0, PitchShift.ar(Saw.ar(220), 0.01, 1.5, 0.1, 0.001)) }, "supernova"],
+        ["LocalIO",    { var fb, sig;
+                         fb = LocalIn.ar(1);
+                         sig = Saw.ar(220) + (fb * 0.5);
+                         LocalOut.ar(sig * 0.5);
+                         Out.ar(0, sig) }, "supernova"],
 
         // ---- T-D2 dynamics family (core: Amplitude/Compander/Limiter) ----
         ["Amplitude",  { Out.ar(0, Amplitude.ar(Saw.ar(220), 0.01, 0.1)) }],
