@@ -16,7 +16,7 @@
 #include "../src/dronecaster/sc_kit_trig.h"
 #include "../src/dronecaster/sc_kit_osc2.h"
 #include "../src/dronecaster/sc_kit_filter.h"
-#include "../src/dronecaster/sc_kit_dyn.h"
+#include "../src/dronecaster/sc_kit_core_dyn.h"
 
 #include <cmath>
 #include <cstdio>

@@ -5294,7 +5294,8 @@ is a tracked orphan — Klank is skipped and no test reads it.
 - **Compander gain is block-rate**: envelope over all n control samples, then
   one `pow(prevmax/thresh, slope-1)` (zapgremlins below thresh) from the FINAL
   value, CALCSLOPE-ramped across the block. A per-sample gain — the obvious
-  reading — gave max_abs 0.25 / corr 0.9988. Fixed in `sc_kit_dyn.h`.
+  reading — gave max_abs 0.25 / corr 0.9988. Fixed in `sc_kit_core_dyn.h`
+  (named `core_dyn` so `sc_kit_dyn.h` stays free for plan Task 14 / SC3P dyn).
 - **Limiter ctor off-by-one**: the ctor's one priming sample leaves `pos=1`,
   so with `bufsize=480` the second flip (first non-silent output) is sample
   959, not 960.

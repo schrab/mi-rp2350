@@ -44,7 +44,8 @@ Commits on branch `rack-rp2350` (pushed):
   (law-tested only — see §7), SawDPW, PulseDPW. **5/5 exact.**
 - `sc_kit_filter.h` — LPF/HPF/BPF/RLPF/RHPF (`Filter2Pole`), OnePole,
   Integrator, LeakDC, Slew, Lag, LagUD. **11/11 exact.**
-- `sc_kit_dyn.h` — Amplitude, Compander, Limiter (lookahead ring). **3/3 exact.**
+- `sc_kit_core_dyn.h` — Amplitude, Compander, Limiter (lookahead ring). **3/3
+  exact.** (`sc_kit_dyn.h` is reserved for plan Task 14, the SC3P dyn family.)
   Limiter's ref renders through **supernova** (scsynth 3.14.1 segfaults on
   Limiter/Normalizer — see §7); `gen_ugen_ref.scd` entries take an optional
   third element as an engine override.
@@ -97,7 +98,7 @@ Klank is skipped, so no test reads it).
 
 | Task | UGens | Where to read | Notes |
 |---|---|---|---|
-| ~~dynamics~~ | ~~Amplitude, Compander, Limiter~~ **DONE**; VarLag remains | `/tmp/sc_full/server/plugins/FilterUGens.cpp` | `sc_kit_dyn.h` 3/3 exact. VarLag is classlib (EnvGen-based) — port with the Env work. |
+| ~~dynamics~~ | ~~Amplitude, Compander, Limiter~~ **DONE**; VarLag remains | `/tmp/sc_full/server/plugins/FilterUGens.cpp` | `sc_kit_core_dyn.h` 3/3 exact. VarLag is classlib (EnvGen-based) — port with the Env work. |
 | moog | MoogFF | FilterUGens.cpp `MoogFF_next` | `wcD = 2 tan(T*pi*f)*sr; b0 = TwcD/(TwcD+2); a1 = (TwcD-2)/(TwcD+2)`; 4-state ladder (s1..s4) + reset input. |
 | sc3p filters | SVF, MoogLadder, DFM1 | `/tmp/sc3p_full/source/BlackrainUGens/`, `BhobUGens/BhobFilt.cpp`, `TJUGens/Dfm1.cpp` (+ Dfm1Lut) | **Quote each file's license header verbatim.** DFM1 ships a lookup table (Dfm1Lut.h) — port it as a table constant. |
 | delays | DelayN/L/C, CombN/L/C, AllpassN/C, BufDelayN/C, BufAllpassC, Pluck, PitchShift | DelayUGens.cpp | Common delay core; `maxdelaytime`-sized buffers belong in the voice arena (add a delay-buffer alloc helper). Pluck = Karplus-Strong. PitchShift = the clouds-style pitch shifter — reuse the correlator knowledge from `lib/clouds`. |

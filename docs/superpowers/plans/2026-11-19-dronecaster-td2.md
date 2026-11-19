@@ -19,8 +19,9 @@ changing a port (the T-D1 rule: do not "fix" from memory).
 2. **Reference renders**: `gen_ugen_ref.scd` renders a canonical 1 s graph per
    UGen through NRT scsynth (48 kHz float32, seed-pinned with
    `RandSeed.kr(1, kGoldenSeed)` inside the def) into
-   `ugen_ref/<Name>.expected.wav` (192,000 frames, trimmed like the drone
-   goldens). `test_dronecaster.cc` compares the C++ port through the SAME
+   `ugen_ref/<Name>.expected.wav` (**48,000 frames** = 1 s at 48 kHz, trimmed
+   like the drone goldens — the drone goldens themselves are 192,000 frames).
+   `test_dronecaster.cc` compares the C++ port through the SAME
    gates (max_abs ≤ 1e-6, corr ≥ 0.999999). A UGen is DONE only when its
    reference render passes.
 3. Noise/random UGens must additionally match `sc::RGen` sequences exactly
@@ -60,11 +61,15 @@ documented helpers, never a re-invention.
 | sugar | Changed, PulseDPW, PMOsc, Splay, SplayAz, SelectX, TChoose, Mix, DynKlank, Env/Gaussian | classlib (expansion laws) |
 | hw | MouseX, MouseY | CORE UIUGens.cpp — **port as CC-driven constants** (a drone port maps them to module params; NRT renders use the classes' defaults) |
 
+Note: `SawDPW`/`PulseDPW` also appear under sc3p-osc / sugar above — those rows
+are corpus cross-references. Both were ported once in Task 5 (`21fec7f`);
+do not port them again.
+
 ## Tasks
 
 1. **Reference-harness**: `test/dronecaster_ref/gen_ugen_ref.scd` +
    `run_ugen_ref.sh` — one canonical graph per UGen, float32 1 s renders,
-   determinism gate + 192000-frame trim (reuse the T-D1 script pattern). The
+   skip-existing + 48,000-frame trim (reuse the T-D1 script pattern). The
    graph table lives in the .scd; each entry pairs with a `test_dronecaster.cc`
    section.
 2. **sc_kit_noise.h** (noise family + LFDNoise3) — pink/brown state filters,
@@ -77,8 +82,11 @@ documented helpers, never a re-invention.
    integrator NOTE: SC's Saw is BLIT-style like Pulse (read it first), SinOscFB
    feedback path, Select's index law, Klank's resonator bank.
 6. **sc_kit_filter.h** (core filters) — BEQ suite coefficient laws (LPF/HPF
-   Bezout + RLPF/RHPF/B*), MoogFF, OnePole/LeakDC/Slew/Integrator/Lag/LagUD,
-   VarLag, Amplitude, Compander, Limiter.
+   Bezout + RLPF/RHPF/B*), MoogFF, OnePole/LeakDC/Slew/Integrator/Lag/LagUD.
+   Status: the 11 named filters are done (`0b90411`); BEQ suite, MoogFF and
+   VarLag remain. Amplitude/Compander/Limiter landed in the separate
+   **`sc_kit_core_dyn.h`** (`5449caa`) — do NOT use `sc_kit_dyn.h`, which is
+   Task 14's filename.
 7. **sc_kit_sc3p_filter.h** — SVF (Blackrain), MoogLadder (Bhob), DFM1 (TJ);
    quote their headers' licenses.
 8. **sc_kit_delay.h** + **sc_kit_localio.h** — the delay core shared by
@@ -113,8 +121,12 @@ documented helpers, never a re-invention.
 
 - Host tests: `cd rack-rp2350/test && make test_dronecaster` (plain g++, no MCU
   headers — the portability proof).
-- Instrument-rate renders: `sclang test/dronecaster_ref/gen_ugen_ref.scd`
-  (system SC 3.14.1-6); trims + determinism like T-D1.
+- Instrument-rate renders: `cd rack-rp2350/test/dronecaster_ref && bash
+  run_ugen_ref.sh` (cwd-relative ref paths, skip-existing, trim) — NOT a bare
+  `sclang .../gen_ugen_ref.scd`, which breaks paths and skips the trim. System
+  SC 3.14.1-6 + sc3-plugins 3.14.1-1 (pacman). Per-UGen references may use an
+  optional 3rd entry tuple element as an engine override (Limiter renders via
+  supernova because scsynth 3.14.1 segfaults on Limiter/Normalizer).
 - Per-sample code paths get `DRONECASTER_TC` only via the -O3 wrapper — the kit
   headers stay inline; the wrapper's inlining pulls them into the SRAM slot
   (single token law — do not add per-function tokens).

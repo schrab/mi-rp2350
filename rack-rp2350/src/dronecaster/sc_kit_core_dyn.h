@@ -1,4 +1,5 @@
-// sc_kit_dyn.h — SC 3.14.1 core dynamics (GPL-3.0, CORE FilterUGens.cpp).
+// sc_kit_core_dyn.h — SC 3.14.1 core dynamics (GPL-3.0, CORE FilterUGens.cpp).
+// Named `core_dyn` to leave `sc_kit_dyn.h` for the plan's Task 14 (SC3P dyn).
 // One-piece ports of Amplitude, Compander and the lookahead Limiter.
 //
 // Anchors (Version-3.14.1), FilterUGens.cpp:
@@ -24,8 +25,8 @@
 //    output is delayed by two full buffers (flips >= 2) and scaled by a
 //    level that ramps from the previous buffer's peak ratio. The ctor's
 //    one sample leaves pos=1, curmaxval=|in[0]|, flips=0.
-#ifndef RACK_SRC_DRONECASTER_SC_KIT_DYN_H_
-#define RACK_SRC_DRONECASTER_SC_KIT_DYN_H_
+#ifndef RACK_SRC_DRONECASTER_SC_KIT_CORE_DYN_H_
+#define RACK_SRC_DRONECASTER_SC_KIT_CORE_DYN_H_
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -195,4 +196,4 @@ struct Limiter {
 };
 
 }  // namespace sc
-#endif  // RACK_SRC_DRONECASTER_SC_KIT_DYN_H_
+#endif  // RACK_SRC_DRONECASTER_SC_KIT_CORE_DYN_H_
