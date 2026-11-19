@@ -30,6 +30,7 @@
 #include "../src/dronecaster/sc_kit_sc3p_dyn.h"
 #include "../src/dronecaster/sc_sugar.h"
 #include "../src/dronecaster/sc_kit_hw.h"
+#include "../src/dronecaster/sc_kit_envgen.h"
 #include <cstdio>
 
 #include <cmath>
@@ -697,6 +698,33 @@ int main() {
         d.ProcessBlock(trig.data() + i*64, 0.f, o, 64);
       }
       if (!ref_check("DemandBufRd", out.data(), 48000)) ++g_failures; }
+  }
+
+  printf("== T-D2 EnvGen vs NRT reference ==\n");
+  {
+    const sc::EnvGen::Node nodes[2] = {{1.f,0.01f,1.f,0.f},
+                                       {0.f,0.02f,1.f,0.f}};
+    sc::EnvGen env; env.Init(750.0, nodes, 2, 0.f);
+    std::vector<float> trig(48000), out(48000);
+    for (int b = 0; b < 750; ++b) trig[b*64] = (b == 0 || b == 376) ? 1.f : 0.f;
+    // kr: one EnvGen step per control block; K2A SSE ramp.
+    float prev = env.ctor_value();
+    for (int b = 0; b < 750; ++b) {
+      const float v = env.ProcessKr(trig[b*64]);
+      const float slope = static_cast<float>((v - prev) * (1.0/64.0));
+      const float s2 = slope + slope;
+      // K2A SSE ramp: lanes [s, s+sl, s+2sl, s+2sl+sl], group += 4*sl.
+      float acc = 0.f;
+      for (int g = 0; g < 16; ++g) {
+        out[b*64+g*4+0] = prev + acc;
+        out[b*64+g*4+1] = prev + slope + acc;
+        out[b*64+g*4+2] = prev + s2 + acc;
+        out[b*64+g*4+3] = prev + s2 + slope + acc;
+        acc += s2 + s2;
+      }
+      prev = v;
+    }
+    if (!ref_check("EnvGenkr", out.data(), 48000)) ++g_failures;
   }
 
   printf("== T-D2 Task 16 hardware constants vs NRT references ==\n");

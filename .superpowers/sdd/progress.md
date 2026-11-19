@@ -5389,3 +5389,12 @@ One free fix landed: `Splay` scratch buffers moved off the heap (`2c8a180`).
   `DemandBuffer`; its NRT ref is a no-op here, same limitation as before).
 - Still law-only: `VarLag`/full `EnvGen` (curve segments), chaos exactness
   (chaotic sub-ULP divergence past ~730 samples), GreyholeRaw integration.
+
+### T-D2 EnvGen / VarLag — VERIFIED (this session)
+- `sc_kit_envgen.h`: full EnvGen law (all shapes Step/Linear/Exponential/Sine/
+  Welch/Curve/Squared/Cubed/Hold/Sustain, gate/retrigger/forced-release,
+  residual carry, ctor prime + rollback) + VarLag classlib expansion.
+- **Reference-exact** (`EnvGenkr`, max_abs 1.19e-7, corr 1.0) — 129 active refs.
+- Two law traps cost iterations: (1) inside a kr UGen SC's `SAMPLERATE` is the
+  CONTROL rate (750 Hz), not 48 kHz — segment counters are in control blocks;
+  (2) `Impulse.kr(2)` re-triggers at block 376, not 375 (sampling phase).

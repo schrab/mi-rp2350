@@ -190,6 +190,9 @@
         ["SelectXar",  { Out.ar(0, SelectX.ar(0.3, [Saw.ar(220), Saw.ar(330)])) }],
         ["TChoosear",  { Out.ar(0, TChoose.ar(Impulse.ar(10), [DC.ar(1), DC.ar(2), DC.ar(3)])) }],
 
+        // ---- T-D2: EnvGen / VarLag ----
+        ["EnvGenkr",    { Out.ar(0, K2A.ar(EnvGen.kr(Env([0,1,0],[0.01,0.02]), Impulse.kr(2)))) }],
+
         // ---- T-D2 Task 14: SC3P dynamics ----
         ["Decimator",    { Out.ar(0, Decimator.ar(Saw.ar(220), 12000, 8)) }],
         ["CrossoverDis", { Out.ar(0, CrossoverDistortion.ar(Saw.ar(220), 0.5, 0.9)) }],
