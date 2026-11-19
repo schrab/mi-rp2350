@@ -69,5 +69,57 @@ struct TChoose {
   float prevtrig_ = 0.f;
 };
 
+// Linen — LFUGens.cpp:2910 (ctor) / 2923 (next_k). A four-stage envelope:
+// 0 attack, 1 sustain, 2 release, 3 done, 4 idle. Ctor: level=0, stage=4,
+// prevGate=0; gate <= -1 at construction starts an early release (stage 1).
+// Control-rate: one output per control block.
+struct Linen {
+  void Init(double sr, float attack, float sus_level, float release) {
+    sr_ = static_cast<float>(sr);
+    level_ = 0.f;
+    stage_ = 4;
+    prev_gate_ = 0.f;
+    attack_ = attack; sus_ = sus_level; release_ = release;
+  }
+  float Process(float gate) {
+    if (prev_gate_ <= 0.f && gate > 0.f) {
+      stage_ = 0;
+      const int counter = std::max(1, static_cast<int>(attack_ * sr_));
+      slope_ = (sus_ - level_) / static_cast<float>(counter);
+      counter_ = counter;
+    }
+    float out;
+    switch (stage_) {
+      case 0: case 2:
+        out = level_;
+        level_ += slope_;
+        if (--counter_ == 0) ++stage_;
+        break;
+      case 1:
+        out = level_;
+        if (gate <= -1.f) {
+          stage_ = 2;
+          const float rt = -gate - 1.f;
+          const int counter = std::max(1, static_cast<int>(rt * sr_));
+          slope_ = -level_ / static_cast<float>(counter);
+          counter_ = counter;
+        } else if (gate <= 0.f) {
+          stage_ = 2;
+          const int counter = std::max(1, static_cast<int>(release_ * sr_));
+          slope_ = -level_ / static_cast<float>(counter);
+          counter_ = counter;
+        }
+        break;
+      case 3: out = 0.f; ++stage_; break;
+      default: out = 0.f; break;
+    }
+    prev_gate_ = gate;
+    return out;
+  }
+  float sr_ = 48000.f, level_ = 0.f, slope_ = 0.f;
+  float attack_ = 0.01f, sus_ = 1.f, release_ = 1.f, prev_gate_ = 0.f;
+  int counter_ = 0, stage_ = 4;
+};
+
 }  // namespace sc
 #endif  // RACK_SRC_DRONECASTER_SC_SUGAR_H_

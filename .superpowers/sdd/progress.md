@@ -5346,3 +5346,35 @@ real supernova render). Tasks 5, 8, 9 and 10 are complete.
   `gen_ugen_ref.scd` and hangs sclang, which looks like a render failure but
   isn't. Supernova (rc 0) produces byte-identical channel data; all nine delay
   refs carry the `supernova` engine override.
+
+## T-D2 Task 17 — integration audit (2026-11-19, this session)
+
+**Firmware build: GREEN.** `pio run -d rack-rp2350` → SUCCESS (106 s):
+RAM 72.9% (382,360 / 524,288 B), Flash 38.0% (1,592,684 / 4,190,208 B).
+`tc_dronecaster` slot = **0x4d0 = 1,232 B** (`__tc_dronecaster_start`
+0x20063000 → end 0x200634d0; ELF section [18]), identical to the T-D1
+measurement — **the 128-ref kit is host-only and NOT linked into the firmware**,
+so none of the new ports affect the current audio build. No HW claim made.
+
+**Would-be per-voice RAM (host `sizeof`, kit structs):** most are small
+(Amplitude 12, MoogFF 72, BEQFilter 88, Dfm1 128, DelayLine 80, Pan2 24,
+DSeq 48, …) but two are integration blockers:
+- `FreeVerb` **77,760 B** — `std::array<std::array<float,1617>,12>` allocates
+  every comb line at the MAX length. Exact per-line lengths sum to 13,587
+  floats (54,348 B) — a flat array + offsets would save ~23 KB with no
+  numerical change.
+- `GreyholeRawDsp` **2,630,376 B (2.5 MB)** — the faust-generated class's
+  internal 131,072-float buffers. Cannot fit the 331,776 B rack arena as-is;
+  needs a dedicated carve or a rewrite.
+
+**Arena note:** the rack carve is 331,776 B; current RAM headroom is
+141,928 B. Even the small kit structs summed (~77 KB excluding the two
+blockers) would consume most of it — integration must be incremental and
+re-assert `SIZEOF(tc_dronecaster) <= LENGTH(RACK_WINDOW)` at each step.
+
+**Optimization decision (user-agreed):** no M33 optimizations applied yet.
+The kit is a faithful host-exact reference; the Chainsaw levers (q15 SMLAD
+dual-MAC, init-time powf caching, FZ/DN, -O3 SRAM sections) are to be applied
+only after a HW measurement flags a hot UGen. FZ/DN is already global
+(`main.cpp:929-931`, `2915-2917`), -O3 is in `lib/dronecaster_engine/library.json`.
+One free fix landed: `Splay` scratch buffers moved off the heap (`2c8a180`).
