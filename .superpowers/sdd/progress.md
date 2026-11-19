@@ -5422,3 +5422,40 @@ building blocks. Extracted to a standalone repo:
   dronecaster-only headers. `drone_trio.h`'s relative kit includes were made bare.
 - Verified: `test_dronecaster: PASS`, `test_kit: PASS`, `pio run` SUCCESS with
   byte-identical footprint (RAM 72.9%, Flash 38.0%, tc_dronecaster 0x4d0).
+
+## DRONECASTER T-D2 Task 4 — drone goldens Thx + Mt. Zion + Mt. Lion: 3/3 exact (2026-11-20, this session)
+
+Commit `d92c9c3` squashed to a single Task-4 commit on BASE ec012eb (branch `rack-rp2350`). Report:
+`.superpowers/sdd/2026-11-19-dronecaster-td2-drones/task-4-report.md`.
+Gate: 7 goldens GREEN (trio + harms way banked earlier; Thx banked by the
+prior session), **PASS (0 failures), 133 REFs ok**.
+
+| Drone | id | max_abs | corr |
+|---|---|---|---|
+| Thx | 27 | 3.7e-8 | 1.000000000 |
+| Mt. Zion | 15 | 5.2e-8 | 1.000000000 |
+| Mt. Lion | 14 | 3.3e-8 | 1.000000000 |
+
+### Task 4 findings (load-bearing)
+- **Per-voice index multiply**: `rand.(...).midicps * index` becomes an
+  explicit mult UGen per voice in the def (Zion 38/61/84/109_* ar; Lion
+  60/105/150_* kr; voice 1's `*1` folds in sclang). Both first ports
+  missed it → every voice at the same pitch (Zion corr 0.42, Lion 0.12).
+- **ar-div-by-SCALAR = reciprocal multiply**: `div_ai_nova`
+  (BinaryOpUGens.cpp:1970) is `times_vec_simd(in, sc_reciprocal(scalar))`
+  — `amp/9` = `0.4f * sc_reciprocal(9)` = 0.0444444418, 1 ULP off IEEE
+  `0.4f/9`. For /5 (and /10) rcpss+NR round-trips exactly, for /9 /12 /16
+  it does not. Port rule: any `ar / <def constant>` uses ScReciprocal.
+- **nova vec_tanh_float small-path keeps the sign**
+  (vec_math.hpp:516, `* arg_sqr * arg + arg`): the kit's NovaTanh used
+  abs_arg and mirrored the negative half positive. Mt. Lion is the only
+  tanh consumer and its comb output sits at |x| ≈ 0.625 — never covered
+  by a ref. Fixed in drone_t2.h; lift into the PicoCollider kit + a ref
+  in T-D3.
+- mul_ka_nova lane0 = mPrevA (previous kr value) — confirmed bit-exact
+  via the level chain once maxamp was right (a wrong probe-side maxamp
+  had produced phantom ±sign-flip evidence for the current-value law).
+- Diagnostic craft: K2A ramps between kr values (tap lane0(B) =
+  value(B−1)); NRT ctor primes do not shift the sample grid; Out.ar needs
+  ar inputs; probes must go through the real init path or their constants
+  differ by ULPs. SC 3.14.1 sources at /tmp/scsrc/141 + /tmp/scsrc/novasimd.

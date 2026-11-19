@@ -64,14 +64,18 @@ inline const DroneSpec kDroneTriangle = {"Triangle", drones::Triangle_Init, dron
 // Catalog order = byte-wise sort of drones/*.scd (verified in Task 1).
 inline const DroneSpec* Catalog(int id) {
   static const DroneSpec* const kCatalog[kCatalogCount] = {
-      /* 0 Apparatus .. 21 Shields */ nullptr, nullptr, nullptr, nullptr,
+      /* 0 Apparatus .. 13 */ nullptr, nullptr, nullptr, nullptr, nullptr,
       nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-      nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-      nullptr, nullptr,
+      nullptr,
+      /* 14 */ &kDroneMtLion,
+      /* 15 */ &kDroneMtZion,
+      /* 16 .. 21 */ nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
       /* 22 */ &kDroneSine, /* 23 */ &kDroneSquare,
       /* 24 */ nullptr,
       /* 25 */ nullptr,             // Supersaw DEFERRED (see drone_t2.h header)
-      /* 26 .. 28 */ nullptr, nullptr, nullptr,
+      /* 26 */ nullptr,
+      /* 27 */ &kDroneThx,
+      /* 28 */ nullptr,
       /* 29 */ &kDroneTriangle,
       /* 30 .. 35 */ nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
       /* 36 */ &kDroneHarmsWay,
