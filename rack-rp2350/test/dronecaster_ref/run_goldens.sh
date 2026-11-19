@@ -2,18 +2,16 @@
 # Renders the trio goldens twice and proves byte-determinism. The trio draws
 # no randomness; the server seed is pinned by RandSeed regardless.
 #
-# SuperCollider runs user-locally from /tmp/sc_root (distro pacman package
-# extracted; sudo not available for a system install). sclang needs the
-# explicit classlib config (the binary was built with prefix /usr).
+# SuperCollider 3.14.1 system-wide (pacman; user-verified). The structural
+# headless-sclang fixes live in gen_goldens.scd (called-Function body,
+# vars-first, thisThread.randSeed_, d_recv completion message) — those are
+# SC behaviors, not install quirks. The old /tmp/sc_root wiring (LD_LIBRARY_PATH,
+# scconf.yaml includePaths, DC_SCSYNTH_FLAGS plugin dir) is gone with the
+# system install.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-export LD_LIBRARY_PATH=/tmp/sc_root/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-export PATH=/tmp/sc_root/usr/bin:$PATH
-export DC_SCSYNTH_FLAGS="-U /tmp/sc_root/usr/lib/SuperCollider/plugins"
-SCLANG="sclang -l /tmp/sc_root/scconf.yaml"
-
-$SCLANG gen_goldens.scd </dev/null
+sclang gen_goldens.scd </dev/null
 for f in Sine Square Triangle; do
   test -s "goldens/$f.expected.wav" || { echo "missing $f"; exit 1; }
 done
@@ -47,7 +45,7 @@ trim_goldens
 
 mkdir -p /tmp/dc_det1
 cp goldens/*.expected.wav /tmp/dc_det1/
-$SCLANG gen_goldens.scd </dev/null
+sclang gen_goldens.scd </dev/null
 trim_goldens
 
 # scsynth writes a PEAK chunk with a wall-clock timestamp into the WAV
