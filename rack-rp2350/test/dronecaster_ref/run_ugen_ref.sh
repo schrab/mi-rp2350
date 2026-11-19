@@ -5,7 +5,11 @@
 # regenerated only when a UGen's canonical graph changes.
 set -euo pipefail
 cd "$(dirname "$0")"
-sclang gen_ugen_ref.scd </dev/null
+# sc3-plugins UGens (SawDPW/PulseDPW/SVF/DFM1/...): the distro scsynth has
+# only core plugins, so render against the extracted extra/sc3-plugins set.
+export DC_SCSYNTH_FLAGS="-U /tmp/scplug"
+# sc3-plugins CLASS library (SawDPW/PulseDPW/SVF/DFM1/...) — extracted package.
+sclang -l /tmp/sc_root/sc3p_conf.yaml gen_ugen_ref.scd </dev/null
 python3 - <<'PY'
 import glob
 TARGET = 48000 * 2 * 4

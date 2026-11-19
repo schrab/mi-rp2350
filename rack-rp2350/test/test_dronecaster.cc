@@ -14,6 +14,7 @@
 #include "../src/dronecaster/sc_kit_noise.h"
 #include "../src/dronecaster/sc_kit_lfo.h"
 #include "../src/dronecaster/sc_kit_trig.h"
+#include "../src/dronecaster/sc_kit_osc2.h"
 
 #include <cmath>
 #include <cstdio>
@@ -261,6 +262,72 @@ int main() {
       sc::Changed u; u.Init();
       kr_stream(u, [&]() { return u.Next(lp.ProcessKr()); }, out);
       if (!ref_check("Changedkr", out.data(), 48000)) ++g_failures;
+    }
+  }
+
+
+  printf("== T-D2 osc2 kit vs NRT references ==\n");
+  {
+    static sc::KitTables kt; sc::InitKitTables(&kt);
+    std::vector<float> out;
+    { // Saw.ar(440)
+      sc::Saw u; u.Init(&kt, 48000.0, 440.0f);
+      if (!ref_ar_fill("Sawar", u, out)) ++g_failures;
+    }
+    { // SinOscFB.ar(440, 0.5)
+      sc::SinOscFB u; u.Init(&kt, 48000.0, 440.0f, 0.5f);
+      if (!ref_ar_fill("SinOscFBar", u, out)) ++g_failures;
+    }
+    { // Select.kr(LFPulse.kr(2), [0.25, 0.5, 0.75]) — kr select + K2A ramp
+      sc::LFPulse lp; lp.Init(750.0, 2.0f, 0.0f, 0.5f);
+      const float vals[3] = {0.25f, 0.5f, 0.75f};
+      out.assign(48000, 0.0f);
+      // Select's ctor primes one kr sample (Select_next_1), so K2A's block 0
+      // is flat at v(0): take the first value as the ramp base.
+      float prev = vals[sc::SelectIndex(lp.ProcessKr(), 3)];
+      for (int b = 0; b < 750; ++b) {
+        const float idx = (b == 0) ? -1.0f : lp.ProcessKr();
+        const float v = (b == 0) ? prev : vals[sc::SelectIndex(idx, 3)];
+        const float slope = static_cast<float>((v - prev) * (1.0 / 64.0));
+        const float s2 = slope + slope;
+        const float v0 = prev, v1 = prev + slope, v2 = prev + s2, v3 = prev + s2 + slope;
+        float acc = 0.0f;
+        for (int g = 0; g < 16; ++g) {
+          out[b * 64 + g * 4 + 0] = v0 + acc;
+          out[b * 64 + g * 4 + 1] = v1 + acc;
+          out[b * 64 + g * 4 + 2] = v2 + acc;
+          out[b * 64 + g * 4 + 3] = v3 + acc;
+          acc += s2 + s2;
+        }
+        prev = v;
+      }
+      if (!ref_check("Selectkr", out.data(), 48000)) ++g_failures;
+    }
+    { // Klank: no NRT reference (scsynth 3.14.1 segfaults on Klank.ar here);
+      // verify the resonator law: an impulse excites a decaying ringing tail.
+      sc::Klank u;
+      const float fr[4] = {440.0f, 880.0f, 1320.0f, 1760.0f};
+      const float lv[4] = {1.0f, 0.5f, 0.25f, 0.125f};
+      const float tm[4] = {0.5f, 0.7f, 1.0f, 0.8f};
+      u.Init(48000.0, fr, lv, tm, 4, 1.0f, 0.0f, 1.0f);
+      float pk = 0.0f, tail = 0.0f;
+      bool finite = true;
+      for (int i = 0; i < 48000; ++i) {
+        const float v = u.Next(i == 0 ? 1.0f : 0.0f);
+        if (!std::isfinite(v)) finite = false;
+        if (std::fabs(v) > pk) pk = std::fabs(v);
+        if (i > 40000) tail = std::fabs(v) > tail ? std::fabs(v) : tail;
+      }
+      CHECK(finite && pk > 0.0f, "klank: impulse rings (finite, nonzero)");
+      CHECK(tail < pk * 0.5f, "klank: tail decays");
+    }
+    { // SawDPW.ar(440)
+      sc::SawDPW u; u.Init(48000.0, 440.0f);
+      if (!ref_ar_fill("SawDPWar", u, out)) ++g_failures;
+    }
+    { // PulseDPW.ar(440, 0.3)
+      sc::PulseDPW u; u.Init(48000.0, 440.0f, 0.3f, 0);
+      if (!ref_ar_fill("PulseDPWar", u, out)) ++g_failures;
     }
   }
 

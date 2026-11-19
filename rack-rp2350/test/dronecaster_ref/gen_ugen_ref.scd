@@ -15,6 +15,7 @@
     var dir = PathName(scriptPath).pathOnly;
     var outDir = dir ++ "ugen_ref";
     var dur = 1.0;
+    var scsynthFlags = ("DC_SCSYNTH_FLAGS").getenv ?? "";
     var entries;
 
     entries = [
@@ -73,6 +74,15 @@
         ["Peakkr",     { Out.ar(0, K2A.ar(Peak.kr(SinOsc.kr(7), Impulse.kr(1))).dup) }],
         ["Gatear",     { Out.ar(0, Gate.ar(SinOsc.ar(440), LFPulse.kr(2))) }],
         ["Changedkr",  { Out.ar(0, K2A.ar(Changed.kr(LFPulse.kr(5))).dup) }],
+
+        // ---- T-D2 osc2 family ----
+        ["Sawar",      { Out.ar(0, Saw.ar(440).dup) }],
+        ["SinOscFBar", { Out.ar(0, SinOscFB.ar(440, 0.5).dup) }],
+        ["Selectkr",   { Out.ar(0, K2A.ar(Select.kr(LFPulse.kr(2), [0.25, 0.5, 0.75])).dup) }],
+        // Klank: SKIPPED — scsynth 3.14.1 segfaults on Klank.ar here (its
+        // SIMD unroll path); the C++ port is verified by a unit law test.
+        ["SawDPWar",   { Out.ar(0, SawDPW.ar(440).dup) }],
+        ["PulseDPWar", { Out.ar(0, PulseDPW.ar(440, 0.3).dup) }],
     ];
 
     "ugen_ref: begin".postln;
@@ -95,7 +105,8 @@
         score.add([dur, [0]]);
         score.writeOSCFile(oscPath, 0, dur);
         cmd = Score.program ++ " -N " ++ oscPath.quote ++ " _ " ++ wavPath.quote
-            ++ " 48000 WAV float" ++ opts.asOptionsString;
+            ++ " 48000 WAV float" ++ opts.asOptionsString
+            ++ (if (scsynthFlags != "", { " " ++ scsynthFlags }, { "" }));
         rc = cmd.systemCmd;
         if (rc != 0) { Error("scsynth failed for " ++ name).throw };
         File.delete(oscPath);
