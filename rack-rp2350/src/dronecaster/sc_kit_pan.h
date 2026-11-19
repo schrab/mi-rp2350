@@ -161,14 +161,14 @@ struct Splay {
   void ProcessBlock(const float* const* ins, float* left, float* right, int n,
                     float spread, float level, float center) {
     for (int i = 0; i < n; ++i) { left[i] = 0.f; right[i] = 0.f; }
-    std::vector<float> pl(static_cast<size_t>(n)), pr(static_cast<size_t>(n));
+    // M33: fixed scratch, no heap per block (the old std::vector did a
+    // malloc/free on every 64-sample block — a real-time no-no).
     for (int k = 0; k < n_; ++k) {
       const float p = (static_cast<float>(k) * (2.f / (n_ - 1)) - 1.f) *
                           spread + center;
       // Pan2 at level 1; the classlib scales the final Mix, not each pan.
-      pans_[static_cast<size_t>(k)].ProcessBlock(ins[k], pl.data(),
-                                                 pr.data(), n, p, 1.f);
-      for (int i = 0; i < n; ++i) { left[i] += pl[i]; right[i] += pr[i]; }
+      pans_[static_cast<size_t>(k)].ProcessBlock(ins[k], pl_, pr_, n, p, 1.f);
+      for (int i = 0; i < n; ++i) { left[i] += pl_[i]; right[i] += pr_[i]; }
     }
     for (int i = 0; i < n; ++i) {
       left[i] *= level_;
@@ -177,6 +177,7 @@ struct Splay {
     (void)level;
   }
   std::vector<Pan2> pans_;
+  float pl_[64] = {}, pr_[64] = {};  // fixed scratch: no heap per block
   int n_ = 2;
   float level_ = 1.f;
 };
