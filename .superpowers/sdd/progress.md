@@ -5277,11 +5277,12 @@ Kit-only task; no drone ports until T-D3. Host gate:
 | renderer / env | done | 887ec9b | sc3-plugins 3.14.1-1 now system-wide (pacman); /tmp `-U`/`-l` wiring dropped, verified the two sc3p refs' `data` chunks stay byte-identical |
 | dynamics | done | 5449caa | 3/3 exact (Amplitude/Compander/Limiter) |
 | moog + BEQ suite | done | 50ea06c | 7/7 exact, all max_abs = 0 (MoogFF + 6 BEQ biquads); completes Task 6 except VarLag |
-| sc3p filters | done | *(this commit)* | SVF/MoogLadder 2/2 exact + DFM1 1/1 exact via pinned render epoch; 3/3 total |
-| remaining | waiting | — | VarLag (Env/sugar), delays, localio, reverbs, pan, demand, buffers, chaos, sc3p dyn, sugar, hw |
+| sc3p filters | done | 629847b | SVF/MoogLadder 2/2 exact + DFM1 1/1 exact via pinned render epoch; 3/3 total |
+| core delays | done | *(this commit)* | DelayN/L/C + CombN/L/C + AllpassN/L/C, 9/9 exact via one shared ring buffer |
+| remaining | waiting | — | BufDelay*/BufAllpass*, Pluck, PitchShift, LocalIn/Out, VarLag (Env/sugar), reverbs, pan, demand, buffers, chaos, sc3p dyn, sugar, hw |
 
-Verified: `test_dronecaster: PASS (0 failures)`, 76 active per-UGen refs after
-the DFM1 commit (all ten new refs max_abs = 0, corr = 1.0). 77 ref FILES
+Verified: `test_dronecaster: PASS (0 failures)`, 85 active per-UGen refs after
+the core-delay commit (all new refs max_abs = 0, corr = 1.0). 86 ref FILES
 exist; `Klankar.expected.wav` is a tracked orphan — Klank is skipped and no
 test reads it.
 

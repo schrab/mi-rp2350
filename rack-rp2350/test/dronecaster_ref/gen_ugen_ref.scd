@@ -114,6 +114,17 @@
         // scsynth launch; the C++ port re-seeds from that same value.
         ["DFM1",       { Out.ar(0, DFM1.ar(Saw.ar(220), 1000, 0.1, 1, 0, 0.0003)) }],
 
+        // ---- T-D2 Task 8: core delay family (shared ring buffer) ----
+        ["DelayNar",   { Out.ar(0, DelayN.ar(Saw.ar(220), 0.01, 0.005)) }, "supernova"],
+        ["DelayLar",   { Out.ar(0, DelayL.ar(Saw.ar(220), 0.01, 0.005)) }, "supernova"],
+        ["DelayCar",   { Out.ar(0, DelayC.ar(Saw.ar(220), 0.01, 0.005)) }, "supernova"],
+        ["CombNar",    { Out.ar(0, CombN.ar(Saw.ar(220), 0.01, 0.005, 0.1)) }, "supernova"],
+        ["CombLar",    { Out.ar(0, CombL.ar(Saw.ar(220), 0.01, 0.005, 0.1)) }, "supernova"],
+        ["CombCar",    { Out.ar(0, CombC.ar(Saw.ar(220), 0.01, 0.005, 0.1)) }, "supernova"],
+        ["AllpassNar", { Out.ar(0, AllpassN.ar(Saw.ar(220), 0.01, 0.005, 0.1)) }, "supernova"],
+        ["AllpassLar", { Out.ar(0, AllpassL.ar(Saw.ar(220), 0.01, 0.005, 0.1)) }, "supernova"],
+        ["AllpassCar", { Out.ar(0, AllpassC.ar(Saw.ar(220), 0.01, 0.005, 0.1)) }, "supernova"],
+
         // ---- T-D2 dynamics family (core: Amplitude/Compander/Limiter) ----
         ["Amplitude",  { Out.ar(0, Amplitude.ar(Saw.ar(220), 0.01, 0.1)) }],
         ["Compander",  { Out.ar(0, Compander.ar(Saw.ar(220), Saw.ar(1), 0.5, 2, 1.5, 0.01, 0.1)) }],

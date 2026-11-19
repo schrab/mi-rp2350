@@ -19,6 +19,7 @@
 #include "../src/dronecaster/sc_kit_core_dyn.h"
 #include "../src/dronecaster/sc_kit_sc3p_filter.h"
 #include "../src/dronecaster/sc_kit_dfm1.h"
+#include "../src/dronecaster/sc_kit_delay.h"
 #include <cstdio>
 
 #include <cmath>
@@ -422,6 +423,30 @@ int main() {
       for (int b = 0; b < 750; ++b)
         u.ProcessBlock(in.data() + b * 64, out.data() + b * 64, 64);
       if (!ref_check("DFM1", out.data(), 48000)) ++g_failures; }
+  }
+
+  printf("== T-D2 Task 8 core delay family vs NRT references ==\n");
+  {
+    static sc::KitTables kt; sc::InitKitTables(&kt);
+    std::vector<float> in(48000), out(48000);
+    { sc::Saw src; src.Init(&kt, 48000.0, 220.0f);
+      for (int b = 0; b < 750; ++b) src.ProcessBlock(in.data() + b * 64, 64); }
+    auto delay = [&](const char* name, int kind, float decay) {
+      sc::DelayLine u; u.Init(48000.0, 0.01f, 0.005f, decay, kind);
+      for (int b = 0; b < 750; ++b)
+        u.ProcessBlock(in.data() + b * 64, out.data() + b * 64, 64,
+                       0.005f, decay);
+      if (!ref_check(name, out.data(), 48000)) ++g_failures;
+    };
+    delay("DelayNar",   0, 0.f);
+    delay("DelayLar",   1, 0.f);
+    delay("DelayCar",   2, 0.f);
+    delay("CombNar",    3, 0.1f);
+    delay("CombLar",    4, 0.1f);
+    delay("CombCar",    5, 0.1f);
+    delay("AllpassNar", 6, 0.1f);
+    delay("AllpassLar", 7, 0.1f);
+    delay("AllpassCar", 8, 0.1f);
   }
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");
