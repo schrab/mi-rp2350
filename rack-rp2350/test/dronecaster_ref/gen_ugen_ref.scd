@@ -46,6 +46,23 @@
         ["NRand",      { Out.ar(0, K2A.ar(NRand(0, 1, 4)).dup) }],
         ["LinRand",    { Out.ar(0, K2A.ar(LinRand(0, 1, 0)).dup) }],
         ["ExpRand",    { Out.ar(0, K2A.ar(ExpRand(0.1, 10)).dup) }],
+
+        // ---- T-D2 lfo family (canonical params: 5 Hz / 440 Hz / duty 0.3) ----
+        ["LFSawar",    { Out.ar(0, LFSaw.ar(440).dup) }],
+        ["LFSawkr",    { Out.ar(0, K2A.ar(LFSaw.kr(5)).dup) }],
+        ["LFParar",    { Out.ar(0, LFPar.ar(440).dup) }],
+        ["LFParkr",    { Out.ar(0, K2A.ar(LFPar.kr(5)).dup) }],
+        ["LFCubar",    { Out.ar(0, LFCub.ar(440).dup) }],
+        ["LFPulsear",  { Out.ar(0, LFPulse.ar(440, 0, 0.3).dup) }],
+        ["LFPulsekr",  { Out.ar(0, K2A.ar(LFPulse.kr(5, 0, 0.3)).dup) }],
+        ["VarSawar",   { Out.ar(0, VarSaw.ar(440, 0, 0.3).dup) }],
+        ["Impulsekr",  { Out.ar(0, K2A.ar(Impulse.kr(10)).dup) }],
+        ["Impulsear",  { Out.ar(0, Impulse.ar(440).dup) }],
+        ["Phasorkr",   { Out.ar(0, K2A.ar(Phasor.kr(0, 0.001, 0, 1, 0)).dup) }],
+        ["Clipkr",     { Out.ar(0, K2A.ar(Clip.kr(SinOsc.kr(5), -0.5, 0.5)).dup) }],
+        ["Foldkr",     { Out.ar(0, K2A.ar(Fold.kr(SinOsc.kr(5) * 3, -0.5, 0.5)).dup) }],
+        ["DCkr",       { Out.ar(0, K2A.ar(DC.kr(0.25)).dup) }],
+        ["A2Kar",      { Out.ar(0, K2A.ar(A2K.kr(SinOsc.ar(440))).dup) }],
     ];
 
     "ugen_ref: begin".postln;

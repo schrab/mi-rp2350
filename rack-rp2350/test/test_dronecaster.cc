@@ -12,6 +12,7 @@
 #include "../src/dronecaster/dronecaster_engine.h"
 #include "../src/dronecaster/drones/drone_trio.h"
 #include "../src/dronecaster/sc_kit_noise.h"
+#include "../src/dronecaster/sc_kit_lfo.h"
 
 #include <cmath>
 #include <cstdio>
@@ -173,6 +174,97 @@ int main() {
          g_failures ? "FAIL" : "PASS", g_failures);
 
   // task sections are inserted above this line
+
+  printf("== T-D2 lfo kit vs NRT references ==\n");
+  {
+    std::vector<float> out;
+    // .ar forms (canonical params 440 Hz / duty 0.3 from gen_ugen_ref.scd)
+    { sc::LFSaw u; u.Init(48000.0, 440.0f); if (!ref_ar_fill("LFSawar", u, out)) ++g_failures; }
+    { sc::LFPar u; u.Init(48000.0, 440.0f); if (!ref_ar_fill("LFParar", u, out)) ++g_failures; }
+    { sc::LFCub u; u.Init(48000.0, 440.0f); if (!ref_ar_fill("LFCubar", u, out)) ++g_failures; }
+    { sc::LFPulse u; u.Init(48000.0, 440.0f, 0.0f, 0.3f); if (!ref_ar_fill("LFPulsear", u, out)) ++g_failures; }
+    { sc::VarSaw u; u.Init(48000.0, 440.0f, 0.0f, 0.3f); if (!ref_ar_fill("VarSawar", u, out)) ++g_failures; }
+    { sc::Impulse u; u.Init(48000.0, 440.0f); if (!ref_ar_fill("Impulsear", u, out)) ++g_failures; }
+    // .kr forms (K2A ramp): 5 Hz / 10 Hz at the control rate (750)
+    { sc::LFSaw u; u.Init(750.0, 5.0f); if (!ref_kr_fill("LFSawkr", u, out)) ++g_failures; }
+    { sc::LFPar u; u.Init(750.0, 5.0f); if (!ref_kr_fill("LFParkr", u, out)) ++g_failures; }
+    { sc::LFPulse u; u.Init(750.0, 5.0f, 0.0f, 0.3f); if (!ref_kr_fill("LFPulsekr", u, out)) ++g_failures; }
+    { sc::Impulse u; u.Init(750.0, 10.0f); if (!ref_kr_fill("Impulsekr", u, out)) ++g_failures; }
+    { sc::Phasor u; u.Init(750.0, 0.001, 0.0, 1.0, 0.0f); if (!ref_kr_fill("Phasorkr", u, out)) ++g_failures; }
+    { // Clip.kr(SinOsc.kr(5), -0.5, 0.5): the input is a kr SinOsc ramped by K2A,
+      // then clamped — replicate the whole chain.
+      sc::SinOsc osc; static sc::KitTables kt_local; sc::InitKitTables(&kt_local);
+      osc.Init(&kt_local, 750.0, 5.0f);
+      out.assign(48000, 0.0f);
+      // Clip.kr reads its kr input as a VALUE (no ramp), clips, then K2A
+      // ramps the CLIPPED stream across the block.
+      float prev = 0.0f;  // SinOsc ctor value (phase 0 -> 0)
+      for (int b = 0; b < 750; ++b) {
+        const float v = sc::ClipTo(osc.Process(), -0.5f, 0.5f);
+        const float slope = static_cast<float>((v - prev) * (1.0 / 64.0));
+        const float s2 = slope + slope;
+        const float v0 = prev, v1 = prev + slope, v2 = prev + s2, v3 = prev + s2 + slope;
+        float acc = 0.0f;
+        for (int g = 0; g < 16; ++g) {
+          out[b * 64 + g * 4 + 0] = v0 + acc;
+          out[b * 64 + g * 4 + 1] = v1 + acc;
+          out[b * 64 + g * 4 + 2] = v2 + acc;
+          out[b * 64 + g * 4 + 3] = v3 + acc;
+          acc += s2 + s2;
+        }
+        prev = v;
+      }
+      if (!ref_check("Clipkr", out.data(), 48000)) ++g_failures;
+    }
+    { // Fold.kr(SinOsc.kr(5) * 3, -0.5, 0.5)
+      sc::SinOsc osc; static sc::KitTables kt_local2; sc::InitKitTables(&kt_local2);
+      osc.Init(&kt_local2, 750.0, 5.0f);
+      out.assign(48000, 0.0f);
+      float prev = 0.0f;
+      for (int b = 0; b < 750; ++b) {
+        const float vin = sc::FoldTo(osc.Process() * 3.0f, -0.5f, 0.5f);
+        const float slope = static_cast<float>((vin - prev) * (1.0 / 64.0));
+        const float s2 = slope + slope;
+        const float v0 = prev, v1 = prev + slope, v2 = prev + s2, v3 = prev + s2 + slope;
+        float acc = 0.0f;
+        for (int g = 0; g < 16; ++g) {
+          out[b * 64 + g * 4 + 0] = v0 + acc;
+          out[b * 64 + g * 4 + 1] = v1 + acc;
+          out[b * 64 + g * 4 + 2] = v2 + acc;
+          out[b * 64 + g * 4 + 3] = v3 + acc;
+          acc += s2 + s2;
+        }
+        prev = vin;
+      }
+      if (!ref_check("Foldkr", out.data(), 48000)) ++g_failures;
+    }
+    { std::vector<float> consts(48000, 0.25f);
+      if (!ref_check("DCkr", consts.data(), 48000)) ++g_failures; }
+    { // A2K.kr(SinOsc.ar(440)): first ar sample per block, K2A-ramped
+      sc::SinOsc osc; static sc::KitTables kt_local3; sc::InitKitTables(&kt_local3);
+      osc.Init(&kt_local3, 48000.0, 440.0f);
+      out.assign(48000, 0.0f);
+      float prev = 0.0f;
+      float blk[64];
+      for (int b = 0; b < 750; ++b) {
+        osc.ProcessBlock(blk, 64);
+        const float v = blk[0];
+        const float slope = static_cast<float>((v - prev) * (1.0 / 64.0));
+        const float s2 = slope + slope;
+        const float v0 = prev, v1 = prev + slope, v2 = prev + s2, v3 = prev + s2 + slope;
+        float acc = 0.0f;
+        for (int g = 0; g < 16; ++g) {
+          out[b * 64 + g * 4 + 0] = v0 + acc;
+          out[b * 64 + g * 4 + 1] = v1 + acc;
+          out[b * 64 + g * 4 + 2] = v2 + acc;
+          out[b * 64 + g * 4 + 3] = v3 + acc;
+          acc += s2 + s2;
+        }
+        prev = v;
+      }
+      if (!ref_check("A2Kar", out.data(), 48000)) ++g_failures;
+    }
+  }
 
   printf("== T-D2 noise kit vs NRT references ==\n");
   {
