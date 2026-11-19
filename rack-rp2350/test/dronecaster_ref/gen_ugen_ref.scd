@@ -212,6 +212,16 @@
         // supernova renders the same FilterUGens.cpp law cleanly and
         // deterministically. Third tuple element overrides the engine.
         ["Limiter",    { Out.ar(0, Limiter.ar(Saw.ar(220) * 2, 1, 0.01)) }, "supernova"],
+
+        // ---- T-D2: mapping UGens (LinExp core, LinLin classlib mul-add) ----
+        // The drones' filter-sweep argument shapes (Hecker's LinExp.kr(lfo,-1,1,
+        // 20,20000); brief-canonical LinLin.kr(in,0,1,0.8,0.33)). The UGen
+        // classes take NO clip argument — clip=\minmax is the language-side
+        // SimpleNumber default and does not apply to these graphs.
+        ["LinExpkr",   { Out.ar(0, K2A.ar(LinExp.kr(SinOsc.kr(5), -1, 1, 20, 20000)).dup) }],
+        ["LinExpar",   { Out.ar(0, LinExp.ar(SinOsc.ar(440), -1, 1, 20, 20000)).dup }],
+        ["LinLinkr",   { Out.ar(0, K2A.ar(LinLin.kr(SinOsc.kr(5), 0, 1, 0.8, 0.33)).dup) }],
+        ["LinLinar",   { Out.ar(0, LinLin.ar(SinOsc.ar(440), 0, 1, 0.8, 0.33)).dup }],
     ];
 
     "ugen_ref: begin".postln;

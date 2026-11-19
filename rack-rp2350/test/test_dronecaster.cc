@@ -26,6 +26,7 @@
 #include "sc_kit_greyhole.h"
 #include "sc_kit_demand.h"
 #include "sc_kit_buf.h"
+#include "sc_kit_lin.h"
 #include "sc_kit_chaos.h"
 #include "sc_kit_sc3p_dyn.h"
 #include "sc_sugar.h"
@@ -127,10 +128,13 @@ static bool ref_ar_fill(const char* name, U& u, std::vector<float>& out) {
 }
 
 // Fill `out` from a kr UGen as K2A renders it: ControlRateInput's CALCSLOPE
-// ramp. The SC 3.14.1 x86 build uses nova's SSE vector_ramp_argument, whose
-// arithmetic is NOT a plain accumulation — replicate it bit-for-bit
-// (nova-simd vec_sse.hpp set_slope): lanes [s, s+slope, s+2slope,
-// s+2slope+slope], group increment 4*slope via repeated adds.
+// ramp. The SC 3.14.1 x86 build uses nova's SSE set_slope_vec_simd
+// (nova-simd vec_sse.hpp:249 set_slope + simd_memory.hpp:202
+// set_slope_vec_simd + detail set_ramp<F,16>): lanes [s, s+slope, s+2slope,
+// s+2slope+slope], then EACH LANE accumulates 4*slope per 4-sample chunk
+// across the 16 chunks of the block (one float add per lane per chunk; the
+// lane chains are independent — not a shared group accumulator, which
+// diverges at chunk 8+ by ULPs).
 template <typename U>
 static bool ref_kr_fill(const char* name, U& u, std::vector<float>& out) {
   out.assign(48000, 0.0f);
@@ -139,17 +143,17 @@ static bool ref_kr_fill(const char* name, U& u, std::vector<float>& out) {
     const float v = u.ProcessKr();
     const float slope = static_cast<float>((v - prev) * (1.0 / 64.0));
     const float slope2 = slope + slope;
-    const float v0 = prev;
-    const float v1 = prev + slope;
-    const float v2 = prev + slope2;
-    const float v3 = prev + slope2 + slope;
-    float acc = 0.0f;
-    for (int g = 0; g < 16; ++g) {
-      out[b * 64 + g * 4 + 0] = v0 + acc;
-      out[b * 64 + g * 4 + 1] = v1 + acc;
-      out[b * 64 + g * 4 + 2] = v2 + acc;
-      out[b * 64 + g * 4 + 3] = v3 + acc;
-      acc += slope2 + slope2;
+    float b0 = prev;
+    float b1 = prev + slope;
+    float b2 = prev + slope2;
+    float b3 = prev + slope2 + slope;
+    const float inc = slope2 + slope2;    // 4*slope (exact doubling)
+    for (int m = 0; m < 16; ++m) {
+      out[b * 64 + m * 4 + 0] = b0;
+      out[b * 64 + m * 4 + 1] = b1;
+      out[b * 64 + m * 4 + 2] = b2;
+      out[b * 64 + m * 4 + 3] = b3;
+      b0 += inc; b1 += inc; b2 += inc; b3 += inc;
     }
     prev = v;
   }
@@ -973,6 +977,60 @@ int main() {
       }
     }
     (void)fails_before;
+  }
+
+  printf("== T-D2 mapping kit (LinExp/LinLin) vs NRT references ==\n");
+  {
+    static sc::KitTables kt; sc::InitKitTables(&kt);
+    std::vector<float> out;
+    // Canonical params from gen_ugen_ref.scd: LinExp(in, -1, 1, 20, 20000)
+    // (Hecker's filter-sweep shape), LinLin(in, 0, 1, 0.8, 0.33).
+    { // LinExp.ar(SinOsc.ar(440), -1, 1, 20, 20000)
+      sc::SinOsc osc; osc.Init(&kt, 48000.0, 440.0f);
+      sc::LinExp u; u.Init(-1.0f, 1.0f, 20.0f, 20000.0f);
+      out.assign(48000, 0.0f);
+      float inb[64], outb[64];
+      for (int b = 0; b < 750; ++b) {
+        osc.ProcessBlock(inb, 64);
+        u.ProcessBlock(inb, outb, 64);
+        memcpy(out.data() + b * 64, outb, 64 * sizeof(float));
+      }
+      if (!ref_check("LinExpar", out.data(), 48000)) ++g_failures;
+    }
+    { // K2A.ar(LinExp.kr(SinOsc.kr(5), -1, 1, 20, 20000))
+      sc::SinOsc osc; osc.Init(&kt, 750.0, 5.0f);
+      sc::LinExp u; u.Init(-1.0f, 1.0f, 20.0f, 20000.0f);
+      // The kr input is a UGen, so ref_kr_fill drives an adapter: ctor_value
+      // passes the input's ctor value (SinOsc.kr phase 0 -> 0).
+      struct LinExpKr {
+        sc::SinOsc* osc; sc::LinExp* u;
+        float ctor_value() const { return u->ctor_value(0.0f); }
+        float ProcessKr() { return u->ProcessKr(osc->Process()); }
+      } ad{&osc, &u};
+      if (!ref_kr_fill("LinExpkr", ad, out)) ++g_failures;
+    }
+    { // LinLin.ar(SinOsc.ar(440), 0, 1, 0.8, 0.33) — MulAdd(in, scale, offset)
+      sc::SinOsc osc; osc.Init(&kt, 48000.0, 440.0f);
+      sc::LinLin u; u.Init(0.0f, 1.0f, 0.8f, 0.33f);
+      out.assign(48000, 0.0f);
+      float inb[64], outb[64];
+      for (int b = 0; b < 750; ++b) {
+        osc.ProcessBlock(inb, 64);
+        u.ProcessBlock(inb, outb, 64);
+        memcpy(out.data() + b * 64, outb, 64 * sizeof(float));
+      }
+      if (!ref_check("LinLinar", out.data(), 48000)) ++g_failures;
+    }
+    { // K2A.ar(LinLin.kr(SinOsc.kr(5), 0, 1, 0.8, 0.33))
+      sc::SinOsc osc; osc.Init(&kt, 750.0, 5.0f);
+      sc::LinLin u; u.Init(0.0f, 1.0f, 0.8f, 0.33f);
+      struct LinLinKr {
+        sc::SinOsc* osc; sc::LinLin* u;
+        float ctor_value() const { return u->ctor_value(0.0f); }
+        float ProcessKr() { return u->ProcessKr(osc->Process()); }
+      } ad{&osc, &u};
+      if (!ref_kr_fill("LinLinkr", ad, out)) ++g_failures;
+    }
   }
 
   printf("== trio goldens (float32) ==\n");
