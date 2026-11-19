@@ -36,9 +36,10 @@ Commits on branch `rack-rp2350` (pushed):
 | `53b5809` | Buf* delays (6) + PitchShift — 7/7 exact |
 | `ce6b755` | LocalIn/LocalOut — 1/1 exact (Task 8 complete, 17/17) |
 | `3f712ca` | FreeVerb — 1/1 exact |
-| *(this commit)* | GVerb — 1/1 exact (core reverbs done; GreyholeRaw remains) |
+| `be6ab28` | GVerb — 1/1 exact (core reverbs done; GreyholeRaw remains) |
+| *(this commit)* | Pan2/Balance2/Rotate2 — 3/3 exact (Task 10 core done) |
 
-**Done and reference-exact (96 UGens + the trio):**
+**Done and reference-exact (99 UGens + the trio):**
 
 - `sc_kit_noise.h` — WhiteNoise, ClipNoise, GrayNoise, PinkNoise, BrownNoise,
   Crackle, Dust, Dust2, LFNoise0/1/2 (ar + kr), LFClipNoise, LFDNoise0,
@@ -82,10 +83,12 @@ Commits on branch `rack-rp2350` (pushed):
   diffusers) **2/2 exact**. GVerb traps: `zapgremlins` is `1e-15 < |x| < 1e15`
   (not 3.4e38), slopes clear every block, and ramped level locals are NOT
   written back (only the setter's target) — else a 1-ULP re-ramp repeats.
+- `sc_kit_pan.h` — Pan2/Balance2/Rotate2 **3/3 exact**, using `KitTables::sine`
+  (= `ft->mSine`) and CALCSLOPE on amplitude / rotation coefs.
 
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
-— expects `PASS (0 failures)` (96 active refs as of the GVerb commit;
+— expects `PASS (0 failures)` (99 active refs as of the pan commit;
 `ugen_ref/Klankar.expected.wav` is a tracked orphan from an earlier attempt —
 Klank is skipped, so no test reads it).
 
@@ -139,7 +142,7 @@ Klank is skipped, so no test reads it).
 | ~~localio~~ | ~~LocalIn, LocalOut~~ **DONE** 1/1 | IOUGens.cpp | `sc_kit_localio.h` `LocalBus` holds the touched/block-counter law. Firmware still needs a per-voice LocalBus area in the arena and audio-loop wiring (engine task, not kit). |
 | ~~reverbs (core)~~ | ~~FreeVerb, GVerb~~ **DONE** 2/2; GreyholeRaw remains | ReverbUGens.cpp | Both in `sc_kit_reverb.h`. FreeVerb = 8 comb + 4 allpass. GVerb = 4th-order FDN + diffusers/dampers. GreyholeRaw (faust) goes in `sc_kit_greyhole.h`. |
 | sc3p reverb | GreyholeRaw (Greyhole class wraps it) | `sc3p/source/DEINDUGens/GreyholeRaw.cpp` (faust-generated) | Port after the core reverbs pass; it is large. |
-| pan | Pan2, Balance2, Rotate2 | PanUGens.cpp | Pan2 = equal-power with CALCSLOPE on pos/level; Balance2 = the balance law; Rotate2 = rotation matrix. Splay/SplayAz/InsideOut are classlib/`MCLDDistortionUGens` — Splay is a classlib helper that pans an array. |
+| ~~pan (core)~~ | ~~Pan2, Balance2, Rotate2~~ **DONE** 3/3; Splay/SplayAz remain (sugar) | PanUGens.cpp | `sc_kit_pan.h` uses `KitTables::sine` + CALCSLOPE. Splay/SplayAz are classlib helpers — port in the sugar task. |
 | demand | Demand, Dseq, Drand, Dxrand, Dseries, Dbrown, Dbufrd, Dbufwr | DemandUGens.cpp | Demand-rate machinery: a demand UGen is PULLED by a triggering UGen. Model as a per-voice demand clock the drone calls once per block; Dseq/Drand keep their own state. |
 | buffers | LocalBuf, BufRd, BufWr, BufFrames, BufRateScale, BufSampleRate, SampleRate, ControlRate | DelayUGens.cpp (they live there) | LocalBuf allocates from the voice arena; BufRd's interpolation modes (1/2/4) matter. |
 | chaos | LorenzL, HenonC, FBSineN | ChaosUGens.cpp | Exact float laws; LorenzL/FBSineN are per-sample integrators. |

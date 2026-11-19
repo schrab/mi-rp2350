@@ -144,6 +144,11 @@
         ["FreeVerbar", { Out.ar(0, FreeVerb.ar(Saw.ar(220), 0.5, 0.5, 0.2)) }, "supernova"],
         ["GVerbar",    { Out.ar(0, GVerb.ar(Saw.ar(220))) }, "supernova"],
 
+        // ---- T-D2 Task 10: pan family ----
+        ["Pan2ar",     { Out.ar(0, Pan2.ar(Saw.ar(220), 0.3, 0.8)) }],
+        ["Balance2ar", { Out.ar(0, Balance2.ar(Saw.ar(220), Saw.ar(330), 0.3, 0.8)) }],
+        ["Rotate2ar",  { Out.ar(0, Rotate2.ar(Saw.ar(220), Saw.ar(330), 0.3)) }],
+
         // ---- T-D2 dynamics family (core: Amplitude/Compander/Limiter) ----
         ["Amplitude",  { Out.ar(0, Amplitude.ar(Saw.ar(220), 0.01, 0.1)) }],
         ["Compander",  { Out.ar(0, Compander.ar(Saw.ar(220), Saw.ar(1), 0.5, 2, 1.5, 0.01, 0.1)) }],

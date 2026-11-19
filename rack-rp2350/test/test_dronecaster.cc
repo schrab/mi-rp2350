@@ -22,6 +22,7 @@
 #include "../src/dronecaster/sc_kit_delay.h"
 #include "../src/dronecaster/sc_kit_localio.h"
 #include "../src/dronecaster/sc_kit_reverb.h"
+#include "../src/dronecaster/sc_kit_pan.h"
 #include <cstdio>
 
 #include <cmath>
@@ -519,6 +520,31 @@ int main() {
                        right.data() + b * 64, 64,
                        10.f, 3.f, 0.5f, 0.5f, 1.f, 0.7f, 0.5f);
       if (!ref_check("GVerbar", out.data(), 48000)) ++g_failures; }
+  }
+
+  printf("== T-D2 Task 10 pan family vs NRT references ==\n");
+  {
+    static sc::KitTables kt; sc::InitKitTables(&kt);
+    std::vector<float> a(48000), b(48000), l(48000), r(48000);
+    { sc::Saw s; s.Init(&kt, 48000.0, 220.0f);
+      for (int i = 0; i < 750; ++i) s.ProcessBlock(a.data() + i * 64, 64); }
+    { sc::Saw s; s.Init(&kt, 48000.0, 330.0f);
+      for (int i = 0; i < 750; ++i) s.ProcessBlock(b.data() + i * 64, 64); }
+    { sc::Pan2 u; u.Init(&kt, 0.3f, 0.8f, a[0]);
+      for (int i = 0; i < 750; ++i)
+        u.ProcessBlock(a.data() + i * 64, l.data() + i * 64,
+                       r.data() + i * 64, 64, 0.3f, 0.8f);
+      if (!ref_check("Pan2ar", l.data(), 48000)) ++g_failures; }
+    { sc::Balance2 u; u.Init(&kt, 0.3f, 0.8f, a[0], b[0]);
+      for (int i = 0; i < 750; ++i)
+        u.ProcessBlock(a.data() + i * 64, b.data() + i * 64,
+                       l.data() + i * 64, r.data() + i * 64, 64, 0.3f, 0.8f);
+      if (!ref_check("Balance2ar", l.data(), 48000)) ++g_failures; }
+    { sc::Rotate2 u; u.Init(&kt, 0.3f, a[0], b[0]);
+      for (int i = 0; i < 750; ++i)
+        u.ProcessBlock(a.data() + i * 64, b.data() + i * 64,
+                       l.data() + i * 64, r.data() + i * 64, 64, 0.3f);
+      if (!ref_check("Rotate2ar", l.data(), 48000)) ++g_failures; }
   }
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");

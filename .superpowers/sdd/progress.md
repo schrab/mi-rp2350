@@ -5282,11 +5282,12 @@ Kit-only task; no drone ports until T-D3. Host gate:
 | Pluck | done | 2c3e95f | Karplus-Strong, 1/1 exact (same ring core) |
 | Buf* delays + PitchShift | done | 53b5809 | BufDelayN/L/C + BufAllpassN/L/C 6/6 + PitchShift 1/1 — all exact |
 | localio | done | ce6b755 | LocalIn/LocalOut 1/1 exact via host-testable LocalBus; engine arena wiring still pending |
-| core reverbs | done | *(this commit)* | FreeVerb + GVerb 2/2 exact (GVerb needed three law fixes, see below) |
-| remaining | waiting | — | GreyholeRaw, VarLag (Env/sugar), pan, demand, buffers, chaos, sc3p dyn, sugar, hw |
+| core reverbs | done | be6ab28 | FreeVerb + GVerb 2/2 exact (GVerb needed three law fixes, see below) |
+| pan (core) | done | *(this commit)* | Pan2/Balance2/Rotate2 3/3 exact via `KitTables::sine` |
+| remaining | waiting | — | GreyholeRaw, VarLag, Splay/SplayAz, demand, buffers, chaos, sc3p dyn, sugar, hw |
 
-Verified: `test_dronecaster: PASS (0 failures)`, 96 active per-UGen refs after
-the GVerb commit (all new refs max_abs = 0, corr = 1.0). 97 ref FILES exist;
+Verified: `test_dronecaster: PASS (0 failures)`, 99 active per-UGen refs after
+the pan commit (all new refs max_abs = 0, corr = 1.0). 100 ref FILES exist;
 `Klankar.expected.wav` is a tracked orphan — Klank is skipped and no test
 reads it. Tasks 8 (delays + localio) and 9-core (FreeVerb/GVerb) complete.
 
