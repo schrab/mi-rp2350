@@ -4,7 +4,8 @@
 // by the reset input); the previous sample is held instead.
 // Anchors: Demand_Ctor 402 / Demand_next_ak 314; Dseries 1290/1314;
 // Dbrown 1424/1458; Dseq 1506/1562; Drand 1620/1661; Dxrand 1668/1715.
-// Dbufrd/Dbufwr need server buffer plumbing (Task 12) and are not here.
+// Dbufrd is host-testable via DemandBuffer; Dbufwr's NRT reference renders
+// garbage here, so only the read side has a reference so far.
 #ifndef RACK_SRC_DRONECASTER_SC_KIT_DEMAND_H_
 #define RACK_SRC_DRONECASTER_SC_KIT_DEMAND_H_
 #include <cmath>
@@ -152,6 +153,26 @@ struct DBrown : DemandSource {
   RGen* rng_ = nullptr;
   float repeats_ = -1.f, value_ = 0.f;
   int count_ = 0;
+};
+
+// Host stand-in for the SndBuf a Dbufrd reads (Task 12 buffer infrastructure).
+struct DemandBuffer {
+  void Init(int frames) { data.assign(static_cast<size_t>(frames), 0.f); }
+  std::vector<float> data;
+};
+struct DBufRd : DemandSource {
+  DBufRd(DemandBuffer* b, float phase, int loop)
+      : buf_(b), phase_(phase), loop_(loop) {}
+  void Reset() override {}
+  float Pull() override {
+    int ip = static_cast<int>(phase_);
+    const int frames = static_cast<int>(buf_->data.size());
+    if (ip >= frames) ip = loop_ ? ip % frames : frames - 1;
+    if (ip < 0) ip = loop_ ? ((ip % frames) + frames) % frames : 0;
+    return buf_->data[static_cast<size_t>(ip)];
+  }
+ private:
+  DemandBuffer* buf_; float phase_; int loop_;
 };
 
 struct Demand {

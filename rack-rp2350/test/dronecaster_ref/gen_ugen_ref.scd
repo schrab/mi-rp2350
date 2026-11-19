@@ -170,6 +170,17 @@
         ["BufWrRd1",    { var b = LocalBuf(128);
                           BufWr.ar(DC.ar(0.42), b, DC.ar(5), 0);
                           Out.ar(0, BufRd.ar(1, b, DC.ar(5), 0, 1)) }],
+        // Pre-write every neighbour frame so interpolation never touches the
+        // uninitialized LocalBuf memory (the actual NRT blocker).
+        ["BufWrRd2",    { var b = LocalBuf(128);
+                          [4,5,6].do { |k, i| BufWr.ar(DC.ar(0.1*(i+1)), b, DC.ar(k), 0) };
+                          Out.ar(0, BufRd.ar(1, b, DC.ar(5), 0, 2)) }],
+        ["BufWrRd4",    { var b = LocalBuf(128);
+                          [4,5,6,7].do { |k, i| BufWr.ar(DC.ar(0.1*(i+1)), b, DC.ar(k), 0) };
+                          Out.ar(0, BufRd.ar(1, b, DC.ar(5), 0, 4)) }],
+        ["DemandBufRd", { var b = LocalBuf(8);
+                          BufWr.ar(DC.ar(0.42), b, DC.ar(5), 0);
+                          Out.ar(0, Demand.ar(Impulse.ar(10), 0, Dbufrd(b, 5, 0))) }],
 
         // ---- Task 9 cont.: GreyholeRaw (faust, separate header) ----
         // GreyholeRaw needs scsynth (supernova cannot load the UGen at all);

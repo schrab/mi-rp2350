@@ -5287,11 +5287,13 @@ Kit-only task; no drone ports until T-D3. Host gate:
 | GreyholeRaw | done | 6c57748 | 1/1 exact; faust mydsp embedded verbatim, scsynth + rc-139 tolerance |
 | Klank ref + pan final | done | 2b27ce0 | Klank real NRT ref 1/1 (supernova); PanAz + Splay + SplayAz 3/3 exact |
 | demand (values) | done | 2cc25bf | Demand/Dseq/Drand/Dxrand/Dseries/Dbrown 6/6 exact |
-| buffers (core) | done | *(this commit)* | SampleRate/ControlRate/BufFrames/BufRateScale/BufSampleRate + BufWr/BufRd(1) 6/6 exact |
-| remaining | waiting | — | Dbufrd/Dbufwr, BufRd interp 2/4, VarLag, chaos, sc3p dyn, sugar, hw |
+| buffers (core) | done | 4212b2b | SampleRate/ControlRate/BufFrames/BufRateScale/BufSampleRate + BufWr/BufRd(1) 6/6 exact |
+| buffer interp + Dbufrd | done | *(this commit)* | BufRd interp 2/4 + Dbufrd 3/3 exact (pre-write neighbour frames); Dbufwr law-only |
+| remaining | waiting | — | Dbufwr, VarLag, chaos, sc3p dyn, sugar, hw |
 
-Verified: `test_dronecaster: PASS (0 failures)`, 116 active per-UGen refs after
-the buffer commit (all new refs max_abs = 0, corr = 1.0). 117 ref FILES exist;
+Verified: `test_dronecaster: PASS (0 failures)`, 119 active per-UGen refs after
+the buffer-interp commit (all new refs max_abs = 0, corr = 1.0). 120 ref FILES
+exist;
 every ref file is read by a test (the old Klank orphan was replaced by a
 real supernova render). Tasks 5, 8, 9 and 10 are complete.
 

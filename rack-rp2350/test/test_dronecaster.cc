@@ -662,6 +662,37 @@ int main() {
         rd.ProcessBlock(ph.data() + i * 64, out.data() + i * 64, 64, 0);
       }
       if (!ref_check("BufWrRd1", out.data(), 48000)) ++g_failures; }
+    { sc::HostBuffer b; b.Init(128, 1);
+      sc::BufWr wr; wr.Init(&b);
+      std::vector<float> ph(48000);
+      for (int k = 0; k < 4; ++k) {
+        const float p = static_cast<float>(4 + k);
+        std::fill(ph.begin(), ph.end(), p);
+        std::vector<float> v(48000, 0.1f * (k + 1));
+        wr.ProcessBlock(ph.data(), v.data(), 48000, 0);
+      }
+      { sc::BufRd rd; rd.Init(&b, 2);
+        std::fill(ph.begin(), ph.end(), 5.f);
+        std::vector<float> out(48000);
+        rd.ProcessBlock(ph.data(), out.data(), 48000, 0);
+        if (!ref_check("BufWrRd2", out.data(), 48000)) ++g_failures; }
+      { sc::BufRd rd; rd.Init(&b, 4);
+        std::fill(ph.begin(), ph.end(), 5.f);
+        std::vector<float> out(48000);
+        rd.ProcessBlock(ph.data(), out.data(), 48000, 0);
+        if (!ref_check("BufWrRd4", out.data(), 48000)) ++g_failures; }
+    }
+    { sc::DemandBuffer b; b.Init(8); b.data[5] = 0.42f;
+      sc::DBufRd rd(&b, 5.f, 0);
+      std::vector<float> trig(48000), out(48000);
+      { sc::Impulse s; s.Init(48000.0, 10.f);
+        for (int i = 0; i < 750; ++i) s.ProcessBlock(trig.data() + i*64, 64); }
+      sc::Demand d; d.Init({&rd});
+      for (int i = 0; i < 750; ++i) {
+        float* o[1] = {out.data() + i*64};
+        d.ProcessBlock(trig.data() + i*64, 0.f, o, 64);
+      }
+      if (!ref_check("DemandBufRd", out.data(), 48000)) ++g_failures; }
   }
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");

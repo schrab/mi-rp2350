@@ -43,7 +43,7 @@ Commits on branch `rack-rp2350` (pushed):
 | `2cc25bf` | Demand value generators (Demand/Dseq/Drand/Dxrand/Dseries/Dbrown) — 6/6 exact |
 | *(this commit)* | Buffer info + BufWr/BufRd (nearest) — 6/6 exact |
 
-**Done and reference-exact (116 UGens + the trio):**
+**Done and reference-exact (120 UGens + the trio):**
 
 - `sc_kit_noise.h` — WhiteNoise, ClipNoise, GrayNoise, PinkNoise, BrownNoise,
   Crackle, Dust, Dust2, LFNoise0/1/2 (ar + kr), LFClipNoise, LFDNoise0,
@@ -104,17 +104,17 @@ Commits on branch `rack-rp2350` (pushed):
   reset consumes an `irand` draw — the host port must call `Reset()` too or
   the RNG sequence is offset by one.
 - `sc_kit_buf.h` — SampleRate/ControlRate/BufFrames/BufRateScale/BufSampleRate
-  and BufWr/BufRd(interp 1) **6/6 exact**. Dbufrd/Dbufwr pending: a `LocalBuf` +
+  and BufWr/BufRd(interp 1/2/4) **8/8 exact**. Interp 2/4 refs need the neighbour
+  frames pre-written with constant-phase BufWr — otherwise they read the
+  uninitialized LocalBuf memory. Dbufrd is 1/1 exact too. Dbufwr pending: a `LocalBuf` +
   demand UGens render garbage in NRT supernova here (the reference itself is
   uninitialized-memory noise), so they need proper buffer infrastructure from
-  Task 12 before a trustworthy ref can be made. BufRd interp 2/4 with a
-  `LocalBuf` also render uninitialized memory in NRT here — only interp 1
-  (nearest, with constant phase) produced a trustworthy ref, so the cubic
-  path in `sc_kit_buf.h` is law-only for now.
+  but Dbufrd now has a real ref (constant phase + pre-initialized buffer).
+  **Dbufwr remains law-only**: its NRT write never lands in the LocalBuf here.
 
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
-— expects `PASS (0 failures)` (110 active refs as of the demand commit;
+— expects `PASS (0 failures)` (119 active refs as of the buffer-interp commit;
 all ref files are read by a test — the old `Klankar` orphan was replaced with
 a real supernova render).
 
