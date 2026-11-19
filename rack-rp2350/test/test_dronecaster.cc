@@ -447,6 +447,15 @@ int main() {
     delay("AllpassNar", 6, 0.1f);
     delay("AllpassLar", 7, 0.1f);
     delay("AllpassCar", 8, 0.1f);
+    { static sc::KitTables kt2; sc::InitKitTables(&kt2);
+      std::vector<float> trig(48000), outp(48000);
+      { sc::Impulse src; src.Init(48000.0, 4.0f);
+        for (int b = 0; b < 750; ++b) src.ProcessBlock(trig.data() + b * 64, 64); }
+      sc::Pluck u; u.Init(48000.0, 0.01f, 0.005f, 0.1f, 0.5f);
+      for (int b = 0; b < 750; ++b)
+        u.ProcessBlock(in.data() + b * 64, trig.data() + b * 64,
+                       outp.data() + b * 64, 64, 0.005f, 0.1f, 0.5f);
+      if (!ref_check("Pluckar", outp.data(), 48000)) ++g_failures; }
   }
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");

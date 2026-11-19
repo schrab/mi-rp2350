@@ -124,6 +124,7 @@
         ["AllpassNar", { Out.ar(0, AllpassN.ar(Saw.ar(220), 0.01, 0.005, 0.1)) }, "supernova"],
         ["AllpassLar", { Out.ar(0, AllpassL.ar(Saw.ar(220), 0.01, 0.005, 0.1)) }, "supernova"],
         ["AllpassCar", { Out.ar(0, AllpassC.ar(Saw.ar(220), 0.01, 0.005, 0.1)) }, "supernova"],
+        ["Pluckar",    { Out.ar(0, Pluck.ar(Saw.ar(220), Impulse.ar(4), 0.01, 0.005, 0.1, 0.5)) }, "supernova"],
 
         // ---- T-D2 dynamics family (core: Amplitude/Compander/Limiter) ----
         ["Amplitude",  { Out.ar(0, Amplitude.ar(Saw.ar(220), 0.01, 0.1)) }],

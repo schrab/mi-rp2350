@@ -31,9 +31,10 @@ Commits on branch `rack-rp2350` (pushed):
 | `5449caa` | dynamics family — Amplitude/Compander/Limiter, 3/3 exact |
 | `50ea06c` | MoogFF + BEQ suite — 7/7 exact (completes plan Task 6 except VarLag) |
 | `629847b` | SC3P filters complete: SVF + MoogLadder + DFM1 — 3/3 exact (DFM1 via pinned render epoch) |
-| *(this commit)* | core delay family — DelayN/L/C, CombN/L/C, AllpassN/L/C, 9/9 exact |
+| `f6852fd` | core delay family — DelayN/L/C, CombN/L/C, AllpassN/L/C, 9/9 exact |
+| *(this commit)* | Pluck (Karplus-Strong) — 1/1 exact |
 
-**Done and reference-exact (85 UGens + the trio):**
+**Done and reference-exact (86 UGens + the trio):**
 
 - `sc_kit_noise.h` — WhiteNoise, ClipNoise, GrayNoise, PinkNoise, BrownNoise,
   Crackle, Dust, Dust2, LFNoise0/1/2 (ar + kr), LFClipNoise, LFDNoise0,
@@ -66,10 +67,11 @@ Commits on branch `rack-rp2350` (pushed):
   ring buffer (`ceil(maxdelay*sr+1)+64` rounded up). **9/9 exact.** The initial
   "checked" phase (zero output until the read phase is non-negative) is kept
   throughout — the source's switch to unchecked is only an optimization.
+  `Pluck` (Karplus-Strong) joins the same header: **1/1 exact**.
 
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
-— expects `PASS (0 failures)` (85 active refs as of the delay commit;
+— expects `PASS (0 failures)` (86 active refs as of the Pluck commit;
 `ugen_ref/Klankar.expected.wav` is a tracked orphan from an earlier attempt —
 Klank is skipped, so no test reads it).
 
@@ -119,7 +121,7 @@ Klank is skipped, so no test reads it).
 | ~~moog~~ | ~~MoogFF~~ **DONE** | FilterUGens.cpp `MoogFF_next` | in `sc_kit_filter.h`, 1/1 exact; uses FilterUGens.cpp:29's **float** `PI` macro (using double `pi` leaves a 7e-9 residual). |
 | ~~beq~~ | ~~BAllPass/BLowPass/BHiShelf/BPeakEQ/BLowShelf~~ (+BHiPass) **DONE** | FilterUGens.cpp BEQSuite Ctors | `sc_kit_filter.h` `BEQFilter`, 6/6 exact; slope law = `1/(n/3)`, NOT `/4`. |
 | ~~sc3p filters~~ | ~~SVF, MoogLadder, DFM1~~ **DONE** 3/3 | `/tmp/sc3p_full/source/BlackrainUGens/`, `BhobUGens/BhobFilt.cpp`, `TJUGens/Dfm1.cpp` (+ Dfm1Lut) | `sc_kit_sc3p_filter.h` quotes each license. DFM1's RNG is seeded from `time(NULL)`, so the renderer writes the epoch to `ugen_ref/DFM1.seed.txt` (retrying if a second boundary is crossed) and `Dfm1::Init` takes it as an explicit seed. Tables generated from pin `25eacaf7`. |
-| ~~delays (core)~~ | ~~DelayN/L/C, CombN/L/C, AllpassN/L/C~~ **DONE** 9/9; BufDelayN/C, BufAllpassC, Pluck, PitchShift remain | DelayUGens.cpp | `sc_kit_delay.h` ring core. Buf* variants use SndBuf memory instead of a private buffer — need a voice-arena buffer helper. Pluck = Karplus-Strong. PitchShift = clouds-style correlator (reuse `lib/clouds`). |
+| ~~delays (core + Pluck)~~ | ~~DelayN/L/C, CombN/L/C, AllpassN/L/C, Pluck~~ **DONE** 10/10; BufDelayN/C, BufAllpassC, PitchShift remain | DelayUGens.cpp | `sc_kit_delay.h` ring core + Karplus-Strong Pluck. Buf* variants use SndBuf memory instead of a private buffer — need a voice-arena buffer helper (pair with Task 12). PitchShift = clouds-style correlator (reuse `lib/clouds`). |
 | localio | LocalIn, LocalOut | IOUGens.cpp | Engine-level feedback buses: the C++ engine needs a per-voice LocalBus area in the arena; `LocalIn` reads last block's `LocalOut` writes. |
 | reverbs | FreeVerb, GVerb | ReverbUGens.cpp | FreeVerb = 8 comb + 4 allpass per channel. GVerb is larger (its own buffer layout). |
 | sc3p reverb | GreyholeRaw (Greyhole class wraps it) | `sc3p/source/DEINDUGens/GreyholeRaw.cpp` (faust-generated) | Port after the core reverbs pass; it is large. |

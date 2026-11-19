@@ -155,5 +155,87 @@ struct DelayLine {
   int kind_ = 0;
 };
 
+// Pluck — DelayUGens.cpp:5577 (ctor), 5851/5947 (kk / kk_z perform), 5610
+// (aa). Karplus-Strong: a trigger opens the excitation input for
+// round(delaytime*sr) samples; a cubic-read delay line is fed through a
+// one-pole (coef) and feedback (decaytime). Ctor: no priming sample, buffer
+// zeroed, lastsamp=0, prevtrig=0, inputsamps=0, coef=IN0(5).
+struct Pluck {
+  void Init(double sr, float maxdelay, float delay, float decay, float coef) {
+    sr_ = static_cast<float>(sr);
+    delay_ = delay;
+    decay_ = decay;
+    coef_ = coef;
+    long sz = static_cast<long>(std::ceil(maxdelay * sr_ + 1.f)) + 64;
+    bufsize_ = 1;
+    while (bufsize_ < sz) bufsize_ <<= 1;
+    buf_.assign(static_cast<size_t>(bufsize_), 0.f);
+    mask_ = bufsize_ - 1;
+    iwrphase_ = 0;
+    dsamp_ = CalcDelay(delay);
+    feedbk_ = CalcFeedback(delay, decay);
+    lastsamp_ = 0.f;
+    prevtrig_ = 0.f;
+    inputsamps_ = 0;
+    numoutput_ = 0;
+  }
+  void ProcessBlock(const float* in, const float* trig, float* out, int n,
+                    float delay, float decay, float coef) {
+    for (int i = 0; i < n; ++i) {
+      const float curtrig = trig[i];  // a-rate edge detection (aa path)
+      if (prevtrig_ <= 0.f && curtrig > 0.f)
+        inputsamps_ = static_cast<long>(delay * sr_ + .5f);
+      prevtrig_ = curtrig;
+      const long idsamp = static_cast<long>(dsamp_);
+      const float frac = dsamp_ - static_cast<float>(idsamp);
+      const long ird1 = static_cast<long>(iwrphase_) - idsamp;
+      const long ird0 = ird1 + 1, ird2 = ird1 - 1, ird3 = ird1 - 2;
+      const float thisin = inputsamps_ > 0 ? (--inputsamps_, in[i]) : 0.f;
+      float value = 0.f;
+      if (ird0 < 0) {
+        buf_[iwrphase_ & mask_] = thisin;
+      } else {
+        float d0 = 0.f, d1 = 0.f, d2 = 0.f, d3 = 0.f;
+        if (ird1 < 0) {
+          d0 = buf_[ird0 & mask_];
+        } else if (ird2 < 0) {
+          d0 = buf_[ird0 & mask_]; d1 = buf_[ird1 & mask_];
+        } else if (ird3 < 0) {
+          d0 = buf_[ird0 & mask_]; d1 = buf_[ird1 & mask_];
+          d2 = buf_[ird2 & mask_];
+        } else {
+          d0 = buf_[ird0 & mask_]; d1 = buf_[ird1 & mask_];
+          d2 = buf_[ird2 & mask_]; d3 = buf_[ird3 & mask_];
+        }
+        value = CubicInterp(frac, d0, d1, d2, d3);
+        const float onepole = (1.f - std::fabs(coef)) * value + coef * lastsamp_;
+        buf_[iwrphase_ & mask_] = thisin + feedbk_ * onepole;
+        lastsamp_ = onepole;
+      }
+      out[i] = lastsamp_;
+      ++iwrphase_;
+    }
+    delay_ = delay; decay_ = decay; coef_ = coef;
+  }
+
+ private:
+  float CalcDelay(float d) const {
+    const float v = d * sr_;
+    return v < 2.f ? 2.f : (v > static_cast<float>(bufsize_)
+                                ? static_cast<float>(bufsize_) : v);
+  }
+  static float CalcFeedback(float d, float dec) {
+    if (d == 0.f || dec == 0.f) return 0.f;
+    const double kLog001 = -6.9077552789821368;
+    const float a = static_cast<float>(
+        std::exp(kLog001 * static_cast<double>(d) / std::fabs(dec)));
+    return std::copysign(a, dec);
+  }
+  std::vector<float> buf_;
+  long bufsize_ = 0, mask_ = 0, iwrphase_ = 0, inputsamps_ = 0, numoutput_ = 0;
+  float sr_ = 48000.f, dsamp_ = 0.f, feedbk_ = 0.f, lastsamp_ = 0.f;
+  float prevtrig_ = 0.f, delay_ = 0.f, decay_ = 0.f, coef_ = 0.f;
+};
+
 }  // namespace sc
 #endif  // RACK_SRC_DRONECASTER_SC_KIT_DELAY_H_
