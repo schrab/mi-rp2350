@@ -16,6 +16,7 @@
     var outDir = dir ++ "ugen_ref";
     var dur = 1.0;
     var scsynthFlags = ("DC_SCSYNTH_FLAGS").getenv ?? "";
+    var force = ("DC_FORCE").getenv == "1";
     var entries;
 
     entries = [
@@ -83,6 +84,19 @@
         // SIMD unroll path); the C++ port is verified by a unit law test.
         ["SawDPWar",   { Out.ar(0, SawDPW.ar(440).dup) }],
         ["PulseDPWar", { Out.ar(0, PulseDPW.ar(440, 0.3).dup) }],
+
+        // ---- T-D2 filter family (core 11) ----
+        ["LPFar",      { Out.ar(0, LPF.ar(Saw.ar(220), 2000)) }],
+        ["HPFar",      { Out.ar(0, HPF.ar(Saw.ar(220), 500)) }],
+        ["BPFar",      { Out.ar(0, BPF.ar(Saw.ar(220), 1000, 0.25)) }],
+        ["RLPFar",     { Out.ar(0, RLPF.ar(Saw.ar(220), 1000, 0.5)) }],
+        ["RHPFar",     { Out.ar(0, RHPF.ar(Saw.ar(220), 1000, 0.5)) }],
+        ["OnePolear",  { Out.ar(0, OnePole.ar(Saw.ar(220), 0.9)) }],
+        ["Integratorar",{ Out.ar(0, Integrator.ar(Saw.ar(220), 0.9)) }],
+        ["LeakDCar",   { Out.ar(0, LeakDC.ar(Saw.ar(220), 0.995)) }],
+        ["Slewar",     { Out.ar(0, Slew.ar(Saw.ar(220), 1, 1)) }],
+        ["Lagar",      { Out.ar(0, Lag.ar(Saw.ar(220), 0.01)) }],
+        ["LagUDar",    { Out.ar(0, LagUD.ar(Saw.ar(220), 0.01, 0.05)) }],
     ];
 
     "ugen_ref: begin".postln;
@@ -96,20 +110,24 @@
             RandSeed.kr(1, 16rC0FFEE);
             body.value();
         });
+        wavPath = outDir ++ "/" ++ name ++ ".expected.wav";
         score = Score.new;
         opts = ServerOptions.new.numOutputBusChannels_(2).numInputBusChannels_(0);
         oscPath = outDir ++ "/" ++ name ++ ".osc";
-        wavPath = outDir ++ "/" ++ name ++ ".expected.wav";
-        score.add([0, [\d_recv, def.asBytes,
-                       [\s_new, "ref_" ++ name, 1000, 0, 0]]]);
-        score.add([dur, [0]]);
-        score.writeOSCFile(oscPath, 0, dur);
-        cmd = Score.program ++ " -N " ++ oscPath.quote ++ " _ " ++ wavPath.quote
-            ++ " 48000 WAV float" ++ opts.asOptionsString
-            ++ (if (scsynthFlags != "", { " " ++ scsynthFlags }, { "" }));
-        rc = cmd.systemCmd;
-        if (rc != 0) { Error("scsynth failed for " ++ name).throw };
-        File.delete(oscPath);
+        if (File.exists(wavPath).and { force.not }) {
+            nil
+        } {
+            score.add([0, [\d_recv, def.asBytes,
+                           [\s_new, "ref_" ++ name, 1000, 0, 0]]]);
+            score.add([dur, [0]]);
+            score.writeOSCFile(oscPath, 0, dur);
+            cmd = Score.program ++ " -N " ++ oscPath.quote ++ " _ " ++ wavPath.quote
+                ++ " 48000 WAV float" ++ opts.asOptionsString
+                ++ (if (scsynthFlags != "", { " " ++ scsynthFlags }, { "" }));
+            rc = cmd.systemCmd;
+            if (rc != 0) { Error("scsynth failed for " ++ name).throw };
+            File.delete(oscPath);
+        };
     };
     "ugen_ref: done".postln;
 }.value(thisProcess.nowExecutingPath);

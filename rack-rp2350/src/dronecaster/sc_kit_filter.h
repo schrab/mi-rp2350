@@ -38,14 +38,25 @@ struct Filter2Pole {
     y1_ = y2_ = 0.0;
     freq_ = 0.0f;
     q_ = 0.0f;
-    primes_ = true;   // the first block always computes coefficients
     // ctor: m_freq = uninitializedControl (NaN) so the first block recomputes
     have_freq_ = false;
   }
   void ProcessBlock(const float* in, float* out, int n, float freq,
                     float q = 0.0f) {
     const double rps = 2.0 * M_PI / sr_;
-    const bool changed = !have_freq_ || freq != freq_ || q != q_;
+    // The ctor's next_1(unit,1) consumes the FIRST input sample and leaves
+    // the coefficients computed for this freq; the block then runs the
+    // UNCHANGED branch (source: ctor sets m_freq).
+    if (!primed_) {
+      ComputeCoefs(freq, q, rps, &a0_, &b1_, &b2_);
+      float scratch;
+      Step(in[0], scratch, a0_, b1_, b2_, y1_, y2_);
+      primed_ = true;
+      have_freq_ = true;
+      freq_ = freq;
+      q_ = q;
+    }
+    const bool changed = freq != freq_ || q != q_;
     double a0 = a0_, b1 = b1_, b2 = b2_;
     double y1 = y1_, y2 = y2_;
     double na0 = a0, nb1 = b1, nb2 = b2;
@@ -56,19 +67,7 @@ struct Filter2Pole {
       sa0 = (na0 - a0) * kSlope;
       sb1 = (nb1 - b1) * kSlope;
       sb2 = (nb2 - b2) * kSlope;
-    }
-    // The ctor's next_1(unit,1) consumes the FIRST input sample: after the
-    // ctor y1 == in[0], y2 == 0. Replicate that on this port's first block.
-    if (!primed_) {
-      ComputeCoefs(freq, q, rps, &na0, &nb1, &nb2);
-      double pa0 = na0, pb1 = nb1, pb2 = nb2;
-      float scratch;
-      Step(in[0], scratch, pa0, pb1, pb2, y1, y2);
-      a0 = na0; b1 = nb1; b2 = nb2;
-      primed_ = true;
-    }
-    int i = 0;
-    if (changed) {
+      int i = 0;
       for (; i + 4 <= n; i += 4) {
         Step(in[i + 0], out[i + 0], a0, b1, b2, y1, y2);
         Step(in[i + 1], out[i + 1], a0, b1, b2, y1, y2);
@@ -76,12 +75,9 @@ struct Filter2Pole {
         Step(in[i + 3], out[i + 3], a0, b1, b2, y1, y2);
         a0 += sa0; b1 += sb1; b2 += sb2;
       }
+      for (; i < n; ++i) Step(in[i], out[i], a0, b1, b2, y1, y2);
     } else {
-      for (; i < n; ++i) Step(in[i], out[i], a0, b1, b2, y1, y2);
-    }
-    if (i < n) {
-      // remainder (source's mFilterRemain path, no slope advance)
-      for (; i < n; ++i) Step(in[i], out[i], a0, b1, b2, y1, y2);
+      for (int i = 0; i < n; ++i) Step(in[i], out[i], a0, b1, b2, y1, y2);
     }
     y1_ = ZapGremlins(y1);
     y2_ = ZapGremlins(y2);
@@ -165,7 +161,13 @@ struct Filter2Pole {
 struct OnePole {
   void Init(double sr) { sr_ = sr; b1_ = 0.0; y1_ = 0.0; have_ = false; }
   void ProcessBlock(const float* in, float* out, int n, float b1_in) {
-    if (!have_) { b1_ = b1_in; have_ = true; }
+    if (!have_) {
+      // Ctor: m_b1 = b1 input, m_y1 = 0, then one priming sample.
+      b1_ = b1_in;
+      y1_ = (b1_in >= 0.0f) ? (in[0] + b1_in * (0.0 - in[0]))
+                            : (in[0] + b1_in * (0.0 + in[0]));
+      have_ = true;
+    }
     const double b1_old = b1_;
     if (b1_old == static_cast<double>(b1_in)) {
       if (b1_old >= 0.0) {
@@ -207,7 +209,13 @@ struct OnePole {
 
 // Integrator (FilterUGens Integrator_next): y = in + b1*y1 (b1==1/0 fast paths).
 struct Integrator {
-  void Init() { b1_ = 0.0; y1_ = 0.0; }
+  void Init() { b1_ = 0.0; y1_ = 0.0; primed_ = false; }
+  void Prime(float in0, float b1) {
+    // Ctor: m_b1 = coef, m_y1 = 0 (out = in0 with y1 empty); y1 stays 0.
+    (void)in0; (void)b1;
+    y1_ = 0.0;
+    primed_ = true;
+  }
   float Next(float in, float b1) {
     const double y0 = in;
     y1_ = (b1 == 1.0f) ? (y0 + y1_) : (b1 == 0.0f ? y0 : (y0 + b1 * y1_));
@@ -215,11 +223,18 @@ struct Integrator {
   }
  private:
   double b1_ = 0.0, y1_ = 0.0;
+  bool primed_ = false;
 };
 
 // LeakDC (FilterUGens LeakDC_next): y = x0 - x1 + b1*y1; x1 = x0.
 struct LeakDC {
-  void Init() { b1_ = 0.995; y1_ = 0.0; x1_ = 0.0; }
+  void Init() { b1_ = 0.995; y1_ = 0.0; x1_ = 0.0; primed_ = false; }
+  void Prime(float in0) {
+    // Ctor: m_x1 = ZIN0(0), m_y1 = 0, one priming sample (x0 == x1 -> y=0).
+    x1_ = in0;
+    y1_ = 0.0;
+    primed_ = true;
+  }
   float Next(float in, float b1) {
     const double x0 = in;
     y1_ = x0 - x1_ + b1 * y1_;
@@ -228,12 +243,14 @@ struct LeakDC {
   }
  private:
   double b1_ = 0.995, y1_ = 0.0, x1_ = 0.0;
+  bool primed_ = false;
 };
 
 // Slew (FilterUGens Slew_next): clamp the per-sample slope to [-dn, +up]
 // (seconds-per-unit scaled by sampleDur).
 struct Slew {
-  void Init(double sr) { sample_dur_ = 1.0 / sr; level_ = 0.0; }
+  void Init(double sr) { sample_dur_ = 1.0 / sr; level_ = 0.0; primed_ = false; }
+  void Prime(float in0) { level_ = in0; primed_ = true; }
   float Next(float in, float up, float dn) {
     const float upf = up * static_cast<float>(sample_dur_);
     const float dnf = 0.0f - dn * static_cast<float>(sample_dur_);
@@ -243,11 +260,13 @@ struct Slew {
   }
  private:
   double sample_dur_ = 0.0, level_ = 0.0;
+  bool primed_ = false;
 };
 
 // Lag (FilterUGens Lag_next): one-pole with b1 = exp(log(0.001)/(lag*sr)).
 struct Lag {
-  void Init(double sr) { sr_ = sr; y1_ = 0.0; b1_ = 0.0; lag_ = 0.0f; }
+  void Init(double sr) { sr_ = sr; y1_ = 0.0; b1_ = 0.0; lag_ = 0.0f; primed_ = false; }
+  void Prime(float in0) { y1_ = in0; primed_ = true; }
   float Next(float in, float lag) {
     if (lag != lag_) {
       b1_ = lag == 0.0f
@@ -262,13 +281,16 @@ struct Lag {
  private:
   double sr_ = 48000.0, y1_ = 0.0, b1_ = 0.0;
   float lag_ = 0.0f;
+  bool primed_ = false;
 };
 
 // LagUD (FilterUGens LagUD_next): separate up/down lags.
 struct LagUD {
   void Init(double sr) {
     sr_ = sr; y1_ = 0.0; b1u_ = 0.0; b1d_ = 0.0; lagu_ = 0.0f; lagd_ = 0.0f;
+    primed_ = false;
   }
+  void Prime(float in0) { y1_ = in0; primed_ = true; }
   float Next(float in, float up, float dn) {
     if (up != lagu_) {
       b1u_ = up == 0.0f
@@ -289,6 +311,7 @@ struct LagUD {
  private:
   double sr_ = 48000.0, y1_ = 0.0, b1u_ = 0.0, b1d_ = 0.0;
   float lagu_ = 0.0f, lagd_ = 0.0f;
+  bool primed_ = false;
 };
 
 }  // namespace sc

@@ -15,6 +15,7 @@
 #include "../src/dronecaster/sc_kit_lfo.h"
 #include "../src/dronecaster/sc_kit_trig.h"
 #include "../src/dronecaster/sc_kit_osc2.h"
+#include "../src/dronecaster/sc_kit_filter.h"
 
 #include <cmath>
 #include <cstdio>
@@ -329,6 +330,44 @@ int main() {
       sc::PulseDPW u; u.Init(48000.0, 440.0f, 0.3f, 0);
       if (!ref_ar_fill("PulseDPWar", u, out)) ++g_failures;
     }
+  }
+
+
+  printf("== T-D2 filter kit vs NRT references ==\n");
+  {
+    static sc::KitTables kt; sc::InitKitTables(&kt);
+    std::vector<float> in(48000), out(48000);
+    { sc::Saw src; src.Init(&kt, 48000.0, 220.0f);
+      for (int b = 0; b < 750; ++b) src.ProcessBlock(in.data() + b * 64, 64); }
+    auto filt = [&](const char* name, int kind, float freq, float q) {
+      sc::Filter2Pole f; f.Init(48000.0, kind);
+      for (int b = 0; b < 750; ++b)
+        f.ProcessBlock(in.data() + b * 64, out.data() + b * 64, 64, freq, q);
+      if (!ref_check(name, out.data(), 48000)) ++g_failures;
+    };
+    filt("LPFar", 0, 2000.0f, 0.0f);
+    filt("HPFar", 1, 500.0f, 0.0f);
+    filt("BPFar", 2, 1000.0f, 0.25f);
+    filt("RLPFar", 3, 1000.0f, 0.5f);
+    filt("RHPFar", 4, 1000.0f, 0.5f);
+    auto per_sample = [&](const char* name, auto&& next_fn) {
+      for (int i = 0; i < 48000; ++i) out[i] = next_fn(in[i]);
+      if (!ref_check(name, out.data(), 48000)) ++g_failures;
+    };
+    { sc::OnePole u; u.Init(48000.0);
+      for (int b = 0; b < 750; ++b)
+        u.ProcessBlock(in.data() + b * 64, out.data() + b * 64, 64, 0.9f);
+      if (!ref_check("OnePolear", out.data(), 48000)) ++g_failures; }
+    { sc::Integrator u; u.Init(); u.Prime(in[0], 0.9f);
+      per_sample("Integratorar", [&](float x) { return u.Next(x, 0.9f); }); }
+    { sc::LeakDC u; u.Init(); u.Prime(in[0]);
+      per_sample("LeakDCar", [&](float x) { return u.Next(x, 0.995f); }); }
+    { sc::Slew u; u.Init(48000.0); u.Prime(in[0]);
+      per_sample("Slewar", [&](float x) { return u.Next(x, 1.0f, 1.0f); }); }
+    { sc::Lag u; u.Init(48000.0); u.Prime(in[0]);
+      per_sample("Lagar", [&](float x) { return u.Next(x, 0.01f); }); }
+    { sc::LagUD u; u.Init(48000.0); u.Prime(in[0]);
+      per_sample("LagUDar", [&](float x) { return u.Next(x, 0.01f, 0.05f); }); }
   }
 
   // task sections are inserted above this line
