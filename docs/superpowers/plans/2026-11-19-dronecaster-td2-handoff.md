@@ -38,9 +38,10 @@ Commits on branch `rack-rp2350` (pushed):
 | `3f712ca` | FreeVerb — 1/1 exact |
 | `be6ab28` | GVerb — 1/1 exact (core reverbs done; GreyholeRaw remains) |
 | `3a45564` | Pan2/Balance2/Rotate2 — 3/3 exact (Task 10 core done) |
-| *(this commit)* | GreyholeRaw — 1/1 exact (Task 9 complete: 3/3) |
+| `6c57748` | GreyholeRaw — 1/1 exact (Task 9 complete: 3/3) |
+| *(this commit)* | Klank real NRT ref + Splay/SplayAz/PanAz — 4/4 exact (Tasks 5 + 10 complete) |
 
-**Done and reference-exact (100 UGens + the trio):**
+**Done and reference-exact (104 UGens + the trio):**
 
 - `sc_kit_noise.h` — WhiteNoise, ClipNoise, GrayNoise, PinkNoise, BrownNoise,
   Crackle, Dust, Dust2, LFNoise0/1/2 (ar + kr), LFClipNoise, LFDNoise0,
@@ -51,7 +52,7 @@ Commits on branch `rack-rp2350` (pushed):
 - `sc_kit_trig.h` — Trig1, Trig, TDelay, Latch, SetResetFF, Gate, Peak,
   Changed. **8/8 exact.**
 - `sc_kit_osc2.h` — Saw (BLIT), SinOscFB, Select (+`SelectIndex`), Klank
-  (law-tested only — see §7), SawDPW, PulseDPW. **5/5 exact.**
+  (now has a real NRT ref via supernova), SawDPW, PulseDPW. **6/6 exact.**
 - `sc_kit_filter.h` — LPF/HPF/BPF/RLPF/RHPF (`Filter2Pole`), OnePole,
   Integrator, LeakDC, Slew, Lag, LagUD. **11/11 exact.**
 - `sc_kit_core_dyn.h` — Amplitude, Compander, Limiter (lookahead ring). **3/3
@@ -89,12 +90,17 @@ Commits on branch `rack-rp2350` (pushed):
   `Meta`/`primes`); do not hand-transcribe its ~450-line compute loop. It needs
   **scsynth** (supernova cannot load the UGen) and scsynth exits 139 at shutdown
   after writing a complete wav — the harness accepts rc 139 for this name only.
-- `sc_kit_pan.h` — Pan2/Balance2/Rotate2 **3/3 exact**, using `KitTables::sine`
-  (= `ft->mSine`) and CALCSLOPE on amplitude / rotation coefs.
+- `sc_kit_pan.h` — Pan2/Balance2/Rotate2 + PanAz + the Splay/SplayAz classlib
+  expansions **6/6 exact**, using `KitTables::sine` (= `ft->mSine`).
+  SplayAz trap: SC parses `(n - 1 / n)` left-to-right as `(n-1)/n`, not
+  `n - (1/n)` — the latter gives 4× the spread.
+- Klank (in `sc_kit_osc2.h`) now has a **real NRT ref** (1/1 exact) — supernova
+  renders it identically to scsynth, so the old "skip Klank" note is obsolete.
+  The port needed the final differentiator `out[n] = buf[n] - buf[n-2]`.
 
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
-— expects `PASS (0 failures)` (100 active refs as of the GreyholeRaw commit;
+— expects `PASS (0 failures)` (104 active refs as of the Klank/pan-final commit;
 `ugen_ref/Klankar.expected.wav` is a tracked orphan from an earlier attempt —
 Klank is skipped, so no test reads it).
 
@@ -148,7 +154,7 @@ Klank is skipped, so no test reads it).
 | ~~localio~~ | ~~LocalIn, LocalOut~~ **DONE** 1/1 | IOUGens.cpp | `sc_kit_localio.h` `LocalBus` holds the touched/block-counter law. Firmware still needs a per-voice LocalBus area in the arena and audio-loop wiring (engine task, not kit). |
 | ~~reverbs~~ | ~~FreeVerb, GVerb, GreyholeRaw~~ **DONE** 3/3 | ReverbUGens.cpp / sc3p DEINDUGens | FreeVerb + GVerb in `sc_kit_reverb.h`; GreyholeRaw faust class embedded verbatim in `sc_kit_greyhole.h` (scsynth + rc-139 tolerance). |
 | sc3p reverb | GreyholeRaw (Greyhole class wraps it) | `sc3p/source/DEINDUGens/GreyholeRaw.cpp` (faust-generated) | Port after the core reverbs pass; it is large. |
-| ~~pan (core)~~ | ~~Pan2, Balance2, Rotate2~~ **DONE** 3/3; Splay/SplayAz remain (sugar) | PanUGens.cpp | `sc_kit_pan.h` uses `KitTables::sine` + CALCSLOPE. Splay/SplayAz are classlib helpers — port in the sugar task. |
+| ~~pan~~ | ~~Pan2, Balance2, Rotate2, PanAz, Splay, SplayAz~~ **DONE** 6/6 | PanUGens.cpp + Splay.sc | All in `sc_kit_pan.h` via `KitTables::sine` + CALCSLOPE. |
 | demand | Demand, Dseq, Drand, Dxrand, Dseries, Dbrown, Dbufrd, Dbufwr | DemandUGens.cpp | Demand-rate machinery: a demand UGen is PULLED by a triggering UGen. Model as a per-voice demand clock the drone calls once per block; Dseq/Drand keep their own state. |
 | buffers | LocalBuf, BufRd, BufWr, BufFrames, BufRateScale, BufSampleRate, SampleRate, ControlRate | DelayUGens.cpp (they live there) | LocalBuf allocates from the voice arena; BufRd's interpolation modes (1/2/4) matter. |
 | chaos | LorenzL, HenonC, FBSineN | ChaosUGens.cpp | Exact float laws; LorenzL/FBSineN are per-sample integrators. |

@@ -5284,11 +5284,12 @@ Kit-only task; no drone ports until T-D3. Host gate:
 | localio | done | ce6b755 | LocalIn/LocalOut 1/1 exact via host-testable LocalBus; engine arena wiring still pending |
 | core reverbs | done | be6ab28 | FreeVerb + GVerb 2/2 exact (GVerb needed three law fixes, see below) |
 | pan (core) | done | 3a45564 | Pan2/Balance2/Rotate2 3/3 exact via `KitTables::sine` |
-| GreyholeRaw | done | *(this commit)* | 1/1 exact; faust mydsp embedded verbatim, scsynth + rc-139 tolerance |
-| remaining | waiting | — | VarLag, Splay/SplayAz, demand, buffers, chaos, sc3p dyn, sugar, hw |
+| GreyholeRaw | done | 6c57748 | 1/1 exact; faust mydsp embedded verbatim, scsynth + rc-139 tolerance |
+| Klank ref + pan final | done | *(this commit)* | Klank real NRT ref 1/1 (supernova); PanAz + Splay + SplayAz 3/3 exact |
+| remaining | waiting | — | VarLag, demand, buffers, chaos, sc3p dyn, sugar, hw |
 
-Verified: `test_dronecaster: PASS (0 failures)`, 100 active per-UGen refs after
-the GreyholeRaw commit (all new refs max_abs = 0, corr = 1.0). 101 ref FILES
+Verified: `test_dronecaster: PASS (0 failures)`, 104 active per-UGen refs after
+the Klank/pan-final commit (all new refs max_abs = 0, corr = 1.0). 105 ref FILES
 exist;
 `Klankar.expected.wav` is a tracked orphan — Klank is skipped and no test
 reads it. Tasks 8 (delays + localio) and 9-core (FreeVerb/GVerb) complete.

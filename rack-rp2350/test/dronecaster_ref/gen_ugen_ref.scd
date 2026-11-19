@@ -80,8 +80,9 @@
         ["Sawar",      { Out.ar(0, Saw.ar(440).dup) }],
         ["SinOscFBar", { Out.ar(0, SinOscFB.ar(440, 0.5).dup) }],
         ["Selectkr",   { Out.ar(0, K2A.ar(Select.kr(LFPulse.kr(2), [0.25, 0.5, 0.75])).dup) }],
-        // Klank: SKIPPED — scsynth 3.14.1 segfaults on Klank.ar here (its
-        // SIMD unroll path); the C++ port is verified by a unit law test.
+        // Klank renders identically in scsynth (rc 139 at shutdown) and
+        // supernova (rc 0) — supernova avoids the shutdown crash.
+        ["Klankar",    { Out.ar(0, Klank.ar(`[[220,440,660], [1,0.5,0.25], [1,1,1]], Impulse.ar(5))) }, "supernova"],
         ["SawDPWar",   { Out.ar(0, SawDPW.ar(440).dup) }],
         ["PulseDPWar", { Out.ar(0, PulseDPW.ar(440, 0.3).dup) }],
 
@@ -148,6 +149,9 @@
         ["Pan2ar",     { Out.ar(0, Pan2.ar(Saw.ar(220), 0.3, 0.8)) }],
         ["Balance2ar", { Out.ar(0, Balance2.ar(Saw.ar(220), Saw.ar(330), 0.3, 0.8)) }],
         ["Rotate2ar",  { Out.ar(0, Rotate2.ar(Saw.ar(220), Saw.ar(330), 0.3)) }],
+        ["Splayar",    { Out.ar(0, Splay.ar([Saw.ar(220), Saw.ar(330), Saw.ar(440)], 1, 0.8, 0, true)) }],
+        ["PanAzar",    { Out.ar(0, PanAz.ar(4, Saw.ar(220), 0.3, 0.8, 2, 0.5)) }],
+        ["SplayAzar",  { Out.ar(0, SplayAz.ar(4, [Saw.ar(220), Saw.ar(330), Saw.ar(440)], 1, 0.8, 2, 0, 0.5, true)) }],
 
         // ---- Task 9 cont.: GreyholeRaw (faust, separate header) ----
         // GreyholeRaw needs scsynth (supernova cannot load the UGen at all);

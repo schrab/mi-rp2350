@@ -526,11 +526,13 @@ int main() {
   printf("== T-D2 Task 10 pan family vs NRT references ==\n");
   {
     static sc::KitTables kt; sc::InitKitTables(&kt);
-    std::vector<float> a(48000), b(48000), l(48000), r(48000);
+    std::vector<float> a(48000), b(48000), c(48000), l(48000), r(48000);
     { sc::Saw s; s.Init(&kt, 48000.0, 220.0f);
       for (int i = 0; i < 750; ++i) s.ProcessBlock(a.data() + i * 64, 64); }
     { sc::Saw s; s.Init(&kt, 48000.0, 330.0f);
       for (int i = 0; i < 750; ++i) s.ProcessBlock(b.data() + i * 64, 64); }
+    { sc::Saw s; s.Init(&kt, 48000.0, 440.0f);
+      for (int i = 0; i < 750; ++i) s.ProcessBlock(c.data() + i * 64, 64); }
     { sc::Pan2 u; u.Init(&kt, 0.3f, 0.8f, a[0]);
       for (int i = 0; i < 750; ++i)
         u.ProcessBlock(a.data() + i * 64, l.data() + i * 64,
@@ -546,6 +548,36 @@ int main() {
         u.ProcessBlock(a.data() + i * 64, b.data() + i * 64,
                        l.data() + i * 64, r.data() + i * 64, 64, 0.3f);
       if (!ref_check("Rotate2ar", l.data(), 48000)) ++g_failures; }
+    { const float first[3] = {a[0], b[0], c[0]};
+      sc::Splay u; u.Init(&kt, 3, 1.f, 0.8f, 0.f, true, first);
+      for (int i = 0; i < 750; ++i) {
+        const float* ins[3] = {a.data() + i * 64, b.data() + i * 64,
+                               c.data() + i * 64};
+        u.ProcessBlock(ins, l.data() + i * 64, r.data() + i * 64, 64,
+                       1.f, 0.8f, 0.f);
+      }
+      if (!ref_check("Splayar", l.data(), 48000)) ++g_failures; }
+    { std::vector<float> four[4];
+      for (int ch = 0; ch < 4; ++ch) four[ch].assign(48000, 0.f);
+      sc::PanAz u; u.Init(&kt, 4, 0.3f, 0.8f, 2.f, 0.5f, a[0]);
+      for (int i = 0; i < 750; ++i) {
+        float* outs[4];
+        for (int ch = 0; ch < 4; ++ch) outs[ch] = four[ch].data() + i * 64;
+        u.ProcessBlock(a.data() + i * 64, outs, 64, 0.3f, 0.8f, 2.f, 0.5f);
+      }
+      if (!ref_check("PanAzar", four[0].data(), 48000)) ++g_failures; }
+    { std::vector<float> four[4];
+      for (int ch = 0; ch < 4; ++ch) four[ch].assign(48000, 0.f);
+      const float first[3] = {a[0], b[0], c[0]};
+      sc::SplayAz u; u.Init(&kt, 4, 3, 1.f, 0.8f, 2.f, 0.f, 0.5f, true, first);
+      for (int i = 0; i < 750; ++i) {
+        const float* ins[3] = {a.data() + i * 64, b.data() + i * 64,
+                               c.data() + i * 64};
+        float* outs[4];
+        for (int ch = 0; ch < 4; ++ch) outs[ch] = four[ch].data() + i * 64;
+        u.ProcessBlock(ins, outs, 64, 1.f, 0.8f, 2.f, 0.f, 0.5f);
+      }
+      if (!ref_check("SplayAzar", four[0].data(), 48000)) ++g_failures; }
   }
 
   printf("== T-D2 GreyholeRaw vs NRT reference ==\n");
@@ -562,6 +594,20 @@ int main() {
                      l.data() + i * 64, r.data() + i * 64, 64,
                      0.f, 2.f, 0.5f, 0.9f, 0.1f, 2.f, 1.f);
     if (!ref_check("GreyholeRaw", l.data(), 48000)) ++g_failures;
+  }
+
+  printf("== T-D2 Klank vs NRT reference ==\n");
+  {
+    std::vector<float> imp(48000), out(48000);
+    { sc::Impulse src; src.Init(48000.0, 5.0f);
+      for (int i = 0; i < 750; ++i) src.ProcessBlock(imp.data() + i * 64, 64); }
+    const float freqs[3] = {220.f, 440.f, 660.f};
+    const float amps[3] = {1.f, 0.5f, 0.25f};
+    const float times[3] = {1.f, 1.f, 1.f};
+    sc::Klank k; k.Init(48000.0, freqs, amps, times, 3, 1.f, 0.f, 1.f);
+    for (int i = 0; i < 750; ++i)
+      k.ProcessBlock(imp.data() + i * 64, out.data() + i * 64, 64);
+    if (!ref_check("Klankar", out.data(), 48000)) ++g_failures;
   }
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");

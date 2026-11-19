@@ -274,19 +274,23 @@ struct Klank {
             float freqoffset, float decayscale) {
     sr_ = sr;
     numpartials_ = numpartials > kMaxPartials ? kMaxPartials : numpartials;
+    x1_ = x2_ = 0.0f;
     const double rps = 2.0 * M_PI / sr;
+    // Source computes these coefficients in float, not double.
+    const float fs = static_cast<float>(static_cast<double>(freqscale) * rps);
+    const float fo = static_cast<float>(static_cast<double>(freqoffset) * rps);
+    const float sampleRate = static_cast<float>(sr);
     for (int i = 0; i < numpartials_; ++i) {
-      const float w = static_cast<float>(freqs[i] * freqscale * rps +
-                                         freqoffset * rps);
+      const float w = freqs[i] * fs + fo;
       const float level = levels[i];
       const float time = times[i] * decayscale;
-      // Source: R = exp(log001 / (time * sampleRate)) — log001 is a double
-      // constant, time and sampleRate are floats.
+      // Source: R = exp(log001 / (time * sampleRate)) — log001 is double,
+      // time and sampleRate are floats.
       const float R = time == 0.0f
                           ? 0.0f
                           : static_cast<float>(
                                 std::exp(std::log(0.001) /
-                                         (static_cast<double>(time) * sr_)));
+                                         static_cast<double>(time * sampleRate)));
       const float twoR = 2.0f * R;
       const float R2 = R * R;
       const float cost = (twoR * std::cos(w)) / (1.0f + R2);
@@ -297,6 +301,8 @@ struct Klank {
       y2_[i] = 0.0f;
     }
   }
+  // Resonator bank feeds a final differentiator (OscUGens.cpp tail):
+  //   buf[n] = sum of resonators; out[n] = buf[n] - buf[n-2].
   float Next(float in) {
     float sum = 0.0f;
     for (int i = 0; i < numpartials_; ++i) {
@@ -305,10 +311,14 @@ struct Klank {
       y1_[i] = y0;
       sum += a0_[i] * y0;
     }
-    return sum;
+    const float buf = sum;
+    const float out = buf - x2_;
+    x2_ = x1_;
+    x1_ = buf;
+    return out;
   }
-  void ProcessBlock(float* out, int n) {
-    for (int i = 0; i < n; ++i) out[i] = Next(0.0f);
+  void ProcessBlock(const float* in, float* out, int n) {
+    for (int i = 0; i < n; ++i) out[i] = Next(in[i]);
   }
  private:
   double sr_ = 48000.0;
@@ -316,6 +326,7 @@ struct Klank {
   float b1_[kMaxPartials] = {0}, b2_[kMaxPartials] = {0};
   float a0_[kMaxPartials] = {0};
   float y1_[kMaxPartials] = {0}, y2_[kMaxPartials] = {0};
+  float x1_ = 0.0f, x2_ = 0.0f;  // differentiator history
 };
 
 }  // namespace sc
