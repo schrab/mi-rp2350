@@ -101,8 +101,8 @@ Commits on branch `rack-rp2350` (pushed):
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
 — expects `PASS (0 failures)` (104 active refs as of the Klank/pan-final commit;
-`ugen_ref/Klankar.expected.wav` is a tracked orphan from an earlier attempt —
-Klank is skipped, so no test reads it).
+all ref files are read by a test — the old `Klankar` orphan was replaced with
+a real supernova render).
 
 ## 3. The working method (do exactly this per UGen/family)
 
@@ -219,11 +219,10 @@ Klank is skipped, so no test reads it).
 - **`scsynth -N` renders one block past the duration marker**; refs must be
   trimmed to 48000 frames (run_ugen_ref.sh does it; if you call sclang
   directly, trim afterwards or every layout check fails with `ref=48064f`).
-- **Klank segfaults scsynth 3.14.1** (`Klank.ar` → rc 139) even though it is
-  core. Its reference is SKIPPED by design; the port is verified by a law
-  test (impulse rings, tail decays). Do not "fix" by guessing — if you need a
-  real Klank reference, test whether the crash is the SIMD path with more
-  partials, or render via a different engine.
+- **Klank: old "skip" note is obsolete.** scsynth exits 139 at shutdown but
+  writes a complete WAV; supernova renders byte-identical data with rc 0.
+  Its ref has been real and exact since `2b27ce0` (engine override
+  `supernova`). Do not reintroduce a law-only test for it.
 - **DFM1's render epoch is pinned, not guessed**: `DFM1_Ctor` →
   `NoiseGen::initialize` sets `w = 3*time(NULL)` (counter = 0 for the single
   instance in the def). The renderer captures `Date.getDate.rawSeconds`

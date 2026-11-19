@@ -5291,8 +5291,8 @@ Kit-only task; no drone ports until T-D3. Host gate:
 Verified: `test_dronecaster: PASS (0 failures)`, 104 active per-UGen refs after
 the Klank/pan-final commit (all new refs max_abs = 0, corr = 1.0). 105 ref FILES
 exist;
-`Klankar.expected.wav` is a tracked orphan — Klank is skipped and no test
-reads it. Tasks 8 (delays + localio) and 9-core (FreeVerb/GVerb) complete.
+every ref file is read by a test (the old Klank orphan was replaced by a
+real supernova render). Tasks 5, 8, 9 and 10 are complete.
 
 - **GVerb's three traps** (each cost a wrong-ref cycle): `zapgremlins` is
   `1e-15 < |x| < 1e15`, not 3.4e38; all ramp slopes are cleared at the end of
