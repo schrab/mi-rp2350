@@ -5286,7 +5286,7 @@ Kit-only task; no drone ports until T-D3. Host gate:
 | pan (core) | done | 3a45564 | Pan2/Balance2/Rotate2 3/3 exact via `KitTables::sine` |
 | GreyholeRaw | done | 6c57748 | 1/1 exact; faust mydsp embedded verbatim, scsynth + rc-139 tolerance |
 | Klank ref + pan final | done | 2b27ce0 | Klank real NRT ref 1/1 (supernova); PanAz + Splay + SplayAz 3/3 exact |
-| demand (values) | done | *(this commit)* | Demand/Dseq/Drand/Dxrand/Dseries/Dbrown 6/6 exact; Dbufrd/Dbufwr pending |
+| demand (values) | done | 2cc25bf | Demand/Dseq/Drand/Dxrand/Dseries/Dbrown 6/6 exact; Dbufrd/Dbufwr deferred to Task 12 |
 | remaining | waiting | — | Dbufrd/Dbufwr, VarLag, buffers, chaos, sc3p dyn, sugar, hw |
 
 Verified: `test_dronecaster: PASS (0 failures)`, 110 active per-UGen refs after

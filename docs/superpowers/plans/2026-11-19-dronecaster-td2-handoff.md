@@ -101,7 +101,10 @@ Commits on branch `rack-rp2350` (pushed):
 - `sc_kit_demand.h` — Demand + Dseq/Drand/Dxrand/Dseries/Dbrown **6/6 exact**.
   Trap: the Demand* Ctors call `next(unit,0)` (a RESET), and Drand/Dxrand's
   reset consumes an `irand` draw — the host port must call `Reset()` too or
-  the RNG sequence is offset by one. Dbufrd/Dbufwr still pending (need buffers).
+  the RNG sequence is offset by one. Dbufrd/Dbufwr pending: a `LocalBuf` +
+  demand UGens render garbage in NRT supernova here (the reference itself is
+  uninitialized-memory noise), so they need proper buffer infrastructure from
+  Task 12 before a trustworthy ref can be made.
 
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
