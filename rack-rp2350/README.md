@@ -1,15 +1,17 @@
-# Rack RP2350 — five modules in one firmware, live-switchable
+# Rack RP2350 — six modules in one firmware, live-switchable
 
 ONE firmware running the four accepted MI ports (Elements, Clouds, Plaits
 98-engine, Rings MiniElements) plus the hand-ported **LIRA-8** (module id 4,
-a Pure Data patch port — not an MI library) on the RP2350 nano + PCM5102A,
+a Pure Data patch port — not an MI library) and the hand-ported **Dronecaster**
+(module id 5, T-D1: norns engine port — scsynth-golden-exact trio) on the
+RP2350 nano + PCM5102A,
 with LIVE MODULE SWITCHING (T2 of the combined plan,
 `docs/superpowers/plans/2026-11-04-combined-rp2350.md`) and a DIN MIDI input
 + serial bench console (T4).
 
 ## Module selection (T2: boot-select + live swap)
 
-ONE PlatformIO env — all five module adapters compile into the same unified
+ONE PlatformIO env — all six module adapters compile into the same unified
 binary:
 
 ```sh
@@ -17,19 +19,21 @@ pio run -d rack-rp2350
 # → .pio/build/rack/firmware.uf2
 ```
 
-`RACK_BOOT_MODULE` (0 elements / 1 clouds / 2 plaits / 3 rings / 4 lira8 —
+`RACK_BOOT_MODULE` (0 elements / 1 clouds / 2 plaits / 3 rings / 4 lira8 /
+5 dronecaster —
 new modules continue the ids) selects the boot module: `setup()` copies that
 module's flash image into the SRAM window (first action, crt0-like) and
-registry-Inits it; the build boots LIRA-8. The module registry
+registry-Inits it; the build boots Elements. The module registry
 (`src/module_registry.h`, table in `src/main.cpp`) dispatches init / render /
 note / CC hooks, and any module can be swapped in at runtime (MIDI CC 32 /
 serial `switch <id|name>`).
 
 ### Live swap — MIDI CC 32 (Bank Select)
 
-**CC 32, value 0-4 = module id** (0 elements, 1 clouds, 2 plaits, 3 rings,
-4 lira8; other values ignored, same id ignored). CC 32 is verified unused by
-all five modules' CC maps. Core 0 queues the request; core 1 executes the swap
+**CC 32, value 0-5 = module id** (0 elements, 1 clouds, 2 plaits, 3 rings,
+4 lira8, 5 dronecaster; other values ignored, same id ignored). CC 32 is
+verified unused by
+all six modules' CC maps. Core 0 queues the request; core 1 executes the swap
 at the next block boundary (max one per call):
 
 1. **MUTE** — linear output-gain ramp-down over 4 render blocks, then the
@@ -208,6 +212,40 @@ documented as ~10 dB brighter at 12.5–16 kHz than Pd (open item).
   Standalone lira8 with an added reverb would also fit the pool (16,088 +
   176,416 + 65,536 = 258,040 B), but clouds-B is the intended effect stage.
 
+## Dronecaster (T-D1, module id 5)
+
+Hand-ported norns **Dronecaster** engine (upstream
+northern-information/dronecaster, GPL-3.0; the UGen kit is
+supercollider/supercollider 3.14.1 code) in `src/dronecaster/` — pure C++,
+host-tested, **seed-matched bit-exact** against scsynth NRT float32 goldens
+(`test/dronecaster_ref/`): the Sine/Square/Triangle trio compares at
+max_abs ≤ 7.8e-7, corr = 1.0 (192,000-frame 48 kHz renders, fixed seed
+0xC0FFEE).
+
+- **Standalone-only** at 48 kHz (never a chain A slot, `kChainABufferBytes[5] = 0`);
+  16-sample host grid, 64-sample internal bursts, budget 1333 µs (1.232 KB
+  window slot — one -O3 wrapper, the engine inlines into it).
+- **SRAM**: 136 KiB voice carve — the 131,080 B sine wavetable kit lives
+  above an arena savepoint and survives voice swaps; per-drone state sits
+  above it.
+- **CC map** (`module` prints it): **51 drone** (bytes 0–36 = catalog ids in
+  byte-wise filename order — T-D1 ports 22 Sine / 23 Square / 29 Triangle;
+  a 0-127 pot almost never lands on those raw bytes, so pot travel 37–127
+  maps in THIRDS onto the trio — 37-67 Sine, 68-97 Square, 98-127 Triangle;
+  unported catalog ids print one console line and keep the current drone),
+  **52 amp**,
+  **53 fade** (attack=release, 0..16 s), **54 hz offset** (±24 st ON TOP of
+  the current note — base 55 Hz until a note arrives); **notes = re-hz**
+  (one-pole glide ~60 ms, note-off ignored — drones do not stop);
+  **PLAY 64 = recast** (release + restart).
+- **Swaps are "down+up"** (the SynthSocket law): the current drone's
+  Env.asr releases, the new drone starts when the release ends — no
+  crossfade. The ar×kr multiply is a CALCSLOPE ramp (block k spans
+  v(k−1)→v(k)), not a block-constant multiplier — that law is what made
+  the goldens bit-exact.
+- **UI pages** (C3): P1 = DRONE / AMP / FADE / HZ OFF; panel tab sends
+  CC 51 bytes 22/23/29.
+
 ## Elements × Warps stage (T9, internal cross-modulation)
 
 The Elements module carries a Mutable **Warps** cross-modulation stage
@@ -371,7 +409,9 @@ C3 reflash needed for label changes.
   64 KiB reverb; lira8 engine 16,072 B + 176,416 B delay (44.1 kHz) /
   128,016 B (32 kHz chain). Worst chain (rings+clouds) 331,516 B — the
   same 260 B slack as before the merge; lira8+clouds 283,872 B.
-- **RAM per env** (identical map in all five): static .data + .bss (of which
+  Dronecaster (standalone-only) 1,768 B state + 136 KiB voice carve (kit
+  tables 131,080 B above an arena savepoint).
+- **RAM per env** (identical map in all six): static .data + .bss (of which
   pool 324 KB → non-pool static ≈ 35 KB) → heap **33,744 B** below the
   window; boot heap consumers: core-1 separate stack 8 KB, I2S DMA bank
   2-3 KB, USB device+host buffers → ≥ ~16 KB headroom maintained.

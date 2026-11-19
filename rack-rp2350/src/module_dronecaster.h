@@ -51,7 +51,8 @@ static_assert(sizeof(sc::KitTables) <= kVoiceBytes,
 static_assert(kVoiceBytes <= kRackPoolBytes, "dronecaster carve exceeds pool");
 
 static const char* const kCcMap =
-    "51 drone(0-36 catalog) 52 amp 53 fade(atk=rel) 54 hz-offset +-24st; "
+    "51 drone (0-36 catalog direct; C3 pot 37+ = SINE/SQUARE/TRIANGLE in "
+    "thirds) 52 amp 53 fade(atk=rel) 54 hz-offset +-24st; "
     "notes = re-hz (glide ~60 ms); PLAY 64 = recast";
 
 static const uint8_t kModContinuousCcs[] = {52, 53, 54};
@@ -110,8 +111,20 @@ void note_off(uint8_t note) { (void)note; }   // drones do not stop
 void control_change(uint8_t cc, uint8_t val) {
   if (cc == 64) { if (val >= 64) s->pending_recast = true; return; }
   if (cc == 51) {
-    if (sc::Catalog(val) != nullptr) {
-      s->pending_drone = static_cast<int16_t>(val);
+    // Two-layer selector (the lira8 CC 51 pattern):
+    //  - raw bytes 0-36 = DIRECT catalog ids (the panel's steps knob sends
+    //    22/23/29; the console and future T-D2 drones use this path too);
+    //  - pot travel 37-127 = THIRDS over the T-D1 trio (a 0-127 C3 pot
+    //    almost never lands on 22/23/29 raw — 37-67 Sine, 68-97 Square,
+    //    98-127 Triangle).
+    int id;
+    if (val <= 36) {
+      id = val;
+    } else {
+      id = 22 + static_cast<int>((val - 37) * 3 / 91);
+    }
+    if (sc::Catalog(id) != nullptr) {
+      s->pending_drone = static_cast<int16_t>(id);
     } else if (static_cast<int16_t>(val) != s->last_bad_drone) {
       s->last_bad_drone = static_cast<int16_t>(val);
       Serial.printf("dc: drone id %u not ported (keep current)\r\n",
