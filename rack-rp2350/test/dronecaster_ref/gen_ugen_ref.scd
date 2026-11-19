@@ -109,6 +109,10 @@
         // ---- T-D2 Task 7: SC3P filters ----
         ["SVFar",      { Out.ar(0, SVF.ar(Saw.ar(220), 2200, 0.1, 1, 0, 0, 0, 0)) }],
         ["MoogLadderar",{ Out.ar(0, MoogLadder.ar(Saw.ar(220), 440, 0.3)) }],
+        // DFM1's upstream NoiseGen seeds xorshift from time(NULL) at ctor,
+        // so the render epoch is captured into DFM1.seed.txt just before the
+        // scsynth launch; the C++ port re-seeds from that same value.
+        ["DFM1",       { Out.ar(0, DFM1.ar(Saw.ar(220), 1000, 0.1, 1, 0, 0.0003)) }],
 
         // ---- T-D2 dynamics family (core: Amplitude/Compander/Limiter) ----
         ["Amplitude",  { Out.ar(0, Amplitude.ar(Saw.ar(220), 0.01, 0.1)) }],
@@ -145,8 +149,32 @@
             cmd = engine ++ " -N " ++ oscPath.quote ++ " _ " ++ wavPath.quote
                 ++ " 48000 WAV float" ++ opts.asOptionsString
                 ++ (if (scsynthFlags != "", { " " ++ scsynthFlags }, { "" }));
-            rc = cmd.systemCmd;
-            if (rc != 0) { Error("scsynth failed for " ++ name).throw };
+            if (name == "DFM1") {
+                // Keep retrying until the whole render stays inside one epoch
+                // second: then the captured value must equal scsynth's
+                // time(NULL) at DFM1_Ctor (no boundary crossed mid-launch).
+                var before, after, stable = false, okrc, same;
+                5.do {
+                    if (stable.not) {
+                        var f;
+                        before = Date.getDate.rawSeconds.asInteger;
+                        f = File(outDir ++ "/DFM1.seed.txt", "w");
+                        f.write(before.asString); f.close;
+                        rc = cmd.systemCmd;
+                        after = Date.getDate.rawSeconds.asInteger;
+                        okrc = (rc == 0);
+                        same = (before == after);
+                        stable = okrc.and(same);
+                        if (stable.not) {
+                            "DFM1: render crossed an epoch boundary, retrying".postln;
+                        };
+                    };
+                };
+                if (stable.not) { Error("DFM1 epoch never stable").throw };
+            } {
+                rc = cmd.systemCmd;
+                if (rc != 0) { Error("scsynth failed for " ++ name).throw };
+            };
             File.delete(oscPath);
         };
     };

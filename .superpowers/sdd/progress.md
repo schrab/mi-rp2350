@@ -5277,13 +5277,13 @@ Kit-only task; no drone ports until T-D3. Host gate:
 | renderer / env | done | 887ec9b | sc3-plugins 3.14.1-1 now system-wide (pacman); /tmp `-U`/`-l` wiring dropped, verified the two sc3p refs' `data` chunks stay byte-identical |
 | dynamics | done | 5449caa | 3/3 exact (Amplitude/Compander/Limiter) |
 | moog + BEQ suite | done | 50ea06c | 7/7 exact, all max_abs = 0 (MoogFF + 6 BEQ biquads); completes Task 6 except VarLag |
-| sc3p filters | partial | *(this commit)* | SVF + MoogLadder 2/2 exact; **DFM1 blocked** — time-seeded RNG makes its NRT ref non-reproducible (1.5e-4 drift) |
-| remaining | waiting | — | DFM1 (needs decision), VarLag (Env/sugar), delays, localio, reverbs, pan, demand, buffers, chaos, sc3p dyn, sugar, hw |
+| sc3p filters | done | *(this commit)* | SVF/MoogLadder 2/2 exact + DFM1 1/1 exact via pinned render epoch; 3/3 total |
+| remaining | waiting | — | VarLag (Env/sugar), delays, localio, reverbs, pan, demand, buffers, chaos, sc3p dyn, sugar, hw |
 
-Verified: `test_dronecaster: PASS (0 failures)`, 75 active per-UGen refs after
-the SC3P-filter commit (all nine new refs max_abs = 0, corr = 1.0). 76 ref
-FILES exist; `Klankar.expected.wav` is a tracked orphan — Klank is skipped and
-no test reads it.
+Verified: `test_dronecaster: PASS (0 failures)`, 76 active per-UGen refs after
+the DFM1 commit (all ten new refs max_abs = 0, corr = 1.0). 77 ref FILES
+exist; `Klankar.expected.wav` is a tracked orphan — Klank is skipped and no
+test reads it.
 
 ### T-D2 findings (load-bearing, 5449caa)
 
@@ -5307,9 +5307,13 @@ no test reads it.
 - **BEQ slope divisor is `/3`, not `/4`**: `mFilterLoops = n/3 = 21`,
   `mFilterSlope = 1/21`, one step per 3-sample group (Filter2Pole uses `/4`).
   VarLag is classlib `EnvGen` expansion, deferred to the Env/sugar task.
-- **DFM1 cannot produce a reproducible reference**: its `NoiseGen` is seeded
-  from `counter++` and `time(NULL)` (`Dfm1.cpp:224-229` via `TJUGens.cpp:55`).
-  Same-second NRT renders are byte-identical; a render 2 s later differs by
-  max_abs 1.5e-4 / rms 2.3e-5 — 150× the 1e-6 gate. Needs a decision before
-  porting: law-only test (Klank precedent) or pin the render epoch into the
-  port RNG seed.
+- **DFM1 reference needs its pinned epoch sidecar**: `NoiseGen::initialize`
+  seeds xorshift from `counter++` and `time(NULL)` (`Dfm1.cpp:224-229` via
+  `TJUGens.cpp:55`). With counter=0 the state is x=0,y=1,z=2,w=3*epoch. The
+  renderer writes `ugen_ref/DFM1.seed.txt` just before launch and retries if
+  the render straddles a second; `Dfm1::Init(epoch)` re-seeds from it. Without
+  that, renders 2 s apart differ by max_abs 1.5e-4 (150× the gate). Tables
+  generated verbatim from pin `25eacaf7` into `sc_kit_dfm1_tables.h`.
+- **sclang parse trap: bare `a and b` hangs silently** (no error, stays after
+  the welcome banner) — use `a.and(b)` or `a && b`. `while({… and {…}},…)` and
+  a `var` late in a function have the same symptom.

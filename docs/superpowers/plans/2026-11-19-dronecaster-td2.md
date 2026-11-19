@@ -90,10 +90,11 @@ do not port them again.
    **`sc_kit_core_dyn.h`** (`5449caa`) — do NOT use `sc_kit_dyn.h`, which is
    Task 14's filename.
 7. **sc_kit_sc3p_filter.h** — SVF (Blackrain), MoogLadder (Bhob), DFM1 (TJ);
-   quote their headers' licenses. Status: SVF + MoogLadder 2/2 exact.
-   DFM1 blocked — its NoiseGen xorshift is seeded from `time(NULL)`, so its
-   NRT reference is not reproducible (1.5e-4 drift across seconds); needs a
-   law-only test or a pinned render epoch before porting.
+   quote their headers' licenses. Status: 3/3 exact. SVF + MoogLadder in
+   `sc_kit_sc3p_filter.h`; DFM1 in `sc_kit_dfm1.h` + generated tables. DFM1's
+   xorshift is seeded from `time(NULL)`, so the renderer pins the epoch into
+   `ugen_ref/DFM1.seed.txt` and the port re-seeds from it — keep the sidecar
+   with the ref or the check cannot be reproduced.
 8. **sc_kit_delay.h** + **sc_kit_localio.h** — the delay core shared by
    DelayN/L/C, Comb*, Allpass*, BufDelay*, Pluck (Karplus-Strong), PitchShift
    (needs the pitch-shifter machinery — reuse the clouds correlator knowledge);

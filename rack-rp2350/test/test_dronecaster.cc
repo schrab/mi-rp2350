@@ -18,6 +18,8 @@
 #include "../src/dronecaster/sc_kit_filter.h"
 #include "../src/dronecaster/sc_kit_core_dyn.h"
 #include "../src/dronecaster/sc_kit_sc3p_filter.h"
+#include "../src/dronecaster/sc_kit_dfm1.h"
+#include <cstdio>
 
 #include <cmath>
 #include <cstdio>
@@ -408,6 +410,18 @@ int main() {
         u.ProcessBlock(in.data() + b * 64, out.data() + b * 64, 64,
                        440.0f, 0.3f);
       if (!ref_check("MoogLadderar", out.data(), 48000)) ++g_failures; }
+    // DFM1's upstream RNG is seeded from time(NULL) at ctor. The renderer
+    // captured the epoch into DFM1.seed.txt just before launching scsynth;
+    // re-seed the port from it so the NRT render is reproducible.
+    long epoch = 0;
+    FILE* sf = fopen("dronecaster_ref/ugen_ref/DFM1.seed.txt", "r");
+    if (sf) { if (fscanf(sf, "%ld", &epoch) != 1) epoch = 0; fclose(sf); }
+    if (epoch == 0) { printf("  FAIL: DFM1 seed file missing\n"); ++g_failures; }
+    { sc::Dfm1 u; u.Init(48000.0, static_cast<int>(epoch), 1000.0f, 0.1f,
+                         1.0f, 0.0f, 0.0003f);
+      for (int b = 0; b < 750; ++b)
+        u.ProcessBlock(in.data() + b * 64, out.data() + b * 64, 64);
+      if (!ref_check("DFM1", out.data(), 48000)) ++g_failures; }
   }
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");
