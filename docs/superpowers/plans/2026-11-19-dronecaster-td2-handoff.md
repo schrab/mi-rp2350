@@ -68,28 +68,22 @@ Commits on branch `rack-rp2350` (pushed):
    … — N/N references exact` and mention any law corrections in the message.
 7. Update the ledger (`.superpowers/sdd/progress.md`) at family milestones.
 
-## 4. Environment (NOT in the repo — recreate if absent)
+## 4. Environment (system install — verified 2026-11-19)
 
-- SuperCollider **3.14.1-6 is installed system-wide** (`pacman`), `sclang`/
-  `scsynth` on PATH.
-- **sc3-plugins is NOT installed** (needs sudo). The render pipeline uses an
-  extracted copy:
-  - `/tmp/sc3p_pkg` — extracted `extra/sc3-plugins-3.14.1-1-x86_64.pkg.tar.zst`
-    (download from a mirror, `tar --zstd -xf`).
-  - `/tmp/scplug` — combined plugin dir: copy `/usr/lib/SuperCollider/plugins/*.so`
-    + `/tmp/sc3p_pkg/usr/lib/SuperCollider/plugins/*.so`, then **delete
-    `*Stk*` and `*_supernova.so`** (StkUGens needs libstk; supernova plugins
-    are unnecessary). `run_ugen_ref.sh` exports `DC_SCSYNTH_FLAGS="-U /tmp/scplug"`.
-  - `/tmp/sc_root/sc3p_conf.yaml` — sclang language config with
-    `includePaths: [/usr/share/SuperCollider/SCClassLibrary,
-    /tmp/sc3p_pkg/usr/share/SuperCollider/Extensions/SC3plugins]`.
-    `run_ugen_ref.sh` calls `sclang -l /tmp/sc_root/sc3p_conf.yaml`.
-- **Failure mode if the class lib is missing**: `SawDPW`/`PulseDPW`/`SVF`/
-  `DFM1` etc. are unresolved at compile time → **sclang hangs silently after
-  the welcome banner** (same trap as a late `var`). If a render "hangs",
-  check that first.
-- Alternative (cleaner, needs one sudo): `sudo pacman -S sc3-plugins`, then
-  drop the `-U` flag and the `-l` config from the scripts.
+- SuperCollider **3.14.1-6 AND sc3-plugins 3.14.1-1 are installed system-wide**
+  (`pacman -Q sc3-plugins` → `3.14.1-1`), `sclang`/`scsynth` on PATH.
+- The old `/tmp` wiring is **gone**: no `DC_SCSYNTH_FLAGS=-U /tmp/scplug`,
+  no `sclang -l /tmp/sc_root/sc3p_conf.yaml`. `run_ugen_ref.sh` now calls
+  plain `sclang gen_ugen_ref.scd` (mirroring `run_goldens.sh`). scsynth finds
+  the sc3p `.so` files on its default plugin path (`/usr/lib/SuperCollider/
+  plugins`) and sclang's default class lib resolves `SawDPW`/`PulseDPW`/`SVF`/
+  `DFM1`/`GreyholeRaw`/`Decimator` — all probed OK.
+- `gen_ugen_ref.scd` / `gen_goldens.scd` still read the `DC_SCSYNTH_FLAGS`
+  and `DC_FORCE` env vars as generic hooks; they default to empty/off and
+  need no setup.
+- **Failure mode if a class is unresolved**: `SawDPW`/`SVF`/`DFM1` etc. fail at
+  compile time → **sclang hangs silently after the welcome banner** (same trap
+  as a late `var`). If a render "hangs", check that first.
 
 ## 5. What remains (queue, with anchors)
 
