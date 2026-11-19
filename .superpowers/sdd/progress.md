@@ -5278,8 +5278,10 @@ Kit-only task; no drone ports until T-D3. Host gate:
 | dynamics | done | 5449caa | 3/3 exact (Amplitude/Compander/Limiter) |
 | remaining | waiting | — | moog, sc3p filters, delays, localio, reverbs, pan, demand, buffers, chaos, sc3p dyn, sugar, hw |
 
-Verified: `test_dronecaster: PASS (0 failures)` with 67 per-UGen refs after
-5449caa (the three new dynamics refs are max_abs = 0, corr = 1.0).
+Verified from a clean rebuild: `test_dronecaster: PASS (0 failures)`, 80 `ok:`
+lines, 0 FAILs, 66 active per-UGen refs after 5449caa (the three new dynamics
+refs are max_abs = 0, corr = 1.0). 67 ref FILES exist; `Klankar.expected.wav`
+is a tracked orphan — Klank is skipped and no test reads it.
 
 ### T-D2 findings (load-bearing, 5449caa)
 

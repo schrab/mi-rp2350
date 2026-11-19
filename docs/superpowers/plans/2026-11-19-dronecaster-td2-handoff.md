@@ -51,7 +51,9 @@ Commits on branch `rack-rp2350` (pushed):
 
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
-— expects `PASS (0 failures)` (67 refs as of the dynamics commit).
+— expects `PASS (0 failures)` (66 active refs as of the dynamics commit;
+`ugen_ref/Klankar.expected.wav` is a tracked orphan from an earlier attempt —
+Klank is skipped, so no test reads it).
 
 ## 3. The working method (do exactly this per UGen/family)
 
