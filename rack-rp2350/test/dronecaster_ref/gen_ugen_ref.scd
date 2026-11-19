@@ -182,6 +182,13 @@
                           BufWr.ar(DC.ar(0.42), b, DC.ar(5), 0);
                           Out.ar(0, Demand.ar(Impulse.ar(10), 0, Dbufrd(b, 5, 0))) }],
 
+        // ---- T-D2 Task 14: SC3P dynamics ----
+        ["Decimator",    { Out.ar(0, Decimator.ar(Saw.ar(220), 12000, 8)) }],
+        ["CrossoverDis", { Out.ar(0, CrossoverDistortion.ar(Saw.ar(220), 0.5, 0.9)) }],
+        ["SineShaper",   { Out.ar(0, SineShaper.ar(Saw.ar(220), 0.5)) }],
+        ["DiodeRingMod", { Out.ar(0, DiodeRingMod.ar(Saw.ar(220), SinOsc.ar(330))) }],
+        ["InsideOut",    { Out.ar(0, InsideOut.ar(Saw.ar(220))) }],
+
         // ---- Task 9 cont.: GreyholeRaw (faust, separate header) ----
         // GreyholeRaw needs scsynth (supernova cannot load the UGen at all);
         // the Faust plugin segfaults at SHUTDOWN after writing a complete wav.

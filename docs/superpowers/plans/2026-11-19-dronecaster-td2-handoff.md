@@ -43,7 +43,7 @@ Commits on branch `rack-rp2350` (pushed):
 | `2cc25bf` | Demand value generators (Demand/Dseq/Drand/Dxrand/Dseries/Dbrown) — 6/6 exact |
 | *(this commit)* | Buffer info + BufWr/BufRd (nearest) — 6/6 exact |
 
-**Done and reference-exact (120 UGens + the trio):**
+**Done and reference-exact (125 UGens + the trio):**
 
 - `sc_kit_noise.h` — WhiteNoise, ClipNoise, GrayNoise, PinkNoise, BrownNoise,
   Crackle, Dust, Dust2, LFNoise0/1/2 (ar + kr), LFClipNoise, LFDNoise0,
@@ -114,7 +114,7 @@ Commits on branch `rack-rp2350` (pushed):
 
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
-— expects `PASS (0 failures)` (119 active refs as of the buffer-interp commit;
+— expects `PASS (0 failures)` (124 active refs as of the sc3p-dyn commit;
 all ref files are read by a test — the old `Klankar` orphan was replaced with
 a real supernova render).
 

@@ -26,6 +26,8 @@
 #include "../src/dronecaster/sc_kit_greyhole.h"
 #include "../src/dronecaster/sc_kit_demand.h"
 #include "../src/dronecaster/sc_kit_buf.h"
+#include "../src/dronecaster/sc_kit_chaos.h"
+#include "../src/dronecaster/sc_kit_sc3p_dyn.h"
 #include <cstdio>
 
 #include <cmath>
@@ -693,6 +695,36 @@ int main() {
         d.ProcessBlock(trig.data() + i*64, 0.f, o, 64);
       }
       if (!ref_check("DemandBufRd", out.data(), 48000)) ++g_failures; }
+  }
+
+  printf("== T-D2 Task 14 SC3P dynamics vs NRT references ==\n");
+  {
+    static sc::KitTables kt; sc::InitKitTables(&kt);
+    std::vector<float> a(48000), b(48000), out(48000);
+    { sc::Saw s; s.Init(&kt, 48000.0, 220.0f);
+      for (int i = 0; i < 750; ++i) s.ProcessBlock(a.data() + i*64, 64); }
+    { sc::SinOsc s; s.Init(&kt, 48000.0, 330.0f);
+      for (int i = 0; i < 750; ++i) s.ProcessBlock(b.data() + i*64, 64); }
+    { sc::Decimator u; u.Init(48000.0, 12000.f, 8.f, a[0]);
+      for (int i = 0; i < 750; ++i)
+        u.ProcessBlock(a.data()+i*64, out.data()+i*64, 64, 12000.f, 8.f);
+      if (!ref_check("Decimator", out.data(), 48000)) ++g_failures; }
+    { sc::CrossoverDistortion u; u.Init(48000.0, 0.5f, 0.9f, a[0]);
+      for (int i = 0; i < 750; ++i)
+        u.ProcessBlock(a.data()+i*64, out.data()+i*64, 64, 0.5f, 0.9f);
+      if (!ref_check("CrossoverDis", out.data(), 48000)) ++g_failures; }
+    { sc::SineShaper u;
+      for (int i = 0; i < 750; ++i)
+        u.ProcessBlock(a.data()+i*64, out.data()+i*64, 64, 0.5f);
+      if (!ref_check("SineShaper", out.data(), 48000)) ++g_failures; }
+    { sc::DiodeRingMod u;
+      for (int i = 0; i < 750; ++i)
+        u.ProcessBlock(a.data()+i*64, b.data()+i*64, out.data()+i*64, 64);
+      if (!ref_check("DiodeRingMod", out.data(), 48000)) ++g_failures; }
+    { sc::InsideOut u;
+      for (int i = 0; i < 750; ++i)
+        u.ProcessBlock(a.data()+i*64, out.data()+i*64, 64);
+      if (!ref_check("InsideOut", out.data(), 48000)) ++g_failures; }
   }
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");
