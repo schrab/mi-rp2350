@@ -29,9 +29,10 @@ Commits on branch `rack-rp2350` (pushed):
 | `0b90411` | filter references all passing |
 | `887ec9b` | renderer simplified for the system sc3-plugins install |
 | `5449caa` | dynamics family — Amplitude/Compander/Limiter, 3/3 exact |
-| *(this commit)* | MoogFF + BEQ suite — 7/7 exact (completes plan Task 6 except VarLag) |
+| `50ea06c` | MoogFF + BEQ suite — 7/7 exact (completes plan Task 6 except VarLag) |
+| *(this commit)* | SC3P filters: SVF + MoogLadder — 2/2 exact (DFM1 blocked — see §5/§7) |
 
-**Done and reference-exact (73 UGens + the trio):**
+**Done and reference-exact (75 UGens + the trio):**
 
 - `sc_kit_noise.h` — WhiteNoise, ClipNoise, GrayNoise, PinkNoise, BrownNoise,
   Crackle, Dust, Dust2, LFNoise0/1/2 (ar + kr), LFClipNoise, LFDNoise0,
@@ -55,10 +56,12 @@ Commits on branch `rack-rp2350` (pushed):
   (BLowPass/BHiPass/BPeakEQ/BAllPass/BLowShelf/BHiShelf, one shared biquad).
   **7/7 exact** (all max_abs = 0). Completes plan Task 6 except VarLag
   (classlib EnvGen expansion — deferred to the Env/sugar task).
+- `sc_kit_sc3p_filter.h` — SVF, MoogLadder (verbatim source license headers).
+  **2/2 exact.** DFM1 is BLOCKED by a nondeterministic reference — see §7.
 
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
-— expects `PASS (0 failures)` (73 active refs as of the MoogFF/BEQ commit;
+— expects `PASS (0 failures)` (75 active refs as of the SC3P-filter commit;
 `ugen_ref/Klankar.expected.wav` is a tracked orphan from an earlier attempt —
 Klank is skipped, so no test reads it).
 
@@ -107,7 +110,7 @@ Klank is skipped, so no test reads it).
 | ~~dynamics~~ | ~~Amplitude, Compander, Limiter~~ **DONE**; VarLag remains | `/tmp/sc_full/server/plugins/FilterUGens.cpp` | `sc_kit_core_dyn.h` 3/3 exact. VarLag is classlib (EnvGen-based) — port with the Env work. |
 | ~~moog~~ | ~~MoogFF~~ **DONE** | FilterUGens.cpp `MoogFF_next` | in `sc_kit_filter.h`, 1/1 exact; uses FilterUGens.cpp:29's **float** `PI` macro (using double `pi` leaves a 7e-9 residual). |
 | ~~beq~~ | ~~BAllPass/BLowPass/BHiShelf/BPeakEQ/BLowShelf~~ (+BHiPass) **DONE** | FilterUGens.cpp BEQSuite Ctors | `sc_kit_filter.h` `BEQFilter`, 6/6 exact; slope law = `1/(n/3)`, NOT `/4`. |
-| sc3p filters | SVF, MoogLadder, DFM1 | `/tmp/sc3p_full/source/BlackrainUGens/`, `BhobUGens/BhobFilt.cpp`, `TJUGens/Dfm1.cpp` (+ Dfm1Lut) | **Quote each file's license header verbatim.** DFM1 ships a lookup table (Dfm1Lut.h) — port it as a table constant. |
+| ~~sc3p filters~~ | ~~SVF, MoogLadder~~ **DONE** 2/2; **DFM1 BLOCKED** | `/tmp/sc3p_full/source/BlackrainUGens/`, `BhobUGens/BhobFilt.cpp`, `TJUGens/Dfm1.cpp` (+ Dfm1Lut) | `sc_kit_sc3p_filter.h` quotes each license. DFM1's `NoiseGen::initialize` seeds xorshift from `counter++` and `time(NULL)` — its NRT render differs by up to 1.5e-4 between seconds (150× the 1e-6 gate), so no sample-exact reference is possible. Needs a decision: law-only test (Klank precedent), or pin the render-time epoch into the port's RNG seed. |
 | delays | DelayN/L/C, CombN/L/C, AllpassN/C, BufDelayN/C, BufAllpassC, Pluck, PitchShift | DelayUGens.cpp | Common delay core; `maxdelaytime`-sized buffers belong in the voice arena (add a delay-buffer alloc helper). Pluck = Karplus-Strong. PitchShift = the clouds-style pitch shifter — reuse the correlator knowledge from `lib/clouds`. |
 | localio | LocalIn, LocalOut | IOUGens.cpp | Engine-level feedback buses: the C++ engine needs a per-voice LocalBus area in the arena; `LocalIn` reads last block's `LocalOut` writes. |
 | reverbs | FreeVerb, GVerb | ReverbUGens.cpp | FreeVerb = 8 comb + 4 allpass per channel. GVerb is larger (its own buffer layout). |
@@ -182,6 +185,12 @@ Klank is skipped, so no test reads it).
   test (impulse rings, tail decays). Do not "fix" by guessing — if you need a
   real Klank reference, test whether the crash is the SIMD path with more
   partials, or render via a different engine.
+- **DFM1 is nondeterministic across NRT runs**: `DFM1_Ctor` →
+  `Dfm1::initialize` → `NoiseGen::initialize` sets `w = 3*time(NULL)`.
+  Three renders in the same second were byte-identical; one 2 s later differed
+  by max_abs 1.5e-4 (rms 2.3e-5). A canonical `ugen_ref/DFM1.expected.wav`
+  cannot be reproduced by a C++ port without pinning that epoch. Do not add a
+  ref that "passes" only for the second it was rendered in.
 - **Limiter AND Normalizer segfault scsynth 3.14.1-6** (rc 139, any input or
   `dur`) — same trap class as Klank, and a failed `systemCmd` leaves sclang
   hung after the error dump (the .scd's `0.exit` never runs). Fix: render

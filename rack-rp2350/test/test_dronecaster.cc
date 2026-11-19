@@ -17,6 +17,7 @@
 #include "../src/dronecaster/sc_kit_osc2.h"
 #include "../src/dronecaster/sc_kit_filter.h"
 #include "../src/dronecaster/sc_kit_core_dyn.h"
+#include "../src/dronecaster/sc_kit_sc3p_filter.h"
 
 #include <cmath>
 #include <cstdio>
@@ -388,6 +389,25 @@ int main() {
     beq("BAllPassar",  3, 1000.0f, 1.0f, 0.0f);
     beq("BLowShelfar", 4,  500.0f, 1.0f, 6.0f);
     beq("BHiShelfar",  5, 5000.0f, 1.0f, 6.0f);
+  }
+
+  printf("== T-D2 Task 7 SC3P filters vs NRT references ==\n");
+  {
+    static sc::KitTables kt; sc::InitKitTables(&kt);
+    std::vector<float> in(48000), out(48000);
+    { sc::Saw src; src.Init(&kt, 48000.0, 220.0f);
+      for (int b = 0; b < 750; ++b) src.ProcessBlock(in.data() + b * 64, 64); }
+    { sc::SVF u; u.Init(48000.0, 2200.0f, 0.1f, 1.0f, 0.0f, 0.0f, 0.0f,
+                        0.0f, in[0]);
+      for (int b = 0; b < 750; ++b)
+        u.ProcessBlock(in.data() + b * 64, out.data() + b * 64, 64,
+                       2200.0f, 0.1f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+      if (!ref_check("SVFar", out.data(), 48000)) ++g_failures; }
+    { sc::MoogLadder u; u.Init(48000.0, 440.0f, 0.3f);
+      for (int b = 0; b < 750; ++b)
+        u.ProcessBlock(in.data() + b * 64, out.data() + b * 64, 64,
+                       440.0f, 0.3f);
+      if (!ref_check("MoogLadderar", out.data(), 48000)) ++g_failures; }
   }
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");

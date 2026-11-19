@@ -106,6 +106,10 @@
         ["BLowShelfar",{ Out.ar(0, BLowShelf.ar(Saw.ar(220), 500, 1, 6)) }],
         ["BHiShelfar", { Out.ar(0, BHiShelf.ar(Saw.ar(220), 5000, 1, 6)) }],
 
+        // ---- T-D2 Task 7: SC3P filters ----
+        ["SVFar",      { Out.ar(0, SVF.ar(Saw.ar(220), 2200, 0.1, 1, 0, 0, 0, 0)) }],
+        ["MoogLadderar",{ Out.ar(0, MoogLadder.ar(Saw.ar(220), 440, 0.3)) }],
+
         // ---- T-D2 dynamics family (core: Amplitude/Compander/Limiter) ----
         ["Amplitude",  { Out.ar(0, Amplitude.ar(Saw.ar(220), 0.01, 0.1)) }],
         ["Compander",  { Out.ar(0, Compander.ar(Saw.ar(220), Saw.ar(1), 0.5, 2, 1.5, 0.01, 0.1)) }],
