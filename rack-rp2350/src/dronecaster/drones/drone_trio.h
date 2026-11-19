@@ -7,8 +7,8 @@
 #ifndef RACK_SRC_DRONECASTER_DRONES_DRONE_TRIO_H_
 #define RACK_SRC_DRONECASTER_DRONES_DRONE_TRIO_H_
 #include <cstddef>
-#include "../sc_kit_osc.h"
-#include "../sc_kit_pulse.h"
+#include "sc_kit_osc.h"
+#include "sc_kit_pulse.h"
 #include "../dronecaster_engine.h"
 
 namespace sc {

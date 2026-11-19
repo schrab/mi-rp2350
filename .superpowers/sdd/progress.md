@@ -5412,3 +5412,13 @@ building blocks. Extracted to a standalone repo:
 - Added as a git submodule at `mi-rp2350/PicoCollider` (`.gitmodules`).
 - The in-tree `rack-rp2350/src/dronecaster/sc_*.h` copies remain for the
   firmware build; deduplicating them to include the submodule is a follow-up.
+
+### PicoCollider dedup (this session)
+- Removed all 26 duplicated kit headers from `rack-rp2350/src/dronecaster/`
+  (kept `sc_arena.h`, `dronecaster_engine.h`, `dronecaster_tc.h`).
+- Firmware + host test now include the submodule directly: `-I../PicoCollider/include`
+  and `-I../PicoCollider/include/picocollider` in `platformio.ini`; the host
+  Makefile adds the same roots plus `-I../src/dronecaster{,/drones}` for the
+  dronecaster-only headers. `drone_trio.h`'s relative kit includes were made bare.
+- Verified: `test_dronecaster: PASS`, `test_kit: PASS`, `pio run` SUCCESS with
+  byte-identical footprint (RAM 72.9%, Flash 38.0%, tc_dronecaster 0x4d0).

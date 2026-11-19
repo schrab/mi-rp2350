@@ -33,9 +33,11 @@ MIDI CC 32 or the serial console.
 the standalone library of reusable, reference-exact SuperCollider DSP building
 blocks extracted from the Dronecaster porting work. It owns 26 header-only
 kit headers and a 129-reference host gate (`cd PicoCollider/test && make test`).
-Future Pico2 projects should consume it as the DSP foundation. The headers still
-under `rack-rp2350/src/dronecaster/` are the original in-tree copies used by the
-firmware; deduplicating them into the submodule is a follow-up task.
+Future Pico2 projects should consume it as the DSP foundation. The firmware and
+host tests now include the submodule headers directly (see the `-I` roots in
+`platformio.ini` and `rack-rp2350/test/Makefile`) — the only remaining headers
+under `rack-rp2350/src/dronecaster/` are the dronecaster-specific engine, arena
+and hot-code token.
 
 ## Document map
 

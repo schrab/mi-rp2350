@@ -3,7 +3,7 @@
 # test here must compile them WITHOUT any Arduino/pico header (that property
 # is itself the ctag-tbd portability proof).
 CXX      ?= g++
-CXXFLAGS ?= -O2 -g -std=c++17 -Wall -Wextra -I../src/lira8 -I.
+CXXFLAGS ?= -O2 -g -std=c++17 -Wall -Wextra -I../src/lira8 -I../src/dronecaster -I../src/dronecaster/drones -I. -I../../PicoCollider/include -I../../PicoCollider/include/picocollider
 BUILD    = build/
 
 ENGINE_SRCS =   # e.g. lira8_engine.cpp
@@ -12,7 +12,7 @@ ENGINE_SRCS =   # e.g. lira8_engine.cpp
 # (the same include roots the firmware uses). WARPSFLAGS add the elements
 # library roots; -DRACK_RP2350_TC selects the rack-guarded arms of the lib
 # patches (the RAM_CODE markers still no-op: no ARDUINO_ARCH_RP2040).
-WARPSFLAGS ?= -O2 -g -std=c++17 -Wall -Wextra -I../lib/elements -I../lib/stmlib -I.
+WARPSFLAGS ?= -O2 -g -std=c++17 -Wall -Wextra -I../lib/elements -I../lib/stmlib -I. -I../../PicoCollider/include -I../../PicoCollider/include/picocollider
 RACKFLAGS  ?= $(WARPSFLAGS) -DRACK_RP2350_TC
 
 TEST_BINS = test_wav_io test_pd_primitives test_voice test_engine test_harmony test_warps test_reverb test_warps_stage test_fx_chain test_swede_eq test_speaker_ir test_varg test_rings_chord test_dronecaster
@@ -32,7 +32,7 @@ DC_HEADERS = $(wildcard ../src/dronecaster/*.h) \
              $(wildcard ../src/dronecaster/drones/*.h)
 
 test_dronecaster: test_dronecaster.cc wav_io.h $(DC_HEADERS) | $(BUILD)
-	$(CXX) $(CXXFLAGS) -I../src/dronecaster -I. $< -o $(BUILD)$@
+	$(CXX) $(CXXFLAGS) -I../src/dronecaster -I../src/dronecaster/drones -I. $< -o $(BUILD)$@
 
 test_pd_primitives: test_pd_primitives.cc ../src/lira8/pd_primitives.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
