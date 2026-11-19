@@ -61,7 +61,7 @@ Max frame = 259 bytes (`0x7E` + len + type + 255 payload + crc).
 | Type | Name | Direction | Payload |
 |------|------|-----------|---------|
 | `0x01` | MIDI | C3 -> RP2350 | 4-byte USB-MIDI event packet `[CIN<<4|cable, status, d1, d2]` — funneled into `midiHandleEventPacket()` (the SAME entry point the USB device/host/DIN paths use; zero new dispatch semantics). RP2350 rejects wrong lengths with a log line. |
-| `0x02` | SWITCH | C3 -> RP2350 | `[module_id:u8]` (0 elements / 1 clouds / 2 plaits / 3 rings / 4 lira8) — routed through the console `switch` path verbatim (acks, chain-slot semantics, self-swap guard). |
+| `0x02` | SWITCH | C3 -> RP2350 | `[module_id:u8]` (0 elements / 1 clouds / 2 plaits / 3 rings / 4 lira8 / 5 dronecaster) — routed through the console `switch` path verbatim (acks, chain-slot semantics, self-swap guard). |
 | `0x03` | MOD_SET | C3 -> RP2350 | `[src:u8][param:u8][value:u8]` — applied through the mod engine's bench-mux setter (same validation + 0-127 quantization as the console `mod` command / CC 33-35 mux); one ack log line per set. Param-id table: §3. |
 | `0x04` | UI_CMD | C3 -> RP2350 | `[action:u8][arg:u8][arg2:u8]`: action 1 = page request (arg = page id, §4) -> RP2350 replies a full TELEM snapshot; action 2 = echo (arg/arg2 = 16-bit seq) -> RP2350 echoes the frame back verbatim and records its turnaround (the C3 measures the full wire RTT of its own probes); action 3 = sys toggle (arg = sys item id, semantics = TOGGLE, arg2 reserved 0): id 0 = telemetry-deltas gate on/off, id 1 = RP2350-pushed full-snapshot gate on/off, id 2 = global clock source internal<->midi; other ids are log-only. action 4 = **ASSIGN_CYCLE** `[cell:u8 0-15][dir:u8 1 up / 0 down]` — the RP2350 resolves `cell` against its ACTIVE page: that cell's CC's currently-routed mod source (or none) cycles through `[off, src0..src11]`, applied via `mod_set_dest` (the RP2350 owns the routing table + validation — "the C3 never enforces"; an invalid target for this module is inert and shows as TELEM flags bit2), and the RP2350 replies a full TELEM snapshot so the C3 renders the result. RATIONALE: the gesture sends ASSIGN_CYCLE, not MOD_SET (the plan's original sketch) — MOD_SET `[src][param][value]` would require the C3 to track which source drives each cell off-protocol; only the RP2350 knows. MOD_SET stays for the MOD pages' direct param writes. action 5 = **SET_GLOBAL** `[item:u8][value:u8 0-127]` — global state the C3 pots address but MOD_SET (per-source) cannot express: item 0 = BPM (`bpm = 20 + value*280/127`, the `bpm` console cmd's quantization family); other items log-only. The RP2350 acks with a full TELEM snapshot when the affected cell is on the active page (MOD-C BPM / SYS). |
 | `0x05` | CHAIN_ROUTE | C3 -> RP2350 | `[a:u8][b:u8][engage:u8]`: engage 1 -> console `chain <a> <b>` path (pair validation, window math, acks); engage 0 -> `chain off`. |
@@ -127,8 +127,8 @@ Payload (v2, stage 2-6):
 [mode 0 only: bpm:u8][clocksrc:u8][chain:u8][link:u8]   (status tail)
 ```
 
-- `page` = page id (§4), `module` = the RP2350's active module id (0-4:
-  elements / clouds / plaits / rings / lira8).
+- `page` = page id (§4), `module` = the RP2350's active module id (0-5:
+  elements / clouds / plaits / rings / lira8 / dronecaster).
 - `mode`: 0 = full snapshot (all cells of the page + status tail), 1 =
   single-cell delta — the **same cell/label format** with `count = 1` and
   NO status tail (the C3 keeps its last tail). The delta's `cc` names the

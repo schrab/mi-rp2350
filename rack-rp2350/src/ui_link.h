@@ -66,7 +66,7 @@
 // not fit one 16-cell page). MOD-A/B/C: real
 // cells from the mod
 // [src][param][value] with the SAME (src, param) map as the tables below
-// (docs/ui-protocol.md §6). SYS: 8 cells (one module selector over 5 slots,
+// (docs/ui-protocol.md §6). SYS: 8 cells (one module selector over 6 slots,
 // chain pair/engage, telem gates); the C3's preset slot is C3-local (T4a).
 #pragma once
 #include <stdint.h>
@@ -396,6 +396,19 @@ static const UiPageCell kUiPageLira8P3[16] = {
     {0,  "",           kUiColorWhite}, // p16 (spare)
 };
 
+// dronecaster — P1: the four voice controls (CC 51-54, T-D1). CC 51 is a
+// catalog id (0-36; only 22/23/29 are ported in T-D1 — the adapter keeps
+// the current drone on an unported id), CC 52 amp, CC 53 fade
+// (attack=release, 0..16 s), CC 54 a +-24 st offset on top of the current
+// note pitch (base 55 Hz until a note arrives; notes = re-hz, PLAY 64 =
+// recast).
+static const UiPageCell kUiPageDronecasterP1[] = {
+    {51, "DRONE",      kUiColorWhite},
+    {52, "AMP",        kUiColorWhite},
+    {53, "FADE",       kUiColorWhite},
+    {54, "HZ OFF",     kUiColorWhite},
+};
+
 // [module][0 = P1, 1 = P2, 2 = P3]. Elements' P2 = MODEL/PLAY/VCA + the T9
 // warps cells (CC 36-40). Clouds, Plaits, and Rings have all parameters on
 // P1, so P2/P3 have count = 0 (no duplicate params). lira8's P2/P3 are REAL
@@ -418,6 +431,8 @@ static constexpr UiPageTable kUiPages[RACK_MODULE_COUNT][3] = {
     { {kUiPageLira8P1,    UI_PAGE_CELL_COUNT(kUiPageLira8P1)},
       {kUiPageLira8P2,     UI_PAGE_CELL_COUNT(kUiPageLira8P2)},
       {kUiPageLira8P3,     UI_PAGE_CELL_COUNT(kUiPageLira8P3)} },        // lira8
+    { {kUiPageDronecasterP1, UI_PAGE_CELL_COUNT(kUiPageDronecasterP1)},
+      {nullptr, 0},        {nullptr, 0} },                               // dronecaster
 };
 
 // ===================== Dedicated Modulation & SYS aux cells =====================
@@ -665,7 +680,7 @@ static uint32_t g_ui_last_rx_ms = 0;
 
 // ===================== CC-value cache (TELEM source) =====================
 // Observed at the single dispatch point (midiControlChange -> the hook below).
-// 5 modules x 128 CCs = 640 B .bss. The full-CC-range span was chosen over a
+// 6 modules x 128 CCs = 768 B .bss. The full-CC-range span was chosen over a
 // remapped 32-CC window to cover CC 64/65/66 (trig/strum/freeze) and the
 // clouds alias bank 40-48 without index arithmetic.
 static uint8_t g_ui_cc_cache[RACK_MODULE_COUNT][128];
@@ -1098,7 +1113,7 @@ static uint8_t ui_aux_cell_value(const UiAuxCell& c) {
     case kUiAuxSelModule:
       // ONE selector pot, dual-purpose: not chained = the ACTIVE module
       // over RACK_MODULE_COUNT slots, scaled 0..127 so every module lands
-      // in its own pot-space bucket (5 modules: 0/31/63/95/127). The old
+      // in its own pot-space bucket (6 modules: 0/25/51/76/102/127). The old
       // `* 32` spacing wrapped module 4 to 0 in a uint8_t and put rings in
       // the plaits bucket — the C3 selector showed no LIRA8 and jumped.
       // chained = the engaged PAIR over 4 slots (0/42/85/127 — the C3

@@ -12,8 +12,8 @@
 // compile in every env — their state is ARENA-PLACED (rack_arena.h, no
 // file-scope module objects) and their hot sections share ONE SRAM window
 // via the tc_* OVERLAY in memmap_rack.ld (same VMA, sequential LMAs).
-// RACK_BOOT_MODULE (0 elements / 1 clouds / 2 plaits / 3 rings / 4 lira8;
-// new modules continue the ids) selects the BOOT module only: setup() copies
+// RACK_BOOT_MODULE (0 elements / 1 clouds / 2 plaits / 3 rings / 4 lira8 /
+// 5 dronecaster; new modules continue the ids) selects the BOOT module only: setup() copies
 // that module's flash image into the window as its ABSOLUTE FIRST action
 // (crt0-like) and registry-inits it; after that the build is identical and
 // any module can be swapped in at runtime. One env — the old five per-module
@@ -162,8 +162,8 @@ uint8_t pio_host_line_state(void);
 }
 #endif
 
-#if !defined(RACK_BOOT_MODULE) || RACK_BOOT_MODULE < 0 || RACK_BOOT_MODULE > 4
-#error "RACK_BOOT_MODULE must be defined in the env as 0 (elements), 1 (clouds), 2 (plaits), 3 (rings) or 4 (lira8)"
+#if !defined(RACK_BOOT_MODULE) || RACK_BOOT_MODULE < 0 || RACK_BOOT_MODULE > 5
+#error "RACK_BOOT_MODULE must be defined in the env as 0 (elements), 1 (clouds), 2 (plaits), 3 (rings), 4 (lira8) or 5 (dronecaster)"
 #endif
 
 // Non-blocking core-0 diagnostic output (defined near loop()). The 2 s
@@ -222,6 +222,13 @@ void dbg_printf(const char* fmt, ...);
 // blocks internally (the adapter accumulates the 16-sample rack grid; every
 // 4th call bursts ~4x its budget share — the 4 ms I2S bank absorbs it).
 #include "module_lira8.h"
+
+// T-D1 dronecaster (2026-11-19): the hand-ported norns Dronecaster engine
+// (src/dronecaster/, GPL-3.0; seed-matched against scsynth 3.14.1 NRT
+// float32 goldens — the Sine/Square/Triangle trio is bit-exact, max_abs
+// <= 7.8e-7). Standalone-only, 48 kHz, 16-sample host grid with 64-sample
+// internal bursts; the CC 51 catalog carries the T-D1 trio (22/23/29).
+#include "module_dronecaster.h"
 
 #include "module_registry.h"
 
@@ -311,6 +318,20 @@ const RackModuleInfo kRackModules[RACK_MODULE_COUNT] = {
      rack_modules::mod_lira8::note_on,
      rack_modules::mod_lira8::note_off,
      rack_modules::mod_lira8::control_change},
+    {"dronecaster", RACK_MODULE_DRONECASTER,
+     rack_modules::mod_dronecaster::kSampleRate,
+     (uint32_t)rack_modules::mod_dronecaster::kBlockSize,
+     rack_modules::mod_dronecaster::kBudgetUs,
+     rack_modules::mod_dronecaster::kI2sBuffers,
+     rack_modules::mod_dronecaster::kI2sWords,
+     rack_modules::mod_dronecaster::kStallUs,
+     rack_modules::mod_dronecaster::kCcMap,
+     &rack_modules::mod_dronecaster::kModDestinations,
+     rack_modules::mod_dronecaster::init,
+     rack_modules::mod_dronecaster::render,
+     rack_modules::mod_dronecaster::note_on,
+     rack_modules::mod_dronecaster::note_off,
+     rack_modules::mod_dronecaster::control_change},
 };
 
 // ===================== shared definitions =====================
@@ -487,6 +508,7 @@ static const size_t kChainABufferBytes[RACK_MODULE_COUNT] = {
     // makes this pair possible — the old 192 KiB buffer arena rejected it
     // (259,088 B needed) while 110 KB of the object arena sat idle.
     128016,
+    0,        // dronecaster: standalone-only (not a chain A candidate)
 };
 
 // Chain render block buffers (24 x 2 floats x 2 = 384 B in .bss — the
@@ -3299,6 +3321,11 @@ void loop() {
                  (unsigned long)e.dbg_master);
         e.dbg_params = e.dbg_voices = e.dbg_delay = e.dbg_lfo = e.dbg_master = 0;
       }
+      // T-D1 dronecaster: current drone + proc ewma + swaps + NaN block count.
+      char dc_tail[80] = "";
+      if (g_active_module == RACK_MODULE_DRONECASTER) {
+        rack_modules::mod_dronecaster::report_dc(dc_tail, sizeof(dc_tail));
+      }
       // T2 piezo: peak since last report (raw 0-4095) + measured rate.
       const uint16_t pz_peak = rack_piezo::report_peak();
       const uint32_t pz_rate = rack_piezo::report_sample_rate();
@@ -3368,7 +3395,8 @@ void loop() {
                     (unsigned)pio_usb_host_get_frame_number(),
                     mod_field,
                     modeng_tail,
-                    plaits_tail,
+                    g_active_module == RACK_MODULE_PLAITS ? plaits_tail
+                        : (g_active_module == RACK_MODULE_DRONECASTER ? dc_tail : ""),
                     elements_tail,
                     oc_tail);
 #else
@@ -3386,7 +3414,8 @@ void loop() {
                     mod_field,
                     modeng_tail,
                     g_active_module == RACK_MODULE_PLAITS ? plaits_tail
-                        : (g_active_module == RACK_MODULE_LIRA8 ? lira8_tail : ""),
+                        : (g_active_module == RACK_MODULE_LIRA8 ? lira8_tail
+                        : (g_active_module == RACK_MODULE_DRONECASTER ? dc_tail : "")),
                     g_active_module == RACK_MODULE_ELEMENTS ? elements_tail : "",
                     oc_tail);
 #endif

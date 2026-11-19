@@ -57,18 +57,19 @@ static void cmd_chain(const char* args);
 
 // ---- format ----
 static const uint8_t kPresetMagic[4] = {'R', 'K', 'P', 'R'};
-static const uint8_t kPresetVersion = 4;   // v4: lira8 delay CCs moved to 80-88 + lira8->clouds is pair 4 (old blobs invalidate cleanly)
+static const uint8_t kPresetVersion = 5;   // v5: 6 modules (dronecaster id 5, T-D1)
 //  [0..3]   magic "RKPR"
 //  [4]      version
 //  [5]      active module id
 //  [6]      chain active (0/1)
 //  [7]      chain pair index (1 elements->clouds / 2 plaits / 3 rings / 4 lira8)
 //  [8..348] mod-engine record (341 B: global_clock + bpm f32 + 12x28)
-//  [349..428] cc_seen[5][16] (80 B)  — v3: 5 modules (rack-lira8)
-//  [429..1068] cc_cache[5][128] (640 B)
-//  [1069..1070] crc16-CCITT LE over [0..1068]
-// (5-module v3 blob = 1071 B — the old 1024 caps in this file and in the
-// C3's PresetBank overflowed/dropped every legitimate burst; both raised.)
+//  [349..444] cc_seen[6][16] (96 B)  — v5: 6 modules (dronecaster)
+//  [445..1212] cc_cache[6][128] (768 B)
+//  [1213..1214] crc16-CCITT LE over [0..1212]
+// (v4 5-module blob was 1071 B — old blobs invalidate cleanly on the
+// version bump. The derived offsets below come from RACK_MODULE_COUNT, so
+// they moved with it: v5 blob = 1215 B.)
 // Derived from the real record sizes — a hardcoded 301 here once assumed a
 // 293-byte mod record that mod_engine_preset_write never produced (285 B:
 // 1 + 4 + 10x28), shifting the cache/crc down and leaving stack garbage in
@@ -79,12 +80,12 @@ static const uint16_t kPresetModLen =
 static const uint16_t kPresetOffSeen =
     kPresetOffMod + kPresetModLen;                                  // 349
 static const uint16_t kPresetOffCache =
-    kPresetOffSeen + RACK_MODULE_COUNT * 16;                        // 429
+    kPresetOffSeen + RACK_MODULE_COUNT * 16;                        // 445
 static const uint16_t kPresetOffCrc =
-    kPresetOffCache + RACK_MODULE_COUNT * 128;                      // 1069
-static const uint16_t kPresetSize = kPresetOffCrc + 2;              // 1071
-// v3 (5 modules) is 1071 B — the 1024 cap silently overran on serialize.
-static const uint16_t kPresetBlobMax = 1088;
+    kPresetOffCache + RACK_MODULE_COUNT * 128;                      // 1213
+static const uint16_t kPresetSize = kPresetOffCrc + 2;              // 1215
+// v5 (6 modules) is 1215 B — the cap must cover the serialize size.
+static const uint16_t kPresetBlobMax = 1216;
 static_assert(kPresetSize <= kPresetBlobMax,
               "preset blob exceeds kPresetBlobMax (raise it)");
 static const uint8_t kPresetChunkData = 252;   // PART payload data cap

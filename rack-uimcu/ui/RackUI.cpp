@@ -224,8 +224,8 @@ namespace CTAG {
             "DIA", "SSTK", "WTCH", "WTSS", "SHAKER", "BRASS", "HELIX", "SKINS", "CZAP", "MTLW",
             "CLAP", "PERC", "FFRM", "BUBBLE", "ZXPH", "ZXPU", "ACID", "SSAW",
         };
-        static const char *kModNames[5] = { "ELEMENTS", "CLOUDS", "PLAITS", "RINGS", "LIRA8" };
-        static const uint8_t kModuleCount = 5;
+        static const char *kModNames[6] = { "ELEMENTS", "CLOUDS", "PLAITS", "RINGS", "LIRA8", "DRONECSTR" };
+        static const uint8_t kModuleCount = 6;
         static inline uint8_t ModuleClamp(uint8_t mod) {
             return mod < kModuleCount ? mod : 0;
         }

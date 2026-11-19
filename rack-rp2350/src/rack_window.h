@@ -34,7 +34,8 @@ enum RackModuleId {
   RACK_MODULE_PLAITS   = 2,
   RACK_MODULE_RINGS    = 3,
   RACK_MODULE_LIRA8    = 4,
-  RACK_MODULE_COUNT    = 5,
+  RACK_MODULE_DRONECASTER = 5,
+  RACK_MODULE_COUNT    = 6,
 };
 
 // Window capacity of THIS build — must equal LENGTH(RACK_WINDOW) in
@@ -56,12 +57,14 @@ extern uint8_t __tc_clouds_start[], __tc_clouds_end[];
 extern uint8_t __tc_plaits_start[], __tc_plaits_end[];
 extern uint8_t __tc_rings_start[], __tc_rings_end[];
 extern uint8_t __tc_lira8_start[], __tc_lira8_end[];
+extern uint8_t __tc_dronecaster_start[], __tc_dronecaster_end[];
 // LMA side (reserved flash region) — copy SOURCE for each module.
 extern uint8_t __rack_flash_elements_start[], __rack_flash_elements_end[];
 extern uint8_t __rack_flash_clouds_start[], __rack_flash_clouds_end[];
 extern uint8_t __rack_flash_plaits_start[], __rack_flash_plaits_end[];
 extern uint8_t __rack_flash_rings_start[], __rack_flash_rings_end[];
 extern uint8_t __rack_flash_lira8_start[], __rack_flash_lira8_end[];
+extern uint8_t __rack_flash_dronecaster_start[], __rack_flash_dronecaster_end[];
 }  // extern "C"
 
 struct RackWindowSection {
@@ -84,6 +87,8 @@ inline const RackWindowSection& rack_window_section(int module_id) {
                    __rack_flash_rings_start, __rack_flash_rings_end},
       {"lira8",    __tc_lira8_start, __tc_lira8_end,
                    __rack_flash_lira8_start, __rack_flash_lira8_end},
+      {"dronecaster", __tc_dronecaster_start, __tc_dronecaster_end,
+                   __rack_flash_dronecaster_start, __rack_flash_dronecaster_end},
   };
   return kSections[module_id];
 }

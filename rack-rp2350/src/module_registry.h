@@ -1,9 +1,9 @@
 // Rack RP2350 — module registry (T2; mod destinations populated in T3).
 //
-// ONE table describing the four module adapters: identity, audio config,
+// ONE table describing the six module adapters: identity, audio config,
 // bench budgets, CC map summary, mod-destination table and the hook pointers
 // main.cpp + midi.h dispatch through. main.cpp iterates this table instead of
-// per-adapter #if dispatch — all four adapters compile in every env (their
+// per-adapter #if dispatch — all six adapters compile in every env (their
 // state is arena-placed), the envs differ only in RACK_BOOT_MODULE (which
 // module BOOTS).
 //
