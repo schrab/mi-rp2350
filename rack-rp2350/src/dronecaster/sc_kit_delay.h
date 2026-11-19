@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdint>
 #include <vector>
+#include "sc_rgen.h"
 
 namespace sc {
 
@@ -43,6 +44,22 @@ struct DelayLine {
     buf_.assign(static_cast<size_t>(bufsize_), 0.f);
     mask_ = bufsize_ - 1;
     iwrphase_ = 0;
+    max_dsamp_ = static_cast<float>(bufsize_);
+    dsamp_ = CalcDelay(delay);
+    feedbk_ = kind_ >= 3 ? CalcFeedback(delay, decay) : 0.f;
+  }
+  // Buf* variant: the SndBuf supplies a power-of-two frame count; the delay
+  // is clipped to PREVIOUSPOWEROFTWO(bufSamples)-1 (BufCalcDelay, line 2144).
+  void InitBuf(double sr, long bufsamples, float delay, float decay, int kind) {
+    sr_ = static_cast<float>(sr);
+    kind_ = kind;
+    delay_ = delay;
+    decay_ = decay;
+    bufsize_ = bufsamples;
+    buf_.assign(static_cast<size_t>(bufsize_), 0.f);
+    mask_ = bufsize_ - 1;
+    iwrphase_ = 0;
+    max_dsamp_ = static_cast<float>(bufsize_ - 1);
     dsamp_ = CalcDelay(delay);
     feedbk_ = kind_ >= 3 ? CalcFeedback(delay, decay) : 0.f;
   }
@@ -70,9 +87,7 @@ struct DelayLine {
   float CalcDelay(float delaytime) const {
     const float min_delay = (kind_ == 2 || kind_ == 5 || kind_ == 8) ? 2.f : 1.f;
     const float d = delaytime * sr_;
-    return d < min_delay ? min_delay : (d > static_cast<float>(bufsize_)
-                                            ? static_cast<float>(bufsize_)
-                                            : d);
+    return d < min_delay ? min_delay : (d > max_dsamp_ ? max_dsamp_ : d);
   }
   static float CalcFeedback(float delaytime, float decaytime) {
     if (delaytime == 0.f || decaytime == 0.f) return 0.f;
@@ -150,7 +165,7 @@ struct DelayLine {
   }
   std::vector<float> buf_;
   long bufsize_ = 0, mask_ = 0, iwrphase_ = 0;
-  float sr_ = 48000.f, dsamp_ = 0.f, feedbk_ = 0.f;
+  float sr_ = 48000.f, dsamp_ = 0.f, feedbk_ = 0.f, max_dsamp_ = 0.f;
   float delay_ = 0.f, decay_ = 0.f;
   int kind_ = 0;
 };
@@ -235,6 +250,108 @@ struct Pluck {
   long bufsize_ = 0, mask_ = 0, iwrphase_ = 0, inputsamps_ = 0, numoutput_ = 0;
   float sr_ = 48000.f, dsamp_ = 0.f, feedbk_ = 0.f, lastsamp_ = 0.f;
   float prevtrig_ = 0.f, delay_ = 0.f, decay_ = 0.f, coef_ = 0.f;
+};
+
+// PitchShift — DelayUGens.cpp:4967 (ctor), 4583/4731 (next / next_z). Four
+// crossfading read heads share one ring buffer; at every framesize/4 samples
+// the active head is re-seeded from pchratio/pchdisp/timedisp using the
+// voice's shared RGen (RandSeed pins scsynth's RGen in the NRT reference).
+struct PitchShift {
+  void Init(double sr, float winsize, float ratio, float pchdisp,
+            float timedisp, float first_in) {
+    sr_ = static_cast<float>(sr);
+    winsize_ = winsize;
+    ratio_ = ratio;
+    pchdisp_ = pchdisp;
+    timedisp_ = timedisp;
+    if (winsize_ < 3.f / sr_) winsize_ = 3.f / sr_;
+    long dbs = static_cast<long>(std::ceil(winsize_ * sr_ * 3.f + 3.f));
+    dbs += 64;
+    bufsize_ = 1;
+    while (bufsize_ < dbs) bufsize_ <<= 1;
+    buf_.assign(static_cast<size_t>(bufsize_), 0.f);
+    buf_[0] = first_in;  // ctor: *dlybuf = ZIN0(0)
+    mask_ = bufsize_ - 1;
+    buf_[mask_] = buf_[mask_ - 1] = buf_[mask_ - 2] = 0.f;
+    framesize_ = (static_cast<long>(winsize_ * sr_) + 2) & ~3L;
+    slope_ = 2.f / static_cast<float>(framesize_);
+    stage_ = 3;
+    counter_ = framesize_ >> 2;
+    ramp_[0] = 0.5f; ramp_[1] = 1.f; ramp_[2] = 0.5f; ramp_[3] = 0.f;
+    rs_[0] = -slope_; rs_[1] = -slope_; rs_[2] = slope_; rs_[3] = slope_;
+    for (int i = 0; i < 4; ++i) { ds_[i] = 2.f; dss_[i] = 1.f; }
+    iwrphase_ = 0;
+    numoutput_ = 0;
+  }
+  void ProcessBlock(const float* in, float* out, int n, RGen* rng) {
+    float timedisp = timedisp_ < 0.f ? 0.f
+                     : (timedisp_ > winsize_ ? winsize_ : timedisp_);
+    timedisp *= sr_;
+    int remain = n;
+    int written = 0;  // ZXP(in)/ZXP(out) advance across the whole block
+    while (remain > 0) {
+      if (counter_ <= 0) {
+        counter_ = framesize_ >> 2;
+        stage_ = (stage_ + 1) & 3;
+        float ratio = ratio_;
+        if (pchdisp_ != 0.f) ratio += pchdisp_ * rng->frand2();
+        ratio = ratio < 0.f ? 0.f : (ratio > 4.f ? 4.f : ratio);
+        float ratio1 = ratio - 1.f;
+        const float samp_slope = -ratio1;
+        float startpos = ratio1 < 0.f ? 2.f
+            : static_cast<float>(framesize_) * ratio1 + 2.f;
+        startpos += timedisp * rng->frand();
+        const int st = stage_;
+        ds_[st] = startpos;
+        dss_[st] = samp_slope;
+        ramp_[st] = 0.f;
+        rs_[st] = slope_;
+        rs_[(st + 2) & 3] = -slope_;
+      }
+      const int nsmps = remain < counter_ ? remain : counter_;
+      remain -= nsmps;
+      counter_ -= nsmps;
+      for (int k = 0; k < nsmps; ++k) {
+        ++numoutput_;
+        iwrphase_ = (iwrphase_ + 1) & mask_;
+        float value = 0.f;
+        for (int tap = 0; tap < 4; ++tap) {
+          ds_[tap] += dss_[tap];
+          const long idsamp = static_cast<long>(ds_[tap]);
+          const float frac = ds_[tap] - static_cast<float>(idsamp);
+          const long rd = (iwrphase_ - idsamp) & mask_;
+          const long rdb = (rd - 1) & mask_;
+          float v;
+          if (numoutput_ < bufsize_) {
+            if (rd > iwrphase_) v = 0.f;
+            else if (rdb > iwrphase_) {
+              const float d1 = buf_[rd];
+              v = d1 - frac * d1;
+            } else {
+              const float d1 = buf_[rd], d2 = buf_[rdb];
+              v = d1 + frac * (d2 - d1);
+            }
+          } else {
+            const float d1 = buf_[rd], d2 = buf_[rdb];
+            v = d1 + frac * (d2 - d1);
+          }
+          value += v * ramp_[tap];
+          ramp_[tap] += rs_[tap];
+        }
+        buf_[iwrphase_] = in[written + k];
+        out[written + k] = value * 0.5f;
+      }
+      written += nsmps;
+    }
+  }
+
+ private:
+  std::vector<float> buf_;
+  long bufsize_ = 0, mask_ = 0, iwrphase_ = 0;
+  long framesize_ = 0, counter_ = 0, stage_ = 0, numoutput_ = 0;
+  float sr_ = 48000.f, winsize_ = 0.2f, ratio_ = 1.f;
+  float pchdisp_ = 0.f, timedisp_ = 0.f, slope_ = 0.f;
+  float ds_[4] = {}, dss_[4] = {}, ramp_[4] = {}, rs_[4] = {};
 };
 
 }  // namespace sc

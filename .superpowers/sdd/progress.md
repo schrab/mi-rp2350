@@ -5279,13 +5279,14 @@ Kit-only task; no drone ports until T-D3. Host gate:
 | moog + BEQ suite | done | 50ea06c | 7/7 exact, all max_abs = 0 (MoogFF + 6 BEQ biquads); completes Task 6 except VarLag |
 | sc3p filters | done | 629847b | SVF/MoogLadder 2/2 exact + DFM1 1/1 exact via pinned render epoch; 3/3 total |
 | core delays | done | f6852fd | DelayN/L/C + CombN/L/C + AllpassN/L/C, 9/9 exact via one shared ring buffer |
-| Pluck | done | *(this commit)* | Karplus-Strong, 1/1 exact (same ring core) |
-| remaining | waiting | — | BufDelay*/BufAllpass*, PitchShift, LocalIn/Out, VarLag (Env/sugar), reverbs, pan, demand, buffers, chaos, sc3p dyn, sugar, hw |
+| Pluck | done | 2c3e95f | Karplus-Strong, 1/1 exact (same ring core) |
+| Buf* delays + PitchShift | done | *(this commit)* | BufDelayN/L/C + BufAllpassN/L/C 6/6 + PitchShift 1/1 — all exact |
+| remaining | waiting | — | LocalIn/Out, VarLag (Env/sugar), reverbs, pan, demand, buffers, chaos, sc3p dyn, sugar, hw |
 
-Verified: `test_dronecaster: PASS (0 failures)`, 86 active per-UGen refs after
-the Pluck commit (all new refs max_abs = 0, corr = 1.0). 87 ref FILES exist;
-`Klankar.expected.wav` is a tracked orphan — Klank is skipped and no test
-reads it.
+Verified: `test_dronecaster: PASS (0 failures)`, 93 active per-UGen refs after
+the Buf*/PitchShift commit (all new refs max_abs = 0, corr = 1.0). 94 ref FILES
+exist; `Klankar.expected.wav` is a tracked orphan — Klank is skipped and no
+test reads it.
 
 ### T-D2 findings (load-bearing, 5449caa)
 

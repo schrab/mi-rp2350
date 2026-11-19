@@ -456,6 +456,25 @@ int main() {
         u.ProcessBlock(in.data() + b * 64, trig.data() + b * 64,
                        outp.data() + b * 64, 64, 0.005f, 0.1f, 0.5f);
       if (!ref_check("Pluckar", outp.data(), 48000)) ++g_failures; }
+    // Buf* variants: same ring core, but dsamp clipped to bufSamples-1.
+    auto bufdelay = [&](const char* name, int kind, float decay) {
+      sc::DelayLine u; u.InitBuf(48000.0, 1024, 0.005f, decay, kind);
+      for (int b = 0; b < 750; ++b)
+        u.ProcessBlock(in.data() + b * 64, out.data() + b * 64, 64,
+                       0.005f, decay);
+      if (!ref_check(name, out.data(), 48000)) ++g_failures;
+    };
+    bufdelay("BufDelayNar", 0, 0.f);
+    bufdelay("BufDelayLar", 1, 0.f);
+    bufdelay("BufDelayCar", 2, 0.f);
+    bufdelay("BufAllpassNar", 6, 0.1f);
+    bufdelay("BufAllpassLar", 7, 0.1f);
+    bufdelay("BufAllpassCar", 8, 0.1f);
+    { sc::RGen r; r.init(sc::kGoldenSeed);
+      sc::PitchShift u; u.Init(48000.0, 0.01f, 1.5f, 0.1f, 0.001f, in[0]);
+      for (int b = 0; b < 750; ++b)
+        u.ProcessBlock(in.data() + b * 64, out.data() + b * 64, 64, &r);
+      if (!ref_check("PitchShiftar", out.data(), 48000)) ++g_failures; }
   }
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");

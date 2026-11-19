@@ -125,6 +125,15 @@
         ["AllpassLar", { Out.ar(0, AllpassL.ar(Saw.ar(220), 0.01, 0.005, 0.1)) }, "supernova"],
         ["AllpassCar", { Out.ar(0, AllpassC.ar(Saw.ar(220), 0.01, 0.005, 0.1)) }, "supernova"],
         ["Pluckar",    { Out.ar(0, Pluck.ar(Saw.ar(220), Impulse.ar(4), 0.01, 0.005, 0.1, 0.5)) }, "supernova"],
+        // Buf* delays read a 1024-frame LocalBuf (power-of-two SndBuf) instead
+        // of owning a private ring; dsamp is clipped to bufSamples-1.
+        ["BufDelayNar", { var b = LocalBuf(1024); Out.ar(0, BufDelayN.ar(b, Saw.ar(220), 0.005)) }, "supernova"],
+        ["BufDelayLar", { var b = LocalBuf(1024); Out.ar(0, BufDelayL.ar(b, Saw.ar(220), 0.005)) }, "supernova"],
+        ["BufDelayCar", { var b = LocalBuf(1024); Out.ar(0, BufDelayC.ar(b, Saw.ar(220), 0.005)) }, "supernova"],
+        ["BufAllpassNar", { var b = LocalBuf(1024); Out.ar(0, BufAllpassN.ar(b, Saw.ar(220), 0.005, 0.1)) }, "supernova"],
+        ["BufAllpassLar", { var b = LocalBuf(1024); Out.ar(0, BufAllpassL.ar(b, Saw.ar(220), 0.005, 0.1)) }, "supernova"],
+        ["BufAllpassCar", { var b = LocalBuf(1024); Out.ar(0, BufAllpassC.ar(b, Saw.ar(220), 0.005, 0.1)) }, "supernova"],
+        ["PitchShiftar", { Out.ar(0, PitchShift.ar(Saw.ar(220), 0.01, 1.5, 0.1, 0.001)) }, "supernova"],
 
         // ---- T-D2 dynamics family (core: Amplitude/Compander/Limiter) ----
         ["Amplitude",  { Out.ar(0, Amplitude.ar(Saw.ar(220), 0.01, 0.1)) }],
