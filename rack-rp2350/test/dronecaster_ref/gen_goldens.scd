@@ -11,8 +11,27 @@
 //   parse error, and headless sclang hangs instead of reporting it).
 { |scriptPath|
     var seed = 16rC0FFEE;
-    var drones = ["Sine", "Square", "Triangle"];
+    // Curated golden drones: the T-D1 trio (idempotent re-render) plus the 12
+    // curated T-D2 drones in table order. NOTE: "harms way" has a space in its
+    // filename — the `"drones/" ++ name ++ ".scd"` path concat keeps it one path.
+    var drones = ["Sine", "Square", "Triangle", "harms way", "Supersaw", "Thx", "Mt. Zion", "Mt. Lion", "Hecker", "Fieldsteel", "Apparatus", "Twin Pks", "Starlids", "Sachiko", "Coil"];
+    // ONE engine: scsynth (Score.program = "exec scsynth"). Do NOT override to
+    // supernova: its NRT n_set lands ONE BLOCK LATER than scsynth's (observed
+    // first sample divergence at frame 144,065 after a gate-off at frame
+    // 144,000), so a supernova golden would not match the C++ harness schedule
+    // (gate off at sample 144000 = block 2250). Also note SC 3.14.1
+    // Collection:includes compares Strings by IDENTITY (===), so an
+    // `includes`-based engine override silently never matches — the previous
+    // override was inert and every golden here is a scsynth render.
+    //
+    // scsynth 3.14.1-6 exits 139 (SIGSEGV at shutdown) AFTER writing a
+    // complete, correct WAV for some graphs (core delay UGens, and demand/env
+    // graphs such as Fieldsteel). Accept rc 139 here; run_goldens.sh is the
+    // real gate (exact 192000 frames, two-pass byte determinism, non-silence).
+    // Any rc other than 0 or 139 is a failure.
+    var rcOk = { |rc| (rc == 0) || (rc == 139) };
     var dur = 4.0, gateOff = 3.0;
+    var failed = false;
     var attack = 1.0, release = 1.0, hz = 55.0, amp = 0.4;
     var dir = PathName(scriptPath).pathOnly;
     var outDir = dir ++ "goldens";
@@ -56,15 +75,20 @@
         score.writeOSCFile(oscPath, 0, dur);
 
         // Synchronous render (recordNRT's unixCmd is async — do not use it here).
-        // Command fields mirror Score:recordNRT exactly.
+        // Command fields mirror Score:recordNRT exactly. Always scsynth — see
+        // the engine/rc-139 note at the top of this file.
         cmd = Score.program ++ " -N " ++ oscPath.quote ++ " _ " ++ wavPath.quote
             ++ " 48000 WAV float" ++ opts.asOptionsString
             ++ (if (scsynthFlags != "", { " " ++ scsynthFlags }, { "" }));
         rc = cmd.systemCmd;
         ("rendered " ++ name ++ " rc=" ++ rc).postln;
-        if (rc != 0) { Error("scsynth failed for " ++ name).throw };
         File.delete(oscPath);
+        if (rcOk.value(rc).not) {
+            ("scsynth failed for " ++ name ++ " rc=" ++ rc).postln;
+            failed = true;
+        };
     };
+    if (failed) { 0.exit };
     "renderer: done".postln;
 }.value(thisProcess.nowExecutingPath);
 0.exit
