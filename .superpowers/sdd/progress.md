@@ -5276,12 +5276,13 @@ Kit-only task; no drone ports until T-D3. Host gate:
 | core filters | done | 0b90411 | 11/11 exact |
 | renderer / env | done | 887ec9b | sc3-plugins 3.14.1-1 now system-wide (pacman); /tmp `-U`/`-l` wiring dropped, verified the two sc3p refs' `data` chunks stay byte-identical |
 | dynamics | done | 5449caa | 3/3 exact (Amplitude/Compander/Limiter) |
-| remaining | waiting | — | moog, sc3p filters, delays, localio, reverbs, pan, demand, buffers, chaos, sc3p dyn, sugar, hw |
+| moog + BEQ suite | done | *(this commit)* | 7/7 exact, all max_abs = 0 (MoogFF + 6 BEQ biquads); completes Task 6 except VarLag |
+| remaining | waiting | — | VarLag (Env/sugar), sc3p filters, delays, localio, reverbs, pan, demand, buffers, chaos, sc3p dyn, sugar, hw |
 
-Verified from a clean rebuild: `test_dronecaster: PASS (0 failures)`, 80 `ok:`
-lines, 0 FAILs, 66 active per-UGen refs after 5449caa (the three new dynamics
-refs are max_abs = 0, corr = 1.0). 67 ref FILES exist; `Klankar.expected.wav`
-is a tracked orphan — Klank is skipped and no test reads it.
+Verified: `test_dronecaster: PASS (0 failures)`, 73 active per-UGen refs after
+the MoogFF/BEQ commit (all seven new refs max_abs = 0, corr = 1.0). 74 ref
+FILES exist; `Klankar.expected.wav` is a tracked orphan — Klank is skipped and
+no test reads it.
 
 ### T-D2 findings (load-bearing, 5449caa)
 
@@ -5299,3 +5300,9 @@ is a tracked orphan — Klank is skipped and no test reads it.
 - **Limiter ctor off-by-one**: the ctor's one priming sample leaves `pos=1`,
   so with `bufsize=480` the second flip (first non-silent output) is sample
   959, not 960.
+- **MoogFF needs SC's float `PI` macro** (`FilterUGens.cpp:29`,
+  `3.1415926535898f` promoted to double), not SC_Constants' double `pi` —
+  using `M_PI` left a 7e-9 residual; matching the macro is bit-exact.
+- **BEQ slope divisor is `/3`, not `/4`**: `mFilterLoops = n/3 = 21`,
+  `mFilterSlope = 1/21`, one step per 3-sample group (Filter2Pole uses `/4`).
+  VarLag is classlib `EnvGen` expansion, deferred to the Env/sugar task.

@@ -369,6 +369,25 @@ int main() {
       per_sample("Lagar", [&](float x) { return u.Next(x, 0.01f); }); }
     { sc::LagUD u; u.Init(48000.0); u.Prime(in[0]);
       per_sample("LagUDar", [&](float x) { return u.Next(x, 0.01f, 0.05f); }); }
+    { sc::MoogFF u; u.Init(48000.0, 100.0f, 2.0f, 0.0f, in[0]);
+      for (int b = 0; b < 750; ++b)
+        u.ProcessBlock(in.data() + b * 64, out.data() + b * 64, 64,
+                       100.0f, 2.0f, 0.0f);
+      if (!ref_check("MoogFFar", out.data(), 48000)) ++g_failures; }
+    // BEQ suite (constant params: BLowPass/BHiPass/BPeakEQ/BAllPass use rq,
+    // shelves use rs). kind 1/5 are extras sharing the same coefficient law.
+    auto beq = [&](const char* name, int kind, float f, float p2, float p3) {
+      sc::BEQFilter u; u.Init(48000.0, kind, f, p2, p3, in[0]);
+      for (int b = 0; b < 750; ++b)
+        u.ProcessBlock(in.data() + b * 64, out.data() + b * 64, 64, f, p2, p3);
+      if (!ref_check(name, out.data(), 48000)) ++g_failures;
+    };
+    beq("BLowPassar",  0, 1000.0f, 1.0f, 0.0f);
+    beq("BHiPassar",   1, 1000.0f, 1.0f, 0.0f);
+    beq("BPeakEQar",   2, 1000.0f, 1.0f, 6.0f);
+    beq("BAllPassar",  3, 1000.0f, 1.0f, 0.0f);
+    beq("BLowShelfar", 4,  500.0f, 1.0f, 6.0f);
+    beq("BHiShelfar",  5, 5000.0f, 1.0f, 6.0f);
   }
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");

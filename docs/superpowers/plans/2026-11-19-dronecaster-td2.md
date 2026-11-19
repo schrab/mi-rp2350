@@ -83,8 +83,10 @@ do not port them again.
    feedback path, Select's index law, Klank's resonator bank.
 6. **sc_kit_filter.h** (core filters) — BEQ suite coefficient laws (LPF/HPF
    Bezout + RLPF/RHPF/B*), MoogFF, OnePole/LeakDC/Slew/Integrator/Lag/LagUD.
-   Status: the 11 named filters are done (`0b90411`); BEQ suite, MoogFF and
-   VarLag remain. Amplitude/Compander/Limiter landed in the separate
+   Status: the 11 named filters (`0b90411`), MoogFF + the BEQ suite (7 more,
+   all exact) and Amplitude/Compander/Limiter are done. VarLag remains and is
+   deferred to Task 15 (it expands to classlib `EnvGen` + `Changed` +
+   `Impulse`, not a CORE UGen). Core dynamics live in the separate
    **`sc_kit_core_dyn.h`** (`5449caa`) — do NOT use `sc_kit_dyn.h`, which is
    Task 14's filename.
 7. **sc_kit_sc3p_filter.h** — SVF (Blackrain), MoogLadder (Bhob), DFM1 (TJ);

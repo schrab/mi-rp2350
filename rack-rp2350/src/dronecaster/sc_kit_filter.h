@@ -314,5 +314,205 @@ struct LagUD {
   bool primed_ = false;
 };
 
+// MoogFF (FilterUGens.cpp:4064 MoogFF_Ctor / 4079 MoogFF_next): 4-state
+// Moog ladder. Reset, freq-coefficient recompute and the k fixed-vs-ramp
+// decision are once per BLOCK; the four one-pole stages run per sample.
+// Ctor: m_freq = uninitializedControl (forces coef compute), m_k = RAW gain
+// (unclipped), states 0, then one priming sample via MoogFF_next(unit, 1).
+struct MoogFF {
+  void Init(double sr, float freq, float gain, float reset, float first_in) {
+    sr_ = sr;
+    have_freq_ = false;
+    k_ = gain;  // source stores IN0(2) unclipped; next() compares to clipped
+    s1_ = s2_ = s3_ = s4_ = 0.0;
+    float unused;
+    ProcessBlock(&first_in, &unused, 1, freq, gain, reset);
+  }
+  void ProcessBlock(const float* in, float* out, int n, float freq, float gain,
+                    float reset) {
+    const float k = gain < 0.0f ? 0.0f : (gain > 4.0f ? 4.0f : gain);  // sc_clip
+    if (reset > 0.0f) s1_ = s2_ = s3_ = s4_ = 0.0;
+    if (!have_freq_ || freq_ != freq) {
+      const double T = 1.0 / sr_;
+      // MoogFF_next uses FilterUGens.cpp:29's float PI macro (3.1415926535898f
+      // promoted to double), NOT SC_Constants' double pi — match it exactly.
+      const double kSCFloatPi = static_cast<double>(3.1415926535898f);
+      double wcD = 2.0 * std::tan(T * kSCFloatPi * static_cast<double>(freq)) * sr_;
+      if (wcD < 0) wcD = 0;
+      const double TwcD = T * wcD;
+      b0_ = TwcD / (TwcD + 2.0);
+      a1_ = (TwcD - 2.0) / (TwcD + 2.0);
+      freq_ = freq;
+      have_freq_ = true;
+    }
+    const bool k_changed = (k_ != k);
+    float kcur = k, kslope = 0.0f;
+    if (k_changed) {
+      kslope = (k - k_) * (1.0f / 64.0f);  // CALCSLOPE, ar
+      kcur = k_;
+    }
+    const double b04 = b0_ * b0_ * b0_ * b0_;
+    for (int i = 0; i < n; ++i) {
+      const double o = s4_ + b0_ * (s3_ + b0_ * (s2_ + b0_ * s1_));
+      const double ins = in[i];
+      const double outs = (b04 * ins + o) /
+                          (1.0 + b04 * static_cast<double>(kcur));
+      out[i] = static_cast<float>(outs);
+      const double u = ins - static_cast<double>(kcur) * outs;
+      double past = u;
+      double future = b0_ * past + s1_;  s1_ = b0_ * past - a1_ * future;
+      past = future; future = b0_ * past + s2_; s2_ = b0_ * past - a1_ * future;
+      past = future; future = b0_ * past + s3_; s3_ = b0_ * past - a1_ * future;
+      s4_ = b0_ * future - a1_ * outs;
+      if (k_changed) kcur += kslope;
+    }
+    if (k_changed) k_ = k;
+    s1_ = ZapGremlins(s1_); s2_ = ZapGremlins(s2_);
+    s3_ = ZapGremlins(s3_); s4_ = ZapGremlins(s4_);
+  }
+
+ private:
+  static double ZapGremlins(double x) {
+    return (x < 3.4e38 && x > -3.4e38) ? x : 0.0;
+  }
+  double sr_ = 48000.0, b0_ = 0.0, a1_ = 0.0;
+  double s1_ = 0.0, s2_ = 0.0, s3_ = 0.0, s4_ = 0.0;
+  float freq_ = 0.0f, k_ = 0.0f;
+  bool have_freq_ = false;
+};
+
+// BEQSuite (FilterUGens.cpp:4167 BPerformFilterLoop; Ctors at 4209 BLowPass,
+// 4377 BHiPass, 4824 BPeakEQ, 4972 BAllPass, 5112 BLowShelf, 5272 BHiShelf).
+// All six share one direct-form biquad; only the coefficient law differs.
+// The ctor primes ONE sample with PUSH_LOOPVALS (loops=0, remain=1), matching
+// the source. On a param change coefficients interpolate one step per 3-sample
+// group (mFilterLoops = n/3, mFilterSlope = 1/mFilterLoops) — NOT the /4 law
+// of Filter2Pole above. w0 = twopi*f/sr uses SC_Constants' double pi.
+struct BEQFilter {
+  // 0 BLowPass, 1 BHiPass, 2 BPeakEQ, 3 BAllPass, 4 BLowShelf, 5 BHiShelf.
+  // p2 = rq (LP/HP/AP/Peak) or rs (shelves); p3 = db (Peak/shelves).
+  void Init(double sr, int kind, float freq, float p2, float p3,
+            float first_in) {
+    sr_ = sr;
+    kind_ = kind;
+    Compute(freq, p2, p3, &a0_, &a1_, &a2_, &b1_, &b2_);
+    freq_ = freq; p2_ = p2; p3_ = p3;
+    y1_ = y2_ = 0.0;
+    float unused;
+    Run(first_in, unused);
+  }
+  void ProcessBlock(const float* in, float* out, int n, float freq, float p2,
+                    float p3) {
+    const bool changed = freq != freq_ || p2 != p2_ ||
+                         ((kind_ == 2 || kind_ >= 4) && p3 != p3_);
+    if (changed) {
+      double na0, na1, na2, nb1, nb2;
+      Compute(freq, p2, p3, &na0, &na1, &na2, &nb1, &nb2);
+      const double kSlope = 1.0 / static_cast<double>(n / 3);
+      RunBlock(in, out, n, a0_, a1_, a2_, b1_, b2_,
+               (na0 - a0_) * kSlope, (na1 - a1_) * kSlope,
+               (na2 - a2_) * kSlope, (nb1 - b1_) * kSlope,
+               (nb2 - b2_) * kSlope);
+      a0_ = na0; a1_ = na1; a2_ = na2; b1_ = nb1; b2_ = nb2;
+      freq_ = freq; p2_ = p2; p3_ = p3;
+    } else {
+      RunBlock(in, out, n, a0_, a1_, a2_, b1_, b2_, 0.0, 0.0, 0.0, 0.0, 0.0);
+    }
+    y1_ = ZapGremlins(y1_);
+    y2_ = ZapGremlins(y2_);
+  }
+
+ private:
+  void Compute(float freq, float p2, float p3, double* a0, double* a1,
+               double* a2, double* b1, double* b2) const {
+    const double twopi = 2.0 * M_PI;
+    const double w0 = twopi * static_cast<double>(freq) / sr_;
+    const double cosw0 = std::cos(w0);
+    if (kind_ <= 1) {                       // BLowPass / BHiPass
+      const double i = kind_ == 0 ? 1.0 - cosw0 : 1.0 + cosw0;
+      const double alpha = std::sin(w0) * 0.5 * static_cast<double>(p2);
+      const double b0rz = 1.0 / (1.0 + alpha);
+      *a0 = i * 0.5 * b0rz;
+      *a1 = (kind_ == 0 ? i : -i) * b0rz;
+      *a2 = *a0;
+      *b1 = cosw0 * 2.0 * b0rz;
+      *b2 = (1.0 - alpha) * -b0rz;
+    } else if (kind_ == 2) {                // BPeakEQ
+      const double a = std::pow(10.0, static_cast<double>(p3) * 0.025);
+      const double alpha = std::sin(w0) * 0.5 * static_cast<double>(p2);
+      const double b0rz = 1.0 / (1.0 + alpha / a);
+      *b1 = 2.0 * b0rz * cosw0;
+      *a0 = (1.0 + alpha * a) * b0rz;
+      *a1 = -*b1;
+      *a2 = (1.0 - alpha * a) * b0rz;
+      *b2 = (1.0 - alpha / a) * -b0rz;
+    } else if (kind_ == 3) {                // BAllPass
+      const double alpha = std::sin(w0) * 0.5 * static_cast<double>(p2);
+      const double b0rz = 1.0 / (1.0 + alpha);
+      *a0 = (1.0 - alpha) * b0rz;
+      *b1 = 2.0 * b0rz * cosw0;
+      *a1 = -*b1;
+      *a2 = 1.0;
+      *b2 = -*a0;
+    } else {                                // BLowShelf / BHiShelf
+      const double a = std::pow(10.0, static_cast<double>(p3) * 0.025);
+      const double sinw0 = std::sin(w0);
+      const double alpha = sinw0 * 0.5 *
+          std::sqrt((a + 1.0 / a) * (static_cast<double>(p2) - 1.0) + 2.0);
+      const double i = (a + 1.0) * cosw0;
+      const double j = (a - 1.0) * cosw0;
+      const double k = 2.0 * std::sqrt(a) * alpha;
+      const double b0rz = 1.0 / ((a + 1.0) + (kind_ == 4 ? j : -j) + k);
+      *a0 = a * ((a + 1.0) - (kind_ == 4 ? j : -j) + k) * b0rz;
+      *a1 = (kind_ == 4 ? 1.0 : -1.0) * 2.0 * a *
+            ((a - 1.0) + (kind_ == 4 ? -i : i)) * b0rz;
+      *a2 = a * ((a + 1.0) - (kind_ == 4 ? j : -j) - k) * b0rz;
+      *b1 = (kind_ == 4 ? 1.0 : -1.0) * 2.0 *
+            ((a - 1.0) + (kind_ == 4 ? i : -i)) * b0rz;
+      *b2 = ((a + 1.0) + (kind_ == 4 ? j : -j) - k) * -b0rz;
+    }
+  }
+  // Source's PUSH_LOOPVALS priming path: one sample, fixed coefficients.
+  void Run(float x, float& out) {
+    const double y0 = x + b1_ * y1_ + b2_ * y2_;
+    out = static_cast<float>(a0_ * y0 + a1_ * y1_ + a2_ * y2_);
+    y2_ = y1_;
+    y1_ = y0;
+  }
+  // Source BPerformFilterLoop: 3-sample groups, coefficients step once per
+  // group; the remainder uses the final coefficients.
+  void RunBlock(const float* in, float* out, int n, double a0, double a1,
+                double a2, double b1, double b2, double sa0, double sa1,
+                double sa2, double sb1, double sb2) {
+    int i = 0;
+    for (int groups = n / 3; groups > 0; --groups) {
+      const double y0 = in[i + 0] + b1 * y1_ + b2 * y2_;
+      out[i + 0] = static_cast<float>(a0 * y0 + a1 * y1_ + a2 * y2_);
+      const double y1 = in[i + 1] + b1 * y0 + b2 * y1_;
+      out[i + 1] = static_cast<float>(a0 * y1 + a1 * y0 + a2 * y1_);
+      const double y2 = in[i + 2] + b1 * y1 + b2 * y0;
+      out[i + 2] = static_cast<float>(a0 * y2 + a1 * y1 + a2 * y0);
+      y2_ = y1;   // previous output
+      y1_ = y2;   // newest output
+      i += 3;
+      a0 += sa0; a1 += sa1; a2 += sa2; b1 += sb1; b2 += sb2;
+    }
+    for (; i < n; ++i) {
+      const double y0 = in[i] + b1 * y1_ + b2 * y2_;
+      out[i] = static_cast<float>(a0 * y0 + a1 * y1_ + a2 * y2_);
+      y2_ = y1_;
+      y1_ = y0;
+    }
+  }
+  static double ZapGremlins(double x) {
+    return (x < 3.4e38 && x > -3.4e38) ? x : 0.0;
+  }
+  double sr_ = 48000.0;
+  int kind_ = 0;
+  double a0_ = 0.0, a1_ = 0.0, a2_ = 0.0, b1_ = 0.0, b2_ = 0.0;
+  double y1_ = 0.0, y2_ = 0.0;
+  float freq_ = 0.0f, p2_ = 0.0f, p3_ = 0.0f;
+};
+
 }  // namespace sc
 #endif

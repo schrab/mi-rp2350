@@ -97,6 +97,14 @@
         ["Slewar",     { Out.ar(0, Slew.ar(Saw.ar(220), 1, 1)) }],
         ["Lagar",      { Out.ar(0, Lag.ar(Saw.ar(220), 0.01)) }],
         ["LagUDar",    { Out.ar(0, LagUD.ar(Saw.ar(220), 0.01, 0.05)) }],
+        ["MoogFFar",   { Out.ar(0, MoogFF.ar(Saw.ar(220), 100, 2)) }],
+        // BEQ suite: constant scalar params (the _ii/_kkk paths).
+        ["BLowPassar", { Out.ar(0, BLowPass.ar(Saw.ar(220), 1000, 1)) }],
+        ["BHiPassar",  { Out.ar(0, BHiPass.ar(Saw.ar(220), 1000, 1)) }],
+        ["BPeakEQar",  { Out.ar(0, BPeakEQ.ar(Saw.ar(220), 1000, 1, 6)) }],
+        ["BAllPassar", { Out.ar(0, BAllPass.ar(Saw.ar(220), 1000, 1)) }],
+        ["BLowShelfar",{ Out.ar(0, BLowShelf.ar(Saw.ar(220), 500, 1, 6)) }],
+        ["BHiShelfar", { Out.ar(0, BHiShelf.ar(Saw.ar(220), 5000, 1, 6)) }],
 
         // ---- T-D2 dynamics family (core: Amplitude/Compander/Limiter) ----
         ["Amplitude",  { Out.ar(0, Amplitude.ar(Saw.ar(220), 0.01, 0.1)) }],

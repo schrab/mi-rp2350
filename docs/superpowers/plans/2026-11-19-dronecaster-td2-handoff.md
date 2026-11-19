@@ -28,9 +28,10 @@ Commits on branch `rack-rp2350` (pushed):
 | `21fec7f` | osc2 kit + filter kit (ports) |
 | `0b90411` | filter references all passing |
 | `887ec9b` | renderer simplified for the system sc3-plugins install |
-| *(this commit)* | dynamics family — Amplitude/Compander/Limiter, 3/3 exact |
+| `5449caa` | dynamics family — Amplitude/Compander/Limiter, 3/3 exact |
+| *(this commit)* | MoogFF + BEQ suite — 7/7 exact (completes plan Task 6 except VarLag) |
 
-**Done and reference-exact (66 UGens + the trio):**
+**Done and reference-exact (73 UGens + the trio):**
 
 - `sc_kit_noise.h` — WhiteNoise, ClipNoise, GrayNoise, PinkNoise, BrownNoise,
   Crackle, Dust, Dust2, LFNoise0/1/2 (ar + kr), LFClipNoise, LFDNoise0,
@@ -50,9 +51,14 @@ Commits on branch `rack-rp2350` (pushed):
   Limiter/Normalizer — see §7); `gen_ugen_ref.scd` entries take an optional
   third element as an engine override.
 
+- `sc_kit_filter.h` (continued) — MoogFF (4-state ladder) + BEQ suite
+  (BLowPass/BHiPass/BPeakEQ/BAllPass/BLowShelf/BHiShelf, one shared biquad).
+  **7/7 exact** (all max_abs = 0). Completes plan Task 6 except VarLag
+  (classlib EnvGen expansion — deferred to the Env/sugar task).
+
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
-— expects `PASS (0 failures)` (66 active refs as of the dynamics commit;
+— expects `PASS (0 failures)` (73 active refs as of the MoogFF/BEQ commit;
 `ugen_ref/Klankar.expected.wav` is a tracked orphan from an earlier attempt —
 Klank is skipped, so no test reads it).
 
@@ -99,7 +105,8 @@ Klank is skipped, so no test reads it).
 | Task | UGens | Where to read | Notes |
 |---|---|---|---|
 | ~~dynamics~~ | ~~Amplitude, Compander, Limiter~~ **DONE**; VarLag remains | `/tmp/sc_full/server/plugins/FilterUGens.cpp` | `sc_kit_core_dyn.h` 3/3 exact. VarLag is classlib (EnvGen-based) — port with the Env work. |
-| moog | MoogFF | FilterUGens.cpp `MoogFF_next` | `wcD = 2 tan(T*pi*f)*sr; b0 = TwcD/(TwcD+2); a1 = (TwcD-2)/(TwcD+2)`; 4-state ladder (s1..s4) + reset input. |
+| ~~moog~~ | ~~MoogFF~~ **DONE** | FilterUGens.cpp `MoogFF_next` | in `sc_kit_filter.h`, 1/1 exact; uses FilterUGens.cpp:29's **float** `PI` macro (using double `pi` leaves a 7e-9 residual). |
+| ~~beq~~ | ~~BAllPass/BLowPass/BHiShelf/BPeakEQ/BLowShelf~~ (+BHiPass) **DONE** | FilterUGens.cpp BEQSuite Ctors | `sc_kit_filter.h` `BEQFilter`, 6/6 exact; slope law = `1/(n/3)`, NOT `/4`. |
 | sc3p filters | SVF, MoogLadder, DFM1 | `/tmp/sc3p_full/source/BlackrainUGens/`, `BhobUGens/BhobFilt.cpp`, `TJUGens/Dfm1.cpp` (+ Dfm1Lut) | **Quote each file's license header verbatim.** DFM1 ships a lookup table (Dfm1Lut.h) — port it as a table constant. |
 | delays | DelayN/L/C, CombN/L/C, AllpassN/C, BufDelayN/C, BufAllpassC, Pluck, PitchShift | DelayUGens.cpp | Common delay core; `maxdelaytime`-sized buffers belong in the voice arena (add a delay-buffer alloc helper). Pluck = Karplus-Strong. PitchShift = the clouds-style pitch shifter — reuse the correlator knowledge from `lib/clouds`. |
 | localio | LocalIn, LocalOut | IOUGens.cpp | Engine-level feedback buses: the C++ engine needs a per-voice LocalBus area in the arena; `LocalIn` reads last block's `LocalOut` writes. |
@@ -151,6 +158,12 @@ Klank is skipped, so no test reads it).
   thresh) is derived from its FINAL value and CALCSLOPE-ramped across the
   block. Recomputing the gain per sample looks plausible and is badly wrong
   (this exact mistake gave max_abs 0.25 / corr 0.9988 before the fix).
+- **BEQ slope law differs from Filter2Pole**: `mFilterLoops = n/3`,
+  `mFilterSlope = 1/mFilterLoops` (n=64 → 21 groups of 3 samples + 1 remain),
+  applied once per 3-sample group. `Filter2Pole` uses `/4` — do not copy that
+  divisor into the BEQ code. VarLag is classlib `Env([start,in],[time],warp)`
+  + `EnvGen` + `Changed` + `Impulse` (Filter.sc:113-145), not a CORE UGen —
+  deferred to the Env/sugar task.
 - **Limiter rotation**: `m_xinbuf = table`, `m_xmidbuf = table+bufsize`,
   `m_xoutbuf = table+2*bufsize` (ZOFF=0 on x86). On flip,
   `out<-mid, mid<-in, in<-old out`. The ctor's one sample leaves `pos=1`,
