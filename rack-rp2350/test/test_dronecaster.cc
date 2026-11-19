@@ -25,6 +25,7 @@
 #include "../src/dronecaster/sc_kit_pan.h"
 #include "../src/dronecaster/sc_kit_greyhole.h"
 #include "../src/dronecaster/sc_kit_demand.h"
+#include "../src/dronecaster/sc_kit_buf.h"
 #include <cstdio>
 
 #include <cmath>
@@ -642,6 +643,25 @@ int main() {
       sc::DXRand s({INFINITY, 1, 2, 3, 4}, &r); run("DemandDxrand", &s); }
     { sc::RGen r; r.init(sc::kGoldenSeed);
       sc::DBrown s({INFINITY, 0, 1, 0.1f}, &r); run("DemandDbrown", &s); }
+  }
+
+  printf("== T-D2 Task 12 buffer UGens vs NRT references ==\n");
+  {
+    const float values[] = {48000.f, 750.f, 128.f, 1.f, 48000.f};
+    const char* names[] = {"SampleRate", "ControlRate", "BufFrames",
+                           "BufRateScale", "BufSampleRate"};
+    for (int k = 0; k < 5; ++k) {
+      std::vector<float> out(48000, values[k]);
+      if (!ref_check(names[k], out.data(), 48000)) ++g_failures;
+    }
+    { sc::HostBuffer b; b.Init(128, 1);
+      sc::BufWr wr; wr.Init(&b); sc::BufRd rd; rd.Init(&b, 1);
+      std::vector<float> ph(48000, 5.f), sig(48000, 0.42f), out(48000);
+      for (int i = 0; i < 750; ++i) {
+        wr.ProcessBlock(ph.data() + i * 64, sig.data() + i * 64, 64, 0);
+        rd.ProcessBlock(ph.data() + i * 64, out.data() + i * 64, 64, 0);
+      }
+      if (!ref_check("BufWrRd1", out.data(), 48000)) ++g_failures; }
   }
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");

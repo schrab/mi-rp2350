@@ -161,6 +161,16 @@
         ["DemandDxrand", { Out.ar(0, Demand.ar(Impulse.ar(10), 0, Dxrand([1,2,3,4], inf))) }, "supernova"],
         ["DemandDbrown", { Out.ar(0, Demand.ar(Impulse.ar(10), 0, Dbrown(0, 1, 0.1))) }, "supernova"],
 
+        // ---- T-D2 Task 12: buffer UGens ----
+        ["SampleRate",  { Out.ar(0, K2A.ar(SampleRate.ir)) }],
+        ["ControlRate", { Out.ar(0, K2A.ar(ControlRate.ir)) }],
+        ["BufFrames",   { var b = LocalBuf(128); Out.ar(0, K2A.ar(BufFrames.kr(b))) }],
+        ["BufRateScale",{ var b = LocalBuf(128); Out.ar(0, K2A.ar(BufRateScale.kr(b))) }],
+        ["BufSampleRate",{ var b = LocalBuf(128); Out.ar(0, K2A.ar(BufSampleRate.kr(b))) }],
+        ["BufWrRd1",    { var b = LocalBuf(128);
+                          BufWr.ar(DC.ar(0.42), b, DC.ar(5), 0);
+                          Out.ar(0, BufRd.ar(1, b, DC.ar(5), 0, 1)) }],
+
         // ---- Task 9 cont.: GreyholeRaw (faust, separate header) ----
         // GreyholeRaw needs scsynth (supernova cannot load the UGen at all);
         // the Faust plugin segfaults at SHUTDOWN after writing a complete wav.

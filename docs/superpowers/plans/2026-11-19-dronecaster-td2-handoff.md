@@ -40,9 +40,10 @@ Commits on branch `rack-rp2350` (pushed):
 | `3a45564` | Pan2/Balance2/Rotate2 — 3/3 exact (Task 10 core done) |
 | `6c57748` | GreyholeRaw — 1/1 exact (Task 9 complete: 3/3) |
 | `2b27ce0` | Klank real NRT ref + Splay/SplayAz/PanAz — 4/4 exact (Tasks 5 + 10 complete) |
-| *(this commit)* | Demand value generators (Demand/Dseq/Drand/Dxrand/Dseries/Dbrown) — 6/6 exact |
+| `2cc25bf` | Demand value generators (Demand/Dseq/Drand/Dxrand/Dseries/Dbrown) — 6/6 exact |
+| *(this commit)* | Buffer info + BufWr/BufRd (nearest) — 6/6 exact |
 
-**Done and reference-exact (110 UGens + the trio):**
+**Done and reference-exact (116 UGens + the trio):**
 
 - `sc_kit_noise.h` — WhiteNoise, ClipNoise, GrayNoise, PinkNoise, BrownNoise,
   Crackle, Dust, Dust2, LFNoise0/1/2 (ar + kr), LFClipNoise, LFDNoise0,
@@ -101,10 +102,15 @@ Commits on branch `rack-rp2350` (pushed):
 - `sc_kit_demand.h` — Demand + Dseq/Drand/Dxrand/Dseries/Dbrown **6/6 exact**.
   Trap: the Demand* Ctors call `next(unit,0)` (a RESET), and Drand/Dxrand's
   reset consumes an `irand` draw — the host port must call `Reset()` too or
-  the RNG sequence is offset by one. Dbufrd/Dbufwr pending: a `LocalBuf` +
+  the RNG sequence is offset by one.
+- `sc_kit_buf.h` — SampleRate/ControlRate/BufFrames/BufRateScale/BufSampleRate
+  and BufWr/BufRd(interp 1) **6/6 exact**. Dbufrd/Dbufwr pending: a `LocalBuf` +
   demand UGens render garbage in NRT supernova here (the reference itself is
   uninitialized-memory noise), so they need proper buffer infrastructure from
-  Task 12 before a trustworthy ref can be made.
+  Task 12 before a trustworthy ref can be made. BufRd interp 2/4 with a
+  `LocalBuf` also render uninitialized memory in NRT here — only interp 1
+  (nearest, with constant phase) produced a trustworthy ref, so the cubic
+  path in `sc_kit_buf.h` is law-only for now.
 
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
