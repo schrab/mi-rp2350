@@ -29,6 +29,7 @@
 #include "../src/dronecaster/sc_kit_chaos.h"
 #include "../src/dronecaster/sc_kit_sc3p_dyn.h"
 #include "../src/dronecaster/sc_sugar.h"
+#include "../src/dronecaster/sc_kit_hw.h"
 #include <cstdio>
 
 #include <cmath>
@@ -696,6 +697,18 @@ int main() {
         d.ProcessBlock(trig.data() + i*64, 0.f, o, 64);
       }
       if (!ref_check("DemandBufRd", out.data(), 48000)) ++g_failures; }
+  }
+
+  printf("== T-D2 Task 16 hardware constants vs NRT references ==\n");
+  {
+    std::vector<float> out(48000);
+    for (const char* name : {"MouseXkr", "MouseYkr"}) {
+      sc::MouseInput u; u.Init(48000.0);
+      { float prime; u.ProcessBlock(&prime, 1, 0.5f, 0.f, 1.f, 0.f, 0.f); }
+      for (int i = 0; i < 750; ++i)
+        u.ProcessBlock(out.data()+i*64, 64, 0.5f, 0.f, 1.f, 0.f, 0.2f);
+      if (!ref_check(name, out.data(), 48000)) ++g_failures;
+    }
   }
 
   printf("== T-D2 Task 15 sugar vs NRT references ==\n");

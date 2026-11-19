@@ -182,6 +182,10 @@
                           BufWr.ar(DC.ar(0.42), b, DC.ar(5), 0);
                           Out.ar(0, Demand.ar(Impulse.ar(10), 0, Dbufrd(b, 5, 0))) }],
 
+        // ---- T-D2 Task 16: hardware constants (NRT global = 0) ----
+        ["MouseXkr",   { Out.ar(0, K2A.ar(MouseX.kr(0, 1, 0, 0.2))) }],
+        ["MouseYkr",   { Out.ar(0, K2A.ar(MouseY.kr(0, 1, 0, 0.2))) }],
+
         // ---- T-D2 Task 15: sugar expansion helpers ----
         ["SelectXar",  { Out.ar(0, SelectX.ar(0.3, [Saw.ar(220), Saw.ar(330)])) }],
         ["TChoosear",  { Out.ar(0, TChoose.ar(Impulse.ar(10), [DC.ar(1), DC.ar(2), DC.ar(3)])) }],
