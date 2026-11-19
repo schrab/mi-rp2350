@@ -5,8 +5,8 @@ Guide for coding agents working in this repository.
 ## What this repo is
 
 The rack synth monorepo: **`rack-rp2350/`** — one unified RP2350 firmware
-running five live-switchable modules (Elements, Clouds, Plaits 98-engine,
-Rings MiniElements, LIRA-8) on the **NoLogo Mini USB RP2350** board (the
+running six live-switchable modules (Elements, Clouds, Plaits 98-engine,
+Rings MiniElements, LIRA-8, Dronecaster) on the **NoLogo Mini USB RP2350** board (the
 "RP2350 nano" — see [`docs/rp2350-board.md`](docs/rp2350-board.md)) +
 PCM5102A I2S DAC,
 with native USB MIDI device, DIN MIDI, an ESP32-C3 UI link
@@ -21,8 +21,9 @@ everything — the pristine sources live in history if a diff is ever needed).
 Do not regenerate or "sync" the libs, and do not reintroduce patches.
 
 `RACK_BOOT_MODULE` picks the boot module (0 elements / 1 clouds / 2 plaits /
-3 rings / 4 lira8 — the env boots LIRA-8); new modules continue the ids
-(5, 6, ...): add the adapter to `src/`, extend the registry/window tables,
+3 rings / 4 lira8 / 5 dronecaster — the env boots Elements); new modules
+continue the ids (6, 7, ...): add the adapter to `src/`, extend the
+registry/window tables,
 bump the define in `platformio.ini`. Any module is reachable at runtime via
 MIDI CC 32 or the serial console.
 
@@ -33,7 +34,7 @@ MIDI CC 32 or the serial console.
 | [`.superpowers/sdd/progress.md`](.superpowers/sdd/progress.md) | **The ledger** — task status, commit hashes, and the authoritative investigation findings (build quirks, TinyUSB API facts, reverb root cause, FX chain law). Read this before debugging anything |
 | [`docs/PORTING-HIGHLIGHTS.md`](docs/PORTING-HIGHLIGHTS.md) | Distilled porting experience: SRAM/XIP law, build rules, profiling pattern, acceptance checklist (its sync/patch sections are historical — that layer is gone) |
 | [`docs/rp2350-board.md`](docs/rp2350-board.md) | **Board reference** — NoLogo Mini USB RP2350 pinout (edge/Qwiic/pads), peripheral inventory, crystal/VREF/flash facts, and how the rack uses each pin |
-| [`rack-rp2350/README.md`](rack-rp2350/README.md) | **Rack firmware docs**: five modules, chain mode, SRAM pool, wiring, MIDI/CC maps, console, soak checklist |
+| [`rack-rp2350/README.md`](rack-rp2350/README.md) | **Rack firmware docs**: six modules, chain mode, SRAM pool, wiring, MIDI/CC maps, console, soak checklist |
 | [`rack-uimcu/README.md`](rack-uimcu/README.md) | ESP32-C3 UI firmware: pages, gestures, link protocol, build/flash |
 | [`tools/rack_panel.html`](tools/rack_panel.html) | Browser control panel for the rack build: CC 32 module switching (tabs), all CC maps, mod-engine bench mux (CC 33/34/35), optional Web Serial console |
 | [`tools/elements_panel.html`](tools/elements_panel.html) / [`tools/clouds_panel.html`](tools/clouds_panel.html) | Legacy single-module Web-MIDI panels (kept for reference) |
@@ -50,7 +51,7 @@ rack-rp2350/
 │   ├── main.cpp          # core 0 control + core 1 audio/swap/chain pipeline
 │   ├── rack_arena.h      # unified 331,776 B SRAM pool + bump allocator
 │   ├── rack_window.h     # flash -> SRAM hot-code window copy
-│   ├── module_*.h        # five module adapters (elements/clouds/plaits/rings/lira8)
+│   ├── module_*.h        # six module adapters (elements/clouds/plaits/rings/lira8/dronecaster)
 │   ├── rack_dist.h       # shared 5-algo distortion (Rings + Elements pre-reverb insert; incl. the Swedish Chainsaw)
 │   ├── lira8/            # hand-ported LIRA-8 engine (pure C++, host-testable)
 │   ├── ui_link.h         # ESP32-C3 UI link (non-blocking TX ring)
@@ -69,7 +70,7 @@ rack-uimcu/               # ESP32-C3 UI firmware (ESP-IDF, tools/build_uimcu.bat
 ### Build
 
 ```sh
-# Rack (ACTIVE target, five modules, one unified firmware)
+# Rack (ACTIVE target, six modules, one unified firmware)
 pio run -d rack-rp2350
 # → rack-rp2350/.pio/build/rack/firmware.uf2
 

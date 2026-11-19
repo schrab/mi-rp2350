@@ -5188,3 +5188,75 @@ Mode sweep on HW (CC 50, max Process vs the 1000 us budget at 32 kHz): granular 
 scoreboard: elements (v=241 + stages / 496), plaits (28-113 / 496, promoted this session),
 rings (59.2/60.4 KB marked), lira8 (455-591 / 1451), clouds (137-190 / 1000). All in budget
 with margin; stalls 0 everywhere.
+
+## DRONECASTER T-D1 — module id 5, trio bit-exact, USER-ACCEPTED (2026-11-19)
+
+| Task | Status | Committed | Notes |
+|---|---|---|---|
+| 1 Vendor 37 drones + SynthSocket (GPL-3.0, pinned) | done | c46ea17 | pinned b33edd1793e060e0bc156502cae3aab623cb06e7; catalog = byte-wise sort verified (Shields=21, Sine=22, Square=23, Thx=27, Toshiya=28, Triangle=29, harms way=36) |
+| 2 scsynth float32 goldens | done | 3b43fa7 | **SuperCollider 3.14.1** (distro pacman pkg extracted to /tmp/sc_root — sudo install unavailable); 192000-frame 48 kHz stereo float32, seed 0xC0FFEE, deterministic (data-region compare — scsynth's PEAK chunk embeds a wall-clock timestamp), trimmed 3001→3000 blocks (scsynth -N renders one block past the duration marker) |
+| 3 Comparator + wav_io float32 | done | 02a7a0c | chunk-walking ReadWav (scsynth writes fmt+fact+PEAK — a fixed 44-byte header read grabs the fact payload as data_bytes); gates max_abs ≤ 1e-6 / corr ≥ 0.999999 |
+| 4 sc_defs + taus88 RGen | done | ce1a3ce | all plan vectors pass exactly (Hash-seeded init, frand0∈[1,2), no frand1) |
+| 5 Kit tables + SinOsc/LFTri + arena | done | fa3085d | 131,080 B tables (Samp.cpp identical 3.13↔3.14); **3.14 deltas: SinOsc cpstoinc float local** (Osc_*_perform copies the double member), **LFTri ctor-priming rollback** (first sample at phase 0) |
+| 6 Pulse BLIT | done | e80d586 | body identical 3.13↔3.14; plan's 8 pinned samples pass; steady-state peak 0.7665×0.4 = the golden's Square peak exactly (the ~1.08 in the plan's test = the start-up transient) |
+| 7 EnvAsr + engine + trio | done | e7ab87a | **3.14 EnvGen ctor rolls back to initial conditions** → first rendered kr block outputs 0.0, every 3.13 vector shifts one call; counter_fractional ≡ counter for integer durations; shape_Linear implemented for counter==1 (reachable at the 0.001 s fade clamp) |
+| 8 Trio goldens pass | done | 0b24f0e | **max_abs ≤ 7.8e-7, corr = 1.000000000** after the multiply-law fix (below) |
+| 9 Firmware integration (adapter/window/linker/wrapper/preset/C3) | done | f144475 | tc_dronecaster slot **1,232 B** (one -O3 wrapper, engine inlined); preset v5 = 1215 B (cap 1216); C3 6 slots + DRONECSTR; standalone-only (kChainABufferBytes[5] = 0); RAM 72.9% |
+| 10 Panel tab | done | 7ce7cf3 | CC 51 steps selector (bytes 22/23/29), amp/fade/hz knobs, MOD_DESTS row |
+| 11 Flash + smoke + docs + acceptance | done (user-accepted) | 5679ead (+ this ledger commit) | RP2350 BOOTSEL ×2 + C3 idf.py flashed; **user verdict verbatim: "yes all working"**; CC 51 pot-thirds fix 5679ead below |
+
+Findings (T-D1):
+
+### SC 3.14.1 vs the plan's 3.13.1 anchors — three behavioral deltas (all verified against the tag)
+
+The distro ships 3.14.1; the plan's rev-2 anchors were re-read at Version-3.14.1
+per the plan's own guard. RGen/Samp.cpp/SndBuf/Pulse/Env.asr/Score are
+unchanged; three things moved:
+1. **SinOsc**: `Osc_*_perform` copies the double `m_cpstoinc` into a FLOAT
+   local → the per-sample increment is `(int32)(float(cpstoinc)*freq)`, not
+   double math. (At 55 Hz both agree — the unit vectors couldn't catch it.)
+2. **LFTri**: the ctor now UNDOES its priming call (`m_phase = initPhase`)
+   → the first rendered sample sits at phase 0 (3.13 advanced one step).
+3. **EnvGen**: the ctor primes one control sample then RESTORES INITIAL
+   CONDITIONS → the first rendered kr block outputs 0.0 and the whole env
+   shifts one call later vs 3.13. Headless-sclang traps fixed in the
+   renderer: top-level `( ... )` groups never execute in plain sclang, a
+   late `var` = silent parse hang, `thisProcess.randSeed_` is gone (use
+   `thisThread.randSeed_`), `\d_recv`+`\s_new` in one bundle races (use the
+   d_recv completion message), scsynth -N needs `-U <plugindir>` for a
+   user-local install.
+
+### The multiply law that made the goldens bit-exact (worth remembering for T-D2)
+
+The rev-2 plan multiplied each internal 64-block by ONE EnvGen.kr value
+(block-constant). scsynth's ar×kr BinaryOp uses **CALCSLOPE interpolation**:
+block k is multiplied by the LINEAR RAMP v(k−1) → v(k) (BinaryOpUGens.cpp
+ak/ka loops; verified sample-exact — block 1 end = v(1)×63/64, block 2251
+extrapolates exactly to v(2251)). Engine fix: ramp the env across the
+block, apply gate/swap intents BEFORE the env call of the block they
+affect, and make swap blocks silent (ramp 0 → v(0)). Residual max_abs
+dropped 2.1e-3 → 7.8e-7; corr → 1.0.
+
+### CC 51 pot-thirds (hardware-caught UX law)
+
+The adapter first treated the raw CC byte as a catalog id — a 0-127 C3 pot
+only switched when it landed exactly on 22/23/29 (user: "the drones not
+switching. drone control does nothing"; the console's `dc: drone id N not
+ported` spam of pot values was the tell). Fix (lira8 selector pattern):
+bytes 0-36 stay direct catalog ids (panel steps/console/T-D2), pot travel
+37-127 maps in thirds onto the trio (37-67 Sine, 68-97 Square, 98-127
+Triangle). Verified on board (CC 51=80 → Square, sw=2, nan=0). Any future
+module with a sparse selector must get this treatment at design time, not
+after the user's first pot sweep.
+
+### T-D2 headroom (measured, no action needed)
+
+Dronecaster on HW: max Process 189 µs of the 1333 µs budget (14%), stalls 0,
+nan=0, window slot 1,232 B, RAM 72.9% total. The corpus scan for T-D2: only
+the trio is buildable from the T-D1 kit; cheapest next pulls = harms way
+(Rand + Splay) and Supersaw (BPF + Saw + Splay); the big families are
+LFNoise0/1/2 (131 uses), filters (73), delays (67), Select/TChoose (41),
+Pan/Splay (35), Impulse/Dust (70).
+
+State at acceptance: dronecaster live on HW (user-accepted, "yes all
+working"), boot module unchanged (Elements), chain untouched (standalone-only).
