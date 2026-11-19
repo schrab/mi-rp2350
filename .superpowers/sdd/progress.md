@@ -5379,3 +5379,13 @@ dual-MAC, init-time powf caching, FZ/DN, -O3 SRAM sections) are to be applied
 only after a HW measurement flags a hot UGen. FZ/DN is already global
 (`main.cpp:929-931`, `2915-2917`), -O3 is in `lib/dronecaster_engine/library.json`.
 One free fix landed: `Splay` scratch buffers moved off the heap (`2c8a180`).
+
+### T-D2 law-only gaps (continued, this session)
+- `sc_sugar.h`: `PMOsc` (two-phase-accumulator composition over `sine_wt`),
+  `Linen` (4-stage kr envelope, LFUGens.cpp:2910/2923), and `DynKlank`
+  (classlib expansion = sum of Ringz, reusing `sc::Klank`'s resonator bank).
+  Law-only — no reference renders kept; gates remain 128/128 green.
+- `sc_kit_demand.h`: `DBufWr` law port (write `value` at floor(phase) into
+  `DemandBuffer`; its NRT ref is a no-op here, same limitation as before).
+- Still law-only: `VarLag`/full `EnvGen` (curve segments), chaos exactness
+  (chaotic sub-ULP divergence past ~730 samples), GreyholeRaw integration.

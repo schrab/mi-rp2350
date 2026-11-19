@@ -175,6 +175,27 @@ struct DBufRd : DemandSource {
   DemandBuffer* buf_; float phase_; int loop_;
 };
 
+// DBufWr — DemandUGens.cpp:2273. Demand source that writes `value` at
+// floor(phase) into the shared SndBuf and returns the written value. Law-only
+// (its NRT ref renders a no-op here — the write never lands in LocalBuf).
+struct DBufWr : DemandSource {
+  DBufWr(DemandBuffer* b, float phase, float value, int loop)
+      : buf_(b), phase_(phase), value_(value), loop_(loop) {}
+  void Reset() override {}
+  float Pull() override {
+    int ip = static_cast<int>(phase_);
+    const int frames = static_cast<int>(buf_->data.size());
+    if (ip >= frames) ip = loop_ ? ip % frames : frames - 1;
+    if (ip < 0) ip = loop_ ? ((ip % frames) + frames) % frames : 0;
+    buf_->data[static_cast<size_t>(ip)] = value_;
+    return value_;
+  }
+ private:
+  DemandBuffer* buf_;
+  float phase_, value_;
+  int loop_;
+};
+
 struct Demand {
   void Init(std::vector<DemandSource*> sources) {
     sources_ = std::move(sources);
