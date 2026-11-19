@@ -24,6 +24,7 @@
 #include "../src/dronecaster/sc_kit_reverb.h"
 #include "../src/dronecaster/sc_kit_pan.h"
 #include "../src/dronecaster/sc_kit_greyhole.h"
+#include "../src/dronecaster/sc_kit_demand.h"
 #include <cstdio>
 
 #include <cmath>
@@ -608,6 +609,39 @@ int main() {
     for (int i = 0; i < 750; ++i)
       k.ProcessBlock(imp.data() + i * 64, out.data() + i * 64, 64);
     if (!ref_check("Klankar", out.data(), 48000)) ++g_failures;
+  }
+
+  printf("== T-D2 Task 11 demand kit vs NRT references ==\n");
+  {
+    std::vector<float> trig(48000), out(48000);
+    { sc::Impulse s; s.Init(48000.0, 10.0f);
+      for (int i = 0; i < 750; ++i) s.ProcessBlock(trig.data() + i * 64, 64); }
+    auto run = [&](const char* name, sc::DemandSource* src) {
+      src->Reset();  // SC's Demand* _Ctor calls next(unit, 0) (the reset path)
+      sc::Demand d; d.Init({src});
+      std::vector<float> c(48000);
+      for (int i = 0; i < 750; ++i) {
+        float* outs[1] = {c.data() + i * 64};
+        d.ProcessBlock(trig.data() + i * 64, 0.f, outs, 64);
+      }
+      if (!ref_check(name, c.data(), 48000)) ++g_failures;
+    };
+    { sc::DSeq s({INFINITY, 1, 2, 3}); run("DemandDseq", &s); }
+    { sc::DSeries s({INFINITY, 5, 2}); run("DemandSeries", &s); }
+    { sc::DSeq a({INFINITY, 1, 2, 3}); sc::DSeries b({INFINITY, 5, 2});
+      sc::Demand d; d.Init({&a, &b});
+      std::vector<float> c0(48000), c1(48000);
+      for (int i = 0; i < 750; ++i) {
+        float* outs[2] = {c0.data() + i * 64, c1.data() + i * 64};
+        d.ProcessBlock(trig.data() + i * 64, 0.f, outs, 64);
+      }
+      if (!ref_check("DemandMixed", c0.data(), 48000)) ++g_failures; }
+    { sc::RGen r; r.init(sc::kGoldenSeed);
+      sc::DRand s({INFINITY, 10, 20, 30}, &r); run("DemandDrand", &s); }
+    { sc::RGen r; r.init(sc::kGoldenSeed);
+      sc::DXRand s({INFINITY, 1, 2, 3, 4}, &r); run("DemandDxrand", &s); }
+    { sc::RGen r; r.init(sc::kGoldenSeed);
+      sc::DBrown s({INFINITY, 0, 1, 0.1f}, &r); run("DemandDbrown", &s); }
   }
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");

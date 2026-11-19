@@ -5285,12 +5285,12 @@ Kit-only task; no drone ports until T-D3. Host gate:
 | core reverbs | done | be6ab28 | FreeVerb + GVerb 2/2 exact (GVerb needed three law fixes, see below) |
 | pan (core) | done | 3a45564 | Pan2/Balance2/Rotate2 3/3 exact via `KitTables::sine` |
 | GreyholeRaw | done | 6c57748 | 1/1 exact; faust mydsp embedded verbatim, scsynth + rc-139 tolerance |
-| Klank ref + pan final | done | *(this commit)* | Klank real NRT ref 1/1 (supernova); PanAz + Splay + SplayAz 3/3 exact |
-| remaining | waiting | — | VarLag, demand, buffers, chaos, sc3p dyn, sugar, hw |
+| Klank ref + pan final | done | 2b27ce0 | Klank real NRT ref 1/1 (supernova); PanAz + Splay + SplayAz 3/3 exact |
+| demand (values) | done | *(this commit)* | Demand/Dseq/Drand/Dxrand/Dseries/Dbrown 6/6 exact; Dbufrd/Dbufwr pending |
+| remaining | waiting | — | Dbufrd/Dbufwr, VarLag, buffers, chaos, sc3p dyn, sugar, hw |
 
-Verified: `test_dronecaster: PASS (0 failures)`, 104 active per-UGen refs after
-the Klank/pan-final commit (all new refs max_abs = 0, corr = 1.0). 105 ref FILES
-exist;
+Verified: `test_dronecaster: PASS (0 failures)`, 110 active per-UGen refs after
+the demand commit (all new refs max_abs = 0, corr = 1.0). 111 ref FILES exist;
 every ref file is read by a test (the old Klank orphan was replaced by a
 real supernova render). Tasks 5, 8, 9 and 10 are complete.
 

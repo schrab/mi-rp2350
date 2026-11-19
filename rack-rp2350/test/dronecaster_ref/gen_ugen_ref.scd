@@ -153,6 +153,14 @@
         ["PanAzar",    { Out.ar(0, PanAz.ar(4, Saw.ar(220), 0.3, 0.8, 2, 0.5)) }],
         ["SplayAzar",  { Out.ar(0, SplayAz.ar(4, [Saw.ar(220), Saw.ar(330), Saw.ar(440)], 1, 0.8, 2, 0, 0.5, true)) }],
 
+        // ---- T-D2 Task 11: demand UGens (pulled by an impulse) ----
+        ["DemandDseq",   { Out.ar(0, Demand.ar(Impulse.ar(10), 0, Dseq([1,2,3], inf))) }, "supernova"],
+        ["DemandSeries", { Out.ar(0, Demand.ar(Impulse.ar(10), 0, Dseries(5, 2))) }, "supernova"],
+        ["DemandMixed",  { Out.ar(0, Demand.ar(Impulse.ar(10), 0, Dseq([1,2,3],inf), Dseries(5,2))) }, "supernova"],
+        ["DemandDrand",  { Out.ar(0, Demand.ar(Impulse.ar(10), 0, Drand([10,20,30], inf))) }, "supernova"],
+        ["DemandDxrand", { Out.ar(0, Demand.ar(Impulse.ar(10), 0, Dxrand([1,2,3,4], inf))) }, "supernova"],
+        ["DemandDbrown", { Out.ar(0, Demand.ar(Impulse.ar(10), 0, Dbrown(0, 1, 0.1))) }, "supernova"],
+
         // ---- Task 9 cont.: GreyholeRaw (faust, separate header) ----
         // GreyholeRaw needs scsynth (supernova cannot load the UGen at all);
         // the Faust plugin segfaults at SHUTDOWN after writing a complete wav.

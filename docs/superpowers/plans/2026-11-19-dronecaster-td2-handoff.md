@@ -39,9 +39,10 @@ Commits on branch `rack-rp2350` (pushed):
 | `be6ab28` | GVerb — 1/1 exact (core reverbs done; GreyholeRaw remains) |
 | `3a45564` | Pan2/Balance2/Rotate2 — 3/3 exact (Task 10 core done) |
 | `6c57748` | GreyholeRaw — 1/1 exact (Task 9 complete: 3/3) |
-| *(this commit)* | Klank real NRT ref + Splay/SplayAz/PanAz — 4/4 exact (Tasks 5 + 10 complete) |
+| `2b27ce0` | Klank real NRT ref + Splay/SplayAz/PanAz — 4/4 exact (Tasks 5 + 10 complete) |
+| *(this commit)* | Demand value generators (Demand/Dseq/Drand/Dxrand/Dseries/Dbrown) — 6/6 exact |
 
-**Done and reference-exact (104 UGens + the trio):**
+**Done and reference-exact (110 UGens + the trio):**
 
 - `sc_kit_noise.h` — WhiteNoise, ClipNoise, GrayNoise, PinkNoise, BrownNoise,
   Crackle, Dust, Dust2, LFNoise0/1/2 (ar + kr), LFClipNoise, LFDNoise0,
@@ -97,10 +98,14 @@ Commits on branch `rack-rp2350` (pushed):
 - Klank (in `sc_kit_osc2.h`) now has a **real NRT ref** (1/1 exact) — supernova
   renders it identically to scsynth, so the old "skip Klank" note is obsolete.
   The port needed the final differentiator `out[n] = buf[n] - buf[n-2]`.
+- `sc_kit_demand.h` — Demand + Dseq/Drand/Dxrand/Dseries/Dbrown **6/6 exact**.
+  Trap: the Demand* Ctors call `next(unit,0)` (a RESET), and Drand/Dxrand's
+  reset consumes an `irand` draw — the host port must call `Reset()` too or
+  the RNG sequence is offset by one. Dbufrd/Dbufwr still pending (need buffers).
 
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
-— expects `PASS (0 failures)` (104 active refs as of the Klank/pan-final commit;
+— expects `PASS (0 failures)` (110 active refs as of the demand commit;
 all ref files are read by a test — the old `Klankar` orphan was replaced with
 a real supernova render).
 
