@@ -5260,3 +5260,39 @@ Pan/Splay (35), Impulse/Dust (70).
 
 State at acceptance: dronecaster live on HW (user-accepted, "yes all
 working"), boot module unchanged (Elements), chain untouched (standalone-only).
+
+## DRONECASTER T-D2 — UGen kit (in progress, 2026-11-19)
+
+Handoff: `docs/superpowers/plans/2026-11-19-dronecaster-td2-handoff.md`.
+Kit-only task; no drone ports until T-D3. Host gate:
+`cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`.
+
+| Family | Status | Commit | References |
+|---|---|---|---|
+| noise | done | 5cc7231 | 24/24 exact (max_abs ≤ 4.8e-7) |
+| lfo | done | 3bccf77 | 15/15 exact |
+| trig | done | 1d95fd9 | 8/8 exact |
+| osc2 | done | 21fec7f | 5/5 (Klank law-only — scsynth segfaults) |
+| core filters | done | 0b90411 | 11/11 exact |
+| renderer / env | done | 887ec9b | sc3-plugins 3.14.1-1 now system-wide (pacman); /tmp `-U`/`-l` wiring dropped, verified the two sc3p refs' `data` chunks stay byte-identical |
+| dynamics | done | 5449caa | 3/3 exact (Amplitude/Compander/Limiter) |
+| remaining | waiting | — | moog, sc3p filters, delays, localio, reverbs, pan, demand, buffers, chaos, sc3p dyn, sugar, hw |
+
+Verified: `test_dronecaster: PASS (0 failures)` with 67 per-UGen refs after
+5449caa (the three new dynamics refs are max_abs = 0, corr = 1.0).
+
+### T-D2 findings (load-bearing, 5449caa)
+
+- **Limiter and Normalizer segfault scsynth 3.14.1-6** (rc 139, every graph
+  and `dur` tried) — same trap class as Klank. The failed `systemCmd` throws,
+  so `0.exit` never runs and sclang hangs after the error dump. Those refs
+  render through **supernova** (same `FilterUGens.cpp` law, deterministic,
+  48,000 frames, channel 1 silent); `gen_ugen_ref.scd` now accepts an optional
+  3rd tuple element as engine override. Use it only for the affected UGens.
+- **Compander gain is block-rate**: envelope over all n control samples, then
+  one `pow(prevmax/thresh, slope-1)` (zapgremlins below thresh) from the FINAL
+  value, CALCSLOPE-ramped across the block. A per-sample gain — the obvious
+  reading — gave max_abs 0.25 / corr 0.9988. Fixed in `sc_kit_dyn.h`.
+- **Limiter ctor off-by-one**: the ctor's one priming sample leaves `pos=1`,
+  so with `bufsize=480` the second flip (first non-silent output) is sample
+  959, not 960.
