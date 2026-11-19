@@ -28,6 +28,7 @@
 #include "../src/dronecaster/sc_kit_buf.h"
 #include "../src/dronecaster/sc_kit_chaos.h"
 #include "../src/dronecaster/sc_kit_sc3p_dyn.h"
+#include "../src/dronecaster/sc_sugar.h"
 #include <cstdio>
 
 #include <cmath>
@@ -695,6 +696,31 @@ int main() {
         d.ProcessBlock(trig.data() + i*64, 0.f, o, 64);
       }
       if (!ref_check("DemandBufRd", out.data(), 48000)) ++g_failures; }
+  }
+
+  printf("== T-D2 Task 15 sugar vs NRT references ==\n");
+  {
+    static sc::KitTables kt; sc::InitKitTables(&kt);
+    std::vector<float> a(48000), b(48000), out(48000);
+    { sc::Saw s; s.Init(&kt, 48000.0, 220.0f);
+      for (int i = 0; i < 750; ++i) s.ProcessBlock(a.data()+i*64, 64); }
+    { sc::Saw s; s.Init(&kt, 48000.0, 330.0f);
+      for (int i = 0; i < 750; ++i) s.ProcessBlock(b.data()+i*64, 64); }
+    { sc::SelectX sx; sx.Init(&kt);
+      for (int i = 0; i < 750; ++i) {
+        const float* v[2] = {a.data()+i*64, b.data()+i*64};
+        sx.ProcessBlock(0.3f, v, 2, out.data()+i*64, 64);
+      }
+      if (!ref_check("SelectXar", out.data(), 48000)) ++g_failures; }
+    { std::vector<float> trig(48000);
+      { sc::Impulse s; s.Init(48000.0, 10.f);
+        for (int i = 0; i < 750; ++i) s.ProcessBlock(trig.data()+i*64, 64); }
+      sc::RGen r; r.init(sc::kGoldenSeed);
+      sc::TChoose tc; tc.Init(&r, 3);
+      const float vals[3] = {1.f, 2.f, 3.f};
+      for (int i = 0; i < 750; ++i)
+        tc.ProcessBlock(trig.data()+i*64, out.data()+i*64, 64, vals, 3);
+      if (!ref_check("TChoosear", out.data(), 48000)) ++g_failures; }
   }
 
   printf("== T-D2 Task 14 SC3P dynamics vs NRT references ==\n");

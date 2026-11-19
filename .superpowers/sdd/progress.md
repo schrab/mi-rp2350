@@ -5291,10 +5291,11 @@ Kit-only task; no drone ports until T-D3. Host gate:
 | buffer interp + Dbufrd | done | *(this commit)* | BufRd interp 2/4 + Dbufrd 3/3 exact (pre-write neighbour frames); Dbufwr law-only |
 | chaos | law-only | — | `sc_kit_chaos.h` ports LorenzL/HenonC/FBSineC; NRT refs render but our port diverges at ~1e-6 after 25-730 samples (chaotic sensitivity) — gate fails, no refs kept |
 | sc3p dyn | done | *(this commit)* | Decimator/CrossoverDistortion/SineShaper/DiodeRingMod/InsideOut 5/5 exact |
-| remaining | waiting | — | Dbufwr, VarLag, chaos exactness, sugar, hw |
+| sugar (helpers) | done | *(this commit)* | SelectX + TChoose 2/2 exact (Mix/PMOsc are pure compositions) |
+| remaining | waiting | — | Dbufwr, VarLag, chaos exactness, Env/DynKlank, hw |
 
-Verified: `test_dronecaster: PASS (0 failures)`, 124 active per-UGen refs after
-the sc3p-dyn commit (all new refs max_abs = 0, corr = 1.0). 125 ref FILES
+Verified: `test_dronecaster: PASS (0 failures)`, 126 active per-UGen refs after
+the sugar commit (all new refs max_abs = 0, corr = 1.0). 127 ref FILES
 exist;
 every ref file is read by a test (the old Klank orphan was replaced by a
 real supernova render). Tasks 5, 8, 9 and 10 are complete.

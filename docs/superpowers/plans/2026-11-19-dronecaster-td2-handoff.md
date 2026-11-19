@@ -114,7 +114,7 @@ Commits on branch `rack-rp2350` (pushed):
 
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
-— expects `PASS (0 failures)` (124 active refs as of the sc3p-dyn commit;
+— expects `PASS (0 failures)` (126 active refs as of the sugar commit;
 all ref files are read by a test — the old `Klankar` orphan was replaced with
 a real supernova render).
 
