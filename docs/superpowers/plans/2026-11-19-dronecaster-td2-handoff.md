@@ -171,7 +171,7 @@ a real supernova render).
 | ~~pan~~ | ~~Pan2, Balance2, Rotate2, PanAz, Splay, SplayAz~~ **DONE** 6/6 | PanUGens.cpp + Splay.sc | All in `sc_kit_pan.h` via `KitTables::sine` + CALCSLOPE. |
 | demand | Demand, Dseq, Drand, Dxrand, Dseries, Dbrown, Dbufrd, Dbufwr | DemandUGens.cpp | Demand-rate machinery: a demand UGen is PULLED by a triggering UGen. Model as a per-voice demand clock the drone calls once per block; Dseq/Drand keep their own state. |
 | buffers | LocalBuf, BufRd, BufWr, BufFrames, BufRateScale, BufSampleRate, SampleRate, ControlRate | DelayUGens.cpp (they live there) | LocalBuf allocates from the voice arena; BufRd's interpolation modes (1/2/4) matter. |
-| chaos | LorenzL, HenonC, FBSineN | ChaosUGens.cpp | Exact float laws; LorenzL/FBSineN are per-sample integrators. |
+| chaos | LorenzL, HenonC, FBSineN | ChaosUGens.cpp | `sc_kit_chaos.h` law port exists but refs fail: chaotic sensitivity amplifies a ~1 ULP difference to >1e-6 within 25-730 samples. Needs a bit-exact math path or a shorter ref before it can be marked done. |
 | sc3p dyn | Decimator, CrossoverDistortion, SineShaper, DiodeRingMod, InsideOut | `sc3p/source/DistortionUGens/`, `DEINDUGens/DiodeRingMod.cpp`, `MCLDUGens/MCLDDistortionUGens.cpp` | Quote licenses. |
 | sugar | PMOsc, DynKlank, Linen, Env, VarLag, Gaussian, Mix, Splay, SplayAz, SelectX, TChoose | classlib (`/tmp/sc_full/SCClassLibrary/`) | Port the EXPANSION LAWS as documented helpers (Mix = array sum; SelectX = interpolating select; TChoose = RGen-indexed; Env/EnvGen = the full EnvGen law — reuse/extend `sc_kit_env.h`; Linen = EnvGen with rise/sustain/decay). |
 | hw | MouseX, MouseY | UIUGens.cpp | Map to drone params (CC-driven constants); NRT refs use the class defaults (check `MouseX.sc` defaults). |

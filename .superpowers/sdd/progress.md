@@ -5289,7 +5289,8 @@ Kit-only task; no drone ports until T-D3. Host gate:
 | demand (values) | done | 2cc25bf | Demand/Dseq/Drand/Dxrand/Dseries/Dbrown 6/6 exact |
 | buffers (core) | done | 4212b2b | SampleRate/ControlRate/BufFrames/BufRateScale/BufSampleRate + BufWr/BufRd(1) 6/6 exact |
 | buffer interp + Dbufrd | done | *(this commit)* | BufRd interp 2/4 + Dbufrd 3/3 exact (pre-write neighbour frames); Dbufwr law-only |
-| remaining | waiting | — | Dbufwr, VarLag, chaos, sc3p dyn, sugar, hw |
+| chaos | law-only | — | `sc_kit_chaos.h` ports LorenzL/HenonC/FBSineC; NRT refs render but our port diverges at ~1e-6 after 25-730 samples (chaotic sensitivity) — gate fails, no refs kept |
+| remaining | waiting | — | Dbufwr, VarLag, chaos exactness, sc3p dyn, sugar, hw |
 
 Verified: `test_dronecaster: PASS (0 failures)`, 119 active per-UGen refs after
 the buffer-interp commit (all new refs max_abs = 0, corr = 1.0). 120 ref FILES
