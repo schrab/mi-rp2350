@@ -27,8 +27,10 @@ Commits on branch `rack-rp2350` (pushed):
 | `1d95fd9` | trigger kit |
 | `21fec7f` | osc2 kit + filter kit (ports) |
 | `0b90411` | filter references all passing |
+| `887ec9b` | renderer simplified for the system sc3-plugins install |
+| *(this commit)* | dynamics family — Amplitude/Compander/Limiter, 3/3 exact |
 
-**Done and reference-exact (63 UGens + the trio):**
+**Done and reference-exact (66 UGens + the trio):**
 
 - `sc_kit_noise.h` — WhiteNoise, ClipNoise, GrayNoise, PinkNoise, BrownNoise,
   Crackle, Dust, Dust2, LFNoise0/1/2 (ar + kr), LFClipNoise, LFDNoise0,
@@ -42,10 +44,14 @@ Commits on branch `rack-rp2350` (pushed):
   (law-tested only — see §7), SawDPW, PulseDPW. **5/5 exact.**
 - `sc_kit_filter.h` — LPF/HPF/BPF/RLPF/RHPF (`Filter2Pole`), OnePole,
   Integrator, LeakDC, Slew, Lag, LagUD. **11/11 exact.**
+- `sc_kit_dyn.h` — Amplitude, Compander, Limiter (lookahead ring). **3/3 exact.**
+  Limiter's ref renders through **supernova** (scsynth 3.14.1 segfaults on
+  Limiter/Normalizer — see §7); `gen_ugen_ref.scd` entries take an optional
+  third element as an engine override.
 
 `rack-rp2350/test/test_dronecaster.cc` runs the whole gate:
 `cd rack-rp2350/test && make test_dronecaster && ./build/test_dronecaster`
-— expects `PASS (0 failures)` (140 checks as of `0b90411`).
+— expects `PASS (0 failures)` (67 refs as of the dynamics commit).
 
 ## 3. The working method (do exactly this per UGen/family)
 
@@ -89,7 +95,7 @@ Commits on branch `rack-rp2350` (pushed):
 
 | Task | UGens | Where to read | Notes |
 |---|---|---|---|
-| dynamics | Amplitude (`Amplitude_next_kk`), Compander, Limiter, VarLag | `/tmp/sc_full/server/plugins/FilterUGens.cpp` | Amplitude/Compander already partially read: `clampcoef = exp(log1/(t*sr))`, relax likewise; Limiter is a lookahead limiter with internal buffers (`m_xinbuf`/`m_xoutbuf`) — port its ring buffers. VarLag is classlib (EnvGen-based) — port with the Env work. |
+| ~~dynamics~~ | ~~Amplitude, Compander, Limiter~~ **DONE**; VarLag remains | `/tmp/sc_full/server/plugins/FilterUGens.cpp` | `sc_kit_dyn.h` 3/3 exact. VarLag is classlib (EnvGen-based) — port with the Env work. |
 | moog | MoogFF | FilterUGens.cpp `MoogFF_next` | `wcD = 2 tan(T*pi*f)*sr; b0 = TwcD/(TwcD+2); a1 = (TwcD-2)/(TwcD+2)`; 4-state ladder (s1..s4) + reset input. |
 | sc3p filters | SVF, MoogLadder, DFM1 | `/tmp/sc3p_full/source/BlackrainUGens/`, `BhobUGens/BhobFilt.cpp`, `TJUGens/Dfm1.cpp` (+ Dfm1Lut) | **Quote each file's license header verbatim.** DFM1 ships a lookup table (Dfm1Lut.h) — port it as a table constant. |
 | delays | DelayN/L/C, CombN/L/C, AllpassN/C, BufDelayN/C, BufAllpassC, Pluck, PitchShift | DelayUGens.cpp | Common delay core; `maxdelaytime`-sized buffers belong in the voice arena (add a delay-buffer alloc helper). Pluck = Karplus-Strong. PitchShift = the clouds-style pitch shifter — reuse the correlator knowledge from `lib/clouds`. |
@@ -137,6 +143,16 @@ Commits on branch `rack-rp2350` (pushed):
 - **`Changed`** = classlib `HPZ1.kr(in).abs > threshold`; HPZ1 primes
   `prev = in(0)` → first output 0.
 - **`Select`** ctor primes one kr sample → K2A block 0 flat at `v(0)`.
+- **Compander gain is BLOCK-rate**: the `|control|` envelope runs over all n
+  samples, then ONE gain `pow(prevmax/thresh, slope-1)` (zapgremlins below
+  thresh) is derived from its FINAL value and CALCSLOPE-ramped across the
+  block. Recomputing the gain per sample looks plausible and is badly wrong
+  (this exact mistake gave max_abs 0.25 / corr 0.9988 before the fix).
+- **Limiter rotation**: `m_xinbuf = table`, `m_xmidbuf = table+bufsize`,
+  `m_xoutbuf = table+2*bufsize` (ZOFF=0 on x86). On flip,
+  `out<-mid, mid<-in, in<-old out`. The ctor's one sample leaves `pos=1`,
+  so the second flip lands on output sample `2*bufsize-1` (959 for
+  dur=0.01 @ 48 kHz), not `2*bufsize`.
 
 ## 7. Pitfalls / environment hazards
 
@@ -150,6 +166,14 @@ Commits on branch `rack-rp2350` (pushed):
   test (impulse rings, tail decays). Do not "fix" by guessing — if you need a
   real Klank reference, test whether the crash is the SIMD path with more
   partials, or render via a different engine.
+- **Limiter AND Normalizer segfault scsynth 3.14.1-6** (rc 139, any input or
+  `dur`) — same trap class as Klank, and a failed `systemCmd` leaves sclang
+  hung after the error dump (the .scd's `0.exit` never runs). Fix: render
+  these through **supernova**, which runs the same `FilterUGens.cpp` law
+  cleanly and deterministically (data chunks byte-identical across runs,
+  48,000 frames already trimmed, channel 1 silent). `gen_ugen_ref.scd` takes
+  an optional 3rd tuple element as the engine command. Do not swap scsynth
+  for supernova globally — only the affected UGens.
 - **One reader per serial port** and the other RP2350 rules still apply if you
   touch hardware; not needed for T-D2.
 - `sclang` silently hangs after the welcome banner on (a) a class that fails

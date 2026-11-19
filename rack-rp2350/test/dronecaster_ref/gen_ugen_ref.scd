@@ -97,15 +97,24 @@
         ["Slewar",     { Out.ar(0, Slew.ar(Saw.ar(220), 1, 1)) }],
         ["Lagar",      { Out.ar(0, Lag.ar(Saw.ar(220), 0.01)) }],
         ["LagUDar",    { Out.ar(0, LagUD.ar(Saw.ar(220), 0.01, 0.05)) }],
+
+        // ---- T-D2 dynamics family (core: Amplitude/Compander/Limiter) ----
+        ["Amplitude",  { Out.ar(0, Amplitude.ar(Saw.ar(220), 0.01, 0.1)) }],
+        ["Compander",  { Out.ar(0, Compander.ar(Saw.ar(220), Saw.ar(1), 0.5, 2, 1.5, 0.01, 0.1)) }],
+        // Limiter/Normalizer segfault scsynth 3.14.1-6 (rc 139, any graph);
+        // supernova renders the same FilterUGens.cpp law cleanly and
+        // deterministically. Third tuple element overrides the engine.
+        ["Limiter",    { Out.ar(0, Limiter.ar(Saw.ar(220) * 2, 1, 0.01)) }, "supernova"],
     ];
 
     "ugen_ref: begin".postln;
     if (File.exists(outDir).not) { File.mkdir(outDir) };
 
     entries.do { |pair|
-        var name, body, def, score, opts, oscPath, wavPath, cmd, rc;
+        var name, body, engine, def, score, opts, oscPath, wavPath, cmd, rc;
         name = pair[0];
         body = pair[1];
+        engine = if (pair.size > 2, { pair[2] }, { Score.program });
         def = SynthDef("ref_" ++ name, {
             RandSeed.kr(1, 16rC0FFEE);
             body.value();
@@ -121,7 +130,7 @@
                            [\s_new, "ref_" ++ name, 1000, 0, 0]]]);
             score.add([dur, [0]]);
             score.writeOSCFile(oscPath, 0, dur);
-            cmd = Score.program ++ " -N " ++ oscPath.quote ++ " _ " ++ wavPath.quote
+            cmd = engine ++ " -N " ++ oscPath.quote ++ " _ " ++ wavPath.quote
                 ++ " 48000 WAV float" ++ opts.asOptionsString
                 ++ (if (scsynthFlags != "", { " " ++ scsynthFlags }, { "" }));
             rc = cmd.systemCmd;

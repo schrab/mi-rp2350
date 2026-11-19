@@ -16,6 +16,7 @@
 #include "../src/dronecaster/sc_kit_trig.h"
 #include "../src/dronecaster/sc_kit_osc2.h"
 #include "../src/dronecaster/sc_kit_filter.h"
+#include "../src/dronecaster/sc_kit_dyn.h"
 
 #include <cmath>
 #include <cstdio>
@@ -368,6 +369,48 @@ int main() {
       per_sample("Lagar", [&](float x) { return u.Next(x, 0.01f); }); }
     { sc::LagUD u; u.Init(48000.0); u.Prime(in[0]);
       per_sample("LagUDar", [&](float x) { return u.Next(x, 0.01f, 0.05f); }); }
+  }
+
+  printf("== T-D2 dynamics kit vs NRT references ==\n");
+  {
+    static sc::KitTables kt; sc::InitKitTables(&kt);
+    std::vector<float> in(48000), ctrl(48000), hot(48000), out(48000);
+    { sc::Saw src; src.Init(&kt, 48000.0, 220.0f);
+      for (int b = 0; b < 750; ++b) src.ProcessBlock(in.data() + b * 64, 64); }
+    { sc::Saw src; src.Init(&kt, 48000.0, 1.0f);
+      for (int b = 0; b < 750; ++b) src.ProcessBlock(ctrl.data() + b * 64, 64); }
+    for (int i = 0; i < 48000; ++i) hot[i] = in[i] * 2.0f;
+
+    { sc::Amplitude u; u.Init(48000.0, 0.01f, 0.1f, in[0]);
+      for (int b = 0; b < 750; ++b)
+        u.ProcessBlock(in.data() + b * 64, out.data() + b * 64, 64);
+      if (!ref_check("Amplitude", out.data(), 48000)) ++g_failures; }
+    { sc::Compander u; u.Init(48000.0, 0.5f, 2.0f, 1.5f, 0.01f, 0.1f,
+                              in[0], ctrl[0]);
+      for (int b = 0; b < 750; ++b)
+        u.ProcessBlock(in.data() + b * 64, ctrl.data() + b * 64,
+                       out.data() + b * 64, 64);
+      if (!ref_check("Compander", out.data(), 48000)) ++g_failures; }
+    { sc::Limiter u; u.Init(48000.0, 1.0f, 0.01f, hot[0]);
+      for (int b = 0; b < 750; ++b)
+        u.ProcessBlock(hot.data() + b * 64, out.data() + b * 64, 64);
+      if (!ref_check("Limiter", out.data(), 48000)) ++g_failures; }
+
+    // Edge vectors: the source's zero-time coef short-circuit and the
+    // ctor's one-sample priming (all output silent until flips >= 2).
+    CHECK(sc::DynTimeCoef(0.0f, 48000.0) == 0.0f,
+          "dyn: zero time -> coef 0 (log1 division guarded)");
+    CHECK(sc::DynTimeCoef(0.01f, 48000.0) > 0.99f,
+          "dyn: 10 ms attack coef ~0.9952");
+    { sc::Limiter u; u.Init(48000.0, 1.0f, 0.01f, hot[0]);
+      // ctor consumes one sample (pos=1), so the second flip lands on output
+      // sample 959 — that one is already a delayed, level-scaled value.
+      std::vector<float> o(959);
+      u.ProcessBlock(hot.data(), o.data(), 959);
+      bool silent = true;
+      for (int i = 0; i < 959; ++i) if (o[i] != 0.0f) silent = false;
+      CHECK(silent, "dyn: limiter silent until two buffers have flipped");
+    }
   }
 
   // task sections are inserted above this line
