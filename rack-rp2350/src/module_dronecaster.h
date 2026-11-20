@@ -44,15 +44,21 @@ static const uint32_t kI2sWords = 16;
 static const uint32_t kStallUs = 900;        // >2x the 333 us write period
 
 // Voice carve: KitTables = 131,080 B (sine wavetable + gSine + gInvSine),
-// resident above an arena savepoint; per-voice state sits above it.
-static constexpr size_t kVoiceBytes = 136 * 1024;
+// resident above an arena savepoint; per-voice state sits above it. The T-D2
+// ports are larger than the original trio: measured worst case is Hecker at
+// 162,312 B (Mt. Lion 142,200; Sachiko 140,992; Starlids 140,080; Thx
+// 139,816; Mt. Zion 139,456). 136 KiB overflowed the arena and wedged core 1
+// on those swaps, so the carve is raised to 168 KiB (still well inside the
+// 324 KiB rack pool).
+static constexpr size_t kVoiceBytes = 168 * 1024;
 static_assert(sizeof(sc::KitTables) <= kVoiceBytes,
               "kit tables exceed the dronecaster voice carve");
 static_assert(kVoiceBytes <= kRackPoolBytes, "dronecaster carve exceeds pool");
 
 static const char* const kCcMap =
-    "51 drone (0-36 catalog direct; C3 pot 37+ = SINE/SQUARE/TRIANGLE in "
-    "thirds) 52 amp 53 fade(atk=rel) 54 hz-offset +-24st; "
+    "51 drone (hardware-safe: 0 apparatus / 22 sine / 23 square / 29 "
+    "triangle; other ids blocked pending CPU optimisation) "
+    "52 amp 53 fade(atk=rel) 54 hz-offset +-24st; "
     "notes = re-hz (glide ~60 ms); PLAY 64 = recast";
 
 static const uint8_t kModContinuousCcs[] = {52, 53, 54};
@@ -70,12 +76,14 @@ struct State {
   // report mirrors (core 1 -> core 0)
   volatile uint32_t proc_avg_us;
   volatile uint32_t nan_blocks;         // blocks zeroed by the NaN guard
+  volatile uint32_t render_heartbeat;   // core-1 liveness (stall watchdog)
   // core-0 pitch state (CC 54 is an offset on top of the current note)
   float note_hz;                        // last note-on pitch (default 55)
   float offset_st;                      // CC 54 offset in semitones
   int16_t last_bad_drone;
   explicit State(uint8_t* buf, size_t bytes)
       : pending_drone(22), pending_recast(false), proc_avg_us(0), nan_blocks(0),
+        render_heartbeat(0),
         note_hz(55.0f), offset_st(0.0f), last_bad_drone(-1) {
     eng.Init(static_cast<float>(kSampleRate), buf, bytes);
   }
@@ -120,11 +128,29 @@ void control_change(uint8_t cc, uint8_t val) {
     //    unreachable. A 0-127 C3 pot almost never lands on the raw ids, so
     //    this layer is what the physical pot uses.
     static const int kPorted[] = {0,7,10,14,15,20,22,23,24,25,27,29,30,36};
+    // Hardware allowlist. The T-D2 ports are verified on the host, but on the
+    // board only Apparatus (0) and the T-D1 trio (22/23/29) are safe so far:
+    // Fieldsteel 2318 us, Hecker 13813 us against a 1333 us budget, and the
+    // other T-D2 drones hard-fault core 1 (crash pc=0, hfsr=FORCED) which
+    // stalls the whole audio path. Until they are profiled/optimised, reject
+    // them here with a warning — the ports stay in the catalog so the host
+    // golden gate still covers them.
+    static const int kSafeIds[] = {0, 22, 23, 29};
     int id;
     if (val <= 36) {
       id = val;
     } else {
       id = kPorted[(val - 37) * 14 / 91];   // 37..127 -> 0..13
+    }
+    bool safe = false;
+    for (int b : kSafeIds) if (b == id) { safe = true; break; }
+    if (!safe) {
+      if (static_cast<int16_t>(val) != s->last_bad_drone) {
+        s->last_bad_drone = static_cast<int16_t>(val);
+        Serial.printf("dc: drone id %u not hardware-safe yet - blocked\r\n",
+                      static_cast<unsigned>(id));
+      }
+      return;
     }
     if (sc::Catalog(id) != nullptr) {
       s->pending_drone = static_cast<int16_t>(id);
@@ -152,7 +178,10 @@ bool mod_set_cc_float(uint8_t cc, float v) {
 }
 bool mod_trigger_cc(uint8_t cc, bool high) { (void)cc; (void)high; return false; }
 
+uint32_t render_heartbeat() { return s ? s->render_heartbeat : 0; }
+
 void render() {
+  ++s->render_heartbeat;   // core-1 liveness for the core-0 stall watchdog
   // Pending intents land at the block boundary (the lira8 discipline). The
   // three float params (amp/fade/hz) are single-word atomic stores written
   // by core 0 and read by core 1 — safe by construction, applied next block.

@@ -3260,6 +3260,25 @@ void loop() {
   // max-since-report semantics and the 2 s format is untouched.
   if (now - last_report > 2000) {
     last_report = now;
+    // T-D2 core-1 stall watchdog. A drone whose Process faults (hard fault,
+    // pc=0) or overruns badly can wedge core 1 while core 0 stays alive and
+    // would otherwise print "max Process: 0" forever with a dead UI. Two
+    // consecutive reports with no render heartbeat => automatic reset, so
+    // the board never stays frozen and no manual power cycle is needed.
+    if (g_active_module == RACK_MODULE_DRONECASTER && !g_chain.active) {
+      static uint32_t last_dc_hb = 0;
+      static int dc_hb_stalls = 0;
+      const uint32_t hb = rack_modules::mod_dronecaster::render_heartbeat();
+      if (hb == last_dc_hb) { ++dc_hb_stalls; }
+      else { dc_hb_stalls = 0; last_dc_hb = hb; }
+      if (dc_hb_stalls >= 2) {
+        Serial.println("dc: render stalled (core 1) - auto reset");
+        delay(20);
+        scb_hw->aircr = (0x05FAu << 16) | 0x04u;
+        __asm volatile("dsb 0xF" ::: "memory");
+        for (;;) { tight_loop_contents(); }
+      }
+    }
     static uint32_t last_stall_total = 0;
     const uint32_t stalls = i2s_stall_count;
     const RackModuleInfo& m = kRackModules[g_active_module];
