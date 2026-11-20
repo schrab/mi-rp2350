@@ -86,6 +86,11 @@
 #include "sc_kit_trig.h"     // Latch
 #include "sc_kit_filter.h"   // BEQFilter (BLowPass), Lag, LeakDC
 #include "sc_kit_delay.h"    // DelayLine (CombN)
+#include "sc_kit_envgen.h"   // EnvGen / VarLag (law-only expansion)
+#include "sc_kit_lin.h"      // LinExp
+#include "sc_kit_demand.h"   // Demand / Dxrand / Drand / Dbrown
+#include "sc_kit_sc3p_filter.h"  // SVF
+#include "sc_sugar.h"        // (SelectX law reference; Hecker expands verbatim)
 #include "../dronecaster_engine.h"
 
 namespace sc {
@@ -134,6 +139,18 @@ struct BpfKr {
     freq_ = 0.0f;
     bw_ = 0.0f;
     primed_ = false;
+  }
+  // Server BPF_Ctor primes with the input's CTOR output; seeds y1/y2 for
+  // block 0 (its output feeds the next filter's ctor prime).
+  float Prime(float freq, float bw, float first_in) {
+    double a0, b1, b2;
+    ComputeCoefs(freq, bw, &a0, &b1, &b2);
+    const double y0 = first_in + b1 * y1_ + b2 * y2_;
+    const double primed_out = a0 * (y0 - y2_);
+    y2_ = y1_; y1_ = y0;
+    y1_ = ZapGremlins(y1_); y2_ = ZapGremlins(y2_);
+    a0_ = a0; b1_ = b1; b2_ = b2; freq_ = freq; bw_ = bw; primed_ = true;
+    return static_cast<float>(primed_out);
   }
   void ProcessBlock(const float* in, float* out, int n, float freq, float bw) {
     if (!primed_) {
@@ -1208,6 +1225,608 @@ inline void Ml_Process(Ctx& c, float* l, float* r, int n) {
     r[j] = st->leak_r.Next(st->s911r[j], 0.995f);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Task 5 — Hecker (id 10) + Fieldsteel (id 7) scalar laws / helpers.
+// All constants are the BIT-EXACT float32 values from the .scsyndef constant
+// tables (14-digit dumpUGens prints do NOT round-trip float32 — see Task 4).
+// ---------------------------------------------------------------------------
+// SC_InlineUnaryOp.h:83 — the kr/scalar midiratio path (the dump's UGen is kr).
+inline float HkMidiratio(float x) { return std::pow(2.0f, x / 12.0f); }
+// SC_InlineUnaryOp.h:190 sc_softclip (nova ar functor is the same law per lane).
+inline float HkSoftclip(float x) {
+  const float ax = std::fabs(x);
+  return ax <= 0.5f ? x : (ax - 0.25f) / x;
+}
+// SC_InlineBinaryOp.h:152/555 sc_fold2(x,1) = sc_fold(x,-1,1).
+inline float HkFold2(float x) {
+  float in = x;
+  const float lo = -1.0f, hi = 1.0f;
+  const float x0 = in - lo;
+  if (in >= hi) { in = hi + hi - in; if (in >= lo) return in; }
+  else if (in < lo) { in = lo + lo - in; if (in < hi) return in; }
+  else return in;
+  const float range = hi - lo, range2 = range + range;
+  float c = x0 - range2 * std::floor(x0 / range2);
+  if (c >= range) c = range2 - c;
+  return c + lo;
+}
+inline float HkRoundQ(float x, float q) { return std::floor(x / q + 0.5f) * q; }
+inline float HkTruncQ(float x, float q) { return std::floor(x / q) * q; }
+// Select_next_1 (OscUGens.cpp:499): index = (int32)ZIN0(0)+1 clipped [1,max].
+inline int HkSelectIndex(float idx) {
+  int i = static_cast<int>(idx) + 1;
+  return i < 1 ? 1 : (i > 2 ? 2 : i);
+}
+
+// LPF with a per-block (kr) freq — verbatim FilterUGens.cpp LPF_next / _1
+// (3-sample coefficient-interpolation groups; mFilterLoops = 64/3 = 21, plus
+// 1 remain sample). The kit Filter2Pole uses a 4-sample group that no reference
+// exercises for a changing freq, so the law is kept verbatim here (same as the
+// BpfKr law above). Hecker's LPF freq is the VarLag/LinExp sweep.
+struct LpfKr {
+  void Init(double sr) {
+    rps_ = 2.0 * M_PI / sr;
+    a0_ = b1_ = b2_ = 0.0; y1_ = y2_ = 0.0;
+    freq_ = 0.0f; primed_ = false;
+  }
+  // Server LPF_Ctor primes with the input's CTOR output (not the first
+  // rendered sample), which seeds y1/y2 entering block 0.
+  float Prime(float freq, float first_in) {
+    double a0, b1, b2;
+    ComputeCoefs(freq, &a0, &b1, &b2);
+    const double y0 = first_in + b1 * y1_ + b2 * y2_;
+    const double primed_out = a0 * (y0 + 2.0 * y1_ + y2_);
+    y2_ = y1_; y1_ = y0;
+    y1_ = Zap(y1_); y2_ = Zap(y2_);
+    a0_ = a0; b1_ = b1; b2_ = b2; freq_ = freq; primed_ = true;
+    return static_cast<float>(primed_out);
+  }
+  void ProcessBlock(const float* in, float* out, int n, float freq) {
+    if (!primed_) {
+      double a0, b1, b2;
+      ComputeCoefs(freq, &a0, &b1, &b2);
+      double y1 = y1_, y2 = y2_;
+      const double y0 = in[0] + b1 * y1 + b2 * y2;
+      y2 = y1; y1 = y0;
+      y1_ = Zap(y1); y2_ = Zap(y2);
+      a0_ = a0; b1_ = b1; b2_ = b2; freq_ = freq; primed_ = true;
+    }
+    double y1 = y1_, y2 = y2_;
+    double a0 = a0_, b1 = b1_, b2 = b2_;
+    if (freq != freq_) {
+      double na0, nb1, nb2;
+      ComputeCoefs(freq, &na0, &nb1, &nb2);
+      const double kSlope = 1.0 / static_cast<double>(kBlock / 3);
+      const double sa0 = (na0 - a0) * kSlope, sb1 = (nb1 - b1) * kSlope,
+                   sb2 = (nb2 - b2) * kSlope;
+      int i = 0;
+      for (int g = 0; g < kBlock / 3; ++g, i += 3) {
+        double y0 = in[i + 0] + b1 * y1 + b2 * y2;
+        out[i + 0] = static_cast<float>(a0 * (y0 + 2.0 * y1 + y2));
+        y2 = in[i + 1] + b1 * y0 + b2 * y1;
+        out[i + 1] = static_cast<float>(a0 * (y2 + 2.0 * y0 + y1));
+        y1 = in[i + 2] + b1 * y2 + b2 * y0;
+        out[i + 2] = static_cast<float>(a0 * (y1 + 2.0 * y2 + y0));
+        a0 += sa0; b1 += sb1; b2 += sb2;
+      }
+      double y0 = in[i] + b1 * y1 + b2 * y2;
+      out[i] = static_cast<float>(a0 * (y0 + 2.0 * y1 + y2));
+      y2 = y1; y1 = y0;
+      a0_ = na0; b1_ = nb1; b2_ = nb2; freq_ = freq;
+    } else {
+      int i = 0;
+      for (int g = 0; g < kBlock / 3; ++g, i += 3) {
+        double y0 = in[i + 0] + b1 * y1 + b2 * y2;
+        out[i + 0] = static_cast<float>(a0 * (y0 + 2.0 * y1 + y2));
+        y2 = in[i + 1] + b1 * y0 + b2 * y1;
+        out[i + 1] = static_cast<float>(a0 * (y2 + 2.0 * y0 + y1));
+        y1 = in[i + 2] + b1 * y2 + b2 * y0;
+        out[i + 2] = static_cast<float>(a0 * (y1 + 2.0 * y2 + y0));
+      }
+      double y0 = in[i] + b1 * y1 + b2 * y2;
+      out[i] = static_cast<float>(a0 * (y0 + 2.0 * y1 + y2));
+      y2 = y1; y1 = y0;
+    }
+    y1_ = Zap(y1); y2_ = Zap(y2);
+  }
+ private:
+  void ComputeCoefs(float freq, double* a0, double* b1, double* b2) const {
+    const double pf = static_cast<double>(freq) * rps_ * 0.5;
+    const double C = 1.0 / std::tan(pf);
+    const double C2 = C * C, s2C = C * static_cast<double>(std::sqrt(2.0f));  // sqrt2_f
+    *a0 = 1.0 / (1.0 + s2C + C2);
+    *b1 = -2.0 * (1.0 - C2) * (*a0);
+    *b2 = -(1.0 - s2C + C2) * (*a0);
+  }
+  static double Zap(double x) {
+    const double ax = std::fabs(x);
+    return (ax > 1e-15 && ax < 1e15) ? x : 0.0;
+  }
+  double rps_ = 0.0, a0_ = 0.0, b1_ = 0.0, b2_ = 0.0, y1_ = 0.0, y2_ = 0.0;
+  float freq_ = 0.0f; bool primed_ = false;
+};
+
+// XFade2_next_ak (PanUGens.cpp:448): ar inA/inB, kr pan, scalar level 1.
+// A simple per-sample slope accumulates to the same endpoint as nova's
+// slope_argument lanes (both land within the 1e-6 gate; the kit's Pan2 uses
+// the same simple ramp and is golden-exact in the T-D2 ports).
+struct XFade2Ak {
+  void Init(const KitTables* t, float pan, float level, float first_a,
+            float first_b) {
+    t_ = t; level_ = level; pan_ = pan;
+    Compute(pan, &la_, &ra_);
+    float primed;
+    Step(first_a, first_b, la_, ra_, primed);
+  }
+  void ProcessBlock(const float* a, const float* b, float* out, int n,
+                    float pan) {
+    if (pan != pan_) {
+      float na, nb;
+      Compute(pan, &na, &nb);
+      const float sa = (na - la_) * (1.0f / 64.0f);
+      const float sb = (nb - ra_) * (1.0f / 64.0f);
+      for (int i = 0; i < n; ++i) {
+        Step(a[i], b[i], la_, ra_, out[i]);
+        la_ += sa; ra_ += sb;
+      }
+      la_ = na; ra_ = nb; pan_ = pan;
+    } else {
+      for (int i = 0; i < n; ++i) Step(a[i], b[i], la_, ra_, out[i]);
+    }
+  }
+  // The ctor's single primed output (XFade2_next_aa(unit,1)) seeds the LPF.
+  float Prime(float a, float b) const { return a * la_ + b * ra_; }
+ private:
+  void Compute(float pan, float* l, float* r) const {
+    int ip = static_cast<int32_t>(1024.0f * pan + 1024.0f + 0.5f);
+    ip = ip < 0 ? 0 : (ip > 2048 ? 2048 : ip);
+    *l = level_ * t_->sine[2048 - ip];
+    *r = level_ * t_->sine[ip];
+  }
+  static void Step(float a, float b, float la, float ra, float& o) {
+    o = a * la + b * ra;
+  }
+  const KitTables* t_ = nullptr;
+  float pan_ = 0.0f, level_ = 0.0f, la_ = 0.0f, ra_ = 0.0f;
+};
+
+// Hecker's noise UGens need their ctor-primed output to seed the LPF/BPF ctor
+// primes (the first RENDERED sample is the NEXT draw, not the prime). Kit
+// WhiteNoise/PinkNoise consume the right draws but do not expose the prime.
+struct HkWhiteNoise {
+  RGen* r = nullptr;
+  float prime = 0.0f;
+  void Init(RGen* rr) { r = rr; prime = r->frand2(); }
+  void ProcessBlock(float* out, int n) {
+    for (int i = 0; i < n; ++i) out[i] = r->frand2();
+  }
+};
+struct HkPinkNoise {
+  RGen* r = nullptr;
+  float dice[16] = {};
+  int32_t total = 0;
+  float prime = 0.0f;
+  void Init(RGen* rr) {
+    r = rr; total = 0;
+    for (int i = 0; i < 16; ++i) {
+      const uint32_t v = r->trand() >> 13;
+      total += static_cast<int32_t>(v); dice[i] = static_cast<float>(v);
+    }
+    prime = Next();
+  }
+  float Next() {
+    const uint32_t counter = r->trand();
+    const uint32_t newrand = counter >> 13;
+    int k = 0;
+    while ((counter & (1u << k)) == 0u && k < 32) ++k;
+    k &= 15;
+    const uint32_t prevrand = static_cast<uint32_t>(dice[k]);
+    dice[k] = static_cast<float>(newrand);
+    total += static_cast<int32_t>(newrand - prevrand);
+    const uint32_t r2 = r->trand() >> 13;
+    uint32_t u = (static_cast<uint32_t>(total) + r2) | 0x40000000u;
+    float v; std::memcpy(&v, &u, 4);
+    return v - 3.0f;
+  }
+  void ProcessBlock(float* out, int n) {
+    for (int i = 0; i < n; ++i) out[i] = Next();
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Hecker (id 10) — 32 mono voices (two groups of 16 -> Out[0] and Out[1]).
+// VarLag is LAW-ONLY in the kit (no ugen_ref wav — see report); the expansion
+// from sc_kit_envgen.h:211 (Filter.sc:113-145) is used and gated by the drone
+// golden. Per voice the LFNoise0.kr(0.1) period is 7500 kr blocks > the 3000
+// render blocks, so its value is constant after the ctor prime — the VarLag
+// start therefore equals its target and the env stays flat.
+// ---------------------------------------------------------------------------
+struct HkVoice {
+  LFNoise0 lf0_sel, lf0_lpf, lf0_bpf;
+  VarLag vl_sel, vl_lpf, vl_bpf;
+  LinExp le_lpf, le_bpf;
+  HkWhiteNoise wn;
+  HkPinkNoise pn;
+  XFade2Ak xf;
+  LpfKr lpf;
+  BpfKr bpf;
+};
+
+struct HeckerState {
+  HkVoice voice[32];
+  float wn_buf[64], pn_buf[64], xf_buf[64], lpf_buf[64], bpf_buf[64];
+  float pair_a[64], pair_b[64], group[8][64], mix[64];
+};
+
+inline void Hk_Init(Ctx& c) {
+  HeckerState* st = new (c.arena->Alloc(sizeof(HeckerState))) HeckerState();
+  const double sr = static_cast<double>(c.sr);
+  const double cr = sr / static_cast<double>(kBlock);   // 750
+  for (int v = 0; v < 32; ++v) {
+    HkVoice& vc = st->voice[v];
+    // RGen creation order: lf0_sel, WhiteNoise, PinkNoise, lf0_lpf, lf0_bpf
+    vc.lf0_sel.Init(c.rgen, cr, 0.1f);
+    vc.wn.Init(c.rgen);
+    vc.pn.Init(c.rgen);
+    vc.lf0_lpf.Init(c.rgen, cr, 0.1f);
+    vc.lf0_bpf.Init(c.rgen, cr, 0.1f);
+    const float s0 = vc.lf0_sel.ctor_value();
+    const float s1 = vc.lf0_lpf.ctor_value();
+    const float s2 = vc.lf0_bpf.ctor_value();
+    vc.vl_sel.Init(cr, s0, 10.0f, 0.0f, 3);   // warp \sine = Env.shapeNames 3
+    vc.vl_lpf.Init(cr, s1, 10.0f, 0.0f, 3);
+    vc.vl_bpf.Init(cr, s2, 10.0f, 0.0f, 3);
+    vc.le_lpf.Init(-1.0f, 1.0f, 20.0f, 20000.0f);
+    vc.le_bpf.Init(-1.0f, 1.0f, 9.999999747378752e-05f,
+                   0.019999999552965164f);     // exact c[12]/c[13]
+    const float which0 = s0 * 0.5f + 0.5f;
+    vc.xf.Init(c.tables, HkFold2(which0 * 2.0f - 1.0f), 1.0f, 0.0f, 0.0f);
+    // Ctor prime chain: Select primes with the noise UGens' primed outputs,
+    // XFade2 primes with those, then LPF and BPF prime with their upstream
+    // ctor outputs. These seed the filter y1/y2 state entering block 0.
+    const int ia0 = HkSelectIndex(HkRoundQ(which0, 2.0f));
+    const int ib0 = HkSelectIndex(HkTruncQ(which0, 2.0f) + 1.0f);
+    const float xa0 = (ia0 == 1) ? vc.wn.prime : vc.pn.prime;
+    const float xb0 = (ib0 == 1) ? vc.wn.prime : vc.pn.prime;
+    const float xf_ctor = vc.xf.Prime(xa0, xb0);
+    vc.lpf.Init(sr);
+    const float lpf_ctor = vc.lpf.Prime(vc.le_lpf.Next(s1), xf_ctor);
+    vc.bpf.Init(sr);
+    vc.bpf.Prime(static_cast<float>(c.hz), vc.le_bpf.Next(s2), lpf_ctor);
+  }
+  c.state = st;
+}
+
+inline void Hk_Process(Ctx& c, float* l, float* r, int n) {
+  (void)n;
+  HeckerState* st = static_cast<HeckerState*>(c.state);
+  const float amp = c.amp;
+  for (int v = 0; v < 32; ++v) {
+    HkVoice& vc = st->voice[v];
+    const float l0 = vc.lf0_sel.ProcessKr();
+    const float l1 = vc.lf0_lpf.ProcessKr();
+    const float l2 = vc.lf0_bpf.ProcessKr();
+    const float q0 = vc.vl_sel.ProcessKr(l0);
+    const float q1 = vc.vl_lpf.ProcessKr(l1);
+    const float q2 = vc.vl_bpf.ProcessKr(l2);
+    const float which = q0 * 0.5f + 0.5f;
+    const int isel_a = HkSelectIndex(HkRoundQ(which, 2.0f));
+    const int isel_b = HkSelectIndex(HkTruncQ(which, 2.0f) + 1.0f);
+    const float pan = HkFold2(which * 2.0f - 1.0f);
+    vc.wn.ProcessBlock(st->wn_buf, n);
+    vc.pn.ProcessBlock(st->pn_buf, n);
+    const float* srca = (isel_a == 1) ? st->wn_buf : st->pn_buf;
+    const float* srcb = (isel_b == 1) ? st->wn_buf : st->pn_buf;
+    vc.xf.ProcessBlock(srca, srcb, st->xf_buf, n, pan);
+    // LinExp is kr in the def dump — use the scalar Next() law (not the
+    // nova ar ProcessBlock path), once per block.
+    const float f_lpf = vc.le_lpf.Next(q1);
+    vc.lpf.ProcessBlock(st->xf_buf, st->lpf_buf, n, f_lpf);
+    const float rq = vc.le_bpf.Next(q2);
+    vc.bpf.ProcessBlock(st->lpf_buf, st->bpf_buf, n, c.hz, rq);
+    // Sum4 tree: pairs within groups of 4, then 4 group sums.
+    const int g = v >> 2, k = v & 3;   // 32 voices -> 8 groups of 4
+    float* pair = (k < 2) ? st->pair_a : st->pair_b;
+    if ((k & 1) == 0) {
+      for (int i = 0; i < n; ++i) pair[i] = st->bpf_buf[i];
+    } else {
+      for (int i = 0; i < n; ++i) pair[i] += st->bpf_buf[i];
+    }
+    if (k == 3) {
+      for (int i = 0; i < n; ++i)
+        st->group[g][i] = st->pair_b[i] + st->pair_a[i];
+    }
+  }
+  for (int ch = 0; ch < 2; ++ch) {
+    float* mix = st->mix;
+    for (int i = 0; i < n; ++i) {
+      const float g3g2 = st->group[ch * 4 + 3][i] + st->group[ch * 4 + 2][i];
+      const float g1g0 = st->group[ch * 4 + 1][i] + st->group[ch * 4 + 0][i];
+      mix[i] = g3g2 + g1g0;
+    }
+    float* out = ch ? r : l;
+    for (int i = 0; i < n; ++i) {
+      float x = mix[i] * 100.0f;
+      x = NovaTanh(x);
+      x = x * amp;
+      out[i] = x * 0.125f;   // /8: sc_reciprocal(8) = 0.125 exact
+    }
+  }
+}
+
+inline const DroneSpec kDroneHecker = {"Hecker", drones::Hk_Init,
+                                       drones::Hk_Process};
+
+// ---------------------------------------------------------------------------
+// Fieldsteel (id 7) — 3-voice bandpassed-saw drone + 3-layer SVF marimba.
+// DEFERRED (2026-11-20, T-D2 Task 5): the port reaches max_abs 0.028866338 /
+// rms +0.4 dB / corr 0.256798020 after 3 distinct diagnostic-driven fix
+// attempts (v1 graph; EnvGen Node-array lifetime; Demand pull order). Its
+// residual lives in the shared-RGen stream of the 9 marimba Demand pulls and
+// the kr→ar/SVF path, which no kit ref exercises. Catalog id 7 stays nullptr
+// (inert per plan). The full port below + the law notes are preserved for a
+// T-D3 resume — do NOT weaken the gate or regenerate the golden.
+// Local Impulse WITH phase support (the kit Impulse has no phase input);
+// SC LFUGens.cpp:982: phase = wrap(phaseOffset,0,1), 0 -> 1 for inc >= 0.
+// mPhaseIncrement is a DOUBLE (freq * mSampleDur), not the kit's float product.
+// ---------------------------------------------------------------------------
+struct FsImpulse {
+  double phase = 0.0, inc = 0.0;
+  void Init(double sr, float freq, float phase_offset) {
+    inc = static_cast<double>(freq) * (1.0 / sr);
+    double p = phase_offset - std::floor(phase_offset);
+    if (p == 0.0 && inc >= 0.0) p = 1.0;
+    phase = p;
+  }
+  float Next() {
+    float out = 0.0f;
+    if (phase >= 1.0) {
+      phase -= 1.0;
+      if (phase >= 1.0) phase -= std::floor(phase);
+      out = 1.0f;
+    }
+    phase += inc;
+    return out;
+  }
+};
+
+struct FsSources {
+  // Demand sources have no default ctor; placement-new them in the arena.
+  DXRand* dx_notes = nullptr; DXRand* dx_rhy = nullptr;
+  DRand* dr_pitch = nullptr;
+  DBrown* db_dmul = nullptr; DBrown* db_m0 = nullptr;
+  DBrown* db_m1 = nullptr; DBrown* db_m2 = nullptr;
+};
+
+struct FsDroneVoice {
+  Saw saw;
+  BpfKr bpf;
+  Pan2 pan;
+  float mul_prev = 0.0f;   // mul_ak mPrevB (previous block's kr Dbrown value)
+  float env_prev = 0.0f;   // env mul_ak mPrevB
+};
+struct FsMarVoice {
+  LFSaw saw;
+  SVF svf;
+  Pan2 pan;
+  float mul_prev = 0.0f;
+};
+
+struct FsState {
+  FsSources src;
+  LFNoise1 lf_midi, lf_cf0, lf_cf1, lf_rq0, lf_rq1,
+           lf_res0, lf_res1, lf_res2;
+  FsImpulse imp_d[3], imp_m;
+  // EnvGen keeps a pointer to its Node array: it MUST live in the state, not
+  // on Fs_Init's stack (a dangling node pointer blew the envelope to ~4e9).
+  EnvGen::Node env_nodes[3];
+  EnvGen env_d[3];
+  LinExp le_cf0, le_cf1, le_rq0, le_rq1, le_res0, le_res1, le_res2;
+  Demand dem_note[3], dem_dmul[3], dem_rhy[3], dem_pitch[3], dem_mm[3];
+  FsDroneVoice dv[3];
+  FsMarVoice mv[3];
+  float impbuf[64], sawbuf[64], mulbuf[64], bpfbuf[64], envbuf[64], sfbuf[64];
+  float dlv[3][64], drv[3][64], mlv[3][64], mrv[3][64];
+  float r2, rhalf, hz3, hz125, hz4;   // exact reciprocal/constants
+};
+
+inline float FsPull(Demand& d, float trig) {
+  float out = 0.0f;
+  float* outs[1] = {&out};
+  d.ProcessBlock(&trig, 0.0f, outs, 1);
+  return out;
+}
+
+inline void Fs_Init(Ctx& c) {
+  FsState* st = new (c.arena->Alloc(sizeof(FsState))) FsState();
+  const double sr = static_cast<double>(c.sr);
+  const double cr = sr / static_cast<double>(kBlock);
+  // Head (constant, K2A-flat). Fieldsteel uses NovaFreq2Midi(55) == 33 exactly.
+  const float hz = c.hz;
+  st->r2 = ScReciprocal(2.0f);
+  st->rhalf = hz * st->r2;          // hz/2 (div_ai_nova)
+  st->hz3 = 3.0f * hz;              // 3*hz
+  st->hz125 = hz * 1.25f;
+  st->hz4 = hz * 4.0f;
+  // RGen creation order: demand sources' Ctor resets (Drand/Dxrand consume
+  // one irand draw each), interleaved with the LFNoise1 ctors (2 draws each).
+  st->src.dx_notes = new (c.arena->Alloc(sizeof(DXRand)))
+      DXRand({INFINITY, NovaMidi2Freq(13.0f), NovaMidi2Freq(20.0f),
+              NovaMidi2Freq(33.0f), NovaMidi2Freq(28.0f)}, c.rgen);
+  st->src.dr_pitch = new (c.arena->Alloc(sizeof(DRand)))
+      DRand({INFINITY, st->rhalf, hz, st->hz3, st->hz125, st->hz4}, c.rgen);
+  st->src.db_dmul = new (c.arena->Alloc(sizeof(DBrown)))
+      DBrown({INFINITY, 0.6f, 0.8f, 0.01f}, c.rgen);
+  st->src.dx_rhy = new (c.arena->Alloc(sizeof(DXRand)))
+      DXRand({INFINITY, 0.125f, 0.375f, 0.5625f, 0.1617647111415863f,
+              0.25f, 0.5f, 1.0f, 1.25f}, c.rgen);
+  st->src.db_m0 = new (c.arena->Alloc(sizeof(DBrown)))
+      DBrown({INFINITY, 0.6f, 1.0f, 0.01f}, c.rgen);
+  st->src.db_m1 = new (c.arena->Alloc(sizeof(DBrown)))
+      DBrown({INFINITY, 0.6f, 1.0f, 0.01f}, c.rgen);
+  st->src.db_m2 = new (c.arena->Alloc(sizeof(DBrown)))
+      DBrown({INFINITY, 0.6f, 1.0f, 0.01f}, c.rgen);
+  st->src.dx_notes->Reset();         // 11_Dxrand (1 draw)
+  st->src.dr_pitch->Reset();         // 20_Drand (1 draw)
+  st->src.db_dmul->Reset();          // 31_Dbrown (0 draws)
+  st->lf_midi.Init(c.rgen, cr, 0.1f);   // 35 (2 draws)
+  st->lf_cf0.Init(c.rgen, cr, 0.2f);    // 53
+  st->lf_cf1.Init(c.rgen, cr, 0.2f);    // 55
+  st->lf_rq0.Init(c.rgen, cr, 0.1f);    // 57
+  st->lf_rq1.Init(c.rgen, cr, 0.1f);    // 69
+  st->src.dx_rhy->Reset();           // 80_Dxrand (1 draw)
+  st->src.db_m0->Reset();            // 91
+  st->lf_res0.Init(c.rgen, cr, 0.1f);   // 94
+  st->src.db_m1->Reset();            // 101
+  st->lf_res1.Init(c.rgen, cr, 0.1f);   // 104
+  st->src.db_m2->Reset();            // 111
+  st->lf_res2.Init(c.rgen, cr, 0.1f);   // 114
+  // Demand UGens (24/27/30, 32/33/34, 82/85/88, 84/87/90, 92/102/112).
+  st->dem_note[0].Init({st->src.dx_notes});
+  st->dem_note[1].Init({st->src.dx_notes});
+  st->dem_note[2].Init({st->src.dx_notes});
+  st->dem_dmul[0].Init({st->src.db_dmul});
+  st->dem_dmul[1].Init({st->src.db_dmul});
+  st->dem_dmul[2].Init({st->src.db_dmul});
+  st->dem_rhy[0].Init({st->src.dx_rhy});
+  st->dem_rhy[1].Init({st->src.dx_rhy});
+  st->dem_rhy[2].Init({st->src.dx_rhy});
+  st->dem_pitch[0].Init({st->src.dr_pitch});
+  st->dem_pitch[1].Init({st->src.dr_pitch});
+  st->dem_pitch[2].Init({st->src.dr_pitch});
+  st->dem_mm[0].Init({st->src.db_m0});
+  st->dem_mm[1].Init({st->src.db_m1});
+  st->dem_mm[2].Init({st->src.db_m2});
+  // Impulses: drone 1/8 with phases 0, 1/3, 0.6; marimba 1/4 phase 0.
+  st->imp_d[0].Init(cr, 0.125f, 0.0f);
+  st->imp_d[1].Init(cr, 0.125f, 0.3333333432674408f);  // c[8] = 1/3
+  st->imp_d[2].Init(cr, 0.125f, 0.6000000238418579f);  // c[9] = 0.6
+  st->imp_m.Init(cr, 0.25f, 0.0f);
+  // Drone EnvGen 3 curve stages (Env([0,1,1,0],[2,5,3],[1,0,-1])).
+  // The Node array lives in FsState — EnvGen stores the pointer.
+  st->env_nodes[0] = {1.f, 2.f, 5.f, 1.f};
+  st->env_nodes[1] = {1.f, 5.f, 5.f, 0.f};
+  st->env_nodes[2] = {0.f, 3.f, 5.f, -1.f};
+  for (int v = 0; v < 3; ++v)
+    st->env_d[v].Init(cr, st->env_nodes, 3, 0.f, 1.f, 0.f, 1.f, -99, -99);
+  // LinExp sweeps (kr).
+  st->le_cf0.Init(-1.f, 1.f, st->rhalf, st->hz3);
+  st->le_cf1.Init(-1.f, 1.f, st->rhalf, st->hz3);
+  st->le_rq0.Init(-1.f, 1.f, 0.1f, 0.20000000298023224f);
+  st->le_rq1.Init(-1.f, 1.f, 0.1f, 0.20000000298023224f);
+  st->le_res0.Init(-1.f, 1.f, 0.0020000000949949026f, 0.01f);
+  st->le_res1.Init(-1.f, 1.f, 0.0020000000949949026f, 0.01f);
+  st->le_res2.Init(-1.f, 1.f, 0.0020000000949949026f, 0.01f);
+  const float midi_ratio_ctor = HkMidiratio(st->lf_midi.ctor_value() * 0.1f);
+  for (int v = 0; v < 3; ++v) {
+    FsDroneVoice& vc = st->dv[v];
+    // Saw ctor freq = 24_Demand's primed output (0) * midiratio.
+    vc.saw.Init(c.tables, sr, 0.0f * midi_ratio_ctor);
+    LinExp& lecf = (v == 1) ? st->le_cf1 : st->le_cf0;
+    LinExp& lerq = (v == 1) ? st->le_rq1 : st->le_rq0;
+    LFNoise1& lfcf = (v == 1) ? st->lf_cf1 : st->lf_cf0;
+    LFNoise1& lfrq = (v == 1) ? st->lf_rq1 : st->lf_rq0;
+    vc.bpf.Init(sr);
+    vc.bpf.Prime(lecf.ctor_value(lfcf.ctor_value()),
+                 lerq.ctor_value(lfrq.ctor_value()), 0.0f);
+    const float pan = (v == 0) ? -0.8500000238418579f
+                     : (v == 2) ? 0.8500000238418579f : 0.0f;
+    vc.pan.Init(c.tables, pan, 1.0f, 0.0f);
+    vc.mul_prev = 0.0f; vc.env_prev = 0.0f;
+  }
+  const float mpan[3] = {-0.699999988079071f, 0.0f, 0.699999988079071f};
+  for (int v = 0; v < 3; ++v) {
+    FsMarVoice& vc = st->mv[v];
+    vc.saw.Init(sr, 0.0f, 0.0f);   // LFSaw ctor freq = Demand primed 0
+    vc.svf.Init(sr, 0.0f, 0.0f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.0f);
+    vc.pan.Init(c.tables, mpan[v], 1.0f, 0.0f);
+    vc.mul_prev = 0.0f;
+  }
+  c.state = st;
+}
+
+inline void Fs_Process(Ctx& c, float* l, float* r, int n) {
+  FsState* st = static_cast<FsState*>(c.state);
+  const float amp = c.amp;
+  const float lvl = 0.5773502588272095f;   // exact c[22] = 1/sqrt(3)
+  const float drone_amp = 0.675000011920929f;  // c[34]
+  const float mar_amp = 0.32499998807907104f;  // c[33]
+  const double cr = static_cast<double>(c.sr) / static_cast<double>(kBlock);
+  (void)cr;
+  // kr noise values shared across the drone voices (one ProcessKr per block).
+  const float midi_n = st->lf_midi.ProcessKr();
+  const float cf0 = st->lf_cf0.ProcessKr();
+  const float cf1 = st->lf_cf1.ProcessKr();
+  const float rq0 = st->lf_rq0.ProcessKr();
+  const float rq1 = st->lf_rq1.ProcessKr();
+  const float res[3] = {st->lf_res0.ProcessKr(), st->lf_res1.ProcessKr(),
+                        st->lf_res2.ProcessKr()};
+  const float mratio = HkMidiratio(midi_n * 0.1f);
+  // ---- drone (3 voices) ----
+  for (int v = 0; v < 3; ++v) {
+    FsDroneVoice& vc = st->dv[v];
+    const float trig = st->imp_d[v].Next();
+    const float note = FsPull(st->dem_note[v], trig);
+    const float dmul = FsPull(st->dem_dmul[v], trig);
+    const float env = st->env_d[v].ProcessKr(trig);
+    vc.saw.SetFreq(note * mratio);
+    vc.saw.ProcessBlock(st->sawbuf, n);
+    MulRamp64(st->sawbuf, st->mulbuf, n, vc.mul_prev, dmul, 1.0f);
+    vc.mul_prev = dmul;
+    for (int i = 0; i < n; ++i)
+      st->sfbuf[i] = HkSoftclip(st->mulbuf[i]) * 0.75f;
+    LinExp& lecf = (v == 1) ? st->le_cf1 : st->le_cf0;
+    LinExp& lerq = (v == 1) ? st->le_rq1 : st->le_rq0;
+    const float lfcf = (v == 1) ? cf1 : cf0;
+    const float lfrq = (v == 1) ? rq1 : rq0;
+    vc.bpf.ProcessBlock(st->sfbuf, st->bpfbuf, n, lecf.Next(lfcf),
+                        lerq.Next(lfrq));
+    MulRamp64(st->bpfbuf, st->envbuf, n, vc.env_prev, env, 1.0f);
+    vc.env_prev = env;
+    for (int i = 0; i < n; ++i)
+      st->sfbuf[i] = HkSoftclip(st->envbuf[i] * 1.5f);
+    const float pan = (v == 0) ? -0.8500000238418579f
+                     : (v == 2) ? 0.8500000238418579f : 0.0f;
+    vc.pan.ProcessBlock(st->sfbuf, st->dlv[v], st->drv[v], n, pan, 1.0f);
+  }
+  // ---- marimba (3 layers) ----
+  for (int v = 0; v < 3; ++v) {
+    FsMarVoice& vc = st->mv[v];
+    const float trig = st->imp_m.Next();
+    const float rhy = FsPull(st->dem_rhy[v], trig);
+    const float pitch = FsPull(st->dem_pitch[v], trig);
+    const float mmul = FsPull(st->dem_mm[v], trig);
+    vc.saw.SetFreq(rhy);
+    vc.saw.ProcessBlock(st->sawbuf, n);
+    MulRamp64(st->sawbuf, st->mulbuf, n, vc.mul_prev, mmul, 1.0f);
+    vc.mul_prev = mmul;
+    LinExp& leres = (v == 0) ? st->le_res0 : ((v == 1) ? st->le_res1
+                                                        : st->le_res2);
+    const float resv = 1.0f - leres.Next(res[v]);
+    vc.svf.ProcessBlock(st->mulbuf, st->sfbuf, n, pitch, resv,
+                        0.f, 1.f, 0.f, 0.f, 0.f);
+    for (int i = 0; i < n; ++i)
+      st->sfbuf[i] = HkSoftclip(st->sfbuf[i] * 0.1f);
+    const float mpan = (v == 0) ? -0.699999988079071f
+                     : (v == 2) ? 0.699999988079071f : 0.0f;
+    vc.pan.ProcessBlock(st->sfbuf, st->mlv[v], st->mrv[v], n, mpan, 1.0f);
+  }
+  // Splay level comp + Mix folds (exact Sum3 operand order from dump):
+  // drone Sum3 = (dv2 + dv1) + dv0; marimba Sum3 = (mv2 + mv1) + mv0.
+  for (int i = 0; i < n; ++i) {
+    const float dl_sum = (st->dlv[2][i] + st->dlv[1][i]) + st->dlv[0][i];
+    const float dr_sum = (st->drv[2][i] + st->drv[1][i]) + st->drv[0][i];
+    const float ml_sum = (st->mlv[2][i] + st->mlv[1][i]) + st->mlv[0][i];
+    const float mr_sum = (st->mrv[2][i] + st->mrv[1][i]) + st->mrv[0][i];
+    // MulAdd(drone*0.675 + marimba*0.325) then *amp.
+    l[i] = (dl_sum * lvl * drone_amp + ml_sum * lvl * mar_amp) * amp;
+    r[i] = (dr_sum * lvl * drone_amp + mr_sum * lvl * mar_amp) * amp;
+  }
+}
+
+inline const DroneSpec kDroneFieldsteel = {"Fieldsteel", drones::Fs_Init,
+                                           drones::Fs_Process};
 
 // ---------------------------------------------------------------------------
 // Mt. Lion spec

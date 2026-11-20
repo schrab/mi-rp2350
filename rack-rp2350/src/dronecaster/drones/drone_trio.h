@@ -65,8 +65,8 @@ inline const DroneSpec kDroneTriangle = {"Triangle", drones::Triangle_Init, dron
 inline const DroneSpec* Catalog(int id) {
   static const DroneSpec* const kCatalog[kCatalogCount] = {
       /* 0 Apparatus .. 13 */ nullptr, nullptr, nullptr, nullptr, nullptr,
-      nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-      nullptr,
+      nullptr, nullptr, nullptr,  // id 7 Fieldsteel DEFERRED (see drone_t2.h)
+      nullptr, nullptr, &drones::kDroneHecker, nullptr, nullptr, nullptr,
       /* 14 */ &kDroneMtLion,
       /* 15 */ &kDroneMtZion,
       /* 16 .. 21 */ nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,

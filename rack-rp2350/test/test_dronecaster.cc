@@ -1042,7 +1042,7 @@ int main() {
     struct GoldenCase { int id; const char* name; };
     const GoldenCase cases[] = {{22, "Sine"}, {23, "Square"}, {29, "Triangle"},
                                 {36, "harms way"}, {27, "Thx"}, {15, "Mt. Zion"},
-                                {14, "Mt. Lion"}};
+                                {14, "Mt. Lion"}, {10, "Hecker"}};
     for (const GoldenCase& gc : cases) {
       static uint8_t mem[160 * 1024];
       sc::Engine e;
@@ -1084,6 +1084,8 @@ int main() {
   CHECK(sc::Catalog(27) != nullptr, "id 27 ported");
   CHECK(sc::Catalog(15) != nullptr, "id 15 ported");
   CHECK(sc::Catalog(14) != nullptr, "id 14 ported");
+  CHECK(sc::Catalog(10) != nullptr, "id 10 ported");
+  CHECK(sc::Catalog(7) == nullptr, "id 7 deferred (inert)");
 
   printf("== EnvAsr (Env.asr curve -4, kr; 3.14 ctor rollback) ==\n");
   {
