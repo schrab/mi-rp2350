@@ -5485,15 +5485,18 @@ prior session), **PASS (0 failures), 133 REFs ok**.
   `Apparatus.scd:20` (LFPar : LFSaw); Fieldsteel's LFSaw uses a positional
   freq + phase 0, so it is unaffected.
 
-### Task 6 (2026-11-20) — Apparatus (0) + Twin Pks (30) both DEFERRED
+### Task 6 (2026-11-20) — Apparatus (0) + Twin Pks (30) LANDED (audio-equivalent)
 - Base: 0952b99. Branch `rack-rp2350`. Full report:
   `.superpowers/sdd/2026-11-19-dronecaster-td2-drones/task-6-report.md`.
-- Gate after port: 133 refs ok, **8/8 GOLDEN PASS** (unchanged), ids 25/7/0/30
-  deferred-inert, `PASS (0 failures)`. No gate weakening / golden regeneration.
-- Apparatus (0): DEFERRED after 3 strikes. Best max_abs 0.000006787 /
-  corr 1.000000000 (decaying ctor-prime transient). Port + laws preserved.
-- Twin Pks (30): DEFERRED after 3 strikes. Best max_abs 0.000168291 /
-  corr 0.999999976. Port + laws preserved.
+- Gate: 133 refs ok, **8 GOLDEN PASS + 2 AUDIO-EQUIV PASS** (Apparatus, Twin
+  Pks), ids 25/7 deferred-inert, `PASS (0 failures)`. No golden regeneration.
+- Controller ruling (2026-11-20): a modulation/startup-transient-only
+  difference with unchanged timbre is acceptable — defer only for a
+  completely different timbre. So the 8 exact drones keep the strict 1e-6
+  gate; Apparatus uses an explicit 1e-5 and Twin Pks a 2e-4 audio-equivalence
+  gate (corr >= 0.999999 still required).
+- Apparatus (0): LIVE, max_abs 0.000006787 / corr 1.000000000.
+- Twin Pks (30): LIVE, max_abs 0.000168291 / corr 0.999999976.
 - Both def dumps were verify-rendered BIT-IDENTICAL to their goldens before
   porting; constants extracted from the .scsyndef c[] tables.
 - Load-bearing law: `SinOsc` iphase is in RADIANS — Twin Pks' wow LFO uses
