@@ -5666,3 +5666,55 @@ prior session), **PASS (0 failures), 133 REFs ok**.
 - **Status: LISTENING ACCEPTANCE STILL PENDING.** Over-budget/hanging drones
   are flagged, not blocked. Do not write "user-accepted" before the user
   confirms.
+
+## 2026-11-21 — T-D2 crash fix: the 4 hanging delay drones (agent session)
+
+- **ROOT CAUSE (proven):** the 4 hanging drones are exactly the delay-line
+  graphs. The kit DelayLine / DelayCA / Limiter built their rings with
+  `std::vector` INSIDE the arena-punned drone states, so on device they
+  allocated from the C++ heap: the heap is only **22,272 B**
+  (`__bss_end__` → `__HeapLimit`, firmware map), Mt. Lion asked 2,359,296 B,
+  Sachiko 1,130,496 B, Starlids 65,536 B (exhaustion → failed `operator new`
+  → core-1 hang → watchdog `reason=3`), and the core's malloc has **no
+  multicore lock** (malloc-lock.cpp wraps `_malloc_r` in `noInterrupts()` only
+  — that is per-core, so core-1 Init allocations race core-0 Serial/USB
+  mallocs) — even Twin Pks' 8.6 KB + its 468 B `Limiter` table were unsafe.
+  The host gate never saw it: on x86 the vectors are invisible to
+  `arena_used()`.
+- **FIX (commit 7bdbac2 + PicoCollider 3cfd4a2):** every ring now places via
+  `AllocRing()` = engine arena first, then a NEW aux region = the SRAM
+  hot-code window above the dronecaster hot image (`__rack_window_aux_*`,
+  117,496 B, idle while dronecaster is resident — `cmd_chain` now rejects
+  dronecaster as a chain A). KitTables shrunk 131,080 → 73,744 B (wavetable
+  from the sin() law directly, pan quarter inline, BLIT tables lazy via
+  `EnsurePulseTables` — 6 BLIT drones call it). Ring sizes are GRAPH
+  CONSTANTS measured on the golden renders (instrumented per-instance max
+  dsamp / max stored value). Mt. Lion rings 350,268 B (golden maxima
+  {1,574,10072,1,33234,1,1,13040,22415} + 8, four never-fired voices keep a
+  2,048-float transient allowance); Sachiko 27 INT16 rings 341,464 B (dn's
+  golden 4,096-sample clamp preserved EXACTLY; tail combs live-clamp
+  114.5 ms vs 170.7 ms — documented); Starlids 12 × 104; Twin Pks 2,056 +
+  Limiter 117. Engine `AttachAux` + init-failure path (state null → engine
+  idle, `initfail=` field in report_dc) — a capacity bug can now only fail
+  loudly, never hang.
+- **GATES:** dronecaster host gate PASS (0 failures) — 133 refs, 14/14
+  goldens; the 8 sample-exact drones keep their banked max values
+  bit-identically (Mt. Lion 3.3e-8, Mt. Zion 5.2e-8, Thx 3.7e-8); Sachiko
+  AUDIO-EQUIV max 0.086446553 (+1.4e-6 from the int16 rings, gate 0.10);
+  PicoCollider 129-ref gate PASS (0 failures). NEW regression gate
+  `== T-D2 device memory budget ==`: renders all 14 drones against
+  device-realistic sizes (carve 331,040 + aux 117,552) and asserts heap == 0
+  (Fieldsteel's documented 324 B demand-kit residual excepted).
+- **BUDGET (after):** all 14 fit — worst Mt. Lion 326,552 arena + 108,896 aux,
+  Sachiko 330,880 + 96,064; heap 0 everywhere else. Firmware build SUCCESS
+  with all window ASSERTs green (aux ASSERT ≥ 108 KiB); NOT flashed.
+- **RESIDUALS (documented in the task dir):** Fieldsteel's demand-kit vectors
+  (~324 B heap per swap-in, leaks — convert the demand kit to caller-owned
+  storage as a follow-up); Mt. Lion never-fired-voice transient clamp
+  (42.7 ms until the lag converges); Sachiko tail-comb live clamp; Sachiko
+  int16 ring quantization (audio-equivalence gates unchanged and passing).
+  C3 pot still excludes 14/20/24/30 — restore AFTER the user's hardware
+  matrix passes.
+- **Report:** `.superpowers/sdd/2026-11-19-dronecaster-td2-drones/crash-fix-report.md`.
+- **Status: hardware matrix pending the user.** Listening acceptance still
+  pending (never write "user-accepted" yourself).
