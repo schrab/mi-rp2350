@@ -100,6 +100,7 @@ class Engine {
   }
   const char* current_name() const { return current_ ? current_->name : "--"; }
   uint32_t swap_count() const { return swaps_; }
+  size_t arena_used() const { return arena_.used(); }   // T-D2 budget gate
 
   void Process(float* out_l, float* out_r, int n) {
     for (int i = 0; i < n; ++i) {

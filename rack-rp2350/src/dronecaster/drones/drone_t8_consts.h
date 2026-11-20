@@ -1,0 +1,25 @@
+// Exact float32 constants from the Coil .scsyndef c[] table (2026-11-20).
+// 9 significant digits round-trip every binary32; never use dumpUGens prints.
+#ifndef RACK_SRC_DRONECASTER_DRONES_DRONE_T8_CONSTS_H_
+#define RACK_SRC_DRONECASTER_DRONES_DRONE_T8_CONSTS_H_
+namespace sc {
+namespace drones {
+static const float kCoilC[68] = {
+  1.0f, 12648430.0f, 0.5f, 0.0f, 0.200000003f, 1.25f,
+  1.75f, 1.45000005f, 1.54999995f, 2.0f, -99.0f, 3.0f,
+  -1.0f, 0.00100000005f, 6.28318548f, 0.25f, 0.100000001f, 6.0f,
+  0.600000024f, 5.0f, 10.0f, 0.00999999978f, 0.0199999996f, 15.0f,
+  0.0164196547f, 0.0252477452f, 0.0208529048f, 0.300000012f, 1.5f, 0.0217190403f,
+  0.400000006f, 0.0291209314f, 2.5f, 0.0105374316f, 0.600000024f, 0.0180459674f,
+  0.699999988f, 3.5f, 0.0161049217f, 0.800000012f, 4.0f, 0.0276014321f,
+  0.899999976f, 4.5f, 0.0161766838f, 0.0297038704f, 1.10000002f, 5.5f,
+  0.0112564638f, 0.0480000004f, 0.098935172f, 0.0399999991f, 0.0500000007f, 0.0903932676f,
+  0.0356686339f, 0.0312120318f, 0.0516909473f, 0.0633430257f, 0.0824305043f, 0.0463094339f,
+  0.0329945795f, 0.0268352441f, 0.0178718083f, 0.00429535517f, 0.0327041671f, 0.0237236731f,
+  0.0225685947f, -4.0f,
+};
+// DelayC maxdelay index per voice (from dumpUGens 178..814).
+static const int kClDelay[12] = {24,25,26,29,31,33,35,38,41,44,45,48};
+}  // namespace drones
+}  // namespace sc
+#endif

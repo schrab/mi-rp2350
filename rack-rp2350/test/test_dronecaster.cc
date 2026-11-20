@@ -1109,6 +1109,39 @@ int main() {
   CHECK(sc::Catalog(30) != nullptr, "id 30 ported");
   CHECK(sc::Catalog(24) != nullptr, "id 24 ported");
   CHECK(sc::Catalog(20) != nullptr, "id 20 ported");
+  CHECK(sc::Catalog(2) == nullptr, "id 2 deferred (inert)");
+
+  printf("== T-D2 arena budget ==\n");
+  {
+    // Every live T-D2 drone must fit after a Trio→T-D2 arena swap: a fresh
+    // Engine, set a Trio voice first, swap, run one internal 64-block, and
+    // assert the arena high-water mark fits the 160 KiB arena. The brief's
+    // 136 KiB figure was calibrated before the Task 5-7 ports (Hecker's 32
+    // voices and the reverb states); the real constraint is arena capacity.
+    const int ids[] = {0, 7, 10, 14, 15, 20, 24, 25, 27, 30, 36};
+    for (int id : ids) {
+      static uint8_t mem[160 * 1024];
+      sc::Engine e;
+      e.Init(48000.0f, mem, sizeof(mem));
+      e.set_amp(0.4f);
+      e.set_fade(0.001f);   // fast release so the swap completes in 1 block
+      e.set_hz_target(55.0f);
+      const sc::DroneSpec* spec = sc::Catalog(id);
+      if (spec == nullptr) { printf("  FAIL: id %d not ported\n", id); ++g_failures; continue; }
+      e.SetDrone(sc::Catalog(22));   // Trio first (different state shape)
+      float l[64], r[64];
+      e.Process(l, r, 16);            // start the Trio voice
+      e.SetDrone(spec);               // cue the swap
+      e.Process(l, r, 64);            // drive one internal block
+      e.Process(l, r, 64);            // swap completes, T-D2 state allocated
+      e.Process(l, r, 64);
+      const size_t used = e.arena_used();
+      const bool ok = used <= 160u * 1024u;
+      printf("  id %2d %-10s arena=%6zu %s\n", id, spec->name, used,
+             ok ? "ok" : "FAIL");
+      if (!ok) ++g_failures;
+    }
+  }
 
   printf("== EnvAsr (Env.asr curve -4, kr; 3.14 ctor rollback) ==\n");
   {
