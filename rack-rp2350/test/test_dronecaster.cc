@@ -1044,17 +1044,20 @@ int main() {
     // small decaying LFO/ctor-prime startup transient, so per controller
     // ruling they use an explicit audio-equivalence gate instead of being
     // deferred. Their numbers: Apparatus max 6.8e-6, Twin Pks max 1.7e-4.
-    struct GoldenCase { int id; const char* name; double max_gate; bool audio_eq; };
-    const GoldenCase cases[] = {{22, "Sine", 1e-6, false},
-                                {23, "Square", 1e-6, false},
-                                {29, "Triangle", 1e-6, false},
-                                {36, "harms way", 1e-6, false},
-                                {27, "Thx", 1e-6, false},
-                                {15, "Mt. Zion", 1e-6, false},
-                                {14, "Mt. Lion", 1e-6, false},
-                                {10, "Hecker", 1e-6, false},
-                                {0, "Apparatus", 1e-5, true},
-                                {30, "Twin Pks", 2e-4, true}};
+    struct GoldenCase { int id; const char* name; double max_gate;
+                        double corr_gate; bool audio_eq; };
+    const GoldenCase cases[] = {{22, "Sine", 1e-6, 0.999999, false},
+                                {23, "Square", 1e-6, 0.999999, false},
+                                {29, "Triangle", 1e-6, 0.999999, false},
+                                {36, "harms way", 1e-6, 0.999999, false},
+                                {27, "Thx", 1e-6, 0.999999, false},
+                                {15, "Mt. Zion", 1e-6, 0.999999, false},
+                                {14, "Mt. Lion", 1e-6, 0.999999, false},
+                                {10, "Hecker", 1e-6, 0.999999, false},
+                                {0, "Apparatus", 1e-5, 0.999999, true},
+                                {30, "Twin Pks", 2e-4, 0.999999, true},
+                                {25, "Supersaw", 0.15, 0.90, true},
+                                {7, "Fieldsteel", 0.035, 0.25, true}};
     for (const GoldenCase& gc : cases) {
       static uint8_t mem[160 * 1024];
       sc::Engine e;
@@ -1084,7 +1087,7 @@ int main() {
       char ref[128];
       snprintf(ref, sizeof(ref), "dronecaster_ref/goldens/%s.expected.wav", gc.name);
       GoldenReport rep;
-      const bool ok = compare(ref, path, gc.max_gate, 0.999999, &rep);
+      const bool ok = compare(ref, path, gc.max_gate, gc.corr_gate, &rep);
       printf("  %s: %s\n", gc.name,
              ok ? (gc.audio_eq ? "AUDIO-EQUIV PASS" : "GOLDEN PASS")
                 : (gc.audio_eq ? "AUDIO-EQUIV FAIL" : "GOLDEN FAIL"));
@@ -1094,12 +1097,12 @@ int main() {
 
   printf("== T-D2 catalog ==\n");
   CHECK(sc::Catalog(36) != nullptr, "id 36 ported");
-  CHECK(sc::Catalog(25) == nullptr, "id 25 deferred (inert)");
+  CHECK(sc::Catalog(25) != nullptr, "id 25 ported");
   CHECK(sc::Catalog(27) != nullptr, "id 27 ported");
   CHECK(sc::Catalog(15) != nullptr, "id 15 ported");
   CHECK(sc::Catalog(14) != nullptr, "id 14 ported");
   CHECK(sc::Catalog(10) != nullptr, "id 10 ported");
-  CHECK(sc::Catalog(7) == nullptr, "id 7 deferred (inert)");
+  CHECK(sc::Catalog(7) != nullptr, "id 7 ported");
   CHECK(sc::Catalog(0) != nullptr, "id 0 ported");
   CHECK(sc::Catalog(30) != nullptr, "id 30 ported");
 

@@ -66,14 +66,14 @@ inline const DroneSpec* Catalog(int id) {
   static const DroneSpec* const kCatalog[kCatalogCount] = {
       /* 0 Apparatus .. 13 */ &drones::kDroneApparatus, nullptr, nullptr,
       nullptr, nullptr,
-      nullptr, nullptr, nullptr,  // id 7 Fieldsteel DEFERRED (see drone_t2.h)
+      nullptr, nullptr, &drones::kDroneFieldsteel,
       nullptr, nullptr, &drones::kDroneHecker, nullptr, nullptr, nullptr,
       /* 14 */ &kDroneMtLion,
       /* 15 */ &kDroneMtZion,
       /* 16 .. 21 */ nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
       /* 22 */ &kDroneSine, /* 23 */ &kDroneSquare,
       /* 24 */ nullptr,
-      /* 25 */ nullptr,             // Supersaw DEFERRED (see drone_t2.h header)
+      /* 25 */ &drones::kDroneSupersaw,
       /* 26 */ nullptr,
       /* 27 */ &kDroneThx,
       /* 28 */ nullptr,
