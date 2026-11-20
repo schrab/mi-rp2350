@@ -5558,3 +5558,17 @@ prior session), **PASS (0 failures), 133 REFs ok**.
   `static_assert(sizeof(State) < 128 KiB)` for the 8 T-D2 state structs.
 - Gate: 133 refs ok, 8 GOLDEN PASS + 5 AUDIO-EQUIV PASS, 11/11 arena swaps ok,
   PASS (0 failures).
+
+### Post-Task-8 cleanup (2026-11-20) — drone header layout + firmware build
+- Refactored `src/dronecaster/drones/` from task-numbered files to one header
+  per drone named after the drone: `drone_<name>.h` for all 15 drones, plus
+  `drone_common.h` (shared helpers) and `drone_registry.h` (specs + Catalog).
+  Deleted `drone_t2.h`, `drone_trio.h`, `drone_t7_consts.h`, `drone_t8_consts.h`;
+  updated includes in `test_dronecaster.cc` and `src/module_dronecaster.h`.
+  Commit `e5a8c18`; gate behaviour-identical (14 passes, 133 refs, PASS).
+- Firmware build was failing at `sc_kit_envgen.h` `std::max(1, int32_t)` —
+  template deduction fails on the embedded ABI where int32_t != int. Fixed
+  with explicit `std::max<int32_t>` at both sites in the PicoCollider submodule
+  (`ae6c682`), pointer updated in main repo (`3ba8868`).
+- Verified: `pio run -d rack-rp2350` SUCCESS (RAM 72.9%, Flash 39.2%) and
+  `test_dronecaster` PASS (0 failures).
