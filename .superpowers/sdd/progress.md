@@ -5484,3 +5484,24 @@ prior session), **PASS (0 failures), 133 REFs ok**.
 - LFSaw keyword trap checked in the def dump: the `hz:` warning comes from
   `Apparatus.scd:20` (LFPar : LFSaw); Fieldsteel's LFSaw uses a positional
   freq + phase 0, so it is unaffected.
+
+### Task 6 (2026-11-20) — Apparatus (0) + Twin Pks (30) both DEFERRED
+- Base: 0952b99. Branch `rack-rp2350`. Full report:
+  `.superpowers/sdd/2026-11-19-dronecaster-td2-drones/task-6-report.md`.
+- Gate after port: 133 refs ok, **8/8 GOLDEN PASS** (unchanged), ids 25/7/0/30
+  deferred-inert, `PASS (0 failures)`. No gate weakening / golden regeneration.
+- Apparatus (0): DEFERRED after 3 strikes. Best max_abs 0.000006787 /
+  corr 1.000000000 (decaying ctor-prime transient). Port + laws preserved.
+- Twin Pks (30): DEFERRED after 3 strikes. Best max_abs 0.000168291 /
+  corr 0.999999976. Port + laws preserved.
+- Both def dumps were verify-rendered BIT-IDENTICAL to their goldens before
+  porting; constants extracted from the .scsyndef c[] tables.
+- Load-bearing law: `SinOsc` iphase is in RADIANS — Twin Pks' wow LFO uses
+  iphase 2.0 (c[21]); ignoring it cost 0.206 max_abs (corr 0.963 → 0.999999994
+  once fixed). Apparatus' lfo2 iphase 2pi wraps to table phase 0.
+- Load-bearing law: `LFPar.ar(hz: hz, mul: ...)` at `Apparatus.scd:20` produces
+  NO UGen — UGens 4_LFPar/5_MulAdd/14_PinkNoise are unconnected but still
+  consume ctor + per-block RGen draws (dead PinkNoise must still be processed).
+- Load-bearing law: DelayC with an ar delaytime uses the per-sample checked
+  cubic path (`DelayX_perform_a` + `DelayC_helper<true>`), implemented as
+  `DelayCA` in drone_t2.h — NOT the kit DelayLine's per-block dsamp ramp.
