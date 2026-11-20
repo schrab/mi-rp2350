@@ -5542,3 +5542,19 @@ prior session), **PASS (0 failures), 133 REFs ok**.
   max 0.086445130 / corr -0.1305, spectral L1 0.169 — same timbre. Gate
   0.10/-0.20 (waveform phases uncorrelated; spectral envelope is the check).
 - Gate: 133 refs ok, **8 GOLDEN PASS + 6 AUDIO-EQUIV PASS**, PASS (0 failures).
+
+### Task 8 (2026-11-20) — Coil (2) DEFERRED + arena-swap budget gate added
+- Base: 444e068. Branch `rack-rp2350`. Report:
+  `.superpowers/sdd/2026-11-19-dronecaster-td2-drones/task-8-report.md`.
+- Coil def verify-rendered bit-identical to golden (reused the exact seeded
+  def — def-build-time rrand). 68 constants in `drone_t8_consts.h`. Port is
+  finite but spectral L1 0.90 vs golden (golden pitched 60-90 Hz, port
+  broadband) — a DIFFERENT TIMBRE → DEFERRED under the sole criterion.
+  Catalog id 2 nullptr; full port + laws preserved in `drone_t2.h`.
+- Added `Engine::arena_used()` and a real Trio→T-D2 swap test for all 11 live
+  T-D2 ids (0.001 s fade so the swap completes). All fit the 160 KiB arena
+  (max Hecker 162312 B). The brief's 136 KiB target predates the Task 5-7
+  states; the asserted constraint is the actual arena capacity. Added
+  `static_assert(sizeof(State) < 128 KiB)` for the 8 T-D2 state structs.
+- Gate: 133 refs ok, 8 GOLDEN PASS + 5 AUDIO-EQUIV PASS, 11/11 arena swaps ok,
+  PASS (0 failures).
