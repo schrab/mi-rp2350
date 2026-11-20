@@ -230,7 +230,10 @@ static inline void fill_varg_chord(rings::PerformanceState& perf) {
 // Snapshot the panel distortion settings (core 0 writes, core 1 renders).
 static inline rackdist::Params dist_params() {
   rackdist::Params p{};
-  p.type = s->dist_type;
+  // Rings exposes only the 4 fast algos (0 tube / 1 fold / 2 fuzz / 3 shape).
+  // kSwedish (4) lives in the elements tc_* window, which is overwritten when
+  // rings swaps in — clamp here so a stale CC 27 cannot call into it.
+  p.type = s->dist_type % 4u;
   p.drive = s->dist_drive;
   p.bias = s->dist_bias;
   p.tone = s->dist_tone;

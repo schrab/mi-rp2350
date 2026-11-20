@@ -543,13 +543,13 @@ const MODULES = [
 },
 {
   name: 'DRONECASTER', key: 'dronecaster',
-  info: '48 kHz \u00B7 16-sample blocks \u00B7 budget 1333 \u00B5s \u00B7 Dronecaster: 4 hardware-safe drones (others blocked pending optimisation)',
+  info: '48 kHz \u00B7 16-sample blocks \u00B7 budget 1333 \u00B5s \u00B7 Dronecaster: 14 live drones (over-budget ones flagged, not blocked)',
   ccMap: '51 drone(0-36) \u00B7 52 amp \u00B7 53 fade(atk=rel) \u00B7 54 hz-offset \u00B7 notes = re-hz \u00B7 PLAY 64 = recast',
   knobs: [
     { cc:51, label:'DRONE', steps: {
-        labels:['APPARATUS','SINE','SQUARE','TRIANGLE'],
-        bytes:[0,22,23,29] }, def: 0,
-      note: 'T-D2 drones beyond Apparatus are blocked on hardware until their CPU cost is reduced (Fieldsteel 2318 us, Hecker 13813 us vs 1333 us budget; others hard-fault core 1)' },
+        labels:['APPARATUS','FIELDSTEEL','HECKER','MT\u00A0LION','MT\u00A0ZION','SACHIKO','SINE','SQUARE','STARLIDS','SUPERSAW','THX','TRIANGLE','TWIN\u00A0PKS','HARMS\u00A0WAY'],
+        bytes:[0,7,10,14,15,20,22,23,24,25,27,29,30,36] }, def: 0,
+      note: 'Over budget on hardware: Fieldsteel ~1571 us, Hecker ~7417 us vs 1333 us (audio may glitch); Mt. Lion faulted core 1 — the watchdog now resets instead of freezing' },
     { cc:52, label:'AMP', variant:'white', def: 51/127 },
     { cc:53, label:'FADE', variant:'white', def: 32/127 },
     { cc:54, label:'HZ\u2009OFF', variant:'white', def:.5,

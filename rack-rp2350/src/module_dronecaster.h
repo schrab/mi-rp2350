@@ -56,9 +56,10 @@ static_assert(sizeof(sc::KitTables) <= kVoiceBytes,
 static_assert(kVoiceBytes <= kRackPoolBytes, "dronecaster carve exceeds pool");
 
 static const char* const kCcMap =
-    "51 drone (hardware-safe: 0 apparatus / 22 sine / 23 square / 29 "
-    "triangle; other ids blocked pending CPU optimisation) "
-    "52 amp 53 fade(atk=rel) 54 hz-offset +-24st; "
+    "51 drone (0-36 direct catalog id; 14 live: 0 apparatus / 7 fieldsteel / "
+    "10 hecker / 14 mt.lion / 15 mt.zion / 20 sachiko / 22 sine / 23 square / "
+    "24 starlids / 25 supersaw / 27 thx / 29 triangle / 30 twin peaks / "
+    "36 harms way) 52 amp 53 fade(atk=rel) 54 hz-offset +-24st; "
     "notes = re-hz (glide ~60 ms); PLAY 64 = recast";
 
 static const uint8_t kModContinuousCcs[] = {52, 53, 54};
@@ -128,29 +129,11 @@ void control_change(uint8_t cc, uint8_t val) {
     //    unreachable. A 0-127 C3 pot almost never lands on the raw ids, so
     //    this layer is what the physical pot uses.
     static const int kPorted[] = {0,7,10,14,15,20,22,23,24,25,27,29,30,36};
-    // Hardware allowlist. The T-D2 ports are verified on the host, but on the
-    // board only Apparatus (0) and the T-D1 trio (22/23/29) are safe so far:
-    // Fieldsteel 2318 us, Hecker 13813 us against a 1333 us budget, and the
-    // other T-D2 drones hard-fault core 1 (crash pc=0, hfsr=FORCED) which
-    // stalls the whole audio path. Until they are profiled/optimised, reject
-    // them here with a warning — the ports stay in the catalog so the host
-    // golden gate still covers them.
-    static const int kSafeIds[] = {0, 22, 23, 29};
     int id;
     if (val <= 36) {
       id = val;
     } else {
       id = kPorted[(val - 37) * 14 / 91];   // 37..127 -> 0..13
-    }
-    bool safe = false;
-    for (int b : kSafeIds) if (b == id) { safe = true; break; }
-    if (!safe) {
-      if (static_cast<int16_t>(val) != s->last_bad_drone) {
-        s->last_bad_drone = static_cast<int16_t>(val);
-        Serial.printf("dc: drone id %u not hardware-safe yet - blocked\r\n",
-                      static_cast<unsigned>(id));
-      }
-      return;
     }
     if (sc::Catalog(id) != nullptr) {
       s->pending_drone = static_cast<int16_t>(id);

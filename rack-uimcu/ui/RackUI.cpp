@@ -298,7 +298,7 @@ namespace CTAG {
                     }
                     break;
                 case 5: // Dronecaster
-                    if (cc == 51) return 4;   // 4 hardware-safe drones (APPAR/SINE/SQR/TRI)
+                    if (cc == 51) return 14;  // 14 live drones in catalog order
                     break;
                 case 4: // Lira8 (P1/P2/P3 tables)
                     if (cc == 9 || cc == 10 || cc == 11 || cc == 12) {
@@ -336,13 +336,14 @@ namespace CTAG {
                 bool wireBool = false;
                 const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
                 if (modForPage == 5 && cc == 51) {
-                    // DRONE wire byte is a raw catalog id from the 4
-                    // hardware-safe set {0,22,23,29}. Map back to an even
-                    // 4-step pot position so the bar/name match RP telemetry.
-                    static const uint8_t kSafe[4] = {0, 22, 23, 29};
-                    for (uint8_t i = 0; i < 4; ++i) {
-                        if (wireVal == kSafe[i]) {
-                            return (uint8_t)(((uint16_t)i * 127) / 3);
+                    // DRONE wire byte is a raw catalog id. Map back to the
+                    // matching 14-step pot position so the name/bar track RP
+                    // telemetry (including selections made from the panel).
+                    static const uint8_t kIds[14] = {
+                        0, 7, 10, 14, 15, 20, 22, 23, 24, 25, 27, 29, 30, 36};
+                    for (uint8_t i = 0; i < 14; ++i) {
+                        if (wireVal == kIds[i]) {
+                            return (uint8_t)(((uint16_t)i * 127) / 13);
                         }
                     }
                     return 0;
@@ -383,13 +384,13 @@ namespace CTAG {
                 bool wireBool = false;
                 const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
                 if (modForPage == 5 && cc == 51) {
-                    // DRONE: send the raw catalog id of one of the 4 safe
-                    // drones so the RP firmware's allowlist accepts it and
-                    // the echoed telemetry maps back to this same 4-step pot.
-                    static const uint8_t kSafe[4] = {0, 22, 23, 29};
-                    uint8_t idx = (uint8_t)(((uint16_t)potVal * 4) / 128);
-                    if (idx > 3) idx = 3;
-                    return kSafe[idx];
+                    // DRONE: send the raw catalog id of one of the 14 live
+                    // drones; the RP echoes it back and the name/bar track it.
+                    static const uint8_t kIds[14] = {
+                        0, 7, 10, 14, 15, 20, 22, 23, 24, 25, 27, 29, 30, 36};
+                    uint8_t idx = (uint8_t)(((uint16_t)potVal * 14) / 128);
+                    if (idx > 13) idx = 13;
+                    return kIds[idx];
                 }
                 if (n > 1) {
                     if (wireBool) return potVal >= 64 ? 127 : 0;
@@ -992,14 +993,14 @@ namespace CTAG {
                             pName = (dispVal >= 0 && dispVal < 3)
                                         ? kPlaitsAux[dispVal] : "---";
                         } else if (modForPage == 5 && c.cc == 51) {
-                            // Dronecaster DRONE: the 4 hardware-safe drones,
-                            // in pot order. dispVal is the 4-step index
-                            // (0..3) from potToDisplayValue; the wire byte is
-                            // the matching catalog id {0,22,23,29}.
-                            static const char *const kDroneNames[4] = {
-                                "APPAR", "SINE", "SQR", "TRI"
+                            // Dronecaster DRONE: catalog order; dispVal is the
+                            // 14-step index from potToDisplayValue.
+                            static const char *const kDroneNames[14] = {
+                                "APPAR", "FLDST", "HECK", "MTLION", "MTZION",
+                                "SACH", "SINE", "SQR", "STAR", "SUPER", "THX",
+                                "TRI", "TWPK", "HARMS"
                             };
-                            pName = (dispVal >= 0 && dispVal < 4)
+                            pName = (dispVal >= 0 && dispVal < 14)
                                         ? kDroneNames[dispVal] : "---";
                         } else if (modForPage == 3) {
                             int ringMode = 0;
@@ -1220,22 +1221,17 @@ namespace CTAG {
                             // engaged.
                             const bool chained =
                                 s_cur.tail_valid && s_cur.chain != 0;
-                            // The cell value is POT SPACE: module id n is
-                            // sent as n*127/(kModuleCount-1) (0/25/51/76/
-                            // 102/127), chain pair n as 0/42/85/127. Convert
-                            // back to an index before indexing the name table
-                            // — indexing with dispVal directly showed "---"
-                            // for every module except 0.
-                            if (chained) {
-                                int idx = (dispVal * 4) / 128;
-                                if (idx > 3) idx = 3;
-                                pName = kChainPairNames[idx];
-                            } else {
-                                int idx = (dispVal * (int)kModuleCount) / 128;
-                                if (idx >= (int)kModuleCount)
-                                    idx = (int)kModuleCount - 1;
-                                pName = kModNames[ModuleClamp((uint8_t)idx)];
-                            }
+                            // potToDisplayValue() already converts the SYS
+                            // cell to a discrete index (0..kModuleCount-1 for
+                            // modules, 0..3 for chain pairs) — do NOT divide
+                            // by 128 again here (that pinned every position
+                            // to index 0 = ELEMENTS).
+                            pName = chained
+                                ? ((dispVal >= 0 && dispVal < 4)
+                                       ? kChainPairNames[dispVal] : "---")
+                                : ((dispVal >= 0 && dispVal < kModuleCount)
+                                       ? kModNames[ModuleClamp((uint8_t)dispVal)]
+                                       : "---");
                         } else if (slot == 5 || slot == 14 || slot == 15) {
                             pName = dispVal ? "ON" : "OFF";
                         } else if (slot == 7) {

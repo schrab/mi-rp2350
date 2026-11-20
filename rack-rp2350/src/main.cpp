@@ -358,6 +358,10 @@ volatile uint32_t proc_us_sum = 0;
 volatile uint32_t proc_us_count = 0;
 volatile uint32_t i2s_stall_count = 0;
 volatile float g_render_gain = 1.0f;     // swap-mute ramp (see midi.h)
+// Core-1 render heartbeat: bumped once per completed audio render. Core 0
+// feeds the hardware watchdog ONLY when this advances, so a hung audio core
+// (e.g. a drone hard fault) resets the board instead of leaving it frozen.
+volatile uint32_t g_audio_hb = 0;
 // T6 chain grid overrides for the mod engine (declared in mod_engine.h):
 // nonzero while a chain is engaged — the engine's per-block pass then runs
 // the 32 kHz / 24-sample chain grid instead of the A slot's registry block.
@@ -1700,6 +1704,7 @@ void loop1() {
   } else {
     kRackModules[g_active_module].render();
   }
+  ++g_audio_hb;   // liveness for core-0's conditional watchdog feed
 }
 
 // ================= core 0: control =================
@@ -3260,25 +3265,6 @@ void loop() {
   // max-since-report semantics and the 2 s format is untouched.
   if (now - last_report > 2000) {
     last_report = now;
-    // T-D2 core-1 stall watchdog. A drone whose Process faults (hard fault,
-    // pc=0) or overruns badly can wedge core 1 while core 0 stays alive and
-    // would otherwise print "max Process: 0" forever with a dead UI. Two
-    // consecutive reports with no render heartbeat => automatic reset, so
-    // the board never stays frozen and no manual power cycle is needed.
-    if (g_active_module == RACK_MODULE_DRONECASTER && !g_chain.active) {
-      static uint32_t last_dc_hb = 0;
-      static int dc_hb_stalls = 0;
-      const uint32_t hb = rack_modules::mod_dronecaster::render_heartbeat();
-      if (hb == last_dc_hb) { ++dc_hb_stalls; }
-      else { dc_hb_stalls = 0; last_dc_hb = hb; }
-      if (dc_hb_stalls >= 2) {
-        Serial.println("dc: render stalled (core 1) - auto reset");
-        delay(20);
-        scb_hw->aircr = (0x05FAu << 16) | 0x04u;
-        __asm volatile("dsb 0xF" ::: "memory");
-        for (;;) { tight_loop_contents(); }
-      }
-    }
     static uint32_t last_stall_total = 0;
     const uint32_t stalls = i2s_stall_count;
     const RackModuleInfo& m = kRackModules[g_active_module];
@@ -3456,5 +3442,13 @@ void loop() {
   // Clean loop pass: clear crumbs so a surviving value marks the hang stage.
   crumb(0);
   crumb1(0);
-  watchdog_update();
+  // Conditional watchdog feed: only when the AUDIO core is still rendering.
+  // A hung core 1 (bad drone, hard fault) then starves the watchdog and the
+  // board self-resets in 2 s instead of sitting enumerated-but-dead. During
+  // boot/setup (audio_ready false) feed unconditionally.
+  static uint32_t last_audio_hb = 0;
+  if (!audio_ready || g_audio_hb != last_audio_hb) {
+    last_audio_hb = g_audio_hb;
+    watchdog_update();
+  }
 }

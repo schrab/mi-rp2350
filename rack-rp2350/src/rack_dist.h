@@ -707,9 +707,15 @@ static inline const int32_t* shape_table() {
 
 // Shape the stereo pair in place. State carries the per-channel tone LP
 // between blocks. drive == 0 returns immediately (no reads, no writes).
-// RACK_DIST_MARK: the whole dispatcher (4 fast algos + swede chain incl. the
-// cab FIR) lives in the including adapter's SRAM window when provided.
-RACK_DIST_MARK(dist_process)
+// The dispatcher is deliberately NOT RACK_DIST_MARK'd. rack_dist.h is a
+// single-TU header (the unified firmware includes both adapters in main.cpp)
+// with one include guard, so a marked copy lands in the FIRST includer's tc_*
+// window only — elements'. If rings then called it after its own window copy,
+// the address held rings code and the CPU took an UNDEFINSTR fault into the
+// arena (2026-11-21, core 1 dead on every elements/rings swap). Keeping this
+// dispatcher in flash makes it shared and window-independent; it is ~6.5 KB
+// and fits the XIP cache. The swede/cab helpers stay marked for elements, and
+// rings clamps its type below kSwedish so it never calls into elements' slot.
 static inline void process(State* st, const Params& p,
                            float* out, float* aux, size_t n) {
   if (p.drive <= 0.0f) return;
