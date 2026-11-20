@@ -1057,7 +1057,9 @@ int main() {
                                 {0, "Apparatus", 1e-5, 0.999999, true},
                                 {30, "Twin Pks", 2e-4, 0.999999, true},
                                 {25, "Supersaw", 0.15, 0.90, true},
-                                {7, "Fieldsteel", 0.035, 0.25, true}};
+                                {7, "Fieldsteel", 0.035, 0.25, true},
+                                {24, "Starlids", 0.15, 0.85, true},
+                                {20, "Sachiko", 0.10, -0.20, true}};
     for (const GoldenCase& gc : cases) {
       static uint8_t mem[160 * 1024];
       sc::Engine e;
@@ -1105,6 +1107,8 @@ int main() {
   CHECK(sc::Catalog(7) != nullptr, "id 7 ported");
   CHECK(sc::Catalog(0) != nullptr, "id 0 ported");
   CHECK(sc::Catalog(30) != nullptr, "id 30 ported");
+  CHECK(sc::Catalog(24) != nullptr, "id 24 ported");
+  CHECK(sc::Catalog(20) != nullptr, "id 20 ported");
 
   printf("== EnvAsr (Env.asr curve -4, kr; 3.14 ctor rollback) ==\n");
   {
