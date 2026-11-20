@@ -55,7 +55,10 @@ struct ThxState {
 };
 
 inline void Thx_Init(Ctx& c) {
+  // T-D2: the BLIT Saw reads the full gSine/gInvSine tables (lazy).
+  if (!EnsurePulseTables(c)) { c.state = nullptr; return; }
   ThxState* st = static_cast<ThxState*>(c.arena->Alloc(sizeof(ThxState)));
+  if (st == nullptr) { c.state = nullptr; return; }
   // def constants (dumpUGens of dc_Thx, in voice order):
   static const float kFund[11] = {489.67213630676f, 481.21061325073f,
       452.49471664429f, 386.20710372925f, 374.33710098267f, 339.62507247925f,

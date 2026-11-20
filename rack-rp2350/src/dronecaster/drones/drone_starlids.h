@@ -53,6 +53,11 @@ struct StVoice {
   Pan2 pan;
   float saw_ctor, lpf_ctor, pan_prev;
 };
+// T-D2 device memory law: the 12 chorus DelayC rings are arena/aux-owned
+// (NO heap — the old std::vector rings asked for 48 MB: the declared SC
+// maxdelay is 15 s while the live delaytime is (lfn*0.01+0.02)/15 s ->
+// dsamp <= 96.0000045). Ring = 96 + 8 = 104 floats (ext clamp ceiling
+// ring - 4 = 100 >= 96.0000045, never engages — golden bit-identical).
 struct StState {
   StVoice v[12];
   LFTriP base_tri;
@@ -64,12 +69,21 @@ struct StState {
   LinExp tail_le;
   MoogLadder ladder;
   Filter2Pole hpf;
+  float* delay_ring[12];
   float sawbuf[64], lpbuf[64], dlybuf[64], panl[64], panr[64];
   float mixl[64], mixr[64], tanl[64], tanr[64];
 };
 
 inline void St_Init(Ctx& c) {
+  // T-D2: the base PWM voice is a BLIT Pulse (full gSine/gInvSine tables).
+  if (!EnsurePulseTables(c)) { c.state = nullptr; return; }
   StState* st = new (c.arena->Alloc(sizeof(StState))) StState();
+  if (st == nullptr) { c.state = nullptr; return; }
+  for (int k = 0; k < 12; ++k) {
+    st->delay_ring[k] =
+        static_cast<float*>(AllocRing(c, 104u * 4u));
+    if (st->delay_ring[k] == nullptr) { c.state = nullptr; return; }
+  }
   const double sr = static_cast<double>(c.sr);
   const double cr = sr / static_cast<double>(kBlock);
   const float hz = c.hz;
@@ -99,7 +113,7 @@ inline void St_Init(Ctx& c) {
     const float f0 = NovaMidi2Freq(midi);  // ctor LFOs prime to 0 => base note
     vc.saw.Init(sr, f0, 0.0);
     vc.lpf.Init(sr, 0);
-    vc.delay.Init(sr, md, 0.0f, 0.0f, 2);
+    vc.delay.InitExt(st->delay_ring[k], 104, sr, md, 0.0f, 0.0f, 2);
     vc.pan.Init(c.tables, 0.0f, 1.0f, 0.0f);
     vc.saw_ctor = f0; vc.lpf_ctor = 0.0f; vc.pan_prev = 0.0f;
   }

@@ -1938,6 +1938,14 @@ static void cmd_chain(const char* args) {
     Serial.println("rack: chain: A cannot be clouds (no clouds->clouds pair)");
     return;
   }
+  if (a == RACK_MODULE_DRONECASTER) {
+    // T-D2 crash fix: dronecaster is standalone-only. Its delay rings live
+    // in the SRAM window tail (the aux region) — a chain would populate the
+    // clouds B-slot copy over that region. It also has no chain-A hooks.
+    Serial.println("rack: chain: dronecaster cannot be a chain A "
+                   "(standalone-only; `chain off` first, then switch)");
+    return;
+  }
   if (g_chain.active) {
     if (static_cast<uint8_t>(a) == g_chain.a) {
       Serial.println("rack: chain: that pair is already engaged");

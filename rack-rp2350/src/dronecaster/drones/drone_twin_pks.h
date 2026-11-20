@@ -29,6 +29,10 @@ struct TpState {
   LinExp le_ratio, le_sat, le_wowrate, le_depth;
   Decimator decim;
   float b41_prev, c41_prev, c51_prev;  // ar MulAdd kr-ramp previous values
+  float* delay_ring;                   // T-D2: arena/aux-owned (was heap)
+  // Limiter lookahead table: 3 x ceil(dur*sr) = 3 x 39 floats (0.0008 s at
+  // 48 kHz) — arena/aux-owned via Limiter::InitExt (was a std::vector).
+  float lim_table[117];
   float buf1[64], buf2[64], buf3[64], buf4[64], buf5[64], buf6[64];
   float buf7[64], buf8[64], buf9[64], buf10[64], buf11[64], buf12[64];
   float delaytime[64];
@@ -36,6 +40,13 @@ struct TpState {
 
 inline void Tp_Init(Ctx& c) {
   TpState* st = new (c.arena->Alloc(sizeof(TpState))) TpState();
+  if (st == nullptr) { c.state = nullptr; return; }
+  // T-D2 device memory law: the wow DelayC ring is arena/aux-owned. Golden
+  // max dsamp 149; the live delaytime range is the same (hz-independent wow
+  // chain), so the ring keeps the old 2,048 ceiling with margin: 2,056
+  // floats -> clamp ceiling 2,052 (never engages — golden bit-identical).
+  st->delay_ring = static_cast<float*>(AllocRing(c, 2056u * 4u));
+  if (st->delay_ring == nullptr) { c.state = nullptr; return; }
   const double sr = static_cast<double>(c.sr);
   const double cr = sr / static_cast<double>(kBlock);
   // RGen creation order: 4_Dust2, 5_Crackle, 7_PinkNoise, 43_Dust2,
@@ -58,8 +69,8 @@ inline void Tp_Init(Ctx& c) {
   const float threshold = drive * -0.4699999988079071f + 0.800000011920929f;
   const float gain = 1.0f / ((1.0f - threshold) * ratio + threshold);
   st->comp.Init(sr, threshold, 1.0f, ratio, 0.1f, 1.0f, 0.0f, 0.0f);
-  st->lim.Init(sr, 1.0f, 0.0007999999797903001f, 0.0f);
-  st->delay.Init(sr, 0.02552817016839981f);   // c[22]
+  st->lim.InitExt(st->lim_table, sr, 1.0f, 0.0007999999797903001f, 0.0f);
+  st->delay.InitExt(st->delay_ring, 2056, sr, 0.02552817016839981f);   // c[22]
   const float wowrate = st->le_wowrate.Next(wow);
   st->wow_sine.Init(c.tables, sr, 2.0f);   // iphase = 2 radians (c[21])
   const float lfo_amt = std::floor(wow * 4.0f + 1.0f);   // c[18]=4, floor

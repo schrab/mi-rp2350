@@ -87,7 +87,10 @@ inline float FsPull(Demand& d, float trig) {
 }
 
 inline void Fs_Init(Ctx& c) {
+  // T-D2: the BLIT Saw reads the full gSine/gInvSine tables (lazy).
+  if (!EnsurePulseTables(c)) { c.state = nullptr; return; }
   FsState* st = new (c.arena->Alloc(sizeof(FsState))) FsState();
+  if (st == nullptr) { c.state = nullptr; return; }
   const double sr = static_cast<double>(c.sr);
   const double cr = sr / static_cast<double>(kBlock);
   // Head (constant, K2A-flat). Fieldsteel uses NovaFreq2Midi(55) == 33 exactly.

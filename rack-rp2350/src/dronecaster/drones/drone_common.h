@@ -430,8 +430,8 @@ struct Pan2Aa {
     for (int i = 0; i < n; ++i) {
       int32_t ipos = static_cast<int32_t>(1024.0f * pos[i] + 1024.0f + 0.5f);
       ipos = ipos < 0 ? 0 : (ipos > 2048 ? 2048 : ipos);   // sc_clip
-      left[i] = in[i] * (level * t_->sine[2048 - ipos]);
-      right[i] = in[i] * (level * t_->sine[ipos]);
+      left[i] = in[i] * (level * t_->sine_q[2048 - ipos]);
+      right[i] = in[i] * (level * t_->sine_q[ipos]);
       if (changed) level += slope;
     }
     if (changed) level_ = level;   // the accumulated ramp end
@@ -597,8 +597,8 @@ struct XFade2Ak {
   void Compute(float pan, float* l, float* r) const {
     int ip = static_cast<int32_t>(1024.0f * pan + 1024.0f + 0.5f);
     ip = ip < 0 ? 0 : (ip > 2048 ? 2048 : ip);
-    *l = level_ * t_->sine[2048 - ip];
-    *r = level_ * t_->sine[ip];
+    *l = level_ * t_->sine_q[2048 - ip];
+    *r = level_ * t_->sine_q[ip];
   }
   static void Step(float a, float b, float la, float ra, float& o) {
     o = a * la + b * ra;
@@ -693,15 +693,32 @@ struct SinOscAF {
 // ProcessBlock ramps a per-BLOCK delay; Twin Pks' wow LFO is audio rate, so
 // the per-sample dsamp/idsamp/frac path is replicated verbatim here.
 struct DelayCA {
+  // Vector-backed Init (kit refs / host tests only — no device drone path).
   void Init(double sr, float maxdelay) {
     sr_ = static_cast<float>(sr);
     long sz = static_cast<long>(std::ceil(maxdelay * sr_ + 1.f)) + 64;
     bufsize_ = 1;
     while (bufsize_ < sz) bufsize_ <<= 1;
     buf_.assign(static_cast<size_t>(bufsize_), 0.f);
-    mask_ = bufsize_ - 1;
+    datap_ = buf_.data();
     iwr_ = 0;
+    wpos_ = 0;
     max_dsamp_ = static_cast<float>(bufsize_);
+  }
+  // Caller-owned ring (device drone states): no heap; storage zeroed (the
+  // device aux region may hold stale bytes from the previously resident
+  // module). Clamp ceiling bufsize-4 (the checked cubic reads reach back
+  // dsamp+2 and forward +1); the caller sizes the ring from the graph's
+  // delaytime bound + margin so the clamp never engages in the golden.
+  void InitExt(float* buf, long floats, double sr, float maxdelay) {
+    (void)maxdelay;
+    sr_ = static_cast<float>(sr);
+    bufsize_ = floats;
+    datap_ = buf;
+    for (long i = 0; i < floats; ++i) datap_[i] = 0.f;
+    iwr_ = 0;
+    wpos_ = 0;
+    max_dsamp_ = static_cast<float>(bufsize_ - 4);
   }
   void ProcessBlock(const float* in, const float* delaytime, float* out, int n) {
     for (int i = 0; i < n; ++i) {
@@ -710,14 +727,21 @@ struct DelayCA {
       dsamp = dsamp < kMin ? kMin : (dsamp > max_dsamp_ ? max_dsamp_ : dsamp);
       const long idsamp = static_cast<long>(dsamp);
       const float frac = dsamp - static_cast<float>(idsamp);
-      const long i1 = iwr_ - idsamp, i0 = i1 + 1, i2 = i1 - 1, i3 = i1 - 2;
-      buf_[iwr_ & mask_] = in[i];
+      // Checked-phase tests on the absolute counter; ring indices derived
+      // from the wrapped write position (identical values to the old mask).
+      const long i1abs = iwr_ - idsamp;
+      const long w = wpos_;
+      const long r1 = w - idsamp < 0 ? w - idsamp + bufsize_ : w - idsamp;
+      const long r0 = (r1 + 1 == bufsize_) ? 0 : r1 + 1;
+      const long r2 = (r1 == 0) ? bufsize_ - 1 : r1 - 1;
+      const long r3 = (r1 >= 2) ? r1 - 2 : r1 - 2 + bufsize_;
+      datap_[w] = in[i];
       float value = 0.0f;
-      if (i0 >= 0) {
-        const float d0 = buf_[i0 & mask_];
-        const float d1 = i1 >= 0 ? buf_[i1 & mask_] : 0.0f;
-        const float d2 = i2 >= 0 ? buf_[i2 & mask_] : 0.0f;
-        const float d3 = i3 >= 0 ? buf_[i3 & mask_] : 0.0f;
+      if (i1abs + 1 >= 0) {
+        const float d0 = datap_[r0];
+        const float d1 = i1abs >= 0 ? datap_[r1] : 0.0f;
+        const float d2 = i1abs - 1 >= 0 ? datap_[r2] : 0.0f;
+        const float d3 = i1abs - 2 >= 0 ? datap_[r3] : 0.0f;
         const float c0 = d1;
         const float c1 = 0.5f * (d2 - d0);
         const float c2 = d0 - 2.5f * d1 + 2.0f * d2 - 0.5f * d3;
@@ -726,11 +750,13 @@ struct DelayCA {
       }
       out[i] = value;
       ++iwr_;
+      wpos_ = (wpos_ + 1 == bufsize_) ? 0 : wpos_ + 1;
     }
   }
  private:
-  std::vector<float> buf_;
-  long bufsize_ = 0, mask_ = 0, iwr_ = 0;
+  std::vector<float> buf_;   // vector mode only (refs/tests)
+  float* datap_ = nullptr;   // active ring (vector or ext)
+  long bufsize_ = 0, iwr_ = 0, wpos_ = 0;
   float sr_ = 48000.f, max_dsamp_ = 0.f;
 };
 

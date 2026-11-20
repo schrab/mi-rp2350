@@ -28,8 +28,33 @@ struct Ctx {
   float hz = 55.0f, amp = 0.4f;
   KitTables* tables = nullptr;
   Arena* arena = nullptr;
+  Arena* aux = nullptr;      // optional second region (device: window tail)
   void* state = nullptr;     // per-voice DSP state, arena-owned
 };
+
+// T-D2 device memory law: delay rings and the lazy BLIT tables allocate from
+// the arena first, then the aux region. NO C++ heap: the drone inits run on
+// core 1 and the device heap (22 KB) both overflows on the big rings and is
+// not multicore-safe (the core wraps malloc in noInterrupts only — see the
+// crash-fix report). A nullptr return must abort the drone Init (state stays
+// null; the engine stays idle and counts a failure).
+inline void* AllocRing(Ctx& c, size_t bytes) {
+  void* p = c.arena->Alloc(bytes, 16);
+  if (p == nullptr && c.aux != nullptr) p = c.aux->Alloc(bytes, 16);
+  return p;
+}
+
+// Builds the full BLIT tables (gSine + gInvSine, 2*(kSineSize+1) floats) on
+// first use, into arena/aux storage. Pulse / BLIT-Saw / Rotate2 / PanAz users
+// MUST call this before constructing those UGens; on false the drone Init
+// must abandon its state (c.state = nullptr).
+inline bool EnsurePulseTables(Ctx& c) {
+  if (c.tables->sine_full != nullptr) return true;
+  float* block = static_cast<float*>(AllocRing(c, 2u * (kSineSize + 1) * 4u));
+  if (block == nullptr) return false;
+  BuildPulseTables(c.tables, block);
+  return true;
+}
 
 struct DroneSpec {
   const char* name;
@@ -44,6 +69,7 @@ class Engine {
   void Init(float sr, uint8_t* buf_mem, size_t buf_bytes) {
     sr_ = sr;
     arena_.Init(buf_mem, buf_bytes);
+    aux_attached_ = false;
     rgen_.init(kGoldenSeed);                 // matches RandSeed.kr(1, seed)
     kit_ = static_cast<KitTables*>(arena_.Alloc(sizeof(KitTables)));
     if (kit_ != nullptr) InitKitTables(kit_); // capacity is static_asserted
@@ -52,6 +78,7 @@ class Engine {
     ctx_.rgen = &rgen_;
     ctx_.tables = kit_;
     ctx_.arena = &arena_;
+    ctx_.aux = nullptr;
     ctx_.hz = 55.0f;
     ctx_.amp = 0.4f;
     hz_cur_ = hz_target_ = 55.0f;
@@ -62,7 +89,21 @@ class Engine {
     cued_ = nullptr;
     internal_pos_ = 0;
     swaps_ = 0;
+    init_fails_ = 0;
   }
+
+  // T-D2: optional second memory region for delay rings / BLIT tables. On
+  // device this is the SRAM hot-code window tail (idle while dronecaster is
+  // the resident module — linker symbols __rack_window_aux_*); host tests
+  // attach a matching buffer so the budget is verified against the device.
+  void AttachAux(uint8_t* mem, size_t bytes) {
+    aux_.Init(mem, bytes);
+    ctx_.aux = &aux_;
+    aux_attached_ = true;
+  }
+  bool aux_attached() const { return aux_attached_; }
+  size_t aux_used() const { return aux_attached_ ? aux_.used() : 0; }
+  uint32_t init_fails() const { return init_fails_; }
 
   // down+up: release now; the cued voice starts when the env ends.
   // SetDrone(nullptr) = gate-off with no cue (the golden's gate path).
@@ -121,9 +162,19 @@ class Engine {
       return;
     }
     arena_.ResetTo(tables_mark_);          // frees the old voice, keeps tables
+    if (aux_attached_) aux_.Reset();       // device rings live here per voice
     ctx_.state = nullptr;
     ctx_.hz = hz_cur_;
     cued_->init(ctx_);
+    // T-D2: a drone Init that could not place its state/rings (capacity)
+    // leaves state null — stay idle instead of rendering into a null state.
+    if (ctx_.state == nullptr) {
+      ++init_fails_;
+      current_ = nullptr;
+      cued_ = nullptr;
+      phase_ = Phase::kIdle;
+      return;
+    }
     env_.Init(sr_, fade_, fade_);
     env_.Gate(true);
     // Golden-block-0 state: v(-1) = v(0) = 0. The synth's first internal
@@ -170,6 +221,9 @@ class Engine {
   float buf_l_[64], buf_r_[64];
   uint32_t internal_pos_ = 0;
   Arena arena_;
+  Arena aux_;
+  bool aux_attached_ = false;
+  uint32_t init_fails_ = 0;
   KitTables* kit_ = nullptr;
   size_t tables_mark_ = 0;
   RGen rgen_;

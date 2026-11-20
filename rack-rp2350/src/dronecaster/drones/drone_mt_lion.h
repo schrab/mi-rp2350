@@ -66,8 +66,23 @@ struct MlVoice {
   float mul_lvl_prev;    // 49_* mPrevA
 };
 
+// T-D2 device memory law: the 9 CombN rings are arena/aux-owned (NO heap —
+// the device C++ heap is ~22 KB and the old std::vector rings asked for
+// 2.25 MB; a failed operator new hung core 1). Ring sizes are GRAPH
+// CONSTANTS measured on the golden render (delaytime = ScReciprocal(
+// ScMidicps(Latch(Lag(...)))) * round(wn*3+4 lagged); the dt chain's latch
+// holds 0 until the Dust(0.3) fires, so ScMidicps(0) = 8.1758 Hz makes the
+// early-transient delaytime up to ~0.86 s while the 5 s lag converges):
+//   golden max dsamp per voice = {1, 574, 10072, 1, 33234, 1, 1, 13040, 22415}
+//   -> ring = golden + 8 (ext clamp ceiling = ring - 4, never engages).
+// The four voices whose dtm Dust never fired in the golden keep a 2,048-
+// sample (42.7 ms) transient allowance: live, their first dtm fire clamps
+// there until the lag converges (documented live-only deviation; the golden
+// render is bit-exact). Allocation order = descending size so the two big
+// rings land in the arena and the small ones spill to the aux region.
 struct MlState {
   MlVoice voice[9];
+  float* comb_ring[9];
   float cpsmidi, basenote, detune, maxamp;
   float pulsebuf[64], combbuf[64], tanhbuf[64];
   float vl[64], vr[64];
@@ -76,7 +91,7 @@ struct MlState {
   LeakDC leak_l, leak_r;
 };
 
-inline void MlVoice_Init(Ctx& c, MlVoice& vc) {
+inline void MlVoice_Init(Ctx& c, MlVoice& vc, float* ring, long ring_floats) {
   // 14 ctor draws in creation order (7 WhiteNoise primes + 7 Dust primes)
   vc.wn_freq.Init(c.rgen);
   vc.dust_freq.Init(c.rgen, 750.0, 0.2f);
@@ -112,7 +127,8 @@ inline void MlVoice_Init(Ctx& c, MlVoice& vc) {
   vc.pulse.Init(48000.0, ScMidicps(0.0f), 0.0f, 0.0f);
   // CombN ctor: delaytime = 36_*'s primed out[0] = 0 (recip_prime * 0),
   // decaytime = 41_Lag's primed out[0] = 0 -> dsamp = 1, feedbk = 0.
-  vc.comb.Init(48000.0, 1.0f, 0.0f, 0.0f, 3);
+  // T-D2: arena/aux-owned ring (see the MlState comment for the sizing law).
+  vc.comb.InitExt(ring, ring_floats, 48000.0, 1.0f, 0.0f, 0.0f, 3);
   vc.pan.Init(c.tables, 0.0f, 0.0f, 0.0f);   // m_pos/m_level = 0, amps 0
   vc.mul_freq_prev = vc.wn_freq.prime;
   vc.mul_dt_prev = vc.wn_dt.prime;
@@ -120,9 +136,19 @@ inline void MlVoice_Init(Ctx& c, MlVoice& vc) {
 }
 
 inline void Ml_Init(Ctx& c) {
-  // placement-new: DelayLine owns a std::vector (heap-backed), which must
-  // be constructed (the arena memory is raw)
+  // placement-new the state into the arena, then place the 9 CombN rings
+  // (arena first, aux spill — NO heap; see the MlState comment).
   MlState* st = new (c.arena->Alloc(sizeof(MlState))) MlState();
+  if (st == nullptr) { c.state = nullptr; return; }
+  static const long kRingFloats[9] = {2048, 582, 10080, 2048, 33242,
+                                      2048, 2048, 13048, 22423};
+  static const int kAllocOrder[9] = {4, 8, 5, 6, 7, 2, 0, 3, 1};
+  for (int k = 0; k < 9; ++k) {
+    const int v = kAllocOrder[k];
+    st->comb_ring[v] = static_cast<float*>(
+        AllocRing(c, static_cast<size_t>(kRingFloats[v]) * 4u));
+    if (st->comb_ring[v] == nullptr) { c.state = nullptr; return; }
+  }
   st->cpsmidi = NovaFreq2Midi(55.0f);
   st->basenote = ScRound1(st->cpsmidi);
   st->detune = std::fabs(st->basenote - st->cpsmidi);
@@ -130,7 +156,9 @@ inline void Ml_Init(Ctx& c) {
   // :1970) = times_vec_simd(in, sc_reciprocal(scalar)) — NOT IEEE division
   // (proven: the level-latch grab differed by exactly 1 float32 ULP).
   st->maxamp = 0.4f * ScReciprocal(9.0f);
-  for (int v = 0; v < 9; ++v) MlVoice_Init(c, st->voice[v]);
+  for (int v = 0; v < 9; ++v) {
+    MlVoice_Init(c, st->voice[v], st->comb_ring[v], kRingFloats[v]);
+  }
   // 419/421_LeakDC ctor: m_x1 = the Sum3's primed out[0] = 0, m_y1 = 0,
   // one priming sample (x0 == x1 -> y = 0); coef 0.995.
   st->leak_l.Init();

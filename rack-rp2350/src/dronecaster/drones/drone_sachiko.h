@@ -29,8 +29,18 @@ static const float kSachikoC[89] = {
 // L1 0.169 — same timbre, different note/phase detail). Gate 0.10/-0.20.
 // 4 PulseDPW voices (modBank LFNoise0/LFTri modulation),
 // EnvGen, RLPF, Pan2, CombC, LeakDC → Sum4/Splay → tanh → MoogFF → reverb
-// (DelayN + 7 CombL + 4 AllpassN per channel). All delay buffers are arena-
-// owned in Init (brief §Step 2). Constants are the exact c[] values.
+// (DelayN + 7 CombL + 4 AllpassN per channel). T-D2 device memory law: the
+// 27 delay rings are arena/aux-owned int16 (NO heap — the device C++ heap is
+// ~22 KB and the old std::vector rings asked for 1.13 MB). The int16
+// quantization (scale = one LSB) is a documented device-storage deviation;
+// the audio-equivalence gates above are unchanged and still pass. Ring
+// sizes are graph constants measured on the golden render (+ margin):
+//   voice combs  18,220 (live delaytime 0.2794 +- 0.1 s -> dsamp <= 18,211)
+//   dn            4,100 -> clamp ceiling EXACTLY 4,096 (the golden hits the
+//                 old kit's 4,096-sample clamp — preserved bit-exactly)
+//   tail combs    5,500 (golden max dsamp 4,295; live clamp 114.5 ms vs the
+//                 old kit's 170.7 ms ceiling — documented live-only shift)
+//   allpasses     2,144 (fixed delaytime constants, dsamp <= 2,136.4)
 // ---------------------------------------------------------------------------
 struct SkVoice {
   LFNoise0 lfn[9];   // 8 modBank + 1 VarLag noise
@@ -53,6 +63,12 @@ struct SkState {
   float tan_l[64], tan_r[64], ff_l[64], ff_r[64], dn_l[64], dn_r[64];
   float rv_l[64], rv_r[64], ap_l[64], ap_r[64];
   float csum_l[64], csum_r[64];
+  int16_t* qvoice[4];
+  int16_t* qdn;
+  int16_t* qcomb_l[7];
+  int16_t* qcomb_r[7];
+  int16_t* qap_l_[4];
+  int16_t* qap_r_[4];
   DelayLine dn;
   DelayLine comb_l[7], comb_r[7];
   DelayLine ap_l_[4], ap_r_[4];
@@ -65,9 +81,35 @@ struct SkState {
 
 inline void Sk_Init(Ctx& c) {
   SkState* st = new (c.arena->Alloc(sizeof(SkState))) SkState();
+  if (st == nullptr) { c.state = nullptr; return; }
   const double sr = static_cast<double>(c.sr);
   const double cr = sr / static_cast<double>(kBlock);
   const float hz = c.hz;
+  // T-D2 device memory law: 27 arena/aux-owned int16 delay rings (see the
+  // struct comment for the sizing law). Ring placement: arena first, aux
+  // spill, in code order (voices -> dn -> tails -> allpasses).
+  for (int k = 0; k < 4; ++k) {
+    st->qvoice[k] = static_cast<int16_t*>(AllocRing(c, 18220u * 2u));
+    if (st->qvoice[k] == nullptr) { c.state = nullptr; return; }
+  }
+  st->qdn = static_cast<int16_t*>(AllocRing(c, 4100u * 2u));
+  if (st->qdn == nullptr) { c.state = nullptr; return; }
+  for (int j = 0; j < 7; ++j) {
+    st->qcomb_l[j] = static_cast<int16_t*>(AllocRing(c, 5500u * 2u));
+    st->qcomb_r[j] = static_cast<int16_t*>(AllocRing(c, 5500u * 2u));
+    if (st->qcomb_l[j] == nullptr || st->qcomb_r[j] == nullptr) {
+      c.state = nullptr;
+      return;
+    }
+  }
+  for (int j = 0; j < 4; ++j) {
+    st->qap_l_[j] = static_cast<int16_t*>(AllocRing(c, 2144u * 2u));
+    st->qap_r_[j] = static_cast<int16_t*>(AllocRing(c, 2144u * 2u));
+    if (st->qap_l_[j] == nullptr || st->qap_r_[j] == nullptr) {
+      c.state = nullptr;
+      return;
+    }
+  }
   const float lf0idx[4][9] = {
     {2,6,7,8,9,10,11,12,25}, {31,32,33,34,35,36,37,38,39},
     {42,43,44,45,46,47,48,49,51}, {53,54,55,56,57,58,59,60,61}};
@@ -84,7 +126,8 @@ inline void Sk_Init(Ctx& c) {
     vc.env.Init(cr, vc.env_node, 2, 0.f, 1.f, 0.f, 1.f, 1, -99);
     vc.rlpf.Init(sr, 3);
     vc.pan.Init(c.tables, 0.f, 1.f, 0.f);
-    vc.comb.Init(sr, 0.5f, 0.3f, decays[k], 5);   // kind 5 = CombC (cubic fb)
+    vc.comb.InitExt16(st->qvoice[k], 18220, 1.0f / 4096.0f, sr, 0.5f, 0.3f,
+                      decays[k], 5);   // kind 5 = CombC (cubic fb)
     vc.leak.Init(); vc.leak.Prime(0.f);
     vc.vlfn.Init(c.rgen, cr, kSachikoC[(int)lf0idx[k][8]]);
     vc.vl.Init(cr, vc.vlfn.ctor_value(), 0.5f, 0.f, 3);
@@ -92,15 +135,19 @@ inline void Sk_Init(Ctx& c) {
   }
   st->splay_l.Init(c.tables, -1.0f, 1.f, 0.f);
   st->splay_r.Init(c.tables, 1.0f, 1.f, 0.f);
-  st->dn.Init(sr, 0.048f, 0.2f, 0.f, 2);
+  st->dn.InitExt16(st->qdn, 4100, 1.0f / 4096.0f, sr, 0.048f, 0.2f, 0.f, 2);
   for (int j = 0; j < 7; ++j) {
-    st->comb_l[j].Init(sr, 0.1f, 0.05f, 15.f, 4);
-    st->comb_r[j].Init(sr, 0.1f, 0.05f, 15.f, 4);
+    st->comb_l[j].InitExt16(st->qcomb_l[j], 5500, 1.0f / 256.0f, sr, 0.1f,
+                            0.05f, 15.f, 4);
+    st->comb_r[j].InitExt16(st->qcomb_r[j], 5500, 1.0f / 256.0f, sr, 0.1f,
+                            0.05f, 15.f, 4);
     st->apnoise[j].Init(c.rgen, cr, kSachikoC[70 + j]);
   }
   for (int j = 0; j < 4; ++j) {
-    st->ap_l_[j].Init(sr, 0.05f, 0.02f, 1.f, 6);
-    st->ap_r_[j].Init(sr, 0.05f, 0.02f, 1.f, 6);
+    st->ap_l_[j].InitExt16(st->qap_l_[j], 2144, 1.0f / 256.0f, sr, 0.05f,
+                           0.02f, 1.f, 6);
+    st->ap_r_[j].InitExt16(st->qap_r_[j], 2144, 1.0f / 256.0f, sr, 0.05f,
+                           0.02f, 1.f, 6);
   }
   st->ff_l_.Init(sr, hz * 10.f, 2.f, 0.f, 0.f);
   st->ff_r_.Init(sr, hz * 10.f, 2.f, 0.f, 0.f);

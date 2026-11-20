@@ -44,6 +44,46 @@ static int g_failures = 0;
 #define CHECK(cond, msg) do { if (cond) { printf("  ok: %s\n", msg); } \
     else { printf("  FAIL: %s\n", msg); ++g_failures; } } while (0)
 
+// TEMP T-D2 crash measurement (removed after sizing): heap byte counter.
+size_t g_test_heap_bytes = 0;
+void* operator new(size_t sz) {
+  g_test_heap_bytes += sz;
+  void* p = std::malloc(sz ? sz : 1);
+  if (p == nullptr) std::abort();
+  return p;
+}
+void* operator new[](size_t sz) {
+  g_test_heap_bytes += sz;
+  void* p = std::malloc(sz ? sz : 1);
+  if (p == nullptr) std::abort();
+  return p;
+}
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete[](void* p) noexcept { std::free(p); }
+void operator delete(void* p, size_t) noexcept { std::free(p); }
+void operator delete[](void* p, size_t) noexcept { std::free(p); }
+
+// Kit-table construction for the direct kit-struct tests: InitKitTables
+// builds the wavetable + the inline pan quarter; the BLIT-family structs
+// (Pulse / Saw / Rotate2 / PanAz) additionally read the full gSine/gInvSine,
+// which the device path builds lazily via EnsurePulseTables — the tests do
+// the same build through BuildPulseTables into this block.
+static float g_test_pulse_block[2 * (sc::kSineSize + 1)];
+static void TestInitKit(sc::KitTables* t) {
+  sc::InitKitTables(t);
+  sc::BuildPulseTables(t, g_test_pulse_block);
+}
+
+// Device-realistic dronecaster memory (T-D2 crash fix; see
+// module_dronecaster.h + the crash-fix report): the pool carve is
+// kRackPoolBytes - sizeof(State) (sizeof(State) == 736 B on the device map)
+// and the aux region is the SRAM hot-code window tail (window 118,784 B -
+// tc_dronecaster hot image 1,232 B; the ld ASSERT pins the aux >= 108 KiB).
+// Every live drone must fit these with ZERO heap use — that is the
+// regression gate for the 2026-11-21 core-1 hangs.
+static constexpr size_t kTestArena = 331776u - 736u;   // 331,040 B
+static constexpr size_t kTestAux = 117552u;            // window 118,784 - 1,232
+
 struct GoldenReport {
   long   frames_ref = 0, frames_got = 0;
   double max_abs = 0.0;      // absolute sample units
@@ -242,7 +282,7 @@ int main() {
       if (!ref_check("TDelaykr", out.data(), 48000)) ++g_failures;
     }
     { // Latch.kr(SinOsc.kr(5), Impulse.kr(3))
-      static sc::KitTables kt; sc::InitKitTables(&kt);
+      static sc::KitTables kt; TestInitKit(&kt);
       sc::SinOsc osc; osc.Init(&kt, 750.0, 5.0f);
       sc::Impulse imp; imp.Init(750.0, 3.0f);
       sc::Latch u; u.Init();
@@ -257,7 +297,7 @@ int main() {
       if (!ref_check("SetResetkr", out.data(), 48000)) ++g_failures;
     }
     { // Peak.kr(SinOsc.kr(7), Impulse.kr(1))
-      static sc::KitTables kt; sc::InitKitTables(&kt);
+      static sc::KitTables kt; TestInitKit(&kt);
       sc::SinOsc osc; osc.Init(&kt, 750.0, 7.0f);
       sc::Impulse imp; imp.Init(750.0, 1.0f);
       sc::Peak u; u.Init();
@@ -265,7 +305,7 @@ int main() {
       if (!ref_check("Peakkr", out.data(), 48000)) ++g_failures;
     }
     { // Gate.ar(SinOsc.ar(440), LFPulse.kr(2)) — ar block loop
-      static sc::KitTables kt; sc::InitKitTables(&kt);
+      static sc::KitTables kt; TestInitKit(&kt);
       sc::SinOsc osc; osc.Init(&kt, 48000.0, 440.0f);
       sc::LFPulse lp; lp.Init(750.0, 2.0f, 0.0f, 0.5f);
       sc::Gate g; g.Init();
@@ -289,7 +329,7 @@ int main() {
 
   printf("== T-D2 osc2 kit vs NRT references ==\n");
   {
-    static sc::KitTables kt; sc::InitKitTables(&kt);
+    static sc::KitTables kt; TestInitKit(&kt);
     std::vector<float> out;
     { // Saw.ar(440)
       sc::Saw u; u.Init(&kt, 48000.0, 440.0f);
@@ -355,7 +395,7 @@ int main() {
 
   printf("== T-D2 filter kit vs NRT references ==\n");
   {
-    static sc::KitTables kt; sc::InitKitTables(&kt);
+    static sc::KitTables kt; TestInitKit(&kt);
     std::vector<float> in(48000), out(48000);
     { sc::Saw src; src.Init(&kt, 48000.0, 220.0f);
       for (int b = 0; b < 750; ++b) src.ProcessBlock(in.data() + b * 64, 64); }
@@ -411,7 +451,7 @@ int main() {
 
   printf("== T-D2 Task 7 SC3P filters vs NRT references ==\n");
   {
-    static sc::KitTables kt; sc::InitKitTables(&kt);
+    static sc::KitTables kt; TestInitKit(&kt);
     std::vector<float> in(48000), out(48000);
     { sc::Saw src; src.Init(&kt, 48000.0, 220.0f);
       for (int b = 0; b < 750; ++b) src.ProcessBlock(in.data() + b * 64, 64); }
@@ -442,7 +482,7 @@ int main() {
 
   printf("== T-D2 Task 8 core delay family vs NRT references ==\n");
   {
-    static sc::KitTables kt; sc::InitKitTables(&kt);
+    static sc::KitTables kt; TestInitKit(&kt);
     std::vector<float> in(48000), out(48000);
     { sc::Saw src; src.Init(&kt, 48000.0, 220.0f);
       for (int b = 0; b < 750; ++b) src.ProcessBlock(in.data() + b * 64, 64); }
@@ -462,7 +502,7 @@ int main() {
     delay("AllpassNar", 6, 0.1f);
     delay("AllpassLar", 7, 0.1f);
     delay("AllpassCar", 8, 0.1f);
-    { static sc::KitTables kt2; sc::InitKitTables(&kt2);
+    { static sc::KitTables kt2; TestInitKit(&kt2);
       std::vector<float> trig(48000), outp(48000);
       { sc::Impulse src; src.Init(48000.0, 4.0f);
         for (int b = 0; b < 750; ++b) src.ProcessBlock(trig.data() + b * 64, 64); }
@@ -494,7 +534,7 @@ int main() {
       sc::LocalIn li; li.Init(1); sc::LocalOut lo; lo.Init(1);
       std::vector<float> fb(64), sig(64), dry(64), lout(64), dest(48000);
       const float def0 = 0.f;
-      static sc::KitTables kt2; sc::InitKitTables(&kt2);
+      static sc::KitTables kt2; TestInitKit(&kt2);
       sc::Saw src; src.Init(&kt2, 48000.0, 220.0f);
       for (int b = 0; b < 750; ++b) {
         src.ProcessBlock(dry.data(), 64);
@@ -513,7 +553,7 @@ int main() {
 
   printf("== T-D2 Task 9 reverb vs NRT reference ==\n");
   {
-    static sc::KitTables kt; sc::InitKitTables(&kt);
+    static sc::KitTables kt; TestInitKit(&kt);
     std::vector<float> in(48000), out(48000);
     { sc::Saw src; src.Init(&kt, 48000.0, 220.0f);
       for (int b = 0; b < 750; ++b) src.ProcessBlock(in.data() + b * 64, 64); }
@@ -536,7 +576,7 @@ int main() {
 
   printf("== T-D2 Task 10 pan family vs NRT references ==\n");
   {
-    static sc::KitTables kt; sc::InitKitTables(&kt);
+    static sc::KitTables kt; TestInitKit(&kt);
     std::vector<float> a(48000), b(48000), c(48000), l(48000), r(48000);
     { sc::Saw s; s.Init(&kt, 48000.0, 220.0f);
       for (int i = 0; i < 750; ++i) s.ProcessBlock(a.data() + i * 64, 64); }
@@ -593,7 +633,7 @@ int main() {
 
   printf("== T-D2 GreyholeRaw vs NRT reference ==\n");
   {
-    static sc::KitTables kt; sc::InitKitTables(&kt);
+    static sc::KitTables kt; TestInitKit(&kt);
     std::vector<float> a(48000), b(48000), l(48000), r(48000);
     { sc::Saw s; s.Init(&kt, 48000.0, 220.0f);
       for (int i = 0; i < 750; ++i) s.ProcessBlock(a.data() + i * 64, 64); }
@@ -745,7 +785,7 @@ int main() {
 
   printf("== T-D2 Task 15 sugar vs NRT references ==\n");
   {
-    static sc::KitTables kt; sc::InitKitTables(&kt);
+    static sc::KitTables kt; TestInitKit(&kt);
     std::vector<float> a(48000), b(48000), out(48000);
     { sc::Saw s; s.Init(&kt, 48000.0, 220.0f);
       for (int i = 0; i < 750; ++i) s.ProcessBlock(a.data()+i*64, 64); }
@@ -770,7 +810,7 @@ int main() {
 
   printf("== T-D2 Task 14 SC3P dynamics vs NRT references ==\n");
   {
-    static sc::KitTables kt; sc::InitKitTables(&kt);
+    static sc::KitTables kt; TestInitKit(&kt);
     std::vector<float> a(48000), b(48000), out(48000);
     { sc::Saw s; s.Init(&kt, 48000.0, 220.0f);
       for (int i = 0; i < 750; ++i) s.ProcessBlock(a.data() + i*64, 64); }
@@ -800,7 +840,7 @@ int main() {
 
   printf("== T-D2 dynamics kit vs NRT references ==\n");
   {
-    static sc::KitTables kt; sc::InitKitTables(&kt);
+    static sc::KitTables kt; TestInitKit(&kt);
     std::vector<float> in(48000), ctrl(48000), hot(48000), out(48000);
     { sc::Saw src; src.Init(&kt, 48000.0, 220.0f);
       for (int b = 0; b < 750; ++b) src.ProcessBlock(in.data() + b * 64, 64); }
@@ -860,7 +900,7 @@ int main() {
     { sc::Phasor u; u.Init(750.0, 0.001, 0.0, 1.0, 0.0f); if (!ref_kr_fill("Phasorkr", u, out)) ++g_failures; }
     { // Clip.kr(SinOsc.kr(5), -0.5, 0.5): the input is a kr SinOsc ramped by K2A,
       // then clamped — replicate the whole chain.
-      sc::SinOsc osc; static sc::KitTables kt_local; sc::InitKitTables(&kt_local);
+      sc::SinOsc osc; static sc::KitTables kt_local; TestInitKit(&kt_local);
       osc.Init(&kt_local, 750.0, 5.0f);
       out.assign(48000, 0.0f);
       // Clip.kr reads its kr input as a VALUE (no ramp), clips, then K2A
@@ -884,7 +924,7 @@ int main() {
       if (!ref_check("Clipkr", out.data(), 48000)) ++g_failures;
     }
     { // Fold.kr(SinOsc.kr(5) * 3, -0.5, 0.5)
-      sc::SinOsc osc; static sc::KitTables kt_local2; sc::InitKitTables(&kt_local2);
+      sc::SinOsc osc; static sc::KitTables kt_local2; TestInitKit(&kt_local2);
       osc.Init(&kt_local2, 750.0, 5.0f);
       out.assign(48000, 0.0f);
       float prev = 0.0f;
@@ -908,7 +948,7 @@ int main() {
     { std::vector<float> consts(48000, 0.25f);
       if (!ref_check("DCkr", consts.data(), 48000)) ++g_failures; }
     { // A2K.kr(SinOsc.ar(440)): first ar sample per block, K2A-ramped
-      sc::SinOsc osc; static sc::KitTables kt_local3; sc::InitKitTables(&kt_local3);
+      sc::SinOsc osc; static sc::KitTables kt_local3; TestInitKit(&kt_local3);
       osc.Init(&kt_local3, 48000.0, 440.0f);
       out.assign(48000, 0.0f);
       float prev = 0.0f;
@@ -981,7 +1021,7 @@ int main() {
 
   printf("== T-D2 mapping kit (LinExp/LinLin) vs NRT references ==\n");
   {
-    static sc::KitTables kt; sc::InitKitTables(&kt);
+    static sc::KitTables kt; TestInitKit(&kt);
     std::vector<float> out;
     // Canonical params from gen_ugen_ref.scd: LinExp(in, -1, 1, 20, 20000)
     // (Hecker's filter-sweep shape), LinLin(in, 0, 1, 0.8, 0.33).
@@ -1060,9 +1100,11 @@ int main() {
                                 {24, "Starlids", 0.15, 0.85, true},
                                 {20, "Sachiko", 0.10, -0.20, true}};
     for (const GoldenCase& gc : cases) {
-      static uint8_t mem[160 * 1024];
+      static uint8_t mem[kTestArena];
+      static uint8_t aux[kTestAux];
       sc::Engine e;
       e.Init(48000.0f, mem, sizeof(mem));
+      e.AttachAux(aux, sizeof(aux));
       e.set_amp(0.4f);
       e.set_fade(1.0f);
       e.set_hz_target(55.0f);
@@ -1134,14 +1176,15 @@ int main() {
   {
     // Every live T-D2 drone must fit after a Trio→T-D2 arena swap: a fresh
     // Engine, set a Trio voice first, swap, run one internal 64-block, and
-    // assert the arena high-water mark fits the 160 KiB arena. The brief's
-    // 136 KiB figure was calibrated before the Task 5-7 ports (Hecker's 32
-    // voices and the reverb states); the real constraint is arena capacity.
-    const int ids[] = {0, 7, 10, 14, 15, 20, 24, 25, 27, 30, 36};
+    // assert the arena high-water mark fits the device carve. The brief's
+    // 136/160 KiB figures predate the T-D2 ports and the delay-ring aux.
+    const int ids[] = {0, 7, 10, 14, 15, 20, 22, 23, 24, 25, 27, 29, 30, 36};
     for (int id : ids) {
-      static uint8_t mem[160 * 1024];
+      static uint8_t mem[kTestArena];
+      static uint8_t aux[kTestAux];
       sc::Engine e;
       e.Init(48000.0f, mem, sizeof(mem));
+      e.AttachAux(aux, sizeof(aux));
       e.set_amp(0.4f);
       e.set_fade(0.001f);   // fast release so the swap completes in 1 block
       e.set_hz_target(55.0f);
@@ -1155,9 +1198,59 @@ int main() {
       e.Process(l, r, 64);            // swap completes, T-D2 state allocated
       e.Process(l, r, 64);
       const size_t used = e.arena_used();
-      const bool ok = used <= 160u * 1024u;
+      const bool ok = used <= sizeof(mem) && e.init_fails() == 0;
       printf("  id %2d %-10s arena=%6zu %s\n", id, spec->name, used,
              ok ? "ok" : "FAIL");
+      if (!ok) ++g_failures;
+    }
+  }
+
+  printf("== T-D2 device memory budget (regression: core-1 heap hangs) ==\n");
+  {
+    // Regression gate for the 2026-11-21 crash fix. The 4 delay drones
+    // (14/20/24/30) built their rings as std::vector heap allocations inside
+    // the arena-punned device state: Mt. Lion asked 2.25 MB of a ~22 KB
+    // device heap (failed operator new -> core-1 hang -> watchdog reset),
+    // and the core's malloc has no multicore lock (noInterrupts only), so
+    // even small allocations racing core-0 are unsafe. Every ring (and Twin
+    // Pks' Limiter lookahead table) is now arena/aux-owned; this gate renders
+    // the full golden span of every live drone and asserts the heap budget,
+    // init success, and that the arena/aux high-water fits the
+    // device-realistic carve (kTestArena / kTestAux above).
+    // KNOWN RESIDUAL: Fieldsteel's demand-rate sequences (Dseq/Drand/DXRand/
+    // Dbrown + Splay, sc_kit_demand.h / sc_kit_pan.h) still construct small
+    // std::vectors at Init (~324 B). It renders fine on device (the
+    // allocations succeed and are tiny), but they leak per swap-in (no dtor
+    // on the arena reset) — converting the demand kit to caller-owned
+    // storage is the documented follow-up. The gate allows <= 512 B for id 7
+    // only; every other drone must be heap-zero.
+    const int ids[] = {0, 7, 10, 14, 15, 20, 22, 23, 24, 25, 27, 29, 30, 36};
+    static uint8_t mem[kTestArena];
+    static uint8_t aux[kTestAux];
+    for (int id : ids) {
+      const size_t heap0 = g_test_heap_bytes;
+      const size_t heap_cap = (id == 7) ? 512u : 0u;
+      sc::Engine e;
+      e.Init(48000.0f, mem, sizeof(mem));
+      e.AttachAux(aux, sizeof(aux));
+      e.set_amp(0.4f);
+      e.set_fade(1.0f);
+      e.set_hz_target(55.0f);
+      const sc::DroneSpec* spec = sc::Catalog(id);
+      if (spec == nullptr) { printf("  FAIL: id %d not ported\n", id); ++g_failures; continue; }
+      e.SetDrone(spec);
+      float l[16], r[16];
+      for (int fr = 0; fr < 192000; fr += 16) {
+        if (fr == 144000) e.SetDrone(nullptr);
+        e.Process(l, r, 16);
+      }
+      const size_t heap1 = g_test_heap_bytes;
+      const size_t arena = e.arena_used();
+      const size_t auxu = e.aux_used();
+      const bool ok = (heap1 - heap0) <= heap_cap && (e.init_fails() == 0) &&
+                      arena <= sizeof(mem) && auxu <= sizeof(aux);
+      printf("  id %2d %-10s arena=%6zu aux=%6zu heap=%5zu %s\n", id,
+             spec->name, arena, auxu, heap1 - heap0, ok ? "ok" : "FAIL");
       if (!ok) ++g_failures;
     }
   }
@@ -1256,7 +1349,7 @@ int main() {
   printf("== Pulse (BLIT) ==\n");
   {
     static sc::KitTables t;
-    sc::InitKitTables(&t);
+    TestInitKit(&t);
     sc::Pulse p;
     p.Init(&t, 48000.0, 55.0f, 0.5f);
     float buf[64];
@@ -1305,19 +1398,27 @@ int main() {
   printf("== kit tables + arena ==\n");
   {
     static sc::KitTables t;
-    sc::InitKitTables(&t);
-    CHECK(t.sine[0] == 0.0f, "sine[0] == 0");
-    CHECK(t.sine[sc::kSineSize / 4] == 1.0f, "sine[2048] == 1");
-    CHECK(t.sine[1024] == 0.707106769f, "sine[1024] exact");
-    CHECK(t.sine[1] == 0.000766990299f, "sine[1] exact");
-    CHECK(fabsf(t.sine[sc::kSineSize]) < 1e-6f, "sine guard ~0");
+    TestInitKit(&t);
+    // The pan quarter (inline) and the full BLIT tables (lazy block) carry
+    // the same law: float32 d = sin(i * 2pi / kSineSize).
+    CHECK(t.sine_q[0] == 0.0f, "sine_q[0] == 0");
+    CHECK(t.sine_q[sc::kSineSize / 4] == 1.0f, "sine_q[2048] == 1");
+    CHECK(t.sine_q[1024] == 0.707106769f, "sine_q[1024] exact");
+    CHECK(t.sine_q[1] == 0.000766990299f, "sine_q[1] exact");
+    CHECK(t.sine_full != nullptr && t.cosecant != nullptr,
+          "lazy BLIT tables built");
+    CHECK(fabsf(t.sine_full[sc::kSineSize / 2]) < 1e-6f,
+          "full sine[4096] ~0 (sin(pi) in float32)");
+    CHECK(fabsf(t.sine_full[sc::kSineSize]) < 1e-6f, "sine guard ~0");
+    CHECK(t.sine_full[1024] == t.sine_q[1024], "quarter == full (same law)");
     CHECK(t.sine_wt[0] == -0.000766990299f && t.sine_wt[1] == 0.000766990299f,
           "wavetable pair[0] exact");
     CHECK(t.cosecant[0] == sc::kBadValue && t.cosecant[1] == sc::kBadValue &&
               t.cosecant[8] == sc::kBadValue,
           "cosecant sentinels (0 and +-8 bands)");
     CHECK(t.cosecant[9] == 144.867523f, "cosecant[9] exact (band ends at 8)");
-    CHECK(fabsf(t.cosecant[100] - 1.0f / t.sine[100]) < 1e-3f, "cosecant = 1/sine");
+    CHECK(fabsf(t.cosecant[100] - 1.0f / t.sine_full[100]) < 1e-3f,
+          "cosecant = 1/sine");
 
     static uint8_t mem[64 * 1024];
     sc::Arena a;
@@ -1335,7 +1436,7 @@ int main() {
   printf("== SinOsc / LFTri ==\n");
   {
     static sc::KitTables t;
-    sc::InitKitTables(&t);
+    TestInitKit(&t);
 
     sc::SinOsc so;
     so.Init(&t, 48000.0, 55.0f);

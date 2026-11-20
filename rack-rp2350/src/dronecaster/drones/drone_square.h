@@ -6,7 +6,11 @@ namespace sc {
 namespace drones {
 struct SquareState { Pulse osc; };
 inline void Square_Init(Ctx& c) {
+  // T-D2: the BLIT Pulse reads the full gSine/gInvSine tables (lazy —
+  // arena/aux-owned, built on first use).
+  if (!EnsurePulseTables(c)) { c.state = nullptr; return; }
   SquareState* st = static_cast<SquareState*>(c.arena->Alloc(sizeof(SquareState)));
+  if (st == nullptr) { c.state = nullptr; return; }
   st->osc.Init(c.tables, static_cast<double>(c.sr), c.hz, 0.5f);
   c.state = st;
 }

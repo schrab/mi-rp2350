@@ -25,7 +25,10 @@ struct SsState {
 };
 
 inline void Ss_Init(Ctx& c) {
+  // T-D2: the BLIT Saw reads the full gSine/gInvSine tables (lazy).
+  if (!EnsurePulseTables(c)) { c.state = nullptr; return; }
   SsState* st = new (c.arena->Alloc(sizeof(SsState))) SsState();
+  if (st == nullptr) { c.state = nullptr; return; }
   const double sr = static_cast<double>(c.sr);
   const double cr = sr / static_cast<double>(kBlock);
   const float hz = c.hz;

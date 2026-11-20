@@ -43,17 +43,32 @@ static const uint32_t kI2sBuffers = 8;       // 8 x 16 frames ~ 2.7 ms
 static const uint32_t kI2sWords = 16;
 static const uint32_t kStallUs = 900;        // >2x the 333 us write period
 
-// Voice carve: KitTables = 131,080 B (sine wavetable + gSine + gInvSine),
-// resident above an arena savepoint; per-voice state sits above it. The T-D2
-// ports are larger than the original trio: measured worst case is Hecker at
-// 162,312 B (Mt. Lion 142,200; Sachiko 140,992; Starlids 140,080; Thx
-// 139,816; Mt. Zion 139,456). 136 KiB overflowed the arena and wedged core 1
-// on those swaps, so the carve is raised to 168 KiB (still well inside the
-// 324 KiB rack pool).
-static constexpr size_t kVoiceBytes = 168 * 1024;
-static_assert(sizeof(sc::KitTables) <= kVoiceBytes,
-              "kit tables exceed the dronecaster voice carve");
-static_assert(kVoiceBytes <= kRackPoolBytes, "dronecaster carve exceeds pool");
+// Voice carve + delay-ring aux (T-D2 crash fix):
+//
+// The drone states are placement-new'd into the carve; their DELAY RINGS and
+// the lazy BLIT tables are additionally placed by AllocRing() — arena first,
+// then the aux region. The aux region is the SRAM hot-code window above the
+// dronecaster hot image (linker symbols __rack_window_aux_*): idle whenever
+// dronecaster is the resident module, because the A-slot overlay members are
+// mutually exclusive and dronecaster is standalone-only (main.cpp rejects it
+// as a chain A, so the clouds B slot is never populated while it runs).
+// Everything in the aux is re-claimed and zeroed at every swap-in.
+//
+// NO C++ HEAP anywhere in the drone path: the device heap is only ~22 KB,
+// the old std::vector delay rings asked 0.3-2.25 MB per drone (a failed
+// operator new hung core 1), and the core's malloc wraps in noInterrupts
+// only — no multicore lock. The host budget gate in test_dronecaster.cc
+// asserts heap bytes == 0 for every drone render and that every drone fits
+// this carve + aux with the device-realistic sizes.
+//
+// KitTables is 73,748 B now (sine wavetable + the inline pan quarter; the
+// BLIT tables are lazy). The carve is the whole remaining pool minus the
+// module State (the pool is a union — dronecaster is standalone-only, so it
+// may use all of it).
+
+// Linker-provided aux region (memmap_rack.ld): the window tail above the
+// dronecaster hot image. extern "C" — plain ld symbols, no C++ mangling.
+extern "C" uint8_t __rack_window_aux_start[], __rack_window_aux_end[];
 
 static const char* const kCcMap =
     "51 drone (0-36 direct catalog id; 14 live: 0 apparatus / 7 fieldsteel / "
@@ -90,6 +105,13 @@ struct State {
   }
 };
 
+static constexpr size_t kVoiceBytes = kRackPoolBytes - sizeof(State);
+static_assert(sizeof(sc::KitTables) <= kVoiceBytes,
+              "kit tables exceed the dronecaster voice carve");
+static_assert(kVoiceBytes <= kRackPoolBytes, "dronecaster carve exceeds pool");
+static_assert(sizeof(sc::KitTables) < 80 * 1024,
+              "lazy BLIT tables must not sneak back into KitTables");
+
 static State* s = nullptr;   // placement-new'd by init(); arena offset 0
 
 static size_t state_size() { return sizeof(State); }
@@ -98,6 +120,11 @@ static constexpr size_t buf_bytes() { return kVoiceBytes; }
 void init_at(uint8_t* obj_base, uint8_t* buf_base) {
   memset(buf_base, 0, kVoiceBytes);
   s = new (obj_base) State(buf_base, kVoiceBytes);
+  // T-D2: the window tail above our hot image hosts the delay rings / lazy
+  // BLIT tables (stale from the previous resident module — zeroed per use).
+  s->eng.AttachAux(
+      __rack_window_aux_start,
+      static_cast<size_t>(__rack_window_aux_end - __rack_window_aux_start));
 }
 void init() {
   rack_mem_reset();
@@ -210,10 +237,12 @@ void render() {
 
 // 2 s report extra field (integer-only — no %f under newlib-nano).
 void report_dc(char* buf, size_t n) {
-  snprintf(buf, n, "%s avg=%uu sw=%lu nan=%lu", s->eng.current_name(),
+  snprintf(buf, n, "%s avg=%uu sw=%lu nan=%lu initfail=%lu",
+           s->eng.current_name(),
            static_cast<unsigned>(s->proc_avg_us),
            static_cast<unsigned long>(s->eng.swap_count()),
-           static_cast<unsigned long>(s->nan_blocks));
+           static_cast<unsigned long>(s->nan_blocks),
+           static_cast<unsigned long>(s->eng.init_fails()));
 }
 
 }  // namespace mod_dronecaster

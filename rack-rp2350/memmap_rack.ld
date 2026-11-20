@@ -481,6 +481,22 @@ SECTIONS
        cmd_chain's pool validation, not here. */
     ASSERT(RACK_CLOUDS_B_OFFSET + SIZEOF(tc_clouds) <= LENGTH(RACK_WINDOW),
         "ERROR: chain B slot (clouds) exceeds the rack SRAM window")
+    /* T-D2 crash fix: the dronecaster module claims the SRAM above its hot
+       image (up to the window end) as its DELAY-RING aux region. That region
+       is idle whenever dronecaster is the resident module: the A-slot overlay
+       members are mutually exclusive (one image at a time) and dronecaster is
+       standalone-only (main.cpp rejects it as a chain A, so the B slot is
+       never populated while it is resident). Everything above the dronecaster
+       hot image is stale hot-code from the previously resident module, which
+       dronecaster re-claims (zeroing its rings) at every swap-in. These
+       symbols define the claim; the module attaches them via
+       Engine::AttachAux. */
+    __rack_window_aux_start = __tc_dronecaster_end;
+    __rack_window_aux_end = ORIGIN(RACK_WINDOW) + LENGTH(RACK_WINDOW);
+    /* Mt. Lion places 108,896 B of its CombN rings in the aux (measured by
+       the host budget gate); the rest of the window tail is margin. */
+    ASSERT(__rack_window_aux_end - __rack_window_aux_start >= 108 * 1024,
+        "ERROR: dronecaster delay-ring aux region too small (hot image grew?)")
     /* The window must end exactly where the core's scratch banks begin —
        RAM + window + scratch partition the fixed 512 KiB main SRAM with no
        gap and no overlap. */

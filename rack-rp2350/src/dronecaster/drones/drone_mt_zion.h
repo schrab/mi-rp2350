@@ -80,8 +80,11 @@ inline void MzVoice_Init(Ctx& c, MzVoice& vc) {
 }
 
 inline void Mz_Init(Ctx& c) {
+  // T-D2: the BLIT Pulse reads the full gSine/gInvSine tables (lazy).
+  if (!EnsurePulseTables(c)) { c.state = nullptr; return; }
   // placement-new: the state contains kit structs; the arena memory is raw
   MzState* st = new (c.arena->Alloc(sizeof(MzState))) MzState();
+  if (st == nullptr) { c.state = nullptr; return; }
   // head (ar, K2A-flat inputs): 3_/5_cpsmidi (nova, constant buffer),
   // 4_round (sc_round quantum 1), 6_- / 7_abs, 9_/ = amp/5.
   st->cpsmidi = NovaFreq2Midi(55.0f);
