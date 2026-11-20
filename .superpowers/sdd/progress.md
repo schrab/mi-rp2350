@@ -5622,6 +5622,26 @@ prior session), **PASS (0 failures), 133 REFs ok**.
   (`p1p2DiscreteCount` n, overlay `%5`, selector pot, comment) now use
   `kModuleCount = 6`. No RP2350 reflash needed (ui_link.h change is comment
   only). C3 rebuilt + flashed; both boards verified alive.
-- **Status: safe subset measured; LISTENING ACCEPTANCE STILL PENDING.** The
-  10 blocked T-D2 drones need CPU/memory optimisation — do not silently
-  accept them. Do not write "user-accepted" before the user confirms by ear.
+- **CORRECTION (2026-11-21, systematic-debugging):** the 4-drone allowlist was
+  based on a FLAWED cascade test — after Hecker wedged the board, every later
+  id showed the same stale report and was never actually exercised. Clean
+  one-drone-per-reset retest: Fieldsteel runs (1571 us), Hecker runs (7417 us,
+  both over the 1333 us budget but no crash); only Mt. Lion genuinely faults.
+  The allowlist was WRONG and has been removed — all 14 drones are selectable
+  again (C3 pot 14 steps with names, browser panel, ccMap).
+- **Real general swap bug found and fixed:** switching to rings from ANY source
+  hard-faulted core 1 (cfsr=UNDEFINSTR, pc/lr in g_rack_pool). Root cause:
+  `rackdist::process` was compiled into `.tc_elements` (module_elements.h
+  defines `RACK_DIST_MARK` first in the single TU; the include guard means
+  rings reuses that copy), and the rings window copy overwrote its address.
+  Fix: dispatcher left in flash (shared, window-independent); rings clamps
+  `dist_type % 4` so it never calls the swede helper in elements' slot.
+  Verified: rings/elements/lira8/dronecaster swap repeatedly with no fault.
+- **C3 SYS display bug found:** `potToDisplayValue()` already returns a module
+  INDEX for SYS cell 0; my earlier "fix" divided it by 128 again, pinning every
+  position to ELEMENTS. Corrected to index `kModNames` directly.
+- **Heartbeat watchdog added:** core 1 bumps `g_audio_hb` per render; core 0
+  feeds the HW watchdog only when it advances, so a hung audio core self-resets
+  in 2 s instead of leaving an enumerated-but-frozen board (no replug needed).
+- **Status: LISTENING ACCEPTANCE STILL PENDING.** Over-budget drones are now
+  flagged, not blocked. Do not write "user-accepted" before the user confirms.

@@ -78,6 +78,16 @@ Deferred: `2` (Coil — different timbre).
   with `kModuleCount = 6` (discrete count, overlay `%5`, selector pot). This
   is C3-only — no RP2350 reflash was required. C3 built + flashed, both
   boards verified alive; RP kept reporting `mod=dronecaster`, Apparatus.
-- **Still required from the user:** listen to the 4 safe drones and confirm.
-  The 10 blocked T-D2 drones need CPU/memory optimisation before hardware
-  acceptance — do not silently accept them.
+- **CORRECTION (2026-11-21):** the 4-drone allowlist rested on a flawed test —
+  after Hecker wedged the board all later ids showed a stale report and were
+  never exercised. Clean per-reset retest: Fieldsteel 1571 us and Hecker 7417
+  us both RUN (over budget, flagged); only Mt. Lion genuinely faults. The
+  allowlist was removed; all 14 drones are selectable again (C3 14-step named
+  selector + browser panel + ccMap restored). A core-1 heartbeat watchdog now
+  auto-resets on a hang, so no drone can freeze the board.
+- Separately, a general swap bug was fixed: `rackdist::process` lived in
+  `.tc_elements`, so a rings swap overwrote its address → UNDEFINSTR/core-1
+  death. It now lives in flash and rings clamps its dist type to 0..3. Rings
+  swaps repeatedly with no fault.
+- **Still required from the user:** listen to the drones and confirm which are
+  acceptable. Over-budget ones are flagged, not silently accepted.
