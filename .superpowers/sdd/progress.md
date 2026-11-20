@@ -5459,3 +5459,28 @@ prior session), **PASS (0 failures), 133 REFs ok**.
   value(B−1)); NRT ctor primes do not shift the sample grid; Out.ar needs
   ar inputs; probes must go through the real init path or their constants
   differ by ULPs. SC 3.14.1 sources at /tmp/scsrc/141 + /tmp/scsrc/novasimd.
+
+### Task 5 (2026-11-20) — Hecker (10) PASS, Fieldsteel (7) DEFERRED
+- Base: 1360ebf. Branch `rack-rp2350`. Full report:
+  `.superpowers/sdd/2026-11-19-dronecaster-td2-drones/task-5-report.md`.
+- Gate after port: 133 refs ok, **8/8 GOLDEN PASS** (7 inherited + Hecker),
+  id 7 deferred-inert, `PASS (0 failures)`.
+- Hecker (10): max_abs 9.3e-8, corr 1.000000000 (worst_i 299005).
+  Def dumped + verify-rendered bit-identical to the golden before porting.
+- Fieldsteel (7): DEFERRED after 3 distinct diagnostic-driven attempts;
+  best max_abs 0.028866338 / corr 0.256798020 (rms +0.4 dB). Port + law
+  notes preserved in `drone_t2.h`, catalog id 7 nullptr. Full resume notes
+  in the task-5 report. No gate weakening / golden regeneration.
+- VarLag status resolved: **law-only** (e853324 added only `EnvGenkr`, no
+  `ugen_ref/VarLag.expected.wav`). Hecker uses the `sc_kit_envgen.h:211`
+  expansion (warp \sine = shape 3) and is gated by the drone golden.
+- Load-bearing law: a filter's **ctor prime uses the input UGen's ctor
+  output**, not the first rendered sample (which is the next RGen draw).
+  Hecker went from corr 0.5664 (decaying transient, max 1.9e-4) to exact
+  once the `Select→XFade2→LPF→BPF` prime chain was evaluated in Init.
+- Load-bearing law: `EnvGen` stores a `const Node*` — the Node array must
+  live in the arena state, never on the Init stack (Fieldsteel's stack
+  array dangled and produced a ~4e9 envelope).
+- LFSaw keyword trap checked in the def dump: the `hz:` warning comes from
+  `Apparatus.scd:20` (LFPar : LFSaw); Fieldsteel's LFSaw uses a positional
+  freq + phase 0, so it is unaffected.
