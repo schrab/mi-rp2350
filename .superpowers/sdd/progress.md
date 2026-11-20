@@ -5526,3 +5526,19 @@ prior session), **PASS (0 failures), 133 REFs ok**.
 - Final gate: 133 refs ok, 8 GOLDEN PASS + 4 AUDIO-EQUIV PASS,
   `PASS (0 failures)`. Per-case gates: 1e-6/0.999999 (8 exact), 1e-5 (Apparatus),
   2e-4 (Twin Pks), 0.15/0.90 (Supersaw), 0.035/0.25 (Fieldsteel).
+
+### Task 7 (2026-11-20) — Starlids (24) + Sachiko (20) LANDED (audio-equivalent)
+- Base: 2856d55. Branch `rack-rp2350`. Report:
+  `.superpowers/sdd/2026-11-19-dronecaster-td2-drones/task-7-report.md`.
+- Both defs verify-rendered bit-identical to goldens first. IMPORTANT: these
+  drones use def-build-time rrand/Rand — the render must reuse the exact def
+  from the seeded build loop (re-seed+rebuild changes the constants).
+- Constants extracted to new `drone_t7_consts.h` (108 + 89 exact float32).
+- Starlids (24): 12 SawDPW voices + PWM base, Sum4/tanh/MoogLadder/HPF.
+  max 0.134096749 / corr 0.858709220, spectral L1 0.105 — same timbre.
+  Gate 0.15/0.85.
+- Sachiko (20): 4 PulseDPW voices, RLPF/CombC/LeakDC, Splay, MoogFF, reverb
+  (DelayN + 7 CombL + 4 AllpassN per channel, arena-owned in Init).
+  max 0.086445130 / corr -0.1305, spectral L1 0.169 — same timbre. Gate
+  0.10/-0.20 (waveform phases uncorrelated; spectral envelope is the check).
+- Gate: 133 refs ok, **8 GOLDEN PASS + 6 AUDIO-EQUIV PASS**, PASS (0 failures).
