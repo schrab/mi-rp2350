@@ -5587,3 +5587,21 @@ prior session), **PASS (0 failures), 133 REFs ok**.
   info note updated. Headless byte-sync check (stubbed Web MIDI + ccByte) PASS.
 - Verified: `pio run -d rack-rp2350` SUCCESS (RAM 72.9%, Flash 39.2%),
   `test_dronecaster` PASS (0 failures), 133 refs.
+
+### Task 10 (2026-11-21) — hardware acceptance PENDING (user required)
+- Firmware UF2 built (`rack-rp2350/.pio/build/rack/firmware.uf2`,
+  3,800,064 B); RP2350 present at its by-id port. **No flashing, no serial
+  monitoring and no listening done by the agent — no hardware claim.**
+- Live CC 51 ids for the sweep: `0,7,10,14,15,20,22,23,24,25,27,29,30,36`
+  (14). Coil (2) deferred (different timbre), intentionally unreachable.
+- acceptance checklist (user): flash UF2; for each id check the 2 s report
+  (`nan=0`, `i2s stalls: 0 (+0)`, `max Process` < 1333 µs, flag overruns);
+  listen to all 14 and confirm — especially the 6 audio-equivalent drones.
+- Port commits: `ec012eb`, `c29d117`, `ad0d952`, `09a7345`, `136f251`,
+  `1b5b476`, `1850cfa`, `61738d1`; refactor `e5a8c18`, firmware fix
+  `3ba8868` (+ submodule `ae6c682`).
+- Host verification: 133 refs, 14 golden cases (8 exact + 6 audio-equivalent),
+  11/11 arena swaps, PASS (0 failures); panel byte-sync PASS.
+- Full numbers + law corrections: `task-10-report.md` in the SDD task dir.
+- **Status stays PENDING until the user reports the hardware numbers and
+  listening confirmation. Do not write "user-accepted" before that.**
