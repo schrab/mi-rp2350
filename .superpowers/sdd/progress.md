@@ -5603,5 +5603,14 @@ prior session), **PASS (0 failures), 133 REFs ok**.
 - Host verification: 133 refs, 14 golden cases (8 exact + 6 audio-equivalent),
   11/11 arena swaps, PASS (0 failures); panel byte-sync PASS.
 - Full numbers + law corrections: `task-10-report.md` in the SDD task dir.
-- **Status stays PENDING until the user reports the hardware numbers and
-  listening confirmation. Do not write "user-accepted" before that.**
+- **Hardware findings (agent, 2026-11-21):** T-D2 drones crash core 1
+  (`pc=0`, `hfsr=FORCED`); Fieldsteel 2318 µs and Hecker 13813 µs exceed the
+  1333 µs budget. Fixed by raising the dronecaster voice carve 136→168 KiB
+  and adding a CC 51 hardware allowlist `{0,22,23,29}` (other ids rejected
+  with a warning). Board no longer freezes. Panel + ccMap updated.
+- Post-fix measured (hardware, 2 s report): Apparatus 967 µs, Sine 845 µs,
+  Square 127 µs, Triangle 114 µs — all <1333 µs, nan=0, i2s stalls 0 (+0);
+  all 9 blocked ids rejected with the board still alive after the sweep.
+- **Status: safe subset measured; LISTENING ACCEPTANCE STILL PENDING.** The
+  10 blocked T-D2 drones need CPU/memory optimisation — do not silently
+  accept them. Do not write "user-accepted" before the user confirms by ear.
