@@ -5643,5 +5643,18 @@ prior session), **PASS (0 failures), 133 REFs ok**.
 - **Heartbeat watchdog added:** core 1 bumps `g_audio_hb` per render; core 0
   feeds the HW watchdog only when it advances, so a hung audio core self-resets
   in 2 s instead of leaving an enumerated-but-frozen board (no replug needed).
-- **Status: LISTENING ACCEPTANCE STILL PENDING.** Over-budget drones are now
-  flagged, not blocked. Do not write "user-accepted" before the user confirms.
+- **Final hardware verification (2026-11-21, both firmwares reflashed via
+  BOOTSEL):** all 8 module swaps ALIVE incl. rings back-and-forth (rings
+  ~220-233 us, no fault). All 14 drones selectable (allowlist gone). Watchdog
+  (`reason=3`) auto-resets on a hang — no manual replug needed (verified on
+  Mt. Lion: board reset to elements by itself). Per-drone 2 s report:
+  - OK (<1333 us): Apparatus 881, Sine 38, Square 141, Supersaw 932,
+    harms way 687.
+  - OVER budget: Fieldsteel 2187, Hecker 12528, Mt. Zion 2870, Thx 2354,
+    Triangle 2443.
+  - Auto-reset/hang (watchdog caught): Mt. Lion 14, Sachiko 20, Starlids 24,
+    Twin Pks 30.
+  - C3 SYS page `mod=5`, MODULE cell val=127 → DRONECSTR (6-module fix live).
+- **Status: LISTENING ACCEPTANCE STILL PENDING.** Over-budget/hanging drones
+  are flagged, not blocked. Do not write "user-accepted" before the user
+  confirms.

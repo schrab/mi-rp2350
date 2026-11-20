@@ -89,5 +89,17 @@ Deferred: `2` (Coil — different timbre).
   `.tc_elements`, so a rings swap overwrote its address → UNDEFINSTR/core-1
   death. It now lives in flash and rings clamps its dist type to 0..3. Rings
   swaps repeatedly with no fault.
+- **Final hardware verification (both firmwares reflashed via BOOTSEL):**
+  - All 8 module swaps ALIVE, incl. rings back-and-forth (220-233 us) — the
+    `rackdist::process` window bug is fixed.
+  - All 14 drones selectable (allowlist removed); C3 14-step named selector +
+    browser panel restored. C3 SYS page shows `mod=5` / DRONECSTR.
+  - Watchdog (`reason=3`) auto-resets on a hang — verified on Mt. Lion (board
+    returned to elements with no replug). An over-budget/hanging drone can
+    never freeze the board now.
+  - Per-drone 2 s report: OK — Apparatus 881, Sine 38, Square 141, Supersaw
+    932, harms way 687 us. OVER — Fieldsteel 2187, Hecker 12528, Mt. Zion
+    2870, Thx 2354, Triangle 2443 us. AUTO-RESET — Mt. Lion 14, Sachiko 20,
+    Starlids 24, Twin Pks 30 (watchdog caught, board recovered).
 - **Still required from the user:** listen to the drones and confirm which are
-  acceptable. Over-budget ones are flagged, not silently accepted.
+  acceptable. Over-budget/hanging ones are flagged, not silently accepted.
