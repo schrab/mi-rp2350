@@ -396,14 +396,13 @@ static const UiPageCell kUiPageLira8P3[16] = {
     {0,  "",           kUiColorWhite}, // p16 (spare)
 };
 
-// dronecaster — P1: the four voice controls (CC 51-54, T-D1). CC 51 is a
-// two-layer selector: bytes 0-36 = direct catalog ids (only 22/23/29 are
-// ported in T-D1 — the adapter keeps the current drone on an unported id),
-// pot travel 37-127 = thirds over the ported trio (a 0-127 pot almost never
-// lands on 22/23/29 raw). CC 52 amp, CC 53 fade
-// (attack=release, 0..16 s), CC 54 a +-24 st offset on top of the current
-// note pitch (base 55 Hz until a note arrives; notes = re-hz, PLAY 64 =
-// recast).
+// dronecaster — P1: the four voice controls (CC 51-54). CC 51 selects one of
+// the 4 hardware-safe catalog ids {0 apparatus, 22 sine, 23 square, 29
+// triangle}; the C3 pot and the browser panel both send those raw ids (the
+// other T-D2 ports are blocked on hardware pending CPU optimisation — see
+// module_dronecaster.h). CC 52 amp, CC 53 fade (attack=release, 0..16 s),
+// CC 54 a +-24 st offset on top of the current note pitch (base 55 Hz until
+// a note arrives; notes = re-hz, PLAY 64 = recast).
 static const UiPageCell kUiPageDronecasterP1[] = {
     {51, "DRONE",      kUiColorWhite},
     {52, "AMP",        kUiColorWhite},

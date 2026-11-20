@@ -5611,6 +5611,17 @@ prior session), **PASS (0 failures), 133 REFs ok**.
 - Post-fix measured (hardware, 2 s report): Apparatus 967 µs, Sine 845 µs,
   Square 127 µs, Triangle 114 µs — all <1333 µs, nan=0, i2s stalls 0 (+0);
   all 9 blocked ids rejected with the board still alive after the sweep.
+- **C3 UI fixes (2026-11-21, user-reported):** the DRONE selector showed no
+  names and the SYS module selector showed `---` for dronecaster. Root cause:
+  both display values are POT SPACE (0..127), but the name tables were indexed
+  with the raw value. Fixed in `rack-uimcu/ui/RackUI.cpp`: CC 51 is now a
+  4-step selector whose wire byte is one of the 4 safe catalog ids
+  `{0,22,23,29}` (via `PotToWireValue`/`WireToPotValue` + name table
+  APPAR/SINE/SQR/TRI); SYS cell 0 converts pot-space `n*127/5` back to an
+  index before `kModNames`, and all remaining 5-module assumptions
+  (`p1p2DiscreteCount` n, overlay `%5`, selector pot, comment) now use
+  `kModuleCount = 6`. No RP2350 reflash needed (ui_link.h change is comment
+  only). C3 rebuilt + flashed; both boards verified alive.
 - **Status: safe subset measured; LISTENING ACCEPTANCE STILL PENDING.** The
   10 blocked T-D2 drones need CPU/memory optimisation — do not silently
   accept them. Do not write "user-accepted" before the user confirms by ear.

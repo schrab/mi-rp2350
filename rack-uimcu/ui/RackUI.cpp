@@ -110,7 +110,7 @@ namespace CTAG {
         static uint8_t s_page = 0;            // 0-10 (module P1/P2/P3, MOD, SYS, chain-B)
         static bool s_assignArmed = false;    // LATCHED assign mode (T8d)
         static bool s_overlay = false;        // module-select overlay live
-        static uint8_t s_overlaySel = 0;      // 0-4
+        static uint8_t s_overlaySel = 0;      // 0..kModuleCount-1
         static bool s_fullArrived = false;    // TELEM snapshot for s_page
         static uint8_t s_presetSlot = 0;      // SYS: C3-local selection
         static bool s_blinkPhase = false;     // 2 Hz inert-cell blink
@@ -297,6 +297,9 @@ namespace CTAG {
                         return 2;             // STRUM
                     }
                     break;
+                case 5: // Dronecaster
+                    if (cc == 51) return 4;   // 4 hardware-safe drones (APPAR/SINE/SQR/TRI)
+                    break;
                 case 4: // Lira8 (P1/P2/P3 tables)
                     if (cc == 9 || cc == 10 || cc == 11 || cc == 12) {
                         wireIsBool127 = true;
@@ -332,6 +335,18 @@ namespace CTAG {
                 const uint8_t modForPage = (page == 9) ? 1 : mod;
                 bool wireBool = false;
                 const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
+                if (modForPage == 5 && cc == 51) {
+                    // DRONE wire byte is a raw catalog id from the 4
+                    // hardware-safe set {0,22,23,29}. Map back to an even
+                    // 4-step pot position so the bar/name match RP telemetry.
+                    static const uint8_t kSafe[4] = {0, 22, 23, 29};
+                    for (uint8_t i = 0; i < 4; ++i) {
+                        if (wireVal == kSafe[i]) {
+                            return (uint8_t)(((uint16_t)i * 127) / 3);
+                        }
+                    }
+                    return 0;
+                }
                 if (n > 1) {
                     if (wireBool) return wireVal >= 64 ? 127 : 0;
                     const uint8_t clamped = wireVal < n ? wireVal : (uint8_t)(n - 1);
@@ -367,6 +382,15 @@ namespace CTAG {
                 const uint8_t modForPage = (page == 9) ? 1 : mod;
                 bool wireBool = false;
                 const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
+                if (modForPage == 5 && cc == 51) {
+                    // DRONE: send the raw catalog id of one of the 4 safe
+                    // drones so the RP firmware's allowlist accepts it and
+                    // the echoed telemetry maps back to this same 4-step pot.
+                    static const uint8_t kSafe[4] = {0, 22, 23, 29};
+                    uint8_t idx = (uint8_t)(((uint16_t)potVal * 4) / 128);
+                    if (idx > 3) idx = 3;
+                    return kSafe[idx];
+                }
                 if (n > 1) {
                     if (wireBool) return potVal >= 64 ? 127 : 0;
                     uint8_t idx = (uint8_t)(((uint16_t)potVal * n) / 127);
@@ -967,6 +991,16 @@ namespace CTAG {
                             };
                             pName = (dispVal >= 0 && dispVal < 3)
                                         ? kPlaitsAux[dispVal] : "---";
+                        } else if (modForPage == 5 && c.cc == 51) {
+                            // Dronecaster DRONE: the 4 hardware-safe drones,
+                            // in pot order. dispVal is the 4-step index
+                            // (0..3) from potToDisplayValue; the wire byte is
+                            // the matching catalog id {0,22,23,29}.
+                            static const char *const kDroneNames[4] = {
+                                "APPAR", "SINE", "SQR", "TRI"
+                            };
+                            pName = (dispVal >= 0 && dispVal < 4)
+                                        ? kDroneNames[dispVal] : "---";
                         } else if (modForPage == 3) {
                             int ringMode = 0;
                             for (uint8_t i = 0; i < s_cur.count; ++i) {
@@ -1186,11 +1220,22 @@ namespace CTAG {
                             // engaged.
                             const bool chained =
                                 s_cur.tail_valid && s_cur.chain != 0;
-                            pName = chained
-                                ? ((dispVal >= 0 && dispVal <= 3)
-                                       ? kChainPairNames[dispVal] : "---")
-                                : ((dispVal >= 0 && dispVal <= 4)
-                                       ? kModNames[ModuleClamp(dispVal)] : "---");
+                            // The cell value is POT SPACE: module id n is
+                            // sent as n*127/(kModuleCount-1) (0/25/51/76/
+                            // 102/127), chain pair n as 0/42/85/127. Convert
+                            // back to an index before indexing the name table
+                            // — indexing with dispVal directly showed "---"
+                            // for every module except 0.
+                            if (chained) {
+                                int idx = (dispVal * 4) / 128;
+                                if (idx > 3) idx = 3;
+                                pName = kChainPairNames[idx];
+                            } else {
+                                int idx = (dispVal * (int)kModuleCount) / 128;
+                                if (idx >= (int)kModuleCount)
+                                    idx = (int)kModuleCount - 1;
+                                pName = kModNames[ModuleClamp((uint8_t)idx)];
+                            }
                         } else if (slot == 5 || slot == 14 || slot == 15) {
                             pName = dispVal ? "ON" : "OFF";
                         } else if (slot == 7) {
@@ -1372,9 +1417,11 @@ namespace CTAG {
                 else if (algo == 4 && p_idx == 2) n = 4;
             } else if (s_page == 8) {
                 if (pot == 0) {
-                    // ONE selector: 5 slots (modules) when no chain, 4
-                    // slots (chain pairs) while engaged.
-                    n = (s_cur.tail_valid && s_cur.chain != 0) ? 4 : 5;
+                    // ONE selector: kModuleCount slots (6 modules, including
+                    // dronecaster at id 5) when no chain, 4 slots (chain
+                    // pairs) while engaged.
+                    n = (s_cur.tail_valid && s_cur.chain != 0)
+                            ? 4 : kModuleCount;
                 }
                 else if (pot == 8) n = 16;    // PRESET slot (0..15)
                 else if (pot == 9 || pot == 10) n = 2; // BLE ON (0/1), BLE MODE (PER/CEN)
@@ -1588,16 +1635,17 @@ namespace CTAG {
                         if (pot == 0) {
                             // ONE selector pot (dual-purpose, the value text
                             // shows which): not chained = module select over
-                            // 5 slots (ELEMENTS/CLOUDS/PLAITS/RINGS/LIRA8);
-                            // engaged = chain-pair select over 4 slots
-                            // (E>C/P>C/R>C) — switching re-engages with the
-                            // new pair (off->on, same as the ring action).
+                            // kModuleCount slots (ELEMENTS/CLOUDS/PLAITS/
+                            // RINGS/LIRA8/DRONECSTR); engaged = chain-pair
+                            // select over 4 slots (E>C/P>C/R>C) — switching
+                            // re-engages with the new pair (off->on, same as
+                            // the ring action).
                             const bool chained =
                                 s_cur.tail_valid && s_cur.chain != 0;
                             if (!chained) {
                                 uint8_t wantMod =
-                                    (uint8_t)(((uint16_t)potVal * 5) / 128);
-                                if (wantMod > 4) wantMod = 4;
+                                    (uint8_t)(((uint16_t)potVal * kModuleCount) / 128);
+                                if (wantMod >= kModuleCount) wantMod = kModuleCount - 1;
                                 RackLink::TelemLocalCellWrite(pot, potVal);
                                 if (s_lastWireSent[pot] != wantMod + 1) {
                                     s_lastWireSent[pot] = wantMod + 1;
@@ -1789,7 +1837,8 @@ namespace CTAG {
                                 // hold + rotate = module-select overlay
                                 s_overlay = true;
                                 s_overlaySel = (uint8_t)(
-                                    (s_overlaySel + ev.delta + 5) % 5);
+                                    (s_overlaySel + ev.delta + kModuleCount) %
+                                    kModuleCount);
                                 s_stripDirty = true;
                             } else if (s_assignArmed) {
                                 // T8d LATCHED assign: rotate = choose the
