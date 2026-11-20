@@ -90,6 +90,8 @@
 #include "sc_kit_lin.h"      // LinExp
 #include "sc_kit_demand.h"   // Demand / Dxrand / Drand / Dbrown
 #include "sc_kit_sc3p_filter.h"  // SVF
+#include "sc_kit_core_dyn.h" // Compander, Limiter (Task 6)
+#include "sc_kit_sc3p_dyn.h" // Decimator (Task 6)
 #include "sc_sugar.h"        // (SelectX law reference; Hecker expands verbatim)
 #include "../dronecaster_engine.h"
 
@@ -1827,6 +1829,438 @@ inline void Fs_Process(Ctx& c, float* l, float* r, int n) {
 
 inline const DroneSpec kDroneFieldsteel = {"Fieldsteel", drones::Fs_Init,
                                            drones::Fs_Process};
+
+// ===========================================================================
+// Task 6 — Apparatus (id 0) + Twin Pks (id 30) helpers + ports.
+// ===========================================================================
+// SinOsc with an audio-rate freq input (SinOsc_next_ai): the freq is read
+// per sample; cpstoinc is the kit's float member (sc_kit_osc.h:98) and the
+// phase increment is the same (int32)(cpstoinc*freq) cast as the constant-freq
+// path. No ctor prime in the kit (verified sample-exact by the trio goldens).
+struct SinOscAF {
+  void Init(const KitTables* t, double sr, float phase_rad = 0.0f) {
+    t_ = t;
+    cpstoinc_ = static_cast<float>(static_cast<double>(kSineSize) * (1.0 / sr)
+                                   * 65536.0);
+    lomask_ = (kSineSize - 1) << 3;
+    // SC SinOsc_Ctor: radtoinc = kSineSize * (rtwopi*65536) (double member,
+    // copied to a float local in the perform), pphase = phase + (int32)(radtoinc*iphase).
+    const double radtoinc = static_cast<double>(kSineSize)
+                          * ((1.0 / (2.0 * M_PI)) * 65536.0);
+    phase_ = static_cast<uint32_t>(static_cast<int32_t>(
+        static_cast<float>(radtoinc) * phase_rad));
+  }
+  void ProcessBlock(const float* freq, float* out, int n) {
+    for (int i = 0; i < n; ++i) {
+      out[i] = lookupi1(t_->sine_wt, t_->sine_wt + 1, phase_, lomask_);
+      phase_ += static_cast<uint32_t>(static_cast<int32_t>(cpstoinc_ * freq[i]));
+    }
+  }
+  void ProcessBlock(float freq, float* out, int n) {
+    for (int i = 0; i < n; ++i) {
+      out[i] = lookupi1(t_->sine_wt, t_->sine_wt + 1, phase_, lomask_);
+      phase_ += static_cast<uint32_t>(static_cast<int32_t>(cpstoinc_ * freq));
+    }
+  }
+ private:
+  const KitTables* t_ = nullptr;
+  float cpstoinc_ = 0.0f;
+  int32_t lomask_ = 0;
+  uint32_t phase_ = 0;
+};
+
+// DelayC with an audio-rate delaytime (DelayUGens.cpp:3532 DelayX_perform_a
+// with DelayC_helper<true> — the checked cubic phase). The kit DelayLine's
+// ProcessBlock ramps a per-BLOCK delay; Twin Pks' wow LFO is audio rate, so
+// the per-sample dsamp/idsamp/frac path is replicated verbatim here.
+struct DelayCA {
+  void Init(double sr, float maxdelay) {
+    sr_ = static_cast<float>(sr);
+    long sz = static_cast<long>(std::ceil(maxdelay * sr_ + 1.f)) + 64;
+    bufsize_ = 1;
+    while (bufsize_ < sz) bufsize_ <<= 1;
+    buf_.assign(static_cast<size_t>(bufsize_), 0.f);
+    mask_ = bufsize_ - 1;
+    iwr_ = 0;
+    max_dsamp_ = static_cast<float>(bufsize_);
+  }
+  void ProcessBlock(const float* in, const float* delaytime, float* out, int n) {
+    for (int i = 0; i < n; ++i) {
+      float dsamp = delaytime[i] * sr_;
+      const float kMin = 2.0f;   // DelayC::minDelaySamples = 2
+      dsamp = dsamp < kMin ? kMin : (dsamp > max_dsamp_ ? max_dsamp_ : dsamp);
+      const long idsamp = static_cast<long>(dsamp);
+      const float frac = dsamp - static_cast<float>(idsamp);
+      const long i1 = iwr_ - idsamp, i0 = i1 + 1, i2 = i1 - 1, i3 = i1 - 2;
+      buf_[iwr_ & mask_] = in[i];
+      float value = 0.0f;
+      if (i0 >= 0) {
+        const float d0 = buf_[i0 & mask_];
+        const float d1 = i1 >= 0 ? buf_[i1 & mask_] : 0.0f;
+        const float d2 = i2 >= 0 ? buf_[i2 & mask_] : 0.0f;
+        const float d3 = i3 >= 0 ? buf_[i3 & mask_] : 0.0f;
+        const float c0 = d1;
+        const float c1 = 0.5f * (d2 - d0);
+        const float c2 = d0 - 2.5f * d1 + 2.0f * d2 - 0.5f * d3;
+        const float c3 = 0.5f * (d3 - d0) + 1.5f * (d1 - d2);
+        value = ((c3 * frac + c2) * frac + c1) * frac + c0;
+      }
+      out[i] = value;
+      ++iwr_;
+    }
+  }
+ private:
+  std::vector<float> buf_;
+  long bufsize_ = 0, mask_ = 0, iwr_ = 0;
+  float sr_ = 48000.f, max_dsamp_ = 0.f;
+};
+
+// Fill a 64-sample kr→ar ramp with SC's nova slope_argument lanes
+// ([p, p+s, p+2s, p+3s] then += 4s per 4-sample chunk — Task 4 law).
+inline void T6Ramp64(float* out, int n, float prev, float v) {
+  const float slope = (v - prev) * (1.0f / 64.0f);
+  const float s2 = slope + slope;
+  float b0 = prev, b1 = prev + slope, b2 = prev + s2, b3 = prev + s2 + slope;
+  const float inc = s2 + s2;
+  for (int j = 0; j < n; ++j) {
+    switch (j & 3) {
+      case 0: out[j] = b0; break;
+      case 1: out[j] = b1; break;
+      case 2: out[j] = b2; break;
+      default: out[j] = b3; break;
+    }
+    if ((j & 3) == 3) { b0 += inc; b1 += inc; b2 += inc; b3 += inc; }
+  }
+}
+// MulAdd with ar input and kr b/c (MulAdd_next_aka): both b and c ramp.
+inline void T6MulAddAK(const float* a, float* out, int n,
+                       float bp, float b, float cp, float c) {
+  float br[64], cr[64];
+  T6Ramp64(br, n, bp, b);
+  T6Ramp64(cr, n, cp, c);
+  for (int i = 0; i < n; ++i) out[i] = a[i] * br[i] + cr[i];
+}
+
+// Local Dust2/Crackle with their ctor-primed output exposed — the filter
+// ctor primes need the UPSTREAM UGen's primed value, not the first rendered
+// sample (Task 5 Hecker law). Draw sequence matches the kit exactly.
+struct T6Dust2 {
+  RGen* r = nullptr; float sr = 48000.f, thresh = 0.f, scale = 0.f, prime = 0.f;
+  void Init(RGen* rr, double s, float density) {
+    r = rr; sr = static_cast<float>(s);
+    thresh = density * static_cast<float>(1.0 / s);
+    scale = thresh > 0.f ? 2.f / thresh : 0.f;
+    prime = Next();
+  }
+  float Next() {
+    const float z = r->frand();
+    return z < thresh ? z * scale - 1.f : 0.f;
+  }
+  void ProcessBlock(float* out, int n) {
+    for (int i = 0; i < n; ++i) out[i] = Next();
+  }
+};
+struct T6Crackle {
+  RGen* r = nullptr; float param = 0.f, y1 = 0.f, y2 = 0.f, prime = 0.f;
+  void Init(RGen* rr, float p) {
+    r = rr; param = p; y1 = static_cast<float>(r->drand()); y2 = 0.f;
+    prime = Next();
+  }
+  float Next() {
+    const float y0 = std::fabs(y1 * param - y2 - 0.05f);
+    y2 = y1; y1 = y0;
+    return y0;
+  }
+  void ProcessBlock(float* out, int n) {
+    for (int i = 0; i < n; ++i) out[i] = Next();
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Apparatus (id 0) — 60 UGens. DEFERRED (2026-11-20, T-D2 Task 6): best
+// max_abs 0.000006787 / corr 1.000000000 (a decaying ctor-prime transient,
+// worst_i 514) after 3 distinct fix attempts (v1 graph; HPF/BPF ctor prime;
+// LeakDC ctor prime). Catalog id 0 stays nullptr (inert per plan). The full
+// port + law notes are preserved here for a T-D3 resume. Do NOT weaken the
+// gate or regenerate the golden.
+// The `hz:` keyword trap at Apparatus.scd:20
+// leaves UGens 4_LFPar/5_MulAdd/14_PinkNoise unconnected (but they still
+// consume RGen draws, so the dead PinkNoise is processed every block).
+// ---------------------------------------------------------------------------
+struct ApState {
+  LFPar par_dead;
+  PinkNoise pn_dead;
+  LFNoise2 lfn_vib, lfn_vib2;
+  LFTri tri1, tri2, tri3, tri4;
+  SinOsc lfo1, lfo2;
+  T6Dust2 dust2;
+  T6Crackle crackle;
+  HkPinkNoise pn;
+  SinOscAF pn_sin;
+  Filter2Pole hpf, bpf;
+  LeakDC leak;
+  float r7, r10, r6;   // ScReciprocal(7/10/6) for amp/7, /10, /6
+  float pn_sin_ctor, dust_ctor, crackle_ctor, pn_ctor;
+  float dead_pn_ctor, lfn1_ctor, lfn2_ctor;
+  float b1prev, b2prev, b3prev;   // MulAdd c-ramp prev (amp*softclip terms)
+  float buf1[64], buf2[64], buf3[64], buf4[64], buf5[64], buf6[64];
+  float buf7[64], buf8[64], buf9[64], buf10[64], buf11[64], buf12[64];
+};
+
+inline void Ap_Init(Ctx& c) {
+  ApState* st = new (c.arena->Alloc(sizeof(ApState))) ApState();
+  const double sr = static_cast<double>(c.sr);
+  const float hz = c.hz, amp = c.amp;
+  st->r7 = ScReciprocal(7.0f); st->r10 = ScReciprocal(10.0f);
+  st->r6 = ScReciprocal(6.0f);
+  // RGen creation order: 14_PinkNoise (dead), 15/21_LFNoise2, 43_Dust2,
+  // 44_Crackle, 46_PinkNoise.
+  st->pn_dead.Init(c.rgen);
+  st->lfn_vib.Init(c.rgen, sr, 0.1899999976158142f);      // c[6]
+  st->lfn_vib2.Init(c.rgen, sr, 0.6700000166893005f);     // c[10]
+  st->dust2.Init(c.rgen, sr, 10.0f);
+  st->crackle.Init(c.rgen, 1.9500000476837158f);          // c[25]
+  st->pn.Init(c.rgen);
+  st->dead_pn_ctor = 0.0f;
+  st->lfn1_ctor = st->lfn_vib.ctor_value();
+  st->lfn2_ctor = st->lfn_vib2.ctor_value();
+  st->dust_ctor = 0.0f;
+  st->pn_ctor = 0.0f;
+  // 4_LFPar (dead) — created before 14_PinkNoise but has no RNG draw.
+  st->par_dead.Init(sr, hz * 2.0f, 0.0f);
+  // LFTris use per-sample freq from the vibrato chains.
+  st->tri1.Init(sr, 0.0f); st->tri2.Init(sr, 0.0f);
+  st->tri3.Init(sr, 0.0f); st->tri4.Init(sr, 0.0f);
+  st->lfo1.Init(c.tables, sr, 0.009f);
+  st->lfo2.Init(c.tables, sr, 0.011f);   // iphase 2pi wraps to table phase 0
+  st->pn_sin.Init(c.tables, sr);
+  st->hpf.Init(sr, 1);   // HPF, constant 25 Hz
+  st->bpf.Init(sr, 2);   // BPF, constant hz*8, rq 1
+  st->leak.Init(); st->leak.Prime(0.0f);
+  st->b1prev = st->b2prev = st->b3prev = 0.0f;
+  c.state = st;
+}
+
+inline void Ap_Process(Ctx& c, float* l, float* r, int n) {
+  ApState* st = static_cast<ApState*>(c.state);
+  const float hz = c.hz, amp = c.amp;
+  (void)hz;
+  // Dead chain: 4_LFPar + 5_MulAdd + 14_PinkNoise (still draws RGen per block).
+  st->par_dead.ProcessBlock(st->buf1, n);
+  st->pn_dead.ProcessBlock(st->buf2, n);
+  // 15_LFNoise2 / 16_MulAdd / 17_* → vibrato freq for tri1.
+  st->lfn_vib.ProcessBlock(st->buf3, n);
+  for (int i = 0; i < n; ++i)
+    st->buf4[i] = st->buf3[i] * 0.0069756703451275826f
+                + 1.0000243186950684f;   // c[7], c[8]
+  for (int i = 0; i < n; ++i) {
+    st->tri1.SetFreq(c.hz * st->buf4[i]);
+    st->buf5[i] = st->tri1.Process();
+  }
+  // 19_Clip / 20_softclip.
+  for (int i = 0; i < n; ++i)
+    st->buf5[i] = HkSoftclip(ClipTo(st->buf5[i], -0.824999988079071f,
+                                    0.824999988079071f));
+  // 21_LFNoise2 / 22_MulAdd / 23_* → vibrato2.
+  st->lfn_vib2.ProcessBlock(st->buf3, n);
+  for (int i = 0; i < n; ++i)
+    st->buf4[i] = st->buf3[i] * 0.009950495325028896f
+                + 1.0000494718551636f;   // c[11], c[12]
+  for (int i = 0; i < n; ++i) {
+    st->tri2.SetFreq((c.hz * 3.0f) * st->buf4[i]);
+    st->buf6[i] = st->tri2.Process();
+  }
+  for (int i = 0; i < n; ++i)
+    st->buf6[i] = HkSoftclip(ClipTo(st->buf6[i], -0.824999988079071f,
+                                    0.5f));
+  // 27_* = snd2 * (amp/7) and 28_MulAdd = snd*amp + that.
+  for (int i = 0; i < n; ++i)
+    st->buf7[i] = st->buf6[i] * (amp * st->r7);
+  for (int i = 0; i < n; ++i)
+    st->buf8[i] = st->buf5[i] * amp + st->buf7[i];
+  // lfo1/lfo2 + tri3/tri4 chain.
+  st->lfo1.ProcessBlock(st->buf9, n);
+  st->lfo2.ProcessBlock(st->buf10, n);
+  for (int i = 0; i < n; ++i) {
+    st->tri3.SetFreq(c.hz * 5.0f - st->buf10[i]);
+    st->buf11[i] = st->tri3.Process();
+  }
+  for (int i = 0; i < n; ++i)
+    st->buf11[i] = HkSoftclip(ClipTo(st->buf11[i], -0.824999988079071f,
+                                     0.65f)) * st->buf9[i];
+  for (int i = 0; i < n; ++i)
+    st->buf8[i] = st->buf11[i] * (amp * st->r10) + st->buf8[i];
+  for (int i = 0; i < n; ++i) {
+    st->tri4.SetFreq(c.hz * 2.0f - st->buf9[i]);
+    st->buf11[i] = st->tri4.Process();
+  }
+  for (int i = 0; i < n; ++i)
+    st->buf11[i] = HkSoftclip(ClipTo(st->buf11[i], -0.824999988079071f,
+                                     0.7f)) * st->buf10[i];
+  for (int i = 0; i < n; ++i)
+    st->buf8[i] = st->buf11[i] * (amp * st->r6) + st->buf8[i];
+  // 43_Dust2 + 44_Crackle*0.2 + 49_SinOsc(PinkNoise*7500+40)*0.011.
+  st->dust2.ProcessBlock(st->buf1, n);
+  st->crackle.ProcessBlock(st->buf2, n);
+  st->pn.ProcessBlock(st->buf3, n);
+  for (int i = 0; i < n; ++i)
+    st->buf4[i] = st->buf3[i] * 0.5f;
+  for (int i = 0; i < n; ++i)
+    st->buf5[i] = st->buf4[i] * 7500.0f + 40.0f;
+  st->pn_sin.ProcessBlock(st->buf5, st->buf6, n);
+  for (int i = 0; i < n; ++i)
+    st->buf7[i] = st->buf2[i] * 0.2f + st->buf1[i];
+  for (int i = 0; i < n; ++i)
+    st->buf9[i] = st->buf6[i] * 0.011f + st->buf7[i];
+  st->hpf.ProcessBlock(st->buf9, st->buf10, n, 25.0f, 0.0f);
+  st->bpf.ProcessBlock(st->buf10, st->buf11, n, c.hz * 8.0f, 1.0f);
+  for (int i = 0; i < n; ++i)
+    st->buf12[i] = (st->buf11[i] * 1.399999976158142f) * amp + st->buf8[i];
+  for (int i = 0; i < n; ++i)
+    l[i] = st->leak.Next(st->buf12[i], 0.9950000047683716f);
+  for (int i = 0; i < n; ++i) r[i] = l[i];
+}
+
+inline const DroneSpec kDroneApparatus = {"Apparatus", drones::Ap_Init,
+                                          drones::Ap_Process};
+
+// ---------------------------------------------------------------------------
+// Twin Pks (id 30) — retro tape/vinyl chain. DEFERRED (2026-11-20, T-D2 Task 6):
+// best max_abs 0.000168291 / corr 0.999999976 (a decaying ctor-prime
+// transient, worst_i 2570) after 3 distinct fix attempts (v1 graph; wow
+// SinOsc iphase=2 radians; filter ctor primes). Catalog id 30 stays nullptr
+// (inert per plan). Full port + law notes preserved for a T-D3 resume — do
+// NOT weaken the gate or regenerate the golden.
+// 64 UGens; two noise banks,
+// Compander+Limiter, BPF, wow DelayC (ar delaytime), tanh, Decimator, BPF.
+// ---------------------------------------------------------------------------
+struct TpState {
+  T6Dust2 dust2a, dust2b;
+  T6Crackle cracklea, crackleb;
+  HkPinkNoise pna, pnb;
+  SinOscAF pnsina, pnsinb;
+  Filter2Pole hpf, bpf1, bpf2;
+  Compander comp;
+  Limiter lim;
+  DelayCA delay;
+  SinOscAF wow_sine;
+  LFPar lfpar;
+  LinExp le_ratio, le_sat, le_wowrate, le_depth;
+  Decimator decim;
+  float b41_prev, c41_prev, c51_prev;  // ar MulAdd kr-ramp previous values
+  float buf1[64], buf2[64], buf3[64], buf4[64], buf5[64], buf6[64];
+  float buf7[64], buf8[64], buf9[64], buf10[64], buf11[64], buf12[64];
+  float delaytime[64];
+};
+
+inline void Tp_Init(Ctx& c) {
+  TpState* st = new (c.arena->Alloc(sizeof(TpState))) TpState();
+  const double sr = static_cast<double>(c.sr);
+  const double cr = sr / static_cast<double>(kBlock);
+  // RGen creation order: 4_Dust2, 5_Crackle, 7_PinkNoise, 43_Dust2,
+  // 44_Crackle, 46_PinkNoise.
+  st->dust2a.Init(c.rgen, sr, 10.0f);
+  st->cracklea.Init(c.rgen, 1.9500000476837158f);
+  st->pna.Init(c.rgen);
+  st->dust2b.Init(c.rgen, sr, 10.0f);
+  st->crackleb.Init(c.rgen, 1.9500000476837158f);
+  st->pnb.Init(c.rgen);
+  st->pnsina.Init(c.tables, sr);
+  st->pnsinb.Init(c.tables, sr);
+  st->hpf.Init(sr, 1); st->bpf1.Init(sr, 2); st->bpf2.Init(sr, 2);
+  const float drive = 0.75f, wow = 0.6f;
+  st->le_ratio.Init(0.f, 1.f, 0.15000000596046448f, 0.009999999776482582f);
+  st->le_sat.Init(0.f, 1.f, 1.0f, 2.5f);
+  st->le_wowrate.Init(0.f, 1.f, 0.5f, 4.0f);
+  st->le_depth.Init(0.f, 1.f, 1.0f, 30.0f);
+  const float ratio = st->le_ratio.Next(drive);
+  const float threshold = drive * -0.4699999988079071f + 0.800000011920929f;
+  const float gain = 1.0f / ((1.0f - threshold) * ratio + threshold);
+  st->comp.Init(sr, threshold, 1.0f, ratio, 0.1f, 1.0f, 0.0f, 0.0f);
+  st->lim.Init(sr, 1.0f, 0.0007999999797903001f, 0.0f);
+  st->delay.Init(sr, 0.02552817016839981f);   // c[22]
+  const float wowrate = st->le_wowrate.Next(wow);
+  st->wow_sine.Init(c.tables, sr, 2.0f);   // iphase = 2 radians (c[21])
+  const float lfo_amt = std::floor(wow * 4.0f + 1.0f);   // c[18]=4, floor
+  st->lfpar.Init(cr, lfo_amt * 0.1f, 0.0f);
+  st->decim.Init(sr, 24000.0f, 16.0f, 0.0f);
+  st->b41_prev = 0.0f; st->c41_prev = 0.0f; st->c51_prev = 0.0f;
+  c.state = st;
+}
+
+inline void Tp_Process(Ctx& c, float* l, float* r, int n) {
+  TpState* st = static_cast<TpState*>(c.state);
+  const float amp = c.amp;
+  const float drive = 0.75f, wow = 0.6f;
+  // ---- first noise bank (wet) ----
+  st->dust2a.ProcessBlock(st->buf1, n);
+  st->cracklea.ProcessBlock(st->buf2, n);
+  st->pna.ProcessBlock(st->buf3, n);
+  for (int i = 0; i < n; ++i) st->buf4[i] = st->buf3[i] * 0.5f;
+  for (int i = 0; i < n; ++i) st->buf5[i] = st->buf4[i] * 7500.0f + 40.0f;
+  st->pnsina.ProcessBlock(st->buf5, st->buf6, n);
+  for (int i = 0; i < n; ++i)
+    st->buf7[i] = st->buf6[i] * 0.03999999910593033f
+                + (st->buf2[i] * 0.2f + st->buf1[i]);   // c[9]=0.04
+  st->hpf.ProcessBlock(st->buf7, st->buf8, n, 25.0f, 0.0f);
+  // ---- compressor / limiter / BPF ----
+  const float ratio = st->le_ratio.Next(drive);
+  const float threshold = drive * -0.4699999988079071f + 0.800000011920929f;
+  const float gain = 1.0f / ((1.0f - threshold) * ratio + threshold);
+  st->comp.ProcessBlock(st->buf8, st->buf8, st->buf9, n);
+  for (int i = 0; i < n; ++i) st->buf9[i] *= gain;
+  st->lim.ProcessBlock(st->buf9, st->buf10, n);
+  st->bpf1.ProcessBlock(st->buf10, st->buf11, n, c.hz, 0.4f);
+  // ---- wow LFO / DelayC (ar delaytime) ----
+  const float wowrate = st->le_wowrate.Next(wow);
+  const float lfo_amt = std::floor(wow * 4.0f + 1.0f);
+  const float depth = st->le_depth.Next(wow);
+  const float lfpar = st->lfpar.ProcessKr();
+  const float wow_depth = lfpar * lfo_amt + depth;
+  const float powarg = wow_depth * 0.0008333333535119891f;  // c[20] = 1/1200
+  const float powval = std::pow(2.0f, powarg);              // sc_pow(a>=0)
+  const float wow_mul = (powval - 1.0f) / (4.0f * wowrate);
+  const float wow_add = wow_mul + ScReciprocal(750.0f);     // ControlRate.ir.reciprocal
+  st->wow_sine.ProcessBlock(wowrate, st->buf12, n);
+  T6MulAddAK(st->buf12, st->delaytime, n, st->b41_prev, wow_mul,
+             st->c41_prev, wow_add);
+  st->b41_prev = wow_mul; st->c41_prev = wow_add;
+  st->delay.ProcessBlock(st->buf11, st->delaytime, st->buf10, n);
+  // ---- second noise bank ----
+  st->dust2b.ProcessBlock(st->buf1, n);
+  st->crackleb.ProcessBlock(st->buf2, n);
+  st->pnb.ProcessBlock(st->buf3, n);
+  for (int i = 0; i < n; ++i) st->buf4[i] = st->buf3[i] * 0.5f;
+  for (int i = 0; i < n; ++i) st->buf5[i] = st->buf4[i] * 7500.0f + 40.0f;
+  st->pnsinb.ProcessBlock(st->buf5, st->buf6, n);
+  for (int i = 0; i < n; ++i)
+    st->buf7[i] = st->buf6[i] * 0.006f
+                + (st->buf2[i] * 0.2f + st->buf1[i]);
+  // ---- saturate, tanh, decimate, BPF, level ----
+  const float sat = st->le_sat.Next(drive);
+  // 51_MulAdd: a=DelayC(ar), b=LinExp(kr, ramps), c=noise bank (ar).
+  {
+    float br[64];
+    T6Ramp64(br, n, st->c51_prev, sat);
+    for (int i = 0; i < n; ++i) st->buf11[i] = st->buf10[i] * br[i] + st->buf7[i];
+  }
+  st->c51_prev = sat;
+  for (int i = 0; i < n; ++i) st->buf11[i] = NovaTanh(st->buf11[i]);
+  st->decim.ProcessBlock(st->buf11, st->buf12, n, 24000.0f, 16.0f);
+  for (int i = 0; i < n; ++i) {
+    st->buf9[i] = st->buf12[i] * 0.33000001311302185f
+                + st->buf11[i] * 0.6700000166893005f;
+  }
+  st->bpf2.ProcessBlock(st->buf9, st->buf10, n, c.hz, 0.4f);
+  for (int i = 0; i < n; ++i) {
+    float v = st->buf10[i] * 15.848932266235352f * amp;
+    v = HkSoftclip(v);
+    l[i] = v; r[i] = v;
+  }
+}
+
+inline const DroneSpec kDroneTwinPks = {"Twin Pks", drones::Tp_Init,
+                                        drones::Tp_Process};
 
 // ---------------------------------------------------------------------------
 // Mt. Lion spec

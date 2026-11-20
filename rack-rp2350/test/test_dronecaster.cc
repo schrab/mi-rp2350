@@ -1086,6 +1086,8 @@ int main() {
   CHECK(sc::Catalog(14) != nullptr, "id 14 ported");
   CHECK(sc::Catalog(10) != nullptr, "id 10 ported");
   CHECK(sc::Catalog(7) == nullptr, "id 7 deferred (inert)");
+  CHECK(sc::Catalog(0) == nullptr, "id 0 deferred (inert)");
+  CHECK(sc::Catalog(30) == nullptr, "id 30 deferred (inert)");
 
   printf("== EnvAsr (Env.asr curve -4, kr; 3.14 ctor rollback) ==\n");
   {
