@@ -5572,3 +5572,18 @@ prior session), **PASS (0 failures), 133 REFs ok**.
   (`ae6c682`), pointer updated in main repo (`3ba8868`).
 - Verified: `pio run -d rack-rp2350` SUCCESS (RAM 72.9%, Flash 39.2%) and
   `test_dronecaster` PASS (0 failures).
+
+### Task 9 (2026-11-21) — expose live drones on CC 51 + panel
+- Report: `.superpowers/sdd/2026-11-19-dronecaster-td2-drones/task-9-report.md`.
+- Brief expected 15 ids (including deferred Coil 2); the live catalog has
+  **14** ids: 0,7,10,14,15,20,22,23,24,25,27,29,30,36. Guard, pot map and
+  panel all use these 14; Coil stays unreachable.
+- Added a full-catalog guard test (ids 0..36, exactly 14 non-null) — passed
+  before any adapter/panel edits.
+- CC 51 raw bytes 0-36 remain direct catalog ids; pot travel 37-127 now maps
+  linearly over the 14 live ids: `ported[(val-37)*14/91]` (6-7 pot steps per
+  drone). `last_bad_drone` guard unchanged.
+- Panel DRONECASTER steps: 14 uppercase labels + 14 raw bytes (catalog order);
+  info note updated. Headless byte-sync check (stubbed Web MIDI + ccByte) PASS.
+- Verified: `pio run -d rack-rp2350` SUCCESS (RAM 72.9%, Flash 39.2%),
+  `test_dronecaster` PASS (0 failures), 133 refs.
