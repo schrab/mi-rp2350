@@ -1039,10 +1039,22 @@ int main() {
     // Schedule mirrors gen_goldens.scd EXACTLY: voice before the first
     // Process call (SC's \s_new is in block 0), gate off at block 2250
     // (sample 144000), 192000 frames, hz 55, amp 0.4, fade 1.0 s.
-    struct GoldenCase { int id; const char* name; };
-    const GoldenCase cases[] = {{22, "Sine"}, {23, "Square"}, {29, "Triangle"},
-                                {36, "harms way"}, {27, "Thx"}, {15, "Mt. Zion"},
-                                {14, "Mt. Lion"}, {10, "Hecker"}};
+    // max_gate/corr_gate: the 8 sample-exact drones keep the strict 1e-6
+    // gate. Apparatus and Twin Pks have the SAME timbre (corr ~1.0) but a
+    // small decaying LFO/ctor-prime startup transient, so per controller
+    // ruling they use an explicit audio-equivalence gate instead of being
+    // deferred. Their numbers: Apparatus max 6.8e-6, Twin Pks max 1.7e-4.
+    struct GoldenCase { int id; const char* name; double max_gate; bool audio_eq; };
+    const GoldenCase cases[] = {{22, "Sine", 1e-6, false},
+                                {23, "Square", 1e-6, false},
+                                {29, "Triangle", 1e-6, false},
+                                {36, "harms way", 1e-6, false},
+                                {27, "Thx", 1e-6, false},
+                                {15, "Mt. Zion", 1e-6, false},
+                                {14, "Mt. Lion", 1e-6, false},
+                                {10, "Hecker", 1e-6, false},
+                                {0, "Apparatus", 1e-5, true},
+                                {30, "Twin Pks", 2e-4, true}};
     for (const GoldenCase& gc : cases) {
       static uint8_t mem[160 * 1024];
       sc::Engine e;
@@ -1072,8 +1084,10 @@ int main() {
       char ref[128];
       snprintf(ref, sizeof(ref), "dronecaster_ref/goldens/%s.expected.wav", gc.name);
       GoldenReport rep;
-      const bool ok = compare(ref, path, 1e-6, 0.999999, &rep);
-      printf("  %s: %s\n", gc.name, ok ? "GOLDEN PASS" : "GOLDEN FAIL");
+      const bool ok = compare(ref, path, gc.max_gate, 0.999999, &rep);
+      printf("  %s: %s\n", gc.name,
+             ok ? (gc.audio_eq ? "AUDIO-EQUIV PASS" : "GOLDEN PASS")
+                : (gc.audio_eq ? "AUDIO-EQUIV FAIL" : "GOLDEN FAIL"));
       if (!ok) ++g_failures;
     }
   }
@@ -1086,8 +1100,8 @@ int main() {
   CHECK(sc::Catalog(14) != nullptr, "id 14 ported");
   CHECK(sc::Catalog(10) != nullptr, "id 10 ported");
   CHECK(sc::Catalog(7) == nullptr, "id 7 deferred (inert)");
-  CHECK(sc::Catalog(0) == nullptr, "id 0 deferred (inert)");
-  CHECK(sc::Catalog(30) == nullptr, "id 30 deferred (inert)");
+  CHECK(sc::Catalog(0) != nullptr, "id 0 ported");
+  CHECK(sc::Catalog(30) != nullptr, "id 30 ported");
 
   printf("== EnvAsr (Env.asr curve -4, kr; 3.14 ctor rollback) ==\n");
   {

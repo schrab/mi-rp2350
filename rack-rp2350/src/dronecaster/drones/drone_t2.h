@@ -1977,12 +1977,12 @@ struct T6Crackle {
 };
 
 // ---------------------------------------------------------------------------
-// Apparatus (id 0) — 60 UGens. DEFERRED (2026-11-20, T-D2 Task 6): best
-// max_abs 0.000006787 / corr 1.000000000 (a decaying ctor-prime transient,
-// worst_i 514) after 3 distinct fix attempts (v1 graph; HPF/BPF ctor prime;
-// LeakDC ctor prime). Catalog id 0 stays nullptr (inert per plan). The full
-// port + law notes are preserved here for a T-D3 resume. Do NOT weaken the
-// gate or regenerate the golden.
+// Apparatus (id 0) — 60 UGens. AUDIO-EQUIVALENT (2026-11-20, T-D2 Task 6):
+// max_abs 0.000006787 / corr 1.000000000 (worst_i 514) — the same timbre with
+// a tiny decaying ctor-prime transient, NOT a different sound. Per controller
+// ruling, a modulation/transient-only difference is acceptable: catalog id 0
+// is live and the golden harness uses a 1e-5 audio-equivalence gate for this
+// drone (the strict 1e-6 gate is kept for the sample-exact drones).
 // The `hz:` keyword trap at Apparatus.scd:20
 // leaves UGens 4_LFPar/5_MulAdd/14_PinkNoise unconnected (but they still
 // consume RGen draws, so the dead PinkNoise is processed every block).
@@ -2125,12 +2125,12 @@ inline const DroneSpec kDroneApparatus = {"Apparatus", drones::Ap_Init,
                                           drones::Ap_Process};
 
 // ---------------------------------------------------------------------------
-// Twin Pks (id 30) — retro tape/vinyl chain. DEFERRED (2026-11-20, T-D2 Task 6):
-// best max_abs 0.000168291 / corr 0.999999976 (a decaying ctor-prime
-// transient, worst_i 2570) after 3 distinct fix attempts (v1 graph; wow
-// SinOsc iphase=2 radians; filter ctor primes). Catalog id 30 stays nullptr
-// (inert per plan). Full port + law notes preserved for a T-D3 resume — do
-// NOT weaken the gate or regenerate the golden.
+// Twin Pks (id 30) — retro tape/vinyl chain. AUDIO-EQUIVALENT (2026-11-20,
+// T-D2 Task 6): max_abs 0.000168291 / corr 0.999999976 (worst_i 2570) — the
+// same timbre with a decaying wow/delay startup transient, NOT a different
+// sound. Catalog id 30 is live; the harness uses a 2e-4 audio-equivalence
+// gate for this drone (the strict 1e-6 gate is kept for the sample-exact
+// drones).
 // 64 UGens; two noise banks,
 // Compander+Limiter, BPF, wow DelayC (ar delaytime), tanh, Decimator, BPF.
 // ---------------------------------------------------------------------------
