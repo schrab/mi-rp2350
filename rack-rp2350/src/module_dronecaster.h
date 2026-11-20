@@ -24,7 +24,7 @@
 #include <new>
 
 #include "dronecaster/dronecaster_engine.h"
-#include "dronecaster/drones/drone_trio.h"
+#include "dronecaster/drones/drone_registry.h"
 #include "dronecaster/dronecaster_tc.h"
 #include "dronecaster_engine_o3.h"   // -O3 Process() wrapper (lib/dronecaster_engine)
 #include "pico/time.h"               // time_us_32 (static inline in pico-sdk 2.x)
