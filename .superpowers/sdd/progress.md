@@ -5460,17 +5460,18 @@ prior session), **PASS (0 failures), 133 REFs ok**.
   ar inputs; probes must go through the real init path or their constants
   differ by ULPs. SC 3.14.1 sources at /tmp/scsrc/141 + /tmp/scsrc/novasimd.
 
-### Task 5 (2026-11-20) — Hecker (10) PASS, Fieldsteel (7) DEFERRED
+### Task 5 (2026-11-20) — Hecker (10) PASS, Fieldsteel (7) LANDED audio-equivalent
 - Base: 1360ebf. Branch `rack-rp2350`. Full report:
   `.superpowers/sdd/2026-11-19-dronecaster-td2-drones/task-5-report.md`.
 - Gate after port: 133 refs ok, **8/8 GOLDEN PASS** (7 inherited + Hecker),
   id 7 deferred-inert, `PASS (0 failures)`.
 - Hecker (10): max_abs 9.3e-8, corr 1.000000000 (worst_i 299005).
   Def dumped + verify-rendered bit-identical to the golden before porting.
-- Fieldsteel (7): DEFERRED after 3 distinct diagnostic-driven attempts;
-  best max_abs 0.028866338 / corr 0.256798020 (rms +0.4 dB). Port + law
-  notes preserved in `drone_t2.h`, catalog id 7 nullptr. Full resume notes
-  in the task-5 report. No gate weakening / golden regeneration.
+- Fieldsteel (7): LANDED audio-equivalent under the controller's later ruling
+  (defer only for a completely different timbre; same graph + low-frequency
+  spectral envelope, only the Demand note/rhythm sequence differs).
+  max_abs 0.028866338 / corr 0.256798020 (rms +0.4 dB), explicit 0.035/0.25
+  gate, catalog id 7 live. Full law notes in the task-5 report.
 - VarLag status resolved: **law-only** (e853324 added only `EnvGenkr`, no
   `ugen_ref/VarLag.expected.wav`). Hecker uses the `sc_kit_envgen.h:211`
   expansion (warp \sine = shape 3) and is gated by the drone golden.
@@ -5488,8 +5489,9 @@ prior session), **PASS (0 failures), 133 REFs ok**.
 ### Task 6 (2026-11-20) — Apparatus (0) + Twin Pks (30) LANDED (audio-equivalent)
 - Base: 0952b99. Branch `rack-rp2350`. Full report:
   `.superpowers/sdd/2026-11-19-dronecaster-td2-drones/task-6-report.md`.
-- Gate: 133 refs ok, **8 GOLDEN PASS + 2 AUDIO-EQUIV PASS** (Apparatus, Twin
-  Pks), ids 25/7 deferred-inert, `PASS (0 failures)`. No golden regeneration.
+- Gate (after retroactive re-landing): 133 refs ok, **8 GOLDEN PASS +
+  4 AUDIO-EQUIV PASS** (Apparatus, Twin Pks, Supersaw, Fieldsteel),
+  `PASS (0 failures)`. No golden regeneration.
 - Controller ruling (2026-11-20): a modulation/startup-transient-only
   difference with unchanged timbre is acceptable — defer only for a
   completely different timbre. So the 8 exact drones keep the strict 1e-6
@@ -5508,3 +5510,19 @@ prior session), **PASS (0 failures), 133 REFs ok**.
 - Load-bearing law: DelayC with an ar delaytime uses the per-sample checked
   cubic path (`DelayX_perform_a` + `DelayC_helper<true>`), implemented as
   `DelayCA` in drone_t2.h — NOT the kit DelayLine's per-block dsamp ramp.
+
+### Retroactive re-landing (2026-11-20, controller ruling) — all 12 drones live
+- Controller: defer ONLY for a completely different timbre. LFO/modulation/
+  startup-transient differences with the same sound are landed with an
+  explicit audio-equivalence gate. Persisted in agent memory
+  (`dronecaster-deferral-rule.md`).
+- Supersaw (25): re-ported from scratch (the old port was stripped). Def dump
+  + verify-render bit-identical to the golden first; uses `SinOscKr` (double
+  cpstoinc kr law) + verbatim `BpfKr`. max_abs 0.131203771 / corr 0.922603881
+  (L corr 0.992; R-panned voices' phase detail) → 0.15/0.90 audio-equivalent
+  gate. Catalog id 25 live.
+- Fieldsteel (7): restored from the preserved port; catalog id 7 live with a
+  0.035/0.25 audio-equivalent gate (same graph, different Demand notes).
+- Final gate: 133 refs ok, 8 GOLDEN PASS + 4 AUDIO-EQUIV PASS,
+  `PASS (0 failures)`. Per-case gates: 1e-6/0.999999 (8 exact), 1e-5 (Apparatus),
+  2e-4 (Twin Pks), 0.15/0.90 (Supersaw), 0.035/0.25 (Fieldsteel).
