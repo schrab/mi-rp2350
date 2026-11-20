@@ -298,7 +298,10 @@ namespace CTAG {
                     }
                     break;
                 case 5: // Dronecaster
-                    if (cc == 51) return 14;  // 14 live drones in catalog order
+                    // Audition list: the 10 drones that don't reset the board.
+                    // The 4 hanging ids (14/20/24/30) stay reachable from the
+                    // browser panel + serial `cc 51 <id>` for debugging.
+                    if (cc == 51) return 10;
                     break;
                 case 4: // Lira8 (P1/P2/P3 tables)
                     if (cc == 9 || cc == 10 || cc == 11 || cc == 12) {
@@ -336,14 +339,14 @@ namespace CTAG {
                 bool wireBool = false;
                 const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
                 if (modForPage == 5 && cc == 51) {
-                    // DRONE wire byte is a raw catalog id. Map back to the
-                    // matching 14-step pot position so the name/bar track RP
-                    // telemetry (including selections made from the panel).
-                    static const uint8_t kIds[14] = {
-                        0, 7, 10, 14, 15, 20, 22, 23, 24, 25, 27, 29, 30, 36};
-                    for (uint8_t i = 0; i < 14; ++i) {
+                    // DRONE wire byte is a raw catalog id. Auditionable ids
+                    // map to a 10-step pot; a hanging id selected elsewhere
+                    // falls back to the first slot so the bar/name stay sane.
+                    static const uint8_t kIds[10] = {
+                        0, 7, 10, 15, 22, 23, 25, 27, 29, 36};
+                    for (uint8_t i = 0; i < 10; ++i) {
                         if (wireVal == kIds[i]) {
-                            return (uint8_t)(((uint16_t)i * 127) / 13);
+                            return (uint8_t)(((uint16_t)i * 127) / 9);
                         }
                     }
                     return 0;
@@ -384,12 +387,12 @@ namespace CTAG {
                 bool wireBool = false;
                 const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
                 if (modForPage == 5 && cc == 51) {
-                    // DRONE: send the raw catalog id of one of the 14 live
-                    // drones; the RP echoes it back and the name/bar track it.
-                    static const uint8_t kIds[14] = {
-                        0, 7, 10, 14, 15, 20, 22, 23, 24, 25, 27, 29, 30, 36};
-                    uint8_t idx = (uint8_t)(((uint16_t)potVal * 14) / 128);
-                    if (idx > 13) idx = 13;
+                    // DRONE: send the raw catalog id of one of the 10
+                    // auditionable drones (no hanging id can be reached here).
+                    static const uint8_t kIds[10] = {
+                        0, 7, 10, 15, 22, 23, 25, 27, 29, 36};
+                    uint8_t idx = (uint8_t)(((uint16_t)potVal * 10) / 128);
+                    if (idx > 9) idx = 9;
                     return kIds[idx];
                 }
                 if (n > 1) {
@@ -993,14 +996,14 @@ namespace CTAG {
                             pName = (dispVal >= 0 && dispVal < 3)
                                         ? kPlaitsAux[dispVal] : "---";
                         } else if (modForPage == 5 && c.cc == 51) {
-                            // Dronecaster DRONE: catalog order; dispVal is the
-                            // 14-step index from potToDisplayValue.
-                            static const char *const kDroneNames[14] = {
-                                "APPAR", "FLDST", "HECK", "MTLION", "MTZION",
-                                "SACH", "SINE", "SQR", "STAR", "SUPER", "THX",
-                                "TRI", "TWPK", "HARMS"
+                            // Dronecaster DRONE: audition order (10 ids that
+                            // don't reset the board). dispVal is the 10-step
+                            // index from potToDisplayValue.
+                            static const char *const kDroneNames[10] = {
+                                "APPAR", "FLDST", "HECK", "MTZION",
+                                "SINE", "SQR", "SUPER", "THX", "TRI", "HARMS"
                             };
-                            pName = (dispVal >= 0 && dispVal < 14)
+                            pName = (dispVal >= 0 && dispVal < 10)
                                         ? kDroneNames[dispVal] : "---";
                         } else if (modForPage == 3) {
                             int ringMode = 0;

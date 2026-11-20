@@ -549,7 +549,7 @@ const MODULES = [
     { cc:51, label:'DRONE', steps: {
         labels:['APPARATUS','FIELDSTEEL','HECKER','MT\u00A0LION','MT\u00A0ZION','SACHIKO','SINE','SQUARE','STARLIDS','SUPERSAW','THX','TRIANGLE','TWIN\u00A0PKS','HARMS\u00A0WAY'],
         bytes:[0,7,10,14,15,20,22,23,24,25,27,29,30,36] }, def: 0,
-      note: 'Over budget on hardware: Fieldsteel ~1571 us, Hecker ~7417 us vs 1333 us (audio may glitch); Mt. Lion faulted core 1 — the watchdog now resets instead of freezing' },
+      note: 'All 14 selectable here for debugging. C3 pot cycles only the 10 auditionable drones (no resets). Over budget: Fieldsteel/Mt.Zion/Thx/Triangle; Hecker ~12 ms. Watchdog auto-resets on a hang (Mt.Lion/Sachiko/Starlids/Twin Pks) — see HANDOFF-crash-fix.md' },
     { cc:52, label:'AMP', variant:'white', def: 51/127 },
     { cc:53, label:'FADE', variant:'white', def: 32/127 },
     { cc:54, label:'HZ\u2009OFF', variant:'white', def:.5,

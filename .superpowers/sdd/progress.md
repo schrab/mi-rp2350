@@ -5655,6 +5655,14 @@ prior session), **PASS (0 failures), 133 REFs ok**.
   - Auto-reset/hang (watchdog caught): Mt. Lion 14, Sachiko 20, Starlids 24,
     Twin Pks 30.
   - C3 SYS page `mod=5`, MODULE cell val=127 → DRONECSTR (6-module fix live).
+- **C3 pot = 10-step audition list (user-requested):** the 4 hanging ids
+  (14/20/24/30) are excluded from the pot so scrolling cannot trigger a reset;
+  all 14 remain reachable via browser panel + serial `cc 51 <id>` for debugging.
+  Verified all 10 cell values track exactly, RP alive throughout.
+- **Handoff written** for the next agent to fix the 4 hanging + 5 over-budget
+  drones: `.superpowers/sdd/2026-11-19-dronecaster-td2-drones/HANDOFF-crash-fix.md`
+  — includes crash matrix, fault signatures, the flawed-test warning, likely
+  root causes (arena/stack/port bugs), file map, build/flash, acceptance criteria.
 - **Status: LISTENING ACCEPTANCE STILL PENDING.** Over-budget/hanging drones
   are flagged, not blocked. Do not write "user-accepted" before the user
   confirms.
