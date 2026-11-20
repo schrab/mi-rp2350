@@ -1096,6 +1096,26 @@ int main() {
     }
   }
 
+  printf("== full catalog guard ==\n");
+  {
+    // Exactly the live (ported or audio-equivalent) ids may be non-null.
+    // Coil (2) is deferred, so it is intentionally absent here.
+    const int ported[] = {0,7,10,14,15,20,22,23,24,25,27,29,30,36};
+    bool all_ok = true;
+    for (int id = 0; id < sc::kCatalogCount; ++id) {
+      bool expected = false;
+      for (int p : ported) if (p == id) { expected = true; break; }
+      const bool actual = sc::Catalog(id) != nullptr;
+      if (actual != expected) {
+        printf("  FAIL: catalog id %d %s\n", id,
+               expected ? "should be ported" : "should be null");
+        ++g_failures;
+        all_ok = false;
+      }
+    }
+    CHECK(all_ok, "catalog has exactly 14 live ids (0,7,10,14,15,20,22,23,24,25,27,29,30,36)");
+  }
+
   printf("== T-D2 catalog ==\n");
   CHECK(sc::Catalog(36) != nullptr, "id 36 ported");
   CHECK(sc::Catalog(25) != nullptr, "id 25 ported");

@@ -112,16 +112,19 @@ void control_change(uint8_t cc, uint8_t val) {
   if (cc == 64) { if (val >= 64) s->pending_recast = true; return; }
   if (cc == 51) {
     // Two-layer selector (the lira8 CC 51 pattern):
-    //  - raw bytes 0-36 = DIRECT catalog ids (the panel's steps knob sends
-    //    22/23/29; the console and future T-D2 drones use this path too);
-    //  - pot travel 37-127 = THIRDS over the T-D1 trio (a 0-127 C3 pot
-    //    almost never lands on 22/23/29 raw — 37-67 Sine, 68-97 Square,
-    //    98-127 Triangle).
+    //  - raw bytes 0-36 = DIRECT catalog ids (the panel's steps knob and the
+    //    console/serial path both use this layer);
+    //  - pot travel 37-127 = LINEAR sweep over the 14 live (ported/audio-
+    //    equivalent) ids in catalog order, one pot slice per drone. This is
+    //    the controller's choice; Coil (2) is deferred and intentionally
+    //    unreachable. A 0-127 C3 pot almost never lands on the raw ids, so
+    //    this layer is what the physical pot uses.
+    static const int kPorted[] = {0,7,10,14,15,20,22,23,24,25,27,29,30,36};
     int id;
     if (val <= 36) {
       id = val;
     } else {
-      id = 22 + static_cast<int>((val - 37) * 3 / 91);
+      id = kPorted[(val - 37) * 14 / 91];   // 37..127 -> 0..13
     }
     if (sc::Catalog(id) != nullptr) {
       s->pending_drone = static_cast<int16_t>(id);

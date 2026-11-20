@@ -543,10 +543,12 @@ const MODULES = [
 },
 {
   name: 'DRONECASTER', key: 'dronecaster',
-  info: '48 kHz \u00B7 16-sample blocks \u00B7 budget 1333 \u00B5s \u00B7 norns Dronecaster port (T-D1 trio)',
+  info: '48 kHz \u00B7 16-sample blocks \u00B7 budget 1333 \u00B5s \u00B7 norns Dronecaster port (T-D1 + T-D2, 14 drones live)',
   ccMap: '51 drone(0-36) \u00B7 52 amp \u00B7 53 fade(atk=rel) \u00B7 54 hz-offset \u00B7 notes = re-hz \u00B7 PLAY 64 = recast',
   knobs: [
-    { cc:51, label:'DRONE', steps: { labels:['SINE','SQUARE','TRIANGLE'], bytes:[22,23,29] }, def: 0 },
+    { cc:51, label:'DRONE', steps: {
+        labels:['APPARATUS','FIELDSTEEL','HECKER','MT\u00A0LION','MT\u00A0ZION','SACHIKO','SINE','SQUARE','STARLIDS','SUPERSAW','THX','TRIANGLE','TWIN\u00A0PKS','HARMS\u00A0WAY'],
+        bytes:[0,7,10,14,15,20,22,23,24,25,27,29,30,36] }, def: 0 },
     { cc:52, label:'AMP', variant:'white', def: 51/127 },
     { cc:53, label:'FADE', variant:'white', def: 32/127 },
     { cc:54, label:'HZ\u2009OFF', variant:'white', def:.5,
