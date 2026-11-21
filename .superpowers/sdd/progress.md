@@ -5718,3 +5718,29 @@ prior session), **PASS (0 failures), 133 REFs ok**.
 - **Report:** `.superpowers/sdd/2026-11-19-dronecaster-td2-drones/crash-fix-report.md`.
 - **Status: hardware matrix pending the user.** Listening acceptance still
   pending (never write "user-accepted" yourself).
+
+## 2026-11-21 — physical C3 UI review fixes (uncommitted)
+
+- Fixed zero-cell full TELEM snapshots: clear the old cached cells, retain the
+  new module/chain status, and return to P1 when the currently displayed P2,
+  P3 or Clouds-B page is no longer available. Hold the selected preset page
+  through the module swap while it is awaiting its first non-empty snapshot.
+- Fixed duplicate modulation assignment ordering: reject a source already
+  used elsewhere before clearing the target's existing route or changing its
+  optimistic TELEM state.
+- Fixed Plaits engine-index pot/display inversion; host-checked all 98 IDs.
+- Separate unsolicited autosave and requested manual PRESET_PART collectors,
+  validate chunk sizes and bound each collect timeout. Save banners report
+  flash completion/failure; load reports distinguish offline/empty/send
+  failure from queued transfer. Propagate UART write errors from preset sends.
+- Corrected panel/protocol docs for six module slots and the current SYS
+  preset gestures. Added `rack-uimcu/test/test_panel.py` host regression gate.
+- Verification: panel regression gate PASS; ESP-IDF 6.1 build PASS
+  (`/home/ubuntu/esp-idf-v6.1`, build output under `/tmp/opencode`). Follow-up
+  hardware update: verified ESP32-C3 USB-Serial/JTAG identity, flashed the C3
+  panel firmware (esptool hash verification passed), and read its boot log:
+  ESP-IDF 6.1 starts, ST7789P3 initializes, RackLink codec/loopback self-test
+  passes 32/32, rack link comes online, and P1 TELEM snapshots arrive. The
+  user confirmed the panel is all good after the fixes (2026-11-21); hardware
+  acceptance is recorded. No RP2350 firmware was flashed.
+- Commit hash: `84d6a01`.

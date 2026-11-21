@@ -1,16 +1,16 @@
 /***************
 Rack UI controller — T4a preset flows (bank <-> link <-> UI orchestration).
 
-SAVE  (SYS ring "SAVE" / console `preset save <slot>`):
+SAVE  (SYS hold / console `preset save <slot>`):
   SendPresetReq(slot) -> the RP2350 bursts its part as PRESET_PART chunks
   -> OnPresetPart reassembles -> PresetBank::SaveSlot(slot, rp, c3part).
   The C3 part (12 B, written below) rides along: version, last page,
   active-module mirror, slot. RP2350 audio is untouched (flash writes are
   HERE, on the C3).
 
-LOAD  (SYS ring "LOAD" / console `preset load <slot>`):
-  PresetBank::LoadSlot -> apply the C3 part locally (page) -> send the RP2350
-  part back as chunked PRESET_APPLY frames -> the RP2350 validates
+LOAD  (SYS tap / console `preset load <slot>`):
+  PresetBank::LoadSlot -> queue the RP2350 part as chunked PRESET_APPLY
+  frames and apply the C3 part locally (page) -> the RP2350 validates
   (magic/version/crc) + applies via its pending machinery and acks a full
   TELEM snapshot (the renderer just follows the acks).
 
@@ -40,8 +40,8 @@ namespace CTAG {
             static void Init();
 
             // ---- flows ----
-            static void SaveTo(uint8_t slot);    // 0-15
-            static void LoadFrom(uint8_t slot);  // 0-15
+            static bool SaveTo(uint8_t slot);    // 0-15; true if requested
+            static bool LoadFrom(uint8_t slot);  // 0-15; true if queued to the rack
             static void ClearBank();             // bench wipe (slots+autosave)
 
             // RackLink dispatch hook for PRESET_PART frames (reassembles;

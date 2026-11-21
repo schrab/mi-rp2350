@@ -67,7 +67,7 @@ Max frame = 259 bytes (`0x7E` + len + type + 255 payload + crc).
 | `0x05` | CHAIN_ROUTE | C3 -> RP2350 | `[a:u8][b:u8][engage:u8]`: engage 1 -> console `chain <a> <b>` path (pair validation, window math, acks); engage 0 -> `chain off`. |
 | `0x10` | TELEM | RP2350 -> C3 | telemetry, §5. |
 | `0x11` | PRESET_REQ | C3 -> RP2350 | `[slot:u8]` — "send me your current state part" (the C3 appends its own part and writes its flash bank). `slot` 0-15 = the bank slot the user is saving into (echoed in the PART reply for context); `0xFF` = the pull side of an autosave request. The RP2350 replies with a PRESET_PART burst. |
-| `0x12` | PRESET_PART | RP2350 -> C3 | `[slot:u8][seq:u8][total:u8][data <=252 B]` — chunks of the RP2350's serialized state blob (magic "RKPR", version byte, 1071 B (v3, 5 modules), crc16-CCITT; layout in `rack-rp2350/src/preset.h`). Sent on PRESET_REQ, or **unsolicited with `slot=0xFF` from the RP2350's autosave debounce** (3 s after the last persistent state change; the C3 writes its rotating autosave sectors). The C3 treats the blob as opaque. |
+| `0x12` | PRESET_PART | RP2350 -> C3 | `[slot:u8][seq:u8][total:u8][data <=252 B]` — chunks of the RP2350's serialized state blob (magic "RKPR", version byte, 1215 B (v5, 6 modules), crc16-CCITT; layout in `rack-rp2350/src/preset.h`). Sent on PRESET_REQ, or **unsolicited with `slot=0xFF` from the RP2350's autosave debounce** (3 s after the last persistent state change; the C3 writes its rotating autosave sectors). The C3 treats the blob as opaque. |
 | `0x13` | PRESET_APPLY | C3 -> RP2350 | `[seq:u8][total:u8][data <=252 B]` — chunked blob (read from a bank slot; chunk cap MUST MATCH the RP2350's `kPresetChunkData`). The RP2350 reassembles, validates magic/version/crc, applies (clock bus + mod engine -> CC cache + seen -> module swap via the pending machinery -> chain via the pending machinery) and acks with a full TELEM snapshot. Rejects log a reason and never touch state. |
 
 Unknown types: logged + counted, never crash (both ends tolerate a peer
@@ -139,7 +139,7 @@ Payload (v2, stage 2-6):
   C3 does NOT duplicate the registry; the RP2350 is the single source of
   truth for labels AND colors.
 - `value` = the module's cached CC value (0-127) from the per-module
-  per-CC observation cache (5 modules x 128 CCs, updated at the single
+  per-CC observation cache (6 modules x 128 CCs, updated at the single
   control_change dispatch point). Cache starts zeroed — a cell shows its
   panel value once any controller (web panel / BLE / UI pots) has sent that
   CC since boot. On MOD/SYS pages `value` = the mod engine's / rack state's
@@ -356,21 +356,21 @@ SYS — 16 cells (Row 0 module/chain, Row 1 BPM, CLKSRC & preset, Row 2 telemetr
 
 | row | pot | cell | value | label |
 |-----|-----|------|-------|-------|
-| 0 | 0 | 0 | ONE dual-purpose selector: not chained = the active module over 4 slots (module*32); chained = the engaged pair over 3 slots ((pair-1)*64) — the C3 renders text aliases (ELEMENTS/CLOUDS/PLAITS/RINGS, or E>C/P>C/R>C while engaged) | MODULE |
+| 0 | 0 | 0 | ONE dual-purpose selector: not chained = the active module over 6 slots (ids 0-5); chained = the engaged pair over 4 slots (elements/plaits/rings/lira8 -> clouds) — the C3 renders the module/pair names | MODULE |
 | 0 | 1-4 | 1-4 | blank (the old 4-pot module radio + CHAIN PR pot folded into cell 0) | (empty) |
 | 0 | 5 | 5 | 0 off / 127 engaged | CHAIN ON |
 | 1 | 6 | 6 | 20-300 master tempo (UI_CMD action 5 BPM) | BPM |
 | 1 | 7 | 7 | 0 internal / 127 midi (UI_CMD action 3 sys id 2) | CLKSRC |
-| 1 | 8 | 8 | preset slot 0-15 (C3-local; SAVE/LOAD are ring actions, §9) | PRESET |
+| 1 | 8 | 8 | preset slot 0-15 (C3-local; SYS short push loads, hold 3 s saves) | PRESET |
 | 2 | 14 | 14 | 0/127 telemetry-deltas gate (sys id 0) | TELEM D |
 | 2 | 15 | 15 | 0/127 pushed-full-snapshot gate (sys id 1) | TELEM F |
 
-SYS short-push ring (one action per push, marked with yellow underline;
-7 items since T4a — see §9): module/pair cycle (cell 0) -> chain engage
-toggle -> preset slot cycle (0-15, pot 8 also selects) -> preset SAVE ->
-preset LOAD -> telem-deltas toggle -> telem-full toggle -> wrap.
+SYS gestures: short push loads the selected preset slot; hold for 3 seconds
+saves the RP2350 state into that slot. Slot and outcome messages appear in the
+status strip. Pot 0 selects the module (or chain pair while chained), pot 5
+toggles chain, and pots 14/15 toggle telemetry deltas/full pushes.
 
-Chain-B panel (page 8, `kUiPageChainB`): while a chain is engaged the C3
+Chain-B panel (page 9, `kUiPageChainB`): while a chain is engaged the C3
 navigation gains one extra page after P2 showing the **B slot's**
 (clouds) parameters — the cells are the CLOUDS P1 registry table (the
 alias bank 40-50 + 65/66 are exactly the B-directed CCs the chain
@@ -476,26 +476,32 @@ frames take (`switch`/`chain`/`mod`).
 
 One preset = full rack state, split by ownership (the plan's decision):
 the **RP2350 owns serialization + apply** (it holds the state), the **C3
-owns the flash bank** (its own 4 MB flash — RP2350 flash writes would
-stall XIP audio). The RP2350 blob (`rack-rp2350/src/preset.h`, 1071 B,
+  owns the flash bank** (its own 4 MB flash — RP2350 flash writes would
+  stall XIP audio). The RP2350 blob (`rack-rp2350/src/preset.h`, 1215 B,
 versioned + crc16-CCITT) = active module, chain pair/engage, clock bus
 (global source + BPM), the mod engine's 10 persistent source records,
-and all five modules' observed CC values + a seen-bitmap (which CCs a
+  and all six modules' observed CC values + a seen-bitmap (which CCs a
 controller ever sent — cache zeros are ambiguous). The C3 part (12 B,
 `PresetStore`) = version, last page, module mirror, slot.
 
 Flows:
 
-- **SAVE** (SYS ring item 3 / C3 console `preset save <slot>`):
+- **SAVE** (3 s SYS hold / C3 console `preset save <slot>`):
   `PRESET_REQ[slot]` -> PRESET_PART burst -> `PresetBank::SaveSlot`
-  (raw `esp_partition`, 16 slots x 1 sector). RP2350 audio untouched.
-- **LOAD** (SYS ring item 4 / C3 console `preset load <slot>`):
-  `LoadSlot` -> apply the C3 part locally (page) -> chunked
+  (raw `esp_partition`, 16 slots x 1 sector). The strip shows SAVING while
+  waiting for the reply, then SAVED only after the flash write succeeds.
+  RP2350 audio untouched. Autosave and manual-save PRESET_PART bursts are
+  reassembled independently, so an in-flight autosave cannot fill a manual
+  slot.
+- **LOAD** (SYS short push / C3 console `preset load <slot>`):
+  `LoadSlot` -> chunked
   `PRESET_APPLY` -> the RP2350 validates + applies via its pending
   machinery (module swap first if the preset says so; every factory
   re-Init replays the CC cache — `preset_replay_module`) -> full TELEM
-  ack. Same-module loads touch no audio; a module/chain change mutes for
-  the usual 20-44 ms swap window.
+  ack. The C3 page is restored locally after the apply chunks are queued;
+  LOAD SENT is not an apply acknowledgement. Empty/corrupt slots and failed
+  transfers show an error instead of success. Same-module loads touch no
+  audio; a module/chain change mutes for the usual 20-44 ms swap window.
 - **AUTOSAVE**: the RP2350 marks its state dirty on every persistent
   change (CC, mod param/dest, switch, chain, bpm/clock) and pushes a
   PRESET_PART burst with `slot=0xFF` once the state has settled (3 s);
@@ -515,7 +521,6 @@ Bench (verified on hardware 2026-11-11):
   version are REJECTED with a reason; state is never touched.
 - C3 console: `preset` (bank status), `preset save/load <0-15>`,
   `preset clear`.
-- SYS page: pot 8 = slot select 0-15; the short-push ring is
-  pair -> engage -> slot-cycle -> **SAVE** -> **LOAD** -> telem-d ->
-  telem-f (7 items; the strip shows `SYSTEM SAVE>` / `SYSTEM LOAD>`
-  while armed).
+- SYS page: pot 8 = slot select 0-15; short push loads and a 3-second hold
+  saves that slot. The status strip distinguishes SAVING, SAVED, LOAD SENT,
+  and empty/failure results.

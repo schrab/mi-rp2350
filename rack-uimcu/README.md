@@ -12,12 +12,10 @@ stack is excluded from the build — `main/CMakeLists.txt` lists what runs
 `components/rapidjson` (kept for the T4a preset bank; nothing includes it
 yet).
 
-Build/flash:
+Build/flash (ESP-IDF 6.1):
 
 ```sh
-# toolchain (export.sh alone does NOT put the riscv toolchain on PATH)
-export PATH="$HOME/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20260121/riscv32-esp-elf/bin:$PATH"
-. /home/schrab/esp/esp-idf-v5.5.4/export.sh
+. "$HOME/esp-idf-v6.1/export.sh"           # adjust to your ESP-IDF 6.1 checkout
 idf.py build && idf.py -p PORT flash     # console = USB-Serial-JTAG
 ```
 
@@ -68,9 +66,10 @@ All 3V3 logic, no level shifting.
   page cycle follows the module: P1 -> [P2] -> [P3] -> [CLOUDS B while
   chained] -> MOD-LFO 1/2 -> MOD-LFO 3/4 -> MOD-TRIG -> MOD-GATE -> MOD-ENV ->
   MOD-ARP -> SYS (wraps).
-- **Five modules** (SYS selector and the hold+rotate overlay): ELEMENTS,
-  CLOUDS, PLAITS, RINGS, **LIRA8**. The SYS selector is ONE pot over 5 slots
-  (module ids 0-4; while chained it selects the 4 chain pairs E>C/P>C/R>C/L>C).
+- **Six modules** (SYS selector and the hold+rotate overlay): ELEMENTS,
+  CLOUDS, PLAITS, RINGS, **LIRA8**, DRONECASTER. The SYS selector is ONE pot
+  over 6 slots (module ids 0-5; while chained it selects the 4 chain pairs
+  E>C/P>C/R>C/L>C).
 - Switch cells are **live** (no soft takeover): FAST (SLOW/FAST), FM source
   (FM/OFF/LFO), delay mode (SELF/TRI/SQR), FM structure (SPLIT/LOOP),
   TOTAL FB / VIBRATO (ON/OFF) — the first movement sends the selection.
@@ -87,12 +86,13 @@ All 3V3 logic, no level shifting.
 |---------|--------|
 | Rotate | page cycle P1 -> [P2] -> [P3 for lira8] -> [CLOUDS B while chained] -> MOD-LFO 1/2 -> ... -> SYS (wraps); the C3 requests the page, dashes render until the TELEM snapshot lands |
 | Short push (< 350 ms) on MOD-C | toggle global clock source (UI_CMD sys id 2) |
-| Short push on SYS | the SYS action ring, one action per push, next action marked with the yellow underline (7 items): chain-pair cycle -> chain engage toggle -> preset slot cycle (0-15; pot 8 also selects) -> preset SAVE -> preset LOAD -> telemetry-deltas toggle -> telemetry-full toggle -> wrap. The strip shows `SYSTEM SAVE>` / `SYSTEM LOAD>` while those are armed. SAVE/LOAD run the T4a preset bank (docs/ui-protocol.md §9): SAVE pulls the RP2350's state part over the link and writes the slot (audio untouched); LOAD sends the stored blob back as PRESET_APPLY (the RP2350 swaps module/params/mod/clock via its pending machinery and acks a full TELEM) |
-| Push-hold >= 350 ms, then release | arms MOD-ASSIGN mode (strip shows `>MOD OFF<` in yellow). The mode is **latched** — it survives the release, because pressed pot readings are meaningless (the encoder push grounds the mux SIG line through the 4.7k; the dip is position-dependent and non-monotonic near the pot top) |
+| Short push on SYS | Load the selected preset slot (pot 8, slots 0–15). `LOAD SENT` means the preset was queued to the RP2350, not that the rack has applied it. An empty or invalid slot shows `EMPTY/BAD`. |
+| Hold on SYS for 3 s | Save to the selected slot. `SAVING` means the panel is waiting for the rack state; `SAVED` appears only after the slot is written to flash. |
+| Push-hold >= 350 ms outside SYS, then release | arms MOD-ASSIGN mode (strip shows `>MOD OFF<` in yellow). The mode is **latched** — it survives the release, because pressed pot readings are meaningless (the encoder push grounds the mux SIG line through the series resistor; the dip is position-dependent and non-monotonic near the pot top) |
 | In MOD-ASSIGN: turn a POT | locks that cell as the target (UNPRESSED movement; ~4 counts). The strip shows the cell label + source, e.g. `>POSITION OFF<` |
 | In MOD-ASSIGN: ROTATE | chooses the source `[OFF, LFO1..4, EUC1..4, GAT1..2, ADS1..2, ARP1..2]`; the strip updates live. A different pot turned ~8 counts retargets |
 | In MOD-ASSIGN: SHORT PUSH | CONFIRMS (maps the chosen source to the locked cell; `OFF` unmaps). With no target locked it cancels. 15 s without activity times out and cancels |
-| Hold + ROTATE | module-select overlay (strip shows `>ELEMX/CLOUDS/PLAITS/RINGS/LIRA8<`, 5 slots); releasing the hold CONFIRMS (sends SWITCH); releasing without rotating arms MOD-ASSIGN (above) |
+| Hold + ROTATE | module-select overlay (strip shows `>ELEMX/CLOUDS/PLAITS/RINGS/LIRA8/DRONECSTR<`, 6 slots); releasing the hold CONFIRMS (sends SWITCH); releasing without rotating arms MOD-ASSIGN (above) |
 | Short push on P1/P2/MOD-A/MOD-B | MOD-ASSIGN confirm/cancel when armed; otherwise no action (parameters live on the pots) |
 
 Gesture timings: short < 350 ms <= hold; debounce 20 ms; encoder = one
@@ -196,8 +196,8 @@ event per detent (GPIO-ISR quadrature, seed detent table).
    P1/P2/MOD pages render live values; verify colors/dims/blink against a
    routed + inert mod destination.
 4. **Stage 5 (gestures)**: hold+pot assignment round-trip (RP2350 `mod`
-   console shows the acks), hold+rotate module swap, SYS ring + MOD-C
-   clock toggle.
+    console shows the acks), hold+rotate module swap, SYS preset load/save
+    gestures + MOD-C clock toggle.
 5. **Stage 6 (BLE-MIDI)**: a BLE central connects to "Rack UI"; notes land
    in the RP2350 funnel (its 2 s report's note-on counter moves). Watch
    `heap` before/after NimBLE for the RAM budget.

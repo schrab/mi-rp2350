@@ -190,6 +190,20 @@ namespace CTAG {
                 const uint8_t curSrc = t.routedSrc; // 0 = OFF, 1..12 = LFO1..ARP2
                 const uint8_t pg = pageBank();
                 const uint8_t localSrc = s_potModSrc[pg][pot];
+                if (modChoice != 0) {
+                    if (modChoice == localSrc && modChoice == curSrc) return;
+                    // Reject duplicates before touching either route or the
+                    // optimistic TELEM cache. One source has one destination.
+                    for (uint8_t p = 0; p < 3; ++p) {
+                        for (uint8_t i = 0; i < NPOTS; ++i) {
+                            if ((p != pg || i != pot) &&
+                                s_potModSrc[p][i] == modChoice) {
+                                RackUI::ShowBanner("SRC IN USE");
+                                return;
+                            }
+                        }
+                    }
+                }
                 s_lastAssignUs[pot] = esp_timer_get_time();
                 RackUI::NoteAssignPot(pot, modChoice);
                 RackLink::TelemLocalAssignWrite(pot, modChoice);
@@ -207,8 +221,6 @@ namespace CTAG {
                     return;
                 }
 
-                if (modChoice == localSrc && modChoice == curSrc) return;
-
                 if (localSrc >= 1 && localSrc <= 12 && localSrc != modChoice) {
                     const uint8_t oldIdx = (uint8_t)(localSrc - 1);
                     RackLink::SendModSet(oldIdx, destParam(oldIdx), 0);
@@ -217,21 +229,6 @@ namespace CTAG {
                     curSrc != localSrc) {
                     const uint8_t prevIdx = (uint8_t)(curSrc - 1);
                     RackLink::SendModSet(prevIdx, destParam(prevIdx), 0);
-                }
-                // One source = ONE destination on the RP2350. Reusing a source
-                // that is already routed would silently steal that earlier
-                // cell's mapping (e.g. assign PITCH on P1, then assign PLAY on
-                // P2 with the same source -> PITCH becomes unmapped). Refuse
-                // the duplicate with a banner so the earlier route survives;
-                // the user picks a different source for this pot.
-                for (uint8_t p = 0; p < 3; ++p) {
-                    for (uint8_t i = 0; i < NPOTS; ++i) {
-                        if ((p != pg || i != pot) &&
-                            s_potModSrc[p][i] == modChoice) {
-                            RackUI::ShowBanner("SRC IN USE");
-                            return;
-                        }
-                    }
                 }
                 s_potModSrc[pg][pot] = modChoice;
                 const uint8_t newIdx = (uint8_t)(modChoice - 1);

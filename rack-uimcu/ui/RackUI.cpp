@@ -397,6 +397,11 @@ namespace CTAG {
                 }
                 if (n > 1) {
                     if (wireBool) return potVal >= 64 ? 127 : 0;
+                    // Plaits telemetry spreads catalog indices across both
+                    // endpoints. Use its exact inverse, not the bucket floor.
+                    if (modForPage == 2 && cc == 23) {
+                        return (uint8_t)(((uint16_t)potVal * (n - 1) + 63) / 127);
+                    }
                     uint8_t idx = (uint8_t)(((uint16_t)potVal * n) / 127);
                     if (idx >= n) idx = (uint8_t)(n - 1);
                     return idx;
@@ -424,7 +429,9 @@ namespace CTAG {
                 bool wireBool = false;
                 const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
                 if (n > 1) {
-                    int idx = ((int)potVal * n) / 127;
+                    int idx = (modForPage == 2 && cc == 23)
+                                  ? RackUI::PotToWireValue(page, mod, slot, cc, potVal)
+                                  : ((int)potVal * n) / 127;
                     if (idx >= n) idx = n - 1;
                     barVal = idx;
                     barMax = n - 1;
@@ -828,10 +835,7 @@ namespace CTAG {
                                     Display::kYellow);
             } else if (s_page == 8 && s_pressStartUs != 0 && UserInput::IsPressed()) {
                 const int64_t elapsed = esp_timer_get_time() - s_pressStartUs;
-                if (elapsed >= 3000000) {
-                    Display::DrawString(x, 1, ">SAVED<", Display::FONT_VALUE,
-                                        Display::kTeal);
-                } else if (elapsed >= 500000) {
+                if (elapsed >= 500000 && elapsed < 3000000) {
                     char hbuf[24];
                     int rem = 3 - (int)(elapsed / 1000000);
                     if (rem < 1) rem = 1;
@@ -1802,9 +1806,6 @@ namespace CTAG {
                         if (elapsed >= 3000000 && !s_sysSaveTriggered) {
                             s_sysSaveTriggered = true;
                             PresetStore::SaveTo(s_presetSlot);
-                            char b[24];
-                            snprintf(b, sizeof(b), "SAVED P%u", s_presetSlot);
-                            showBanner(b, 2500);
                         } else if (elapsed >= 500000) {
                             s_stripDirty = true;
                         }
@@ -1905,15 +1906,10 @@ namespace CTAG {
                             break;
                         case InputEvent::PUSH_SHORT:
                             if (s_page == 8) {
-                                PresetStore::LoadFrom(s_presetSlot);
-                                // Preset apply can change every dest_cc on the
-                                // RP2350 — force a fresh TELEM so ROUTED flags
-                                // (and therefore mod-ride/unassign targets)
-                                // are not left pointing at the old mapping.
-                                RackLink::SendPageRequest(s_page);
-                                char b[24];
-                                snprintf(b, sizeof(b), "LOADED P%u", s_presetSlot);
-                                showBanner(b, 2000);
+                                if (PresetStore::LoadFrom(s_presetSlot)) {
+                                    // Preset apply can change every route.
+                                    RackLink::SendPageRequest(s_page);
+                                }
                             } else if (s_assignArmed) {
                                 // Tap = confirm (target chosen) or cancel (no
                                 // target). Handoff to the scan task, which owns
@@ -1968,12 +1964,6 @@ namespace CTAG {
 
                 // T4a: preset collect timeout + one-shot boot restore.
                 PresetStore::Poll();
-                // The chain-B panel exists only while a chain is engaged —
-                // leaving the chain while on it snaps back to P1.
-                if (s_page == 9 && !(s_cur.tail_valid && s_cur.chain != 0)) {
-                    SetPage(0);
-                }
-
                 // ---- render (30-60 Hz; test patterns own the screen) ----
                 if (!Display::TestPatternActive()) {
                     // Link edge: after a dropout or an RP2350 reflash the cached page is
@@ -1991,7 +1981,7 @@ namespace CTAG {
                     }
                     // Poll the TELEM cache.
                     RackTelemPage tmp;
-                    if (RackLink::TelemGet(tmp) && tmp.page == s_page) {
+                    if (linkOnline && RackLink::TelemGet(tmp) && tmp.page == s_page) {
                         if (!s_bootModCleaned) {
                             s_bootModCleaned = true;
                             RackPots::ClearAllModSources();
@@ -1999,22 +1989,32 @@ namespace CTAG {
                         }
                         const bool wasFull =
                             tmp.mode == RackLink::kTelemFull;
+                        const bool emptyPage = wasFull && tmp.count == 0;
+                        const bool unavailablePage = emptyPage &&
+                            s_page != RackLink::kPageP1 &&
+                            (s_cur.page == tmp.page ||
+                             (s_page == RackLink::kPageChainB &&
+                              s_cur.tail_valid && s_cur.chain != 0 &&
+                              tmp.chain == 0));
                         const bool pageOrModChanged =
                             !s_fullArrived || tmp.page != s_cur.page ||
+                            unavailablePage ||
                             (PageIsModule(s_page) && tmp.module != s_cur.module);
                         if (pageOrModChanged) {
                             portENTER_CRITICAL(&s_curMux);
                             s_cur = tmp;
                             portEXIT_CRITICAL(&s_curMux);
-                            if ((s_page == 1 && !ModuleHasP2(s_cur.module)) ||
-                                (s_page == 10 && !ModuleHasP3(s_cur.module))) {
-                                SetPage(0);
+                            if (unavailablePage) {
+                                // P2/P3 disappeared on a module switch, or
+                                // Clouds B disappeared when the chain ended.
+                                SetPage(RackLink::kPageP1);
+                            } else {
+                                // A preset can request a page before its module
+                                // swap finishes. Wait for the real cells there.
+                                if (wasFull) s_fullArrived = !emptyPage;
+                                s_pageDirty = true;
+                                RackPots::PickupResync();
                             }
-                            if (wasFull) s_fullArrived = true;
-                            s_pageDirty = true;
-                            // Fresh page state: recompute pot pickup for
-                            // every pot (page switch / module change).
-                            RackPots::PickupResync();
                         } else {
                             // Delta or periodic same-page refresh: only
                             // changed cells matter; our own active pot turns

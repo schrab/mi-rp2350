@@ -138,11 +138,12 @@ namespace CTAG {
                 }
             };
 
-            void sendFrame(uint8_t type, const uint8_t *payload, uint8_t len) {
+            bool sendFrame(uint8_t type, const uint8_t *payload, uint8_t len) {
                 uint8_t frame[kMaxFrame];
                 const size_t n = RackLinkBuildFrame(type, payload, len, frame);
-                uart_write_bytes(kUart, frame, n);
+                if (uart_write_bytes(kUart, frame, n) != (int)n) return false;
                 s_tx_frames = s_tx_frames + 1;
+                return true;
             }
 
             uint32_t nowMs() {
@@ -182,8 +183,11 @@ namespace CTAG {
                 }
                 const uint8_t page = pl[0], mod = pl[1], mode = pl[2],
                                count = pl[3];
-                if (count > 16 || count == 0) {
-                    ESP_LOGW(TAG, "telem count %u invalid", count);
+                // An unavailable page is a full snapshot with zero cells,
+                // not a missing reply. Its module and status tail still apply.
+                if (!((mode == RackLink::kTelemFull && count <= 16) ||
+                      (mode == RackLink::kTelemDelta && count == 1))) {
+                    ESP_LOGW(TAG, "telem mode=%u count=%u invalid", mode, count);
                     return;
                 }
                 const size_t cells_end = 4 + (size_t)count * 4;
@@ -245,6 +249,7 @@ namespace CTAG {
                 s_telem.module = mod;
                 s_telem.mode = mode;
                 s_telem.count = count;
+                for (uint8_t i = count; i < 16; ++i) s_telem.cell[i] = {};
                 for (uint8_t i = 0; i < count; i++) {
                     RackTelemCell &c = s_telem.cell[i];
                     c.cc = pl[4 + i * 4];
@@ -644,8 +649,7 @@ namespace CTAG {
 
         bool RackLink::SendPresetReq(uint8_t slot) {
             const uint8_t p[1] = { slot };
-            sendFrame(kTypePresetReq, p, 1);
-            return true;
+            return sendFrame(kTypePresetReq, p, 1);
         }
 
         bool RackLink::SendPresetApply(const uint8_t *blob, uint16_t n) {
@@ -666,7 +670,8 @@ namespace CTAG {
                 uint16_t take = (uint16_t)(n - off);
                 if (take > kData) take = kData;
                 memcpy(p + 2, blob + off, take);
-                sendFrame(kTypePresetApply, p, (uint8_t)(2 + take));
+                if (!sendFrame(kTypePresetApply, p, (uint8_t)(2 + take)))
+                    return false;
             }
             return true;
         }

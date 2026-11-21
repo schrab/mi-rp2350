@@ -4,6 +4,8 @@ Rack UI controller — T4a preset flows implementation (see the header).
 
 #include "PresetStore.hpp"
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "esp_log.h"
@@ -26,9 +28,8 @@ namespace CTAG {
             constexpr int64_t kCollectTimeoutUs = 3000000;  // 3 s
 
             // PRESET_PART reassembly: slot 0xFF = autosave push, 0-15 = a
-            // save-flow collect. One transfer at a time (the flows never
-            // overlap: SAVE waits, autosave push is debounce-serialized on
-            // the RP2350 side).
+            // save-flow collect. An unsolicited autosave can already be in
+            // flight when a manual request is sent. Keep them separate.
             struct Collect {
                 bool active = false;
                 uint8_t slot = 0;
@@ -39,6 +40,7 @@ namespace CTAG {
                 uint16_t rpLen = 0;
             };
             Collect s_collect;
+            Collect s_autoCollect;
 
             bool s_boot_restored = false;
 
@@ -51,81 +53,121 @@ namespace CTAG {
                 c3[3] = slot;
             }
 
-            void applyC3Part(const uint8_t *c3) {
+            bool applyC3Part(const uint8_t *c3) {
                 if (c3[0] != PresetBank::kC3PartVersion) {
                     ESP_LOGW(TAG, "c3 part version %u (want %u) - page not "
                                   "restored", c3[0],
                              PresetBank::kC3PartVersion);
-                    return;
+                    return false;
                 }
                 uint8_t page = c3[1] < RackLink::kPageCount ? c3[1] : 0;
-                // P2 only exists for modules with secondary parameters (the
-                // RP2350's byte-5 module mirror; page validity re-checked).
-                if (page == RackLink::kPageP2) {
-                    const uint8_t mod =
-                        c3[2] < 4 ? c3[2] : 0;
-                    if (mod != 0) page = 0;  // only elements has a P2 today
-                }
+                // The page must exist for the preset's module. P2 belongs to
+                // Elements/Lira8; P3 is Lira8-only.
+                const uint8_t mod = c3[2] < 6 ? c3[2] : 0;
+                if (page == RackLink::kPageP2 && mod != 0 && mod != 4)
+                    page = RackLink::kPageP1;
+                if (page == 10 && mod != 4) page = RackLink::kPageP1;
                 RackUI::SetPage(page);
+                return true;
             }
 
-            void sendApply(const uint8_t *rp, uint16_t rpLen) {
+            bool sendApply(const uint8_t *rp, uint16_t rpLen) {
                 if (!RackLink::SendPresetApply(rp, rpLen)) {
                     ESP_LOGW(TAG, "PRESET_APPLY send failed");
+                    return false;
                 }
+                return true;
+            }
+
+            void showSlotBanner(const char *message, uint8_t slot) {
+                char buf[24];
+                snprintf(buf, sizeof(buf), "%s P%u", message, slot);
+                RackUI::ShowBanner(buf, 2500);
             }
 
         } // namespace
 
         void PresetStore::Init() { PresetBank::Init(); }
 
-        void PresetStore::SaveTo(uint8_t slot) {
+        bool PresetStore::SaveTo(uint8_t slot) {
             if (slot >= PresetBank::kSlots) {
                 ESP_LOGW(TAG, "save: slot %u out of range", slot);
-                return;
+                showSlotBanner("SAVE FAILED", slot);
+                return false;
             }
             if (!PresetBank::Ready()) {
                 ESP_LOGW(TAG, "save: bank not ready (no presets partition)");
-                return;
+                RackUI::ShowBanner("BANK UNAVAILABLE");
+                return false;
             }
             if (s_collect.active) {
                 ESP_LOGW(TAG, "save: another collect in flight");
-                return;
+                RackUI::ShowBanner("SAVE BUSY");
+                return false;
+            }
+            if (!RackLink::IsOnline()) {
+                RackUI::ShowBanner("RACK OFFLINE");
+                return false;
             }
             s_collect = Collect{};
             s_collect.active = true;
             s_collect.slot = slot;
             s_collect.start_us = esp_timer_get_time();
-            RackLink::SendPresetReq(slot);
+            showSlotBanner("SAVING", slot);
+            if (!RackLink::SendPresetReq(slot)) {
+                s_collect.active = false;
+                showSlotBanner("SAVE FAILED", slot);
+                return false;
+            }
             ESP_LOGI(TAG, "save: requested the RP2350 part for slot %u "
                           "(awaiting PRESET_PART chunks)", slot);
+            return true;
         }
 
-        void PresetStore::LoadFrom(uint8_t slot) {
+        bool PresetStore::LoadFrom(uint8_t slot) {
             if (slot >= PresetBank::kSlots) {
                 ESP_LOGW(TAG, "load: slot %u out of range", slot);
-                return;
+                showSlotBanner("LOAD FAILED", slot);
+                return false;
             }
             if (!PresetBank::Ready()) {
                 ESP_LOGW(TAG, "load: bank not ready");
-                return;
+                RackUI::ShowBanner("BANK UNAVAILABLE");
+                return false;
+            }
+            if (!RackLink::IsOnline()) {
+                RackUI::ShowBanner("RACK OFFLINE");
+                return false;
             }
             static uint8_t rp[PresetBank::kMaxRp];   // static: not task stack
             static uint8_t c3[PresetBank::kMaxC3];
             uint16_t rl = 0, cl = 0;
             if (!PresetBank::LoadSlot(slot, rp, &rl, c3, &cl)) {
                 ESP_LOGW(TAG, "load: slot %u empty or corrupt", slot);
-                return;
+                showSlotBanner("EMPTY/BAD", slot);
+                return false;
+            }
+            if (cl != kC3Len || c3[0] != PresetBank::kC3PartVersion) {
+                ESP_LOGW(TAG, "load: slot %u has an invalid C3 page record", slot);
+                showSlotBanner("LOAD FAILED", slot);
+                return false;
             }
             ESP_LOGI(TAG, "load: slot %u (%u B rp part) -> PRESET_APPLY",
                      slot, rl);
+            if (!sendApply(rp, rl)) {
+                showSlotBanner("LOAD FAILED", slot);
+                return false;
+            }
             applyC3Part(c3);
-            sendApply(rp, rl);
+            // A queued UART write isn't proof the RP2350 applied the preset.
+            showSlotBanner("LOAD SENT", slot);
+            return true;
         }
 
         void PresetStore::ClearBank() {
             PresetBank::ClearAll();
             s_collect.active = false;
+            s_autoCollect.active = false;
             ESP_LOGI(TAG, "bank cleared (16 slots + autosave)");
         }
 
@@ -141,27 +183,26 @@ namespace CTAG {
             const uint8_t take = (uint8_t)(len - 3);
 
             const bool autosave = (slot == kAutosaveSlot);
-            if (total == 0 || total > 8 || seq >= total) {
-                ESP_LOGW(TAG, "PART bad seq/total %u/%u - dropped", seq,
-                         total);
-                s_collect.active = false;
+            Collect &c = autosave ? s_autoCollect : s_collect;
+            if (!autosave && (!c.active || c.slot != slot)) {
+                ESP_LOGW(TAG, "PART slot %u without a save request - dropped", slot);
                 return;
             }
-            if (!autosave) {
-                if (!s_collect.active || s_collect.slot != slot) {
-                    ESP_LOGW(TAG, "PART slot %u without a save request - "
-                                  "dropped", slot);
-                    return;
-                }
-            } else if (!s_collect.active) {
-                // Autosave pushes arrive unsolicited: start an implicit
-                // collect (the RP2350 debounce means they never overlap).
-                s_collect = Collect{};
-                s_collect.active = true;
-                s_collect.slot = kAutosaveSlot;
-                s_collect.start_us = esp_timer_get_time();  // fresh window!
+            if (total == 0 || total > 8 || seq >= total || take == 0 ||
+                (seq + 1 < total && take != 252)) {
+                ESP_LOGW(TAG, "PART bad chunk %u/%u (%u B) - dropped", seq,
+                         total, take);
+                c.active = false;
+                if (!autosave) showSlotBanner("SAVE FAILED", slot);
+                return;
             }
-            Collect &c = s_collect;
+            if (autosave && seq == 0) {
+                c = Collect{};
+                c.active = true;
+                c.slot = kAutosaveSlot;
+                c.start_us = esp_timer_get_time();
+            }
+            if (!c.active) return;
             if (total != c.total) {
                 c.total = total;
                 c.have = 0;
@@ -177,6 +218,7 @@ namespace CTAG {
             if (off + take > PresetBank::kMaxRp) {
                 ESP_LOGW(TAG, "PART overflow - dropped");
                 c.active = false;
+                if (!autosave) showSlotBanner("SAVE FAILED", slot);
                 return;
             }
             memcpy(c.rp + off, pl + 3, take);
@@ -185,6 +227,7 @@ namespace CTAG {
             if (c.have != c.total) return;
 
             // Complete burst -> write the bank (RP2350 audio untouched).
+            c.start_us = 0;  // no longer waiting for chunks; keep slot busy during flash write
             static uint8_t c3[PresetBank::kMaxC3];
             fillC3Part(c3, c.slot);
             if (c.slot == kAutosaveSlot) {
@@ -198,7 +241,8 @@ namespace CTAG {
                     PresetBank::SaveSlot(c.slot, c.rp, c.rpLen, c3, kC3Len);
                 ESP_LOGI(TAG, "slot %u saved (%u B rp part + %u B c3 part): "
                               "%s", c.slot, c.rpLen, kC3Len,
-                         ok ? "OK" : "FAILED");
+                          ok ? "OK" : "FAILED");
+                showSlotBanner(ok ? "SAVED" : "SAVE FAILED", slot);
             }
             c.active = false;
         }
@@ -207,12 +251,16 @@ namespace CTAG {
 
         void PresetStore::Poll() {
             // Collect timeout (RP2350 absent / link dropped mid-save).
-            if (s_collect.active &&
-                esp_timer_get_time() - s_collect.start_us >
-                    kCollectTimeoutUs) {
-                ESP_LOGW(TAG, "collect timed out (slot 0x%02x, %u/%u chunks)",
-                         s_collect.slot, s_collect.have, s_collect.total);
-                s_collect.active = false;
+            const int64_t now = esp_timer_get_time();
+            Collect *const channels[] = {&s_collect, &s_autoCollect};
+            for (Collect *c : channels) {
+                if (c->active && c->start_us != 0 &&
+                    now - c->start_us > kCollectTimeoutUs) {
+                    ESP_LOGW(TAG, "collect timed out (slot 0x%02x, %u/%u chunks)",
+                             c->slot, c->have, c->total);
+                    c->active = false;
+                    if (c == &s_collect) showSlotBanner("SAVE TIMEOUT", c->slot);
+                }
             }
 
             // One-shot boot restore: the link online + the first TELEM
@@ -230,8 +278,11 @@ namespace CTAG {
                         ESP_LOGI(TAG, "boot restore: autosave found (%u B "
                                       "rp part, seq %u) - applying", rl,
                                  PresetBank::AutosaveSeq());
-                        applyC3Part(c3);
-                        sendApply(rp, rl);
+                        if (cl == kC3Len &&
+                            c3[0] == PresetBank::kC3PartVersion &&
+                            applyC3Part(c3)) {
+                            sendApply(rp, rl);
+                        }
                     } else {
                         ESP_LOGI(TAG, "boot restore: no autosave (factory "
                                       "state stands)");
@@ -264,8 +315,8 @@ namespace CTAG {
                 if (s < 0 || s >= PresetBank::kSlots) {
                     printf("preset: slot 0-%u\r\n", PresetBank::kSlots - 1);
                 } else {
-                    PresetStore::SaveTo((uint8_t)s);
-                    printf("preset: save %d requested\r\n", s);
+                    const bool sent = PresetStore::SaveTo((uint8_t)s);
+                    printf("preset: save %d %s\r\n", s, sent ? "requested" : "failed");
                 }
                 return;
             }
@@ -274,8 +325,8 @@ namespace CTAG {
                 if (s < 0 || s >= PresetBank::kSlots) {
                     printf("preset: slot 0-%u\r\n", PresetBank::kSlots - 1);
                 } else {
-                    PresetStore::LoadFrom((uint8_t)s);
-                    printf("preset: load %d sent\r\n", s);
+                    const bool sent = PresetStore::LoadFrom((uint8_t)s);
+                    printf("preset: load %d %s\r\n", s, sent ? "sent" : "failed");
                 }
                 return;
             }
