@@ -1,3 +1,6 @@
 *.aiff
 .zcode/
 __pycache__/
+
+# transient host-test outputs (got-file renders, probe intermediates)
+rack-rp2350/test/build/*.wav
