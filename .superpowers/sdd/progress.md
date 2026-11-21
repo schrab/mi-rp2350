@@ -5744,3 +5744,84 @@ prior session), **PASS (0 failures), 133 REFs ok**.
   user confirmed the panel is all good after the fixes (2026-11-21); hardware
   acceptance is recorded. No RP2350 firmware was flashed.
 - Commit hash: `84d6a01`.
+
+## 2026-11-21 — LIRA-8 DSP review (read-only, no code changes)
+
+**Report: `docs/REVIEW-lira8-dsp-2026-11-21.md`** (full file:line evidence,
+probe methods, confirmed-correct list, M33 verdict, limits). Scope:
+`src/lira8/` + adapter + `-O3` wrapper + tc window, cross-checked against
+the pristine Pd patch and pd 0.57.0 source; every load-bearing claim
+re-pinned by a probe during the review. HEAD `9044110`.
+
+- **F1 HIGH — expander dB law doubly wrong.** `pd_powtodb`
+  (`pd_primitives.h:58`) uses `20·log10` on env~'s mean-square; pd uses
+  `10·log10` (repo's own recorded sine probe 96.99 pins it; port gives
+  93.98). AND the expander slope misses pd's `* 2` (`comp.txt` obj [13]):
+  0.8 vs pd's 1.6 @ ratio 5. Net: expansion engages below −30 dBFS rms
+  instead of −60, ducks quiet delay-loop content up to 48 dB more than pd;
+  invisible in loud goldens (why the earlier "expander bypass = no change"
+  A/B was flat). `test_pd_primitives.cc:110-149` + `test_engine.cc:109`
+  enshrine the wrong law (the staircase's 89.5367 was alignment-tuned under
+  it). Fix = both halves + re-pin both tests.
+- **F2 MEDIUM — one `hip1_`/`lop4k_` pair shared across BOTH delay buses**
+  (`lira_engine.h:421`, used at :357); pd has two independent chains
+  (delay_master.txt [31]/[32], [69]/[70]). Buses diverge by default
+  (TIME-1 94.574 vs TIME-2 56.745) → DC-block/4 kHz tilt cross-fed.
+  Plausible (unverified) contributor to the still-open wet-delay HF
+  brightness. Fix = arrays[2], then re-run the HF bisection.
+- **F3 LOW/MED — polyBLEP `else if` vs pd's overlapping SUMMED gates**
+  (`lira_osc.h:126`); only dt > 0.5 (f > sr/2 — maxed TUNE-8 × PITCH ≈
+  32 kHz). Artifact-character delta in an already-aliased regime.
+- **F4 LOW — SELF mod source lags pd one extra block** (`lira_engine.h:352`:
+  self_next_ from N−1, consumed at N+1; pd's zerodel vd~ replays N's).
+  +1.45 ms on the modulation source only. Ledger's "500 Hz staircase"
+  rationale was wrong (pd replays the previous block), replay approach
+  itself pd-correct except the lag.
+- **F5 LOW — `line~` duration: pd floors to 64-sample ticks** (`d_ctl.c`),
+  port rounds to single samples (`pd_primitives.h:84`). Exact at
+  44.1k/23.22 ms; ~5.6% longer ramps at the 32 kHz chain grid; expander
+  11 ms = 485 vs 448 samples.
+- **F6 LOW — `pending_params_` mailbox lost-update window** (core-0 MIDI +
+  core-1 mod-engine/preset-replay writers, core-1 read-then-clear,
+  no sync — `lira_engine.h:234-241`); self-heals for continuous params,
+  switch flips at risk only in the swap-replay overlap. `sensor_mask`
+  non-atomic RMW both cores = report-only. Fix direction: per-slot atomic
+  exchange or core confinement. Not urgent.
+- **F7 LOW latent — output cast UB at exactly 1.0**
+  (`module_lira8.h:324`; Pade(3)=1.0 exactly, measured margin 0.9744 idle /
+  0.99975 adversarial, 0 samples ≥ 1.0 in 105 s). Siblings use
+  `stmlib::Clip16(int32)`; lira8 should match. Same pattern at
+  `module_dronecaster.h:232`.
+- **F8 LOW hygiene — checked-in `test/lira8_ref/patch/parameters.txt` is
+  render residue** (every pd golden render rewrites it via gui.link →
+  `write ./parameters.txt`; committed = onevoice render leftover f9c5942).
+  Engine defaults DO match the original's saved state + spec §12; no
+  existing golden affected (trajectory scenarios override all 47 params;
+  probe scenarios set del-mix=0). Hygiene: restore to the original's saved
+  state or disable the golden patch's write path; fix the scenarios.txt
+  header claim.
+
+**M33 verdict: sound.** tc_lira8 19,640 B on the current ELF, hot symbols
+SRAM-resident, no per-sample libm (only wrapped control-rate/block-boundary
+veneers), -O3 wrapper defeats the core's -Os. Fast-path equivalence
+(prepare/process_const/prepare_coeff vs general) PROVEN bit-identical by
+probe but not regression-gated — add one host test. `exp_neg_range` comment
+overstates accuracy (2.24e-6 guarded / 3.0e-7 reachable vs claimed <1e-6) —
+doc only. Minor: MasterOut -Wreorder; dead code (read_min_tap, drive_raw_,
+bytes_for, Rpole, test-only TanhShaper/pd_random); NaN guard misses NaN.
+
+**Suite health:** lira8 tests deterministic + green. `test_reverb` (Elements
+FxEngine<21632> canary, NOT lira8) is nondeterministic — same fresh binary,
+5 runs: 4 fail / 1 pass, failing numbers drift → uninitialized-memory
+(ASLR-sensitive) behavior; consistent with "test_reverb flaky" but worse;
+MSan pass recommended. `make test` is not a trustworthy regression gate
+until pinned.
+
+**Supersedes/corrects:** ledger 3270-3275 (SELF staircase rationale) and the
+powtodb line in `PD-PRIMITIVES.md` ("100+20·log10" — pd's law is
+`10·log10` of power). The L0 probe value "89.5362" is a dB-of-RMS number,
+not dB-of-power.
+
+**Status: review only — no code changed, nothing flashed.** Fix order
+recommended: F1 → F2 (+HF bisection) → F7 → rest + fast-path equivalence
+test. Hardware acceptance unaffected (no firmware change).
