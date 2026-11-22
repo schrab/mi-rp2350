@@ -561,9 +561,9 @@ const MODULES = [
   info: '48 kHz \u00B7 16-sample blocks \u00B7 budget 1333 \u00B5s \u00B7 Benjolin (SC \\benjolis SynthDef, reference-exact kit port)',
   ccMap: '60 freq1 \u00B7 61 freq2 \u00B7 62 scale \u00B7 63 rungler1 \u00B7 64 rungler2 \u00B7 65 runglerFilt \u00B7 66 loop \u00B7 67 filtFreq \u00B7 68 q \u00B7 69 gain \u00B7 70 filterType \u00B7 71 outSignal \u00B7 72 amp \u00B7 73 pan',
   knobs: [
-    { cc:60, label:'FREQ\u20091', variant:'white', def: 10/127,
+    { cc:60, label:'FREQ\u20091', variant:'white', def: 75/127,
       fmt: c => { const hz = Math.pow(500, b127(c.v)/127); return hz.toFixed(1)+' Hz'; } },
-    { cc:61, label:'FREQ\u20092', variant:'white', def: 17/127,
+    { cc:61, label:'FREQ\u20092', variant:'white', def: 75/127,
       fmt: c => { const hz = 0.1*Math.pow(500, b127(c.v)/127); return hz.toFixed(2)+' Hz'; } },
     { cc:62, label:'SCALE', variant:'white', def: 1.0 },
     { cc:63, label:'RUNG1', variant:'white', def: 41/127 },

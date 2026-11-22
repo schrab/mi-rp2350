@@ -224,8 +224,8 @@ namespace CTAG {
             "DIA", "SSTK", "WTCH", "WTSS", "SHAKER", "BRASS", "HELIX", "SKINS", "CZAP", "MTLW",
             "CLAP", "PERC", "FFRM", "BUBBLE", "ZXPH", "ZXPU", "ACID", "SSAW",
         };
-        static const char *kModNames[6] = { "ELEMENTS", "CLOUDS", "PLAITS", "RINGS", "LIRA8", "DRONECSTR" };
-        static const uint8_t kModuleCount = 6;
+        static const char *kModNames[7] = { "ELEMENTS", "CLOUDS", "PLAITS", "RINGS", "LIRA8", "DRONECSTR", "BENJOLIN" };
+        static const uint8_t kModuleCount = 7;
         static inline uint8_t ModuleClamp(uint8_t mod) {
             return mod < kModuleCount ? mod : 0;
         }
@@ -302,6 +302,10 @@ namespace CTAG {
                     // The 4 hanging ids (14/20/24/30) stay reachable from the
                     // browser panel + serial `cc 51 <id>` for debugging.
                     if (cc == 51) return 10;
+                    break;
+                case 6: // Benjolin
+                    if (cc == 70) return 4;   // FILTER: RLPF/RHPF/SVF/DFM1
+                    if (cc == 71) return 7;   // OUTPUT: tri1/osc1/tri2/osc2/pwm/comp/filt
                     break;
                 case 4: // Lira8 (P1/P2/P3 tables)
                     if (cc == 9 || cc == 10 || cc == 11 || cc == 12) {

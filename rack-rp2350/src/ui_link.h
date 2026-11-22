@@ -410,6 +410,29 @@ static const UiPageCell kUiPageDronecasterP1[] = {
     {54, "HZ OFF",     kUiColorWhite},
 };
 
+// benjolin — P1: all 14 parameters (CC 60-73; the plan's CC table). CC 70
+// selects the filter (RLPF/RHPF/SVF/DFM1), CC 71 the output tap (tri1/osc1/
+// tri2/osc2/pwm/comparator/filter). Defaults = the golden scenario (amp
+// 0.5, osc1 40 Hz, osc2 4 Hz, RLPF 113 Hz).
+static const UiPageCell kUiPageBenjolinP1[] = {
+    {60, "FREQ1",      kUiColorWhite},
+    {61, "FREQ2",      kUiColorWhite},
+    {62, "SCALE",      kUiColorWhite},
+    {63, "RUNG1",      kUiColorWhite},
+    {64, "RUNG2",      kUiColorWhite},
+    {65, "RFILT",      kUiColorWhite},
+    {66, "LOOP",       kUiColorWhite},
+    {67, "FILTF",      kUiColorWhite},
+    {68, "Q",          kUiColorWhite},
+    {69, "GAIN",       kUiColorWhite},
+    {70, "FLTR",       kUiColorWhite},
+    {71, "TAP",        kUiColorWhite},
+    {72, "AMP",        kUiColorWhite},
+    {73, "PAN",        kUiColorWhite},
+    {0,  "",           kUiColorWhite}, // p15 (spare)
+    {0,  "",           kUiColorWhite}, // p16 (spare)
+};
+
 // [module][0 = P1, 1 = P2, 2 = P3]. Elements' P2 = MODEL/PLAY/VCA + the T9
 // warps cells (CC 36-40). Clouds, Plaits, and Rings have all parameters on
 // P1, so P2/P3 have count = 0 (no duplicate params). lira8's P2/P3 are REAL
@@ -434,6 +457,8 @@ static constexpr UiPageTable kUiPages[RACK_MODULE_COUNT][3] = {
       {kUiPageLira8P3,     UI_PAGE_CELL_COUNT(kUiPageLira8P3)} },        // lira8
     { {kUiPageDronecasterP1, UI_PAGE_CELL_COUNT(kUiPageDronecasterP1)},
       {nullptr, 0},        {nullptr, 0} },                               // dronecaster
+    { {kUiPageBenjolinP1,    UI_PAGE_CELL_COUNT(kUiPageBenjolinP1)},
+      {nullptr, 0},        {nullptr, 0} },                               // benjolin
 };
 
 // ===================== Dedicated Modulation & SYS aux cells =====================
