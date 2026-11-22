@@ -89,6 +89,27 @@ combinations wedge at 307.2). Direct SDK rewrite, no Arduino shim layer.
   on the C3; page-request replies land in ~100 ms.
 - The MIDI-frame keepalive diagnostic was reverted to the 3-B echo frame.
 
+## MILESTONE — all modules working (user-confirmed by ear, 2026-11-23)
+
+- The I2S format fix (c8d6f32) accepted: "yes now all fine and benjolin
+  sound is much cleaner". Elements + plaits + benjolin verified across
+  swaps; the user confirms the rest as well.
+- Page switching works with ~500 ms update delay (was seconds-to-never).
+- Commits: e212470 (migration) -> 6897587 (harness) -> cd12ced (autopull)
+  -> a1ac68d (keepalive+console ring) -> e36cafb (swap IRQ) -> dc9eb8a
+  (staging-ring drain) -> c8d6f32 (I2S format) — all pushed to origin.
+
+## Next phase — DSPi adoption candidates (user's ranked list, 2026-11-23)
+
+1. The loopback capture rig (the DSPi pattern): device-vs-golden for every
+   module. The parked UAC1 capture (usb_capture.cpp/h) activates; the tap
+   = RackI2sOut::write16 (post-Clip16, module-agnostic); needs the
+   descriptor extension (CDC+MIDI+UAC1 composite) + an iso IN EP.
+2. check_ram_placement.py — the DSPi script ported: nm/objdump stdlib-only,
+   verifies the hot symbols' placement (the .tc_* window + .time_critical).
+3. The scripted device suite: snapshot/restore + liveness sentinel +
+   exit codes over the console.
+
 ## Known-open
 
 - Report carries temporary bench fields (c1/c1t/up/tu/st/hbw/mod) from the
