@@ -184,6 +184,24 @@ the re-enumeration watchdog print their own lines.
 Desktop MIDI check (PipeWire holds raw ports, so avoid `amidi -p hw:…`): use
 `aseqdump -l` to confirm "Rack RP2350" and the host controller appear.
 
+### Bench MIDI send (2026-11-22)
+
+- `aseqsend` silently no-ops on this bench (PipeWire holds the raw ports);
+  send tests via `aplaymidi -p <port> file.mid` with a generated SMF. Port
+  from `aplaymidi -l` / `aseqdump -l` ("Rack RP2350", e.g. `24:0`).
+- SMF rules: exactly **one delta per event** (a delta never stands alone).
+  A hold delta plus a per-event delta on the same note-off = double delta →
+  aplaymidi fails with the misleading `invalid MIDI data (offset EOF+1)`
+  (the offset is one past EOF; the real misalignment is earlier). Correct
+  burst shape: `[ons…][vlq(hold)][80 n v][00 80 n2 v]…[00 FF 2F 00]` — the
+  first off carries the hold delta, later offs delta 0. The MTrk length must
+  include the 4-byte EOT.
+- Verify receipt via the console `preset status` (`seen=NN CCs` counts only
+  delivered CCs); the 2 s report's `notes=` accumulates note events.
+- Report meter decode: `in=` is the **active module's output RMS ×1000**
+  (`rack_meter_a`, written by each adapter's render), `out=` is the chain-B
+  meter and is always 0 standalone — `out=0` does NOT mean "no audio".
+
 ## Hard-won constraints (details in the ledger)
 
 - Init order in `setup()`: **USB host (PIO-USB) before `i2s.begin()`** —
@@ -220,6 +238,11 @@ Desktop MIDI check (PipeWire holds raw ports, so avoid `amidi -p hw:…`): use
   (zero-cost bypass), FX TYPE 0 = OFF.
 - USB host socket wiring: D+→GP14, D−→GP15 (PIO-USB DPDM), GND→GND; VBUS→5V is
   optional (the SMC-PAD controller is self-powered and works without it).
+- USB host zero-ACK fix: the JieLi/BR25 pad leaks bias on D− (~2.8 V idle) and
+  enumeration dies with EP0 zero-ACK; cure = **15k pulldowns on D+ AND D−**
+  (SMD pads at the socket). Without them the pad half-boots and crashes on bus
+  resets/SOF. Related: core-0 stack overflow at attach was fixed separately via
+  `core1_separate_stack=true`.
 
 ## Workflow
 
@@ -233,3 +256,36 @@ Desktop MIDI check (PipeWire holds raw ports, so avoid `amidi -p hw:…`): use
   successful build. Never claim hardware-verified without their confirmation.
 - Fix bugs by editing the code directly (lib or src). No patch files, no
   sync scripts — see "What this repo is".
+
+## Agent behavior (user-verified preferences — apply on every machine)
+
+The user moves between machines; the agent memory layer does not follow.
+These rules were earned in this repo and bind any coding agent here:
+
+- No time/schedule advice ("get some rest") and no anthropomorphizing
+  hardware. Own failures plainly; strictly technical closings.
+- Keep replies minimal and technical — the user's client may render them
+  translated; never argue about rendering.
+- Hardware misbehaving: run the isolating experiment first (flash
+  last-known-good, retest) instead of code-reading hypotheses.
+- Interactive hardware tests are armed only AFTER the user reports physical
+  readiness (reboots kill armed patterns). **SAFETY: never instruct "touch X
+  to GND" without checking X's current wiring** — RST is hard-tied to 3V3 on
+  this hardware and a GND touch shorts the rail (caught once); reset pulses
+  are only safe through the 10k series R.
+- Never flash just to reboot a hung board — BOOTSEL + `picotool reboot -a`
+  (bundled tool path) reboots with zero flash writes. A recurring hang gets
+  instrumented ONCE (fault record + watchdog + breadcrumbs), then fixed in
+  code — no multi-round diagnostic ceremony.
+- Blank/dead peripheral: check the driver config math FIRST (window/offset/
+  init sequence, interface mode, power domain) against the exact datasheet
+  or a verbatim-fetched reference diff; accept the user's physical
+  observation over measurement pattern-matching; never assume hardware
+  provenance; read working reference code COMPLETELY, not summaries; commit
+  diagnostic tooling as WIP.
+- Crash/hang diagnostics recipe: watchdog SCRATCH-register breadcrumbs,
+  per-core stage codes baked into the 2 s report, console `reboot`/`dma`.
+- Stalled subagents: continue them via SendMessage when an agent id exists;
+  if the id is gone, do the work directly rather than relaunching.
+- `tools/` web panels: plain backgrounds, no decorative SVGs; "keyboard"
+  means the computer keyboard — no on-screen pianos.

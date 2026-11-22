@@ -5898,3 +5898,46 @@ found no additional defects in the approved repairs; the sensor-event
 mailbox follow-up above remains separate. All approved implementation and
 verification tasks complete and committed (`4ee6dde`); hardware acceptance
 recorded 2026-11-22.
+
+## 2026-11-22 — LIRA-8 sensor-event mailbox repair (local, uncommitted)
+
+The follow-up above, repaired as its own change after the F1-F8 commit. Same
+base `4ee6dde` line; not yet committed at the time of writing.
+
+- **Fix:** `Lira8Engine::set_sensor` published `{pending_sensors_[v]`,
+  `pending_sensor_levels_[v]}` as two plain fields written from core 0
+  (MIDI notes / CC 55-62 latch / PLAY button) and core 1 (mod triggers,
+  preset replay) while `render_internal_block` read them on core 1 — a torn
+  snapshot could apply one event's gate with another event's press level.
+  Replacement: per-voice `SensorMail {wlock, gate, level_bits}` where BOTH
+  writers and the audio reader hold a per-voice spinlock (hold = two plain
+  stores/loads; acquire exchange in, release store out). Exclusion makes the
+  snapshot always one writer's complete publication; the float level rides
+  bit-exactly as its IEEE-754 bit pattern (same pun as the params).
+- **Design dead-ends recorded honestly:** a 64-bit packed single-word slot
+  is NOT lock-free on this M33 toolchain (probe: `__atomic_always_lock_free`
+  fails at 8 bytes → `__atomic_store_8` libcall). A seqlock (wlock for
+  writers only, ACQ_REL in-flight RMW, acquire re-read) passed the data-race
+  check but STILL failed the pair-coherence invariant under TSAN: the two
+  payload words have independent cache freshness, so a stable-seq window can
+  still mix one word from a newer publication with one from an older one —
+  counter-based pair validation cannot see it. Reader-takes-the-lock does.
+- **Test:** `test_sensor_mailbox` in `test_engine.cc` — two concurrent
+  writers on voice 0 with disjoint level ranges (press = on/small, mod
+  trigger = off/huge), consumer runs the real apply path via `Process` and
+  asserts every applied pair is a complete publication. RED on the old code:
+  TSAN exit 66 with races on both `set_sensor` stores and the consumer read
+  (`/tmp/rack-lira8-sensor-tsan-red.*`), plus the invariant failing. One test
+  bug was found and fixed during bring-up: the engine's legal init pair
+  `{off, level 1.0}` is outside the stress ranges — the consumer's first
+  block could flag it; the test now pre-seeds one press before the
+  rendezvous. GREEN: `test_engine`/`test_pd_primitives`/`test_voice`/
+  `test_harmony`/`render_golden` all green (normal build), and six
+  consecutive TSAN runs of `test_engine` all green with zero race reports
+  (`/tmp/rack-lira8-sensor-tsan.pnPSuA/lock*.log`).
+- **Scope note:** the per-voice lock's audio-core hold is two plain loads
+  (ns); the pathological preemption-during-hold case delays a writer by at
+  most one scheduler slice, and post-`fb5d404` a core-0 stall cannot corrupt
+  the audio path (the I2S DMA IRQ lives on core 1). No flash; hardware
+  acceptance not claimed — the fix is event-coherence only (no DSP-law
+  change), so the meaningful hardware check is the existing soak/behavior.
