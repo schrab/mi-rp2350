@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "pico/stdlib.h"
+#include "pico/platform.h"
 #include "hardware/pio.h"
 #include "hardware/dma.h"
 #include "hardware/irq.h"
@@ -50,7 +51,7 @@ bool RackI2sOut::setFrequency(uint32_t hz) {
   return true;
 }
 
-void RackI2sOut::dma_irq_() {
+void __not_in_flash_func(RackI2sOut::dma_irq_)() {
   RackI2sOut* self = s_inst;
   if (!self || !self->running_) {
     // Reconfig window (core 1 masks the IRQ around end/begin) or teardown —
@@ -176,7 +177,7 @@ void RackI2sOut::end() {
   ready_head_ = ready_tail_ = 0;
 }
 
-void RackI2sOut::handoff_() {
+void __not_in_flash_func(RackI2sOut::handoff_)() {
   // Push the full buffer into the ready ring (the DMA IRQ pops it).
   ready_q_[ready_head_] = fill_buf_;
   ready_head_ = (ready_head_ + 1u) % buffers_;
@@ -202,7 +203,7 @@ void RackI2sOut::handoff_() {
   fill_pos_ = 0;
 }
 
-void RackI2sOut::write16(int16_t l, int16_t r) {
+void __not_in_flash_func(RackI2sOut::write16)(int16_t l, int16_t r) {
   if (!running_) return;
   if (fill_pos_ >= words_) handoff_();
   bank_[static_cast<size_t>(fill_buf_) * words_ + fill_pos_] =

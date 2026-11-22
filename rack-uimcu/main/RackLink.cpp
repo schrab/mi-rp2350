@@ -313,6 +313,10 @@ namespace CTAG {
                 const uint8_t len = p.flen;
                 s_rx_frames = s_rx_frames + 1;
                 s_last_rx_us = esp_timer_get_time();
+                // Frame-level truth (bench 2026-11-23: the RP2350's TELEM
+                // snapshots arrive at the UART but never dispatch — log
+                // every completed frame's type/len).
+                ESP_LOGI(TAG, "frame: type=0x%02x len=%u", type, len);
                 if (!s_online) ESP_LOGI(TAG, "rack link online");
                 s_online = true;
 
@@ -403,6 +407,20 @@ namespace CTAG {
 
                 while (true) {
                     const int got = uart_read_bytes(kUart, rx, sizeof(rx), 0);
+                    // RX byte-rate instrumentation (bench 2026-11-23: the
+                    // RP2350's TELEM snapshots leave its UART but never
+                    // parse here — split TX-side vs RX-side loss).
+                    if (got > 0) {
+                        static uint32_t rxBytesLog = 0;
+                        static uint32_t lastLogMs = 0;
+                        rxBytesLog += (uint32_t)got;
+                        const uint32_t nMs = nowMs();
+                        if (nMs - lastLogMs >= 2000) {
+                            lastLogMs = nMs;
+                            ESP_LOGI(TAG, "rx bytes/2s: %u", rxBytesLog);
+                            rxBytesLog = 0;
+                        }
+                    }
                     if (got > 0) {
                         for (int i = 0; i < got; i++) {
                             if (parser.feed((uint8_t)rx[i])) {
@@ -621,6 +639,13 @@ namespace CTAG {
 
         bool RackLink::SendUiCmd(uint8_t action, uint8_t arg, uint8_t arg2) {
             const uint8_t p[3] = { action, arg, arg2 };
+            // Page-request latency instrumentation (bench 2026-11-23: the
+            // user's page switches took ~3-8 s to fill; the offline probe's
+            // RTT was ~20 ms — find where the seconds go).
+            if (action == kCmdPageRequest) {
+                ESP_LOGI(TAG, "page request %u sent at %lld us", arg,
+                         (long long)esp_timer_get_time());
+            }
             sendFrame(kTypeUiCmd, p, 3);
             return true;
         }
