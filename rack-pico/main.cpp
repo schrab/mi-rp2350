@@ -3368,14 +3368,12 @@ static uint8_t g_dbg_ring[kDbgRingSize];
 static uint16_t g_dbg_head = 0, g_dbg_tail = 0, g_dbg_count = 0;
 static uint32_t g_dbg_dropped = 0;
 
-void dbg_printf(const char* fmt, ...) {
-  char line[560];
-  va_list ap;
-  va_start(ap, fmt);
-  int n = vsnprintf(line, sizeof(line), fmt, ap);
-  va_end(ap);
+// Raw ring append (shared with the CDC stdio bridge: printf -> the same
+// non-blocking ring so command dumps stream at the pump rate without
+// blocking core 0 — the core-0 discipline law).
+void dbg_ring_write(const char* line, int n) {
   if (n <= 0) return;
-  if (n > (int)sizeof(line) - 1) n = (int)sizeof(line) - 1;
+  if (n > kDbgRingSize - 1) n = kDbgRingSize - 1;
   if ((size_t)g_dbg_count + (size_t)n > kDbgRingSize) {
     ++g_dbg_dropped;                 // no reader: drop rather than block
     return;
@@ -3385,6 +3383,17 @@ void dbg_printf(const char* fmt, ...) {
     g_dbg_head = (uint16_t)((g_dbg_head + 1) % kDbgRingSize);
   }
   g_dbg_count = (uint16_t)(g_dbg_count + n);
+}
+
+void dbg_printf(const char* fmt, ...) {
+  char line[560];
+  va_list ap;
+  va_start(ap, fmt);
+  int n = vsnprintf(line, sizeof(line), fmt, ap);
+  va_end(ap);
+  if (n <= 0) return;
+  if (n > (int)sizeof(line) - 1) n = (int)sizeof(line) - 1;
+  dbg_ring_write(line, n);
 }
 
 static void dbg_pump() {
@@ -3448,6 +3457,30 @@ void loop() {
   // Same IRQ+ring pattern as DIN; with the C3 absent this is one ring-empty
   // check per loop().
   ui_link_pump();
+  // UI-link keepalive (bench 2026-11-23): the C3's RackLink marks the link
+  // offline after 4 s without RX bytes and re-probes with page requests —
+  // the C3 display flickered to "---" on every offline cycle. The echo
+  // replies flow (1 ping -> 1 reply/s, 0 crc) but the C3's freshness timer
+  // still expired, so the device sends its own 1 s heartbeat (the seed
+  // LinkClient's kHeartbeatPeriodMs contract). Echo frames are safe: the C3
+  // dispatches them without bouncing.
+  {
+    static uint32_t last_ui_hb = 0;
+    const uint32_t now_us = time_us_32();
+    if (now_us - last_ui_hb >= 1000000UL) {
+      last_ui_hb = now_us;
+      static uint16_t ui_hb_seq = 0;
+      // DIAGNOSTIC: a MIDI frame instead of an echo — the C3 logs every
+      // kTypeMidi frame unconditionally ("MIDI frame received"), so its log
+      // proves/disproves wire delivery of the small RP2350-originated
+      // frames (the echo/heartbeat frames vanish somewhere en route).
+      // 0xF8 = MIDI clock realtime — the C3's case only logs it; it does
+      // not feed the rack funnel.
+      const uint8_t p[4] = { 0x0F, 0xF8, 0x00, 0x00 };
+      (void)ui_hb_seq;
+      ui_link_send_frame(kUiTypeMidi, p, 4);
+    }
+  }
 
   // --- T4a preset autosave: push the serialized blob to the C3 flash bank
   // once the state has settled (3 s after the last persistent change) ---

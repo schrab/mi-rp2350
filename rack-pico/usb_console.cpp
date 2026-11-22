@@ -27,8 +27,17 @@ void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const *coding) {
     }
 }
 
+// Console output goes through the NON-BLOCKING diagnostic ring (the
+// core-0 discipline law): a multi-line command dump (mod? ~3 KB) exceeds
+// the 256 B CDC FIFO, and both blocking alternatives are bench-proven
+// hazards — the drop-style writer lost everything past the FIFO (2026-11-23)
+// and a drain-spin wedged core 0 (no watchdog feed from inside pumpConsole).
+// The ring is drained by dbg_pump() at the loop cadence, drop-counted.
+// Defined in main.cpp (the ring + dbg_printf live there).
+void dbg_ring_write(const char *buf, int len);
+
 static void cdc_out_chars(const char *buf, int len) {
-    tud_cdc_write(buf, (uint32_t)len);
+    dbg_ring_write(buf, len);
 }
 
 static void cdc_out_flush(void) {
@@ -57,12 +66,6 @@ void usb_console_tick(void) {
     tud_cdc_write_flush();  // push pending stdio bytes to the host
 }
 
-// ----------------------------------------------------------------------------
-// Console byte API (the Serial.* surface the ported main.cpp calls):
-// printf reaches these through the stdio bridge; the helpers below are the
-// read/binary-write side. All non-blocking (drop, never spin) — the core-0
-// discipline law.
-// ----------------------------------------------------------------------------
 int cdc_read(void) {
     char c;
     return tud_cdc_read(&c, 1) == 1 ? static_cast<int>(static_cast<uint8_t>(c))
