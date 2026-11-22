@@ -10,8 +10,12 @@
 # compander's transient overshoots when loop gain > ~1.4 (feedback > ~65).
 # fb=100 (g=2.35) self-oscillates into distortion EVEN IN PD (float loop
 # rides the transients) — keep golden scenarios at feedback <= 60.
-# Each scenario carries an explicit t=0 init block (47 params + sensors off)
-# so pd's baked GUI state is overridden to the spec defaults on both sides.
+# Five full trajectories (drone-all, single-pair, delay-extremes, fuzz-push,
+# transients) and drone-nodelay explicitly initialize all 47 params + sensors
+# off at t=0, overriding the saved parameter fixture on both sides.
+# Eight partial-init probes (onetest, pairnofm, pairfm, onecyc, pitch0,
+# pitch127, cleantest, onevoice) inherit unspecified saved/default state;
+# all eight explicitly set delay mix to zero.
 
 SCEN drone-all
 0 param tune-1 0

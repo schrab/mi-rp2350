@@ -34,6 +34,41 @@ static void test_ramp() {
   CHECK(near(r.next(), 1.0f, 1e-6f), "holds target");
   r.set(0.5f, 0.0f);              // ms=0 jumps immediately
   CHECK(near(r.next(), 0.5f, 1e-6f), "zero-time jump");
+  r.set(0.25f, -1.0f);
+  CHECK(r.idle() && r.next() == 0.25f, "negative-time jump");
+}
+
+static void test_ramp_ticks() {
+  static const struct { float ms, sr; int samples; } cases[] = {
+      {23.22f, 44100.0f, 1024}, {23.22f, 32000.0f, 704},
+      {11.0f, 44100.0f, 448}, {11.0f, 32000.0f, 320},
+      {0.001f, 32000.0f, 64},
+  };
+  for (const auto& c : cases) {
+    Ramp r(c.sr);
+    r.set(1.0f, c.ms);
+    const float first = r.next();
+    CHECK(near(first, 1.0f / c.samples, 1e-6f),
+          "%.3f ms @ %.0f Hz: increment-first sample %g", c.ms, c.sr, first);
+    for (int i = 1; i < c.samples - 1; ++i) r.next();
+    CHECK(!r.idle() && r.value() < 1.0f,
+          "%.3f ms @ %.0f Hz: still ramping before %d samples", c.ms, c.sr, c.samples);
+    const float last = r.next();
+    CHECK(r.idle() && last == 1.0f,
+          "%.3f ms @ %.0f Hz: reaches target at %d samples (got %g)",
+          c.ms, c.sr, c.samples, last);
+  }
+}
+
+static void test_powtodb() {
+  CHECK(powtodb(1.0f) == 100.0f, "unity power -> 100 dB");
+  const float half = powtodb(0.5f);
+  CHECK(near(half, 96.9897f, 1e-4f), "half power -> 96.9897 dB (got %g)", half);
+  CHECK(powtodb(0.0f) == 0.0f, "zero power -> 0 dB");
+  const float tiny = powtodb(1e-30f);
+  CHECK(tiny == 0.0f, "sub-floor power -> 0 dB (got %g)", tiny);
+  const float threshold = powtodb(1e-6f);
+  CHECK(near(threshold, 40.0f, 1e-5f), "threshold power -> 40 dB (got %g)", threshold);
 }
 
 static void test_hip() {
@@ -111,12 +146,8 @@ static void test_env_rms() {
   const float sr = 32000.f;
   // verbatim env~ 512 (d_ctl.c): window (1-cos(2*pi*i/N))/N, ring of partial
   // sums, hop 256 (block 64), output = powtodb(sumbuf[0]) after shift.
-  // Probe staircase (1.0 step, hop-aligned): 89.5362 dB -> 99.5817 -> 100.
-  // The middle point reproduces at 99.889 in the verbatim sim (0.31 dB
-  // probe-timing delta; env~ only feeds the line~-smoothed expander gain, so
-  // tolerance 0.5 dB is far below golden-test tolerance).
-  // Block-level call replicates the numpy verbatim sim at its best step
-  // alignment (step at sample 19200+118): [89.5367, 99.8891, 100.0] dB.
+  // At the existing kStep alignment the corrected power law yields this
+  // staircase on consecutive env~ reports (one report per 256 samples).
   EnvRms e(512, 64, sr);
   float out[128];
   int nout = 0;
@@ -127,16 +158,16 @@ static void test_env_rms() {
     for (int i = 0; i < 64; ++i) blk[i] = (b * 64 + i >= kStep) ? 1.0f : 0.0f;
     if (e.process_block(blk, 64, &last) && nout < 128) out[nout++] = last;
   }
-  CHECK(nout > 2, "env produced outputs (%d)", nout);
-  CHECK(near(last, 100.0f, 1e-3f), "env settles at 100 dB (got %f)", last);
-  bool saw_partial = false, saw_mid = false;
-  for (int i = 0; i < nout; ++i) {
-    if (near(out[i], 89.5367f, 0.05f)) saw_partial = true;
-    if (near(out[i], 99.8891f, 0.05f) || near(out[i], 99.5817f, 0.5f))
-      saw_mid = true;
+  const int kPartial = 76;  // block 304, first env~ report after kStep
+  CHECK(nout > kPartial + 2, "env produced enough outputs (%d)", nout);
+  if (nout > kPartial + 2) {
+    CHECK(near(out[kPartial], 94.76835f, 1e-3f),
+          "env staircase partial -> 94.76835 dB (got %f)", out[kPartial]);
+    CHECK(near(out[kPartial + 1], 99.94455f, 1e-3f),
+          "env staircase mid -> 99.94455 dB (got %f)", out[kPartial + 1]);
+    CHECK(near(out[kPartial + 2], 100.0f, 1e-3f),
+          "env staircase full -> 100 dB (got %f)", out[kPartial + 2]);
   }
-  CHECK(saw_partial, "env staircase partial value 89.5367 dB");
-  CHECK(saw_mid, "env staircase mid value");
   // silence reads 0 dB
   EnvRms e2(512, 64, sr);
   float v = 0.f;
@@ -167,6 +198,8 @@ static void test_dbtorms_mtof() {
 
 int main() {
   test_ramp();
+  test_ramp_ticks();
+  test_powtodb();
   test_hip();
   test_lop();
   test_cos_osc();

@@ -39,8 +39,11 @@ against the raw `.pd` text with a $-arg-resolving parser (`spec_pdlib.py`,
 `delay_master.txt`, `misc.txt`, `misc2.txt`, `tri.txt`, `comp.txt`, `xcheck.txt`).
 
 Reference sample rate of the original: **Fs = 44100 Hz** (standalone). Target:
-**Fs = 32000 Hz**. All times below are ms unless stated; all `line~` smoothing
-ramps are **23.22 ms** (= 1024 samples @ 44.1 kHz) unless stated otherwise.
+**Fs = 32000 Hz**. All times below are ms unless stated. The usual `line~`
+request is **23.22 ms**. Positive durations use
+`64 * max(1, floor(ms*Fs/(1000*64)))` samples (1024 at 44.1 kHz and 704 at
+32 kHz for 23.22 ms). Nonpositive durations jump immediately. The port's
+`Ramp::next()` retains increment-first indexing. Pd outputs before incrementing.
 
 Patch-global $0 is rendered literally as `$0` (in the standalone it is `1001`).
 In the port, `$0-…` names become per-patch-instance namespace prefixes (e.g.
@@ -156,7 +159,9 @@ inlet~ [0] ──┬──> +~[19]:0 ──> +~[8]:0 ─────────
 * Modulation of read time (added to `[53]`):
   * **SELF** (del-mod == 0): own delayed output `vd~[33] → /~ 2 [98] → lop~ 689
     [99] → *~[39]`, gated by `r $0-s-del-mod → == 0 [44]` (the `==` output 0/1
-    feeds the `*~` right inlet directly — a hard, unsmoothed gate).
+    feeds the `*~` right inlet directly, as a hard gate). The port filters
+    the current block's float writes at half amplitude and replays those
+    64 samples as the following block's SELF modulator.
   * **LFO** (del-mod == 2): `r~ $0-del-tri [102] → *~[35]` (gated by
     `r $0-s-lfo-wav → == 0 [36]`), `r~ $0-del-sqr [103] → *~[38]` (gated by the
     raw lfo-wav value 0/1 [37]) → `+~[107] → *~[40]`, gated by
@@ -185,6 +190,8 @@ inlet~ [0] ──┬──> +~[19]:0 ──> +~[8]:0 ─────────
 vd~ → hip~ 1 Hz → lop~ 4000 Hz → compressor~ → expander~ ─┬→ *~ (×g) → write sum
                                                           └→ monitor sum
 ```
+
+Each bus owns its own `hip~ 1` and `lop~ 4000` filter history.
 
 * `loadbang → msg "2.5 2.5 -12 5" [109/110] → unpack f f f f [15/64]` →
   compressor inlets: **attack = 2.5 ms, release = 2.5 ms, threshold = −12 dB,
@@ -257,14 +264,17 @@ at unity gain (tanh(1) = 0.7616) — this is part of the sound.
 ### 2.7 expander~ (abs, `expander~.pd`; inlets: sig, thr dB, ratio)
 
 ```
-env_db = env~ 512 − 100                 (Pd [env~] outputs 100 + 20·log10(RMS); verified empirically: full-scale sine → 96.99)
-slope  = (1 − 1/ratio) · (env_db − thr)      ([(1/r) → msg "1 {r}" → [−] → 1 − 1/r] then "* 2" with right inlet overridden; [−] with list "1 r" computes 1 − r — verified: prints −4)
-slope  = min(slope, 0)
-gain   = dbtorms~(100 + line~(slope, 11 ms)) = 10^(slope/20)
+env_db = env~ 512                          (0 below 1e-10 power, else 100 + 10·log10(power))
+target = min(0, (env_db − 100 − thr) · 2·(1 − 1/max(1, ratio)))
+gain   = dbtorms~(100 + line~(target, 11 ms))
 out    = in · gain
 ```
-`env~ 512` = RMS over 512-sample blocks (11.6 ms @ 44.1 k). With thr −60 dB,
-ratio 5: below −60 dB the envelope expands downward at slope 0.8; above, gain 1.
+`env~ 512` measures Hann-weighted power with a 512-sample window (11.6 ms
+at 44.1 kHz) and a 256-sample hop. The 11 ms `line~` ramp takes 448 samples at
+44.1 kHz and 320 at 32 kHz, with linear interpolation in dB (exponential
+in gain). At threshold −60 dB and ratio 5, the slope is 1.6 below the
+threshold (power `1e-6`), the gain is unity at and above the threshold, and
+the silence target is −64 dB (gain ≈ 0.000630957).
 
 ### 2.8 ma.tanh~ (abs)
 
@@ -604,12 +614,12 @@ The `burst` terms (prm.sensor outlet 1) are added **inside** the gated sum.
 | 2 | rlpf hardcoded `clip 0 22050` + `/~ 44100` | overridden at load by `samplerate~` | recompute per sample: `coef = exp(−2π·min(fc, Fs/2)/Fs)`, fc ≤ 16000 | Only a hazard if ported from the literal args. |
 | 3 | hv.envfollow coeff | `exp(−4.60517/(ms·Fs/1000))` | same formula with Fs = 32000 | Rate-correct in the original. |
 | 4 | env~ 512 | 11.61 ms window | keep 512 (16 ms — slightly slower/smoother envelope) **or** 372 for time-preservation | Recommendation: 512 (matches hvcc, block-friendlier). Document the difference. |
-| 5 | `23.22` ms line ramps | 1024 samples | keep 23.22 ms (743 samples) | Keep as ms; the 1024-sample alignment is not audible. |
+| 5 | `23.22` ms line ramps | 1024 samples | 704 samples | Keep the duration in ms and quantize down to whole 64-sample ticks. |
 | 6 | polyblep `1/Fs` | load-time 1/44100 | `n = f/32000` live | Widens the correction window; correct behavior. |
 | 7 | lop~/hip~ (689, 4000, 1, 3, 10, 20 Hz) | one-pole coefs at 44.1k | `a = exp(−2πf/32000)` (lop), `a = exp(−2πf/32000)` (hip: y = x − x₁ + a·y₁) | Compute coefficients at runtime. |
 | 8 | vd~ interpolation + latency | 4-point (cubic, tabread4-style) read; read cannot see data written later in the same Pd block (≤ 1 block @ 64 smp = 1.45 ms lag) | ring buffer, read = write − round(t·Fs/1000), cubic interp; per-sample port may read same-sample writes (≤ 1.45 ms earlier response than Pd — inaudible, but note) | Verify vd~ interpolation order by ear/recording if fidelity-critical. |
 | 9 | osc max frequency | mtof(131.22) ≈ 16.0 kHz base, ×(1+fm·src) up to ×3 under modulation — wraps through Nyquist | at 32k Nyquist is 16 kHz: the top tune position already sits at Nyquist; FM wraps through it by design | phasor wrap + `abs()` semantics: fold `f` with `f = |f|` after the (1 + fm·src) multiply, allow wrap-through-zero aliasing to preserve character. |
-| 10 | expander env~ dB ref | 100 + 20·log10(RMS) (verified) | identical (rate-free) | silence must clamp to −100 dB (env~ outputs 0). |
+| 10 | expander env~ dB ref | 0 below `1e-10` power, else `100 + 10·log10(power)` | identical (rate-free) | `env~` outputs 0 on silence, which is −100 dB relative to unity. |
 | 11 | key.tgl 52 ms tail, notemap note 36–43, all control curves | rate-free | unchanged | — |
 | 12 | hyper-lfo mtof rate curve | rate-free | unchanged | max 164.8 Hz LFO is fine at 32k. |
 
@@ -799,10 +809,10 @@ link, 39–40 time, 41 feedback, 42 del-mix, 43–44 delay-mod depth, 45 del-mod
    With the delay's 2.5/2.5 ms this always selects the `env` branch, giving
    `env(n) = |in|(1−env) + env²`. Spec'd patch-exact (§2.6), not the
    music-dsp reference algorithm the comments describe.
-4. **expander~ unit chain** — only meaningful if Pd's `[env~]` outputs
-   `100 + 20·log10(RMS)`; verified empirically in headless Pd (sine → 96.99).
+4. **expander~ unit chain** — Pd's `[env~]` converts mean-square power with
+   `100 + 10·log10(power)` above the floor. A full-scale sine gives 96.99 dB.
 5. **List-argument order** for `[-]`, `[/]`, `[pow]` message forms (affects
-   the expander slope `1 − 1/ratio`, the delay/drive `2^x`/`3^x` bases):
+   the expander factor `2·(1 − 1/max(1, ratio))` and the delay/drive `2^x`/`3^x` bases):
    verified in headless Pd — "1 5" → `[-]` = −4, `[/]` = 0.2, "2 10" →
    `[pow]` = 1024 (first element = left/hot).
 6. **`$0-seed` machinery** — arrives after the one-shot vibrato-rate draw and

@@ -130,6 +130,19 @@ class ModDelay {
   int16_t* buf_;
 };
 
+// ---------- per-bus feedback filter: hip~1 -> lop~4000 ----------
+class DelayFilterChain {
+ public:
+  explicit DelayFilterChain(float sr) : hip_(1.0f, sr), lop_(4000.0f, sr) {}
+
+  LIRA8_TC(lira_delay_filter_process)
+  float process(float sample) { return lop_.process(hip_.process(sample)); }
+
+ private:
+  Hip hip_;
+  Lop lop_;
+};
+
 // ---------- compressor~ (attack/release-switched env follower) ----------
 // coeff = exp(-4.60517 / (ms * sr/1000)) (99% settle in ms);
 // env = temp*(1-c) + c*env, temp = |in|, c = attack if temp>env else release;
@@ -171,27 +184,24 @@ class Compander {
 };
 
 // ---------- expander~ (env~ 512 RMS in dB domain) ----------
-// gain_dB = min(0, (env_dB - thresh_dB) * (1 - 1/ratio)); on each env~ fire
-// the target goes through msg "$1 11" -> line~ (11 ms) -> +100 -> dbtorms~.
-// pd ramps the dB value, so the gain follows an EXPONENTIAL curve; a
-// constant per-sample gain ratio is exactly that curve. v1 ramped the
-// LINEAR gain and started from 0 instead of 0 dB = unity.
+// gain_dB = min(0, (env_dB - 100 - thresh_dB) * 2*(1 - 1/max(1, ratio)));
+// on each env~ fire, the target goes through msg "$1 11" -> line~ -> +100
+// -> dbtorms~. A linear ramp in dB is exponential in gain.
 class Expander {
  public:
   Expander(float sr) : sr_(sr), env_(512, 64, sr) {}
   void set(float thresh_db, float ratio) {
     thresh_ = thresh_db;
-    slope_ = 1.0f - 1.0f / ratio;
+    ratio_setting_ = ratio;
   }
   // Per 64-sample block: feed the env, apply the smoothed gain per sample.
   LIRA8_TC(lira_exp_process_block)
   void process_block(const float* in, int n, float* out) {
     float db = 0.f;
     if (env_.process_block(in, n, &db)) {   // env~ fires every 256 samples
-      const float gdb = std::fmin(0.0f, (db - 100.0f - thresh_) * slope_);
+      const float gdb = expander_target_db(db, thresh_, ratio_setting_);
       const float target = dbtorms(gdb + 100.0f);
-      int ns = static_cast<int>(11.0f * sr_ * 0.001f);   // line~ 11 ms
-      if (ns < 1) ns = 1;
+      const int ns = line_samples(11.0f, sr_);
       target_ = target;
       if (target <= 0.0f || gain_ <= 0.0f) {
         gain_ = target;
@@ -214,7 +224,7 @@ class Expander {
  private:
   float sr_;
   EnvRms env_;
-  float thresh_ = -20.0f, slope_ = 0.8f;
+  float thresh_ = -20.0f, ratio_setting_ = 5.0f;
   float gain_ = 1.0f;      // pd line~ starts at 0 dB = unity
   float ratio_ = 1.0f;
   float target_ = 1.0f;

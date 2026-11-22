@@ -56,8 +56,23 @@ inline float ftom(float f) {
   return (f > 0.0f ? 17.3123405046f * std::log(0.12231220585f * f) : -1500.0f);
 }
 LIRA8_TC(pd_powtodb)
-inline float powtodb(float p) {
-  return (p <= 0.0f ? 0.0f : 100.0f + 20.0f * std::log10(p));
+inline float powtodb(float power) {
+  return power < 1e-10f ? 0.0f : 100.0f + 10.0f * std::log10(power);
+}
+
+LIRA8_TC(pd_line_samples)
+inline int line_samples(float ms, float sr) {
+  if (ms <= 0.0f) return 0;
+  // Positive durations truncate to whole Pd DSP ticks (at least one).
+  constexpr int kTick = 64;
+  const int ticks = static_cast<int>(ms * sr / (1000.0f * kTick));
+  return kTick * (ticks < 1 ? 1 : ticks);
+}
+
+LIRA8_TC(pd_expander_target_db)
+inline float expander_target_db(float env_db, float thresh_db, float ratio) {
+  const float slope = 2.0f * (1.0f - 1.0f / (ratio > 1.0f ? ratio : 1.0f));
+  return std::fmin(0.0f, (env_db - 100.0f - thresh_db) * slope);
 }
 
 // ---------- line~: per-sample linear ramp ----------
@@ -81,8 +96,7 @@ class Ramp {
       remaining_ = 0;
       return;
     }
-    int n = static_cast<int>(ms * sr_ * 0.001f);
-    if (n < 1) n = 1;
+    const int n = line_samples(ms, sr_);
     inc_ = (target_ - value_) / static_cast<float>(n);
     remaining_ = n;
   }

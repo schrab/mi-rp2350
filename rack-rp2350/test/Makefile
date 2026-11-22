@@ -15,7 +15,7 @@ ENGINE_SRCS =   # e.g. lira8_engine.cpp
 WARPSFLAGS ?= -O2 -g -std=c++17 -Wall -Wextra -I../lib/elements -I../lib/stmlib -I. -I../../PicoCollider/include -I../../PicoCollider/include/picocollider
 RACKFLAGS  ?= $(WARPSFLAGS) -DRACK_RP2350_TC
 
-TEST_BINS = test_wav_io test_pd_primitives test_voice test_engine test_harmony test_warps test_reverb test_warps_stage test_fx_chain test_swede_eq test_speaker_ir test_varg test_rings_chord test_dronecaster
+TEST_BINS = test_wav_io test_pd_primitives test_voice test_engine test_harmony test_output_clip test_warps test_reverb test_warps_stage test_fx_chain test_swede_eq test_speaker_ir test_varg test_rings_chord test_dronecaster
 GOLDEN_BIN = render_golden
 
 all: $(TEST_BINS) $(GOLDEN_BIN)
@@ -41,10 +41,17 @@ test_voice: test_voice.cc ../src/lira8/lira_osc.h ../src/lira8/lira_voice.h ../s
 	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
 
 test_engine: test_engine.cc ../src/lira8/lira_engine.h ../src/lira8/lira_delay.h ../src/lira8/lira_lfo.h ../src/lira8/lira_master.h ../src/lira8/lira_voice.h ../src/lira8/lira_osc.h ../src/lira8/pd_primitives.h | $(BUILD)
-	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
+	$(CXX) $(CXXFLAGS) -pthread $< -o $(BUILD)$@
 
 test_harmony: test_harmony.cc ../src/lira8/lira_harmony.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
+
+test_output_clip: test_output_clip.cc ../lib/stmlib/stmlib/dsp/dsp.h ../lib/stmlib/stmlib/stmlib.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -I../lib/stmlib "$(abspath $<)" -o $(BUILD)$@
+
+.PHONY: test_golden_patch
+test_golden_patch:
+	python3 -I -B lira8_ref/test_golden_patch.py -v
 
 test_varg: test_varg.cc ../src/varg.h ../src/gen_tables.h ../src/lira8/lira_harmony.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $(BUILD)$@
@@ -69,7 +76,7 @@ render_golden: render_golden.cc wav_io.h ../src/lira8/lira_engine.h ../src/lira8
 
 engine: $(patsubst %.cpp,%.o,$(ENGINE_SRCS))
 
-test: $(TEST_BINS)
+test: $(TEST_BINS) test_golden_patch
 	@for t in $(TEST_BINS); do ./$(BUILD)$$t || exit 1; done
 
 # golden compare CLI (python side lives in lira8_ref/)

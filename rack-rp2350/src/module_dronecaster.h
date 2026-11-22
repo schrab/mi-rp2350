@@ -28,6 +28,7 @@
 #include "dronecaster/dronecaster_tc.h"
 #include "dronecaster_engine_o3.h"   // -O3 Process() wrapper (lib/dronecaster_engine)
 #include "pico/time.h"               // time_us_32 (static inline in pico-sdk 2.x)
+#include "stmlib/dsp/dsp.h"          // stmlib::Clip16
 
 #include "rack_arena.h"
 #include "module_registry.h"         // RackModDestinations (T3 mod routing table)
@@ -229,7 +230,8 @@ void render() {
   const float gain = g_render_gain;
   uint32_t w0 = time_us_32();
   for (size_t i = 0; i < kBlockSize; ++i) {
-    const int16_t out = static_cast<int16_t>(l[i] * gain * 32768.0f);
+    const int16_t out = stmlib::Clip16(
+        static_cast<int32_t>(l[i] * 32768.0f * gain));
     i2s.write16(out, out);
   }
   if (time_us_32() - w0 > kStallUs) ++i2s_stall_count;

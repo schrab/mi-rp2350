@@ -3323,9 +3323,11 @@ void loop() {
       // params/voices/delay/lfo/master; reset on print.
       char lira8_tail[64] = "";
       if (g_active_module == RACK_MODULE_LIRA8) {
+        const uint32_t sensor_mask = __atomic_load_n(
+            &rack_modules::mod_lira8::sensor_mask, __ATOMIC_RELAXED);
         uint8_t n = 0;
         for (uint8_t v = 0; v < 8; ++v)
-          if (rack_modules::mod_lira8::s->sensor_mask & (1u << v)) ++n;
+          if (sensor_mask & (1u << v)) ++n;
         l8pd::Lira8Engine& e = rack_modules::mod_lira8::s->eng;
         snprintf(lira8_tail, sizeof(lira8_tail),
                  "sens=%u st=%lu/%lu/%lu/%lu/%lu", n,

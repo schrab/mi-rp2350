@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 #include "pd_primitives.h"
 #include "lira8_tc.h"
@@ -63,6 +64,7 @@ class Lira8Engine {
                 ModDelay(sr, cap_ms, kBlockSize,
                          delay_mem ? delay_mem + (nsamps_for(cap_ms, sr) + 4)
                                    : nullptr)},
+        delay_filters_{DelayFilterChain(sr), DelayFilterChain(sr)},
         comp_{Compander(sr), Compander(sr)},
         exp_{Expander(sr), Expander(sr)},
         self_lpf_{Lop(689.0f, sr), Lop(689.0f, sr)},
@@ -77,8 +79,6 @@ class Lira8Engine {
     memset(buses_prev_, 0, sizeof(buses_prev_));
     memset(bus_next_, 0, sizeof(bus_next_));
     memset(self_prev_, 0, sizeof(self_prev_));
-    memset(self_next_, 0, sizeof(self_next_));
-    memset(self_buf_, 0, sizeof(self_buf_));
     memset(write_buf_, 0, sizeof(write_buf_));
     memset(vd_out_, 0, sizeof(vd_out_));
     memset(exp_out_, 0, sizeof(exp_out_));
@@ -104,7 +104,9 @@ class Lira8Engine {
   // 36 andor, 37 link, 38-39 time, 40 feedback, 41 del-mix, 42-43 mod-1/2,
   // 44 del-mod, 45 lfo-wav, 46 quantize.
   static constexpr int kNumParams = 47;
-  void set_param(int idx, float v127) { pending_params_[idx] = v127; }
+  void set_param(int idx, float v127) {
+    __atomic_store_n(&pending_params_[idx], encode_param(v127), __ATOMIC_RELAXED);
+  }
 
   // Stage-profile maxima (microseconds, max since the last read; the
   // PORTING-HIGHLIGHTS §6 pattern — on-device only, host ignores them).
@@ -147,6 +149,26 @@ class Lira8Engine {
   }
 
  private:
+  friend struct Lira8EngineTestAccess;
+
+  static_assert(sizeof(float) == sizeof(uint32_t) &&
+                    std::numeric_limits<float>::is_iec559,
+                "LIRA-8 parameter slots require IEEE-754 binary32 floats");
+  static_assert(__atomic_always_lock_free(sizeof(uint32_t), nullptr),
+                "LIRA-8 parameter slots require lock-free 32-bit atomics");
+  static constexpr uint32_t kEmptyParam = 0xbf800000u;  // -1.0f bits
+
+  static uint32_t encode_param(float value) {
+    uint32_t bits;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+  }
+  static float decode_param(uint32_t bits) {
+    float value;
+    std::memcpy(&value, &bits, sizeof(value));
+    return value;
+  }
+
   void apply_defaults() {
     // parameters.txt defaults (spec §12; fractional values kept as floats)
     static const float def[kNumParams] = {
@@ -167,7 +189,7 @@ class Lira8Engine {
     };
     for (int i = 0; i < kNumParams; ++i) {
       params_[i] = def[i];
-      pending_params_[i] = -1.0f;
+      __atomic_store_n(&pending_params_[i], kEmptyParam, __ATOMIC_RELAXED);
     }
     for (int i = 0; i < 8; ++i) {
       sensor_state_[i] = false;
@@ -231,11 +253,15 @@ class Lira8Engine {
     // apply pending control changes between blocks (rack discipline)
     bool changed[kNumParams];
     bool dirty = false;
+    // Independent last-write-wins slots. Exchange consumes and clears each
+    // slot atomically, so a concurrent store cannot land between those steps.
     for (int i = 0; i < kNumParams; ++i) {
-      changed[i] = pending_params_[i] >= 0.0f;
+      const uint32_t bits = __atomic_exchange_n(&pending_params_[i], kEmptyParam,
+                                                __ATOMIC_RELAXED);
+      const float value = decode_param(bits);
+      changed[i] = value >= 0.0f;
       if (changed[i]) {
-        params_[i] = pending_params_[i];
-        pending_params_[i] = -1.0f;
+        params_[i] = value;
         dirty = true;
       }
     }
@@ -303,6 +329,14 @@ class Lira8Engine {
     memcpy(buses_prev_, bus_next_, sizeof(buses_prev_));
   }
 
+  // Called after this bus has consumed its previous SELF block. Filter
+  // the new float writes before quantization for the next block's reads.
+  LIRA8_TC(lira_engine_stage_self)
+  void stage_self(int bus) {
+    for (int i = 0; i < kBlockSize; ++i)
+      self_prev_[bus][i] = self_lpf_[bus].process(write_buf_[bus][i] * 0.5f);
+  }
+
   LIRA8_TC(lira_engine_delay)
   void render_delay() {
     static const float kInv6 = 0.1666667f;
@@ -343,28 +377,18 @@ class Lira8Engine {
         rp[i] = t + (self * gate_self + lfo * gate_lfo) * ma;
       }
       delays_[b].read_block(rp, kBlockSize, vd_out_[b]);
-      // SELF = the recent FLOAT audio (the previous block's writes replayed
-      // per sample). pd's SELF vd~ (unconnected time inlet) holds ONE sample
-      // across the block, so its delay-time modulation is a 500 Hz
-      // staircase — that is the SELF mode's grit. Replaying the block keeps
-      // the "modulated by its own output" law while smoothing the time
-      // signal.
-      for (int i = 0; i < kBlockSize; ++i)
-        self_next_[b][i] = self_lpf_[b].process(self_buf_[b][i]) * 0.5f;
 
-      // chain: hip~1 -> lop~4000 -> comp -> exp
+      // chain: own hip~1 -> lop~4000 -> comp -> exp
       for (int i = 0; i < kBlockSize; ++i) {
-        chain_buf_[i] = comp_[b].process(
-            lop4k_.process(hip1_.process(vd_out_[b][i])));
+        chain_buf_[i] = comp_[b].process(delay_filters_[b].process(vd_out_[b][i]));
       }
       exp_[b].process_block(chain_buf_, kBlockSize, exp_out_[b]);
       // write = [19] + own feedback * shared smoothed gain
       for (int i = 0; i < kBlockSize; ++i) {
         write_buf_[b][i] = write_sum[i] + exp_out_[b][i] * fg[i];
       }
+      stage_self(b);
       delays_[b].write_block(write_buf_[b], kBlockSize);
-      // The SELF source for the NEXT block (float, unquantized).
-      memcpy(self_buf_[b], write_buf_[b], sizeof(self_buf_[b]));
     }
     // wet monitor: (exp1+exp2)/2 / max(g,1.5) -> tanh -> mix with dry
     for (int i = 0; i < kBlockSize; ++i) {
@@ -380,12 +404,12 @@ class Lira8Engine {
                            (27.0f + 9.0f * wet * wet);
       delay_out_[i] = shaped * dm + in_sum[i] * (1.0f - dm);
     }
-    memcpy(self_prev_, self_next_, sizeof(self_prev_));
   }
 
   float sr_;
   VoicePair pairs_[4];
   ModDelay delays_[2];
+  DelayFilterChain delay_filters_[2];
   Compander comp_[2];
   Expander exp_[2];
   Lop self_lpf_[2];
@@ -394,7 +418,7 @@ class Lira8Engine {
   Noise noise_{Noise::first_instance_seed()};
 
   float params_[kNumParams];
-  float pending_params_[kNumParams];
+  uint32_t pending_params_[kNumParams];
   bool pending_sensors_[8];
   bool sensor_state_[8];
   float pending_sensor_levels_[8];
@@ -408,9 +432,7 @@ class Lira8Engine {
   float buses_prev_[kNumBuses][64];
   float bus_next_[kNumBuses][64];
   float blk_[4][64];
-  float self_prev_[2][64];
-  float self_next_[2][64];
-  float self_buf_[2][64];   // previous block's FLOAT writes (SELF source)
+  float self_prev_[2][64];  // previous block's filtered SELF modulator
   float vd_out_[2][64];
   float write_buf_[2][64];
   float exp_out_[2][64];
@@ -418,8 +440,6 @@ class Lira8Engine {
   float delay_out_[64];
   float out_buf_[64];
   int out_pos_ = 0;
-  Hip hip1_{1.0f, sr_};
-  Lop lop4k_{4000.0f, sr_};
 };
 
 }  // namespace l8pd

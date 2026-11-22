@@ -122,13 +122,15 @@ class LiraOsc {
     // with u = (p-1)/dt. The v1 port added +1 before the square on the
     // falling edge (computed -(u+2)^2) — the abs patch's polyblep computes
     // (p-1)/n + 1 = u+1 (verified from the abstraction's object graph).
+    // The rising and falling windows overlap when dt > 0.5; sum both gates.
     float blep1 = 0.0f;
     if (p <= dt) {
       const float t = p / dt;
       blep1 = (t - 1.0f) * (t - 1.0f);
-    } else if (p >= 1.0f - dt) {
+    }
+    if (p >= 1.0f - dt) {
       const float u = (p - 1.0f) / dt;
-      blep1 = -(u + 1.0f) * (u + 1.0f);
+      blep1 -= (u + 1.0f) * (u + 1.0f);
     }
     float p2 = p + pw;
     p2 -= static_cast<float>(static_cast<int>(p2));
@@ -136,9 +138,10 @@ class LiraOsc {
     if (p2 <= dt) {
       const float t = p2 / dt;
       blep2 = (t - 1.0f) * (t - 1.0f);
-    } else if (p2 >= 1.0f - dt) {
+    }
+    if (p2 >= 1.0f - dt) {
       const float u = (p2 - 1.0f) / dt;
-      blep2 = -(u + 1.0f) * (u + 1.0f);
+      blep2 -= (u + 1.0f) * (u + 1.0f);
     }
 
     const float A = (2.0f * p - 1.0f) + blep1;

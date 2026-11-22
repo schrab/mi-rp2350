@@ -2,8 +2,11 @@
 // Every assert encodes math verified against the patch (take-1/TAKE1 notes,
 // connect lists) — see test/lira8_ref/PORTING-SPEC.md + PD-PRIMITIVES.md.
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <initializer_list>
 #include "lira_osc.h"
 #include "lira_voice.h"
 
@@ -86,6 +89,103 @@ static void test_lira_osc() {
     ptri = tri;
   }
   CHECK(max_dt < 0.3f, "triangle smooth (max delta %.4f)", max_dt);
+}
+
+// Evaluate the two patch gates separately: for dt > 0.5 both may be on.
+static float reference_blep(float p, float dt) {
+  const float t = p / dt - 1.0f;
+  const float u = (p - 1.0f) / dt + 1.0f;
+  const float rising = p <= dt ? t * t : 0.0f;
+  const float falling = p >= 1.0f - dt ? -u * u : 0.0f;
+  return rising + falling;
+}
+
+static void test_lira_osc_blep_overlap() {
+  for (float sr : {32000.0f, 44100.0f}) {
+    LiraOsc osc(sr);
+    const float dt = 0.75f;
+    // Match the oscillator's reciprocal multiplication exactly at both rates.
+    const float freq = dt / (1.0f / sr);
+    CHECK(freq * (1.0f / sr) == dt, "overlap setup dt=0.75 sr=%.0f", sr);
+    const float phases[] = {0.0f, 0.75f, 0.5f, 0.25f};
+    for (int i = 0; i < 8; ++i) {
+      // Output-then-increment: the first observed wrap is sample 2.
+      // At samples 2/3 p is inside the overlap; at sample 3 p2 is too.
+      const float p = phases[i % 4];
+      const float pw = i < 2 ? 0.0f : 0.375f;
+      float p2 = p + pw;
+      if (p2 >= 1.0f) p2 -= 1.0f;
+      const float A = (2.0f * p - 1.0f) + reference_blep(p, dt);
+      const float B = (2.0f * p2 - 1.0f) + reference_blep(p2, dt);
+      const float expected = 0.59f * (A - B + 2.0f * pw - 1.0f);
+      float sq, tri;
+      osc.process(freq, 0.375f, sq, tri);
+      CHECK(near(sq, expected, 1e-6f),
+            "BLEP overlap sr=%.0f sample=%d p=%.2f p2=%.3f "
+            "got=%.9g expected=%.9g", sr, i, p, p2, sq, expected);
+    }
+  }
+}
+
+static uint32_t float_bits(float value) {
+  uint32_t bits;
+  static_assert(sizeof(bits) == sizeof(value), "32-bit float required");
+  std::memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+static void test_lira_osc_fast_paths() {
+  constexpr int kSamples = 48000;
+  constexpr int kBlock = 64;
+  const float pwms[] = {-0.25f, 0.0f, 0.375f, 0.53125f, 1.0f, 1.25f};
+  const char* paths[] = {"process_const", "process_freq_prepared"};
+  for (float sr : {32000.0f, 44100.0f}) {
+    // Exercise fabs, the low/high cutoff clamps, zero/tiny dt, and BLEP
+    // overlap. Frequencies change only at 64-sample block boundaries.
+    const float freqs[] = {0.0f, 1e-6f, 55.0f, -220.0f, 400.0f, 401.0f,
+                           1000.0f, sr * 0.25f, sr * 0.5f, sr * 0.75f,
+                           -sr * 1.25f, sr * 3.0f};
+    for (int pwm_case = 0; pwm_case < 7; ++pwm_case) {
+      LiraOsc general(sr), constant(sr), coeff(sr);
+      int mismatches[2] = {};
+      int first_mismatch[2] = {-1, -1};
+      int nonfinite = 0;
+      for (int i = 0; i < kSamples; ++i) {
+        const float freq = freqs[(i / kBlock) % 12];
+        if (i % kBlock == 0) {
+          constant.prepare(freq);
+          coeff.prepare_coeff(freq);
+        }
+        // Six fixed PWM cases plus a per-sample-changing clamp/wrap case.
+        const float pwm = pwm_case < 6 ? pwms[pwm_case]
+                                      : pwms[(i / 7) % 6];
+        float sq[3], tri[3];
+        general.process(freq, pwm, sq[0], tri[0]);
+        constant.process_const(pwm, sq[1], tri[1]);
+        coeff.process_freq_prepared(freq, pwm, sq[2], tri[2]);
+        if (!std::isfinite(sq[0]) || !std::isfinite(tri[0])) ++nonfinite;
+        for (int path = 0; path < 2; ++path) {
+          if (float_bits(sq[0]) != float_bits(sq[path + 1]) ||
+              float_bits(tri[0]) != float_bits(tri[path + 1])) {
+            if (first_mismatch[path] < 0) first_mismatch[path] = i;
+            ++mismatches[path];
+          }
+        }
+      }
+      CHECK(nonfinite == 0, "osc nonfinite sr=%.0f pwm_case=%d count=%d",
+            sr, pwm_case, nonfinite);
+      for (int path = 0; path < 2; ++path) {
+        CHECK(mismatches[path] == 0,
+              "%s bit identity sr=%.0f pwm_case=%d mismatches=%d first=%d",
+              paths[path], sr, pwm_case, mismatches[path], first_mismatch[path]);
+      }
+      printf("osc equivalent inputs: sr=%.0f pwm_case=%d samples=%d "
+             "const_mismatches=%d coeff_mismatches=%d\n",
+             sr, pwm_case, kSamples, mismatches[0], mismatches[1]);
+    }
+  }
+  // A coefficient prepared at base tune while per-sample vibrato changes
+  // frequency is a deliberate approximation, outside this equivalence gate.
 }
 
 static void test_sensor_env() {
@@ -225,6 +325,8 @@ static void test_pd_random() {
 
 int main() {
   test_lira_osc();
+  test_lira_osc_blep_overlap();
+  test_lira_osc_fast_paths();
   test_sensor_env();
   test_voice_pair();
   test_pd_random();

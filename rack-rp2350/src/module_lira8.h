@@ -43,6 +43,7 @@
 #include "lira8/lira_harmony.h"  // ARP-driven voice pitch (T8b)
 #include "lira8_engine_o3.h"     // -O3 Process() wrapper (lib/lira8_engine)
 #include "pico/time.h"           // time_us_32 (static inline in pico-sdk 2.x)
+#include "stmlib/dsp/dsp.h"      // stmlib::Clip16
 
 #include "rack_arena.h"
 #include "module_registry.h"     // RackModDestinations (T3 mod routing table)
@@ -131,6 +132,12 @@ static const RackModDestinations kModDestinations = {
     8, kModTriggerCcs, kModTriggerKinds,
 };
 
+// Stable report storage: chain reinitialization replaces arena State while
+// telemetry can still run. Never tie this mask's lifetime to that State.
+static uint32_t sensor_mask = 0;  // bit N = sensor N+1 requested ON
+static_assert(__atomic_always_lock_free(sizeof(uint32_t), nullptr),
+              "sensor report mask requires lock-free 32-bit atomics");
+
 // --- engine state: arena-placed (the engine BY VALUE; the delay buffers
 // carve from the caller's pool region at init) ---
 struct State {
@@ -140,10 +147,8 @@ struct State {
   volatile bool     pluck_active;
   volatile uint32_t pluck_until_ms;
 
-  // 2 s report mirrors (core 0 publishes the requested state, core 1 the
-  // output RMS).
+  // 2 s output RMS report mirror (core 1 -> core 0).
   volatile float    out_rms_report;
-  volatile uint8_t  sensor_mask;   // bit N = sensor N+1 requested ON
 
   // T8b ARP-driven pitch. arp_pitch_mode = CC 54 (core 0 write); the group
   // mask/seq/override are audio-core state (apply_arp_pitch); the override
@@ -159,7 +164,6 @@ struct State {
         pluck_active(false),
         pluck_until_ms(0),
         out_rms_report(0.0f),
-        sensor_mask(0),
         arp_pitch_mode(false),
         arp_group_mask(0),
         arp_seq_seen(0),
@@ -174,6 +178,7 @@ static constexpr size_t buf_bytes() { return kDelayBytes; }
 static constexpr size_t chain_buf_bytes() { return kChainDelayBytes; }
 
 void init_at(uint8_t* obj_base, uint8_t* buf_base) {
+  __atomic_store_n(&sensor_mask, uint32_t{0}, __ATOMIC_RELAXED);
   // Delay carve from the caller's pool region (44.1 kHz standalone context);
   // the pool union discipline means only the active resident set is live.
   memset(buf_base, 0, kDelayBytes);
@@ -193,6 +198,7 @@ void init() {
 // smaller 1 s delay carve (128,016 B) is what makes lira8->clouds fit the
 // unified pool alongside clouds' 128 KiB chained buffers.
 void init_chain_a(uint8_t* obj_base, uint8_t* buf_base) {
+  __atomic_store_n(&sensor_mask, uint32_t{0}, __ATOMIC_RELAXED);
   memset(buf_base, 0, kChainDelayBytes);
   s = new (obj_base) State(reinterpret_cast<int16_t*>(buf_base),
                            static_cast<float>(kChainSampleRate));
@@ -209,8 +215,10 @@ static inline bool is_sensor_note(uint8_t note) {
 static void set_sensor(int8_t idx, bool on, float level = 1.0f) {
   s->eng.set_sensor(idx, on, level);
   if (idx >= 0 && idx < 8) {
-    if (on) s->sensor_mask |= (1u << idx);
-    else    s->sensor_mask &= ~(1u << idx);
+    if (on) __atomic_fetch_or(&sensor_mask, uint32_t{1} << idx,
+                              __ATOMIC_RELAXED);
+    else    __atomic_fetch_and(&sensor_mask, ~(uint32_t{1} << idx),
+                               __ATOMIC_RELAXED);
   }
 }
 
@@ -321,7 +329,8 @@ void render() {
   const float gain = g_render_gain;
   uint32_t w0 = time_us_32();
   for (size_t i = 0; i < kBlockSize; ++i) {
-    const int16_t out = static_cast<int16_t>(l[i] * gain * 32768.0f);
+    const int16_t out = stmlib::Clip16(
+        static_cast<int32_t>(l[i] * 32768.0f * gain));
     i2s.write16(out, out);
   }
   if (time_us_32() - w0 > kStallUs) {

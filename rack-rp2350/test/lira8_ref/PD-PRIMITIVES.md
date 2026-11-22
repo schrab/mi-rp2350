@@ -54,11 +54,11 @@ each block: for (count = phase; count < npoints; count += realperiod)
                 sumbuf[j] += w[count + i] * x[i]^2   // i over block, reversed
             sumbuf[last] = 0 after; phase -= n
 on phase < 0: result = sumbuf[0]; shift ring; phase = realperiod - n
-output (clock): powtodb(result) = (result <= 0 ? 0 : 100 + 20*log10(result))
+output (clock): powtodb(result) = (result < 1e-10 ? 0 : 100 + 10*log10(result))
 ```
-Probe staircase (step 1.0 at sample 19200, hop-aligned): amp 0.29979 →
-0.95298 → 1.00000 at +5/+13/+21 ms ticks, settle 100.0 dB, silence → 0 dB.
-Unit test encodes exactly these values (verbatim algorithm reproduces them).
+`result` is Hann-weighted power. Half power gives about 96.9897 dB and a
+sub-floor input gives 0 dB. At the primitive test's existing step alignment
+(`kStep=19318`), consecutive reports are about 94.76835, 99.94455, then 100 dB.
 
 ## osc~ / cos~ (d_osc.c, verbatim)
 
@@ -82,9 +82,12 @@ seed per instance (307·1319^k chain). Port: replicate exactly for goldens.
 
 ## line~ (d_ctl.c)
 
-Per-sample linear ramp: on (target, ms): inc = (target − cur)/(ms·sr/1000);
-first sample already moves; ms=0 jumps. (Probe-verified cadence consistent;
-final value reached exactly.)
+For `ms > 0`, the linear ramp uses `64 * max(1, floor(ms*sr/(1000*64)))`
+samples. For `ms <= 0`, it jumps immediately. At 44.1/32 kHz, 23.22 ms
+runs for 1024/704 samples and 11 ms runs for 448/320 samples.
+
+The port's `Ramp::next()` retains increment-first indexing. Pd emits the
+current value before incrementing.
 
 ## delay lines (d_delay.c + take-2)
 

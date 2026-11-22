@@ -247,7 +247,6 @@ HOLD 45 -7 0 14 #000000 #fcfcfc #000000 0 1;
 #X connect 30 0 24 0;
 #X connect 31 0 29 0;
 #X connect 32 0 26 0;
-#X connect 55 0 30 0;
 #X restore 29 750 pd gui.link;
 #X obj 29 710 declare -path ./abs;
 #N canvas 823 425 450 146 keyboard 0;
