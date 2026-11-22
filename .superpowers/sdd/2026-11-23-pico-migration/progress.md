@@ -68,6 +68,27 @@ combinations wedge at 307.2). Direct SDK rewrite, no Arduino shim layer.
 - Board stable across the session: renders ~3090 blocks/s, stalls 0,
   cc 72 100 lifted in= 0->597 (engine->DAC).
 
+## The page-update lag — root cause + fix (2026-11-23, dc9eb8a)
+
+- The Pico UI transport uses TWO rings: the ui_link app ring (4 KiB) and a
+  512-B staging ring ahead of the UART's 32-B HW FIFO. The staging ring
+  drained only lazily inside available_for_write()/write_bytes(), which the
+  tx pump calls only while the app ring is non-empty.
+- A full TELEM snapshot (~135 B wire) overflowed the 32-B HW FIFO in one
+  pass: 8 bytes entered, 127 B stranded in the staging ring, the pump (app
+  ring empty) never serviced them. Every snapshot stuck its tail; the C3's
+  page requests got replies that never arrived; the UI sat at "---" and the
+  freshness timer cycled it offline. The 8-B heartbeat keepalives flowed
+  fine, which masked the bug (size-dependent loss).
+- Instrumentation that found it: the RP2350's wire-byte counter (the drain's
+  actual FIFO pushes) + the C3's per-2s RX byte counter + the C3's
+  frame-level dispatch log. The 8-B frames parsed, the 135-B frames never
+  completed — the tail was stranded, not lost on the wire.
+- FIX: ui_uart_tx_service() exported; the pump calls it unconditionally
+  FIRST, every pass. Verified: 12/12 one-per-second full snapshots parsed
+  on the C3; page-request replies land in ~100 ms.
+- The MIDI-frame keepalive diagnostic was reverted to the 3-B echo frame.
+
 ## Known-open
 
 - Report carries temporary bench fields (c1/c1t/up/tu/st/hbw/mod) from the
