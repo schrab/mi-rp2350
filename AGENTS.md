@@ -5,13 +5,17 @@ Guide for coding agents working in this repository.
 ## What this repo is
 
 The rack synth monorepo: **`rack-rp2350/`** — one unified RP2350 firmware
-running six live-switchable modules (Elements, Clouds, Plaits 98-engine,
-Rings MiniElements, LIRA-8, Dronecaster) on the **NoLogo Mini USB RP2350** board (the
+running seven live-switchable modules (Elements, Clouds, Plaits 98-engine,
+Rings MiniElements, LIRA-8, Dronecaster, Benjolin) on the **NoLogo Mini USB RP2350** board (the
 "RP2350 nano" — see [`docs/rp2350-board.md`](docs/rp2350-board.md)) +
 PCM5102A I2S DAC,
 with native USB MIDI device, DIN MIDI, an ESP32-C3 UI link
 (**`rack-uimcu/`**) and a WS2812 status LED on GP22 — plus **`tools/`**
-(browser control panels, SysEx converter) and **`docs/`**.
+(browser control panels, SysEx converter, the flash/capture bench scripts)
+and **`docs/`**. A **Pico SDK build** (**`rack-pico/`**, benjolin-first
+scaffold) is replacing the Arduino/PlatformIO stack — see its README; the
+engines are included from `rack-rp2350/src` (the single source of truth),
+so the DSP work stays build-agnostic during the migration.
 
 **The vendored DSP libs in `rack-rp2350/lib/` are the source of truth.** They
 are edited directly. There is NO patch/sync layer: upstream Mutable
@@ -21,11 +25,14 @@ everything — the pristine sources live in history if a diff is ever needed).
 Do not regenerate or "sync" the libs, and do not reintroduce patches.
 
 `RACK_BOOT_MODULE` picks the boot module (0 elements / 1 clouds / 2 plaits /
-3 rings / 4 lira8 / 5 dronecaster — the env boots Elements); new modules
-continue the ids (6, 7, ...): add the adapter to `src/`, extend the
+3 rings / 4 lira8 / 5 dronecaster / 6 benjolin — the env boots Benjolin);
+new modules continue the ids (7, 8, ...): add the adapter to `src/`, extend the
 registry/window tables,
 bump the define in `platformio.ini`. Any module is reachable at runtime via
-MIDI CC 32 or the serial console.
+MIDI CC 32 or the serial console. The benjolin's parameter spec table lives
+in `src/module_benjolin.h` (kCcSpecs — the exact norns benjolis.lua
+ControlSpecs; per-parameter ranges/curves/defaults come from there, never
+invented).
 
 ## PicoCollider submodule
 
@@ -43,39 +50,52 @@ and hot-code token.
 
 | Document | What it holds |
 |---|---|
-| [`PicoCollider/`](PicoCollider/README.md) | **Reusable SC DSP kit** (git submodule): 26 header-only UGens + a 129-reference host gate. Source of truth for all `sc::*` ports; firmware/host include it via `-I` roots. |
-| [`.superpowers/sdd/progress.md`](.superpowers/sdd/progress.md) | **The ledger** — task status, commit hashes, and the authoritative investigation findings (build quirks, TinyUSB API facts, reverb root cause, FX chain law). Read this before debugging anything |
+| [`docs/HANDOFF-benjolin-2026-11-22.md`](docs/HANDOFF-benjolin-2026-11-22.md) | **The benjolin handoff** — what landed, the A/B rig usage, the device findings, the open items (the comparator/filter/budget/Pico migration), the gotchas |
+| [`PicoCollider/`](PicoCollider/README.md) | **Reusable SC DSP kit** (git submodule): 26 header-only UGens + a host gate (141 refs). Source of truth for all `sc::*` ports; firmware/host include it via `-I` roots. |
+| [`docs/ASSESSMENT-benjolin-port-2026-11-22.md`](docs/ASSESSMENT-benjolin-port-2026-11-22.md) | **The benjolin port assessment** — the pre-port audit (§1–§8) and the T6 device findings (§9: the port matches the NRT golden; norns is the live reference; the comparator/filter/budget plan) |
+| [`docs/superpowers/plans/2026-11-22-benjolin-port.md`](docs/superpowers/plans/2026-11-22-benjolin-port.md) | **The benjolin port plan** — the 6-task implementation plan the benjolin work executed |
+| [`.superpowers/sdd/2026-11-22-benjolin-port/progress.md`](.superpowers/sdd/2026-11-22-benjolin-port/progress.md) | **The benjolin ledger** — task status, commit hashes, rulings, and the golden-arbitration findings (the DPW/Filter2Pole next_a laws, the current-block filter freq, the CC-domain bugs). Read before debugging the benjolin |
+| [`.superpowers/sdd/progress.md`](.superpowers/sdd/progress.md) | **The master ledger** — task status, commit hashes, and the authoritative investigation findings (build quirks, TinyUSB API facts, reverb root cause, FX chain law). Read this before debugging anything |
 | [`docs/PORTING-HIGHLIGHTS.md`](docs/PORTING-HIGHLIGHTS.md) | Distilled porting experience: SRAM/XIP law, build rules, profiling pattern, acceptance checklist (its sync/patch sections are historical — that layer is gone) |
 | [`docs/rp2350-board.md`](docs/rp2350-board.md) | **Board reference** — NoLogo Mini USB RP2350 pinout (edge/Qwiic/pads), peripheral inventory, crystal/VREF/flash facts, and how the rack uses each pin |
-| [`rack-rp2350/README.md`](rack-rp2350/README.md) | **Rack firmware docs**: six modules, chain mode, SRAM pool, wiring, MIDI/CC maps, console, soak checklist |
+| [`rack-rp2350/README.md`](rack-rp2350/README.md) | **Rack firmware docs**: modules, chain mode, SRAM pool, wiring, MIDI/CC maps, console, soak checklist |
+| [`rack-pico/README.md`](rack-pico/README.md) | **The Pico SDK build** (benjolin-first scaffold replacing Arduino/PlatformIO): CMake, the PIO I2S out, the pin map, the scope, the DSPi reference |
 | [`rack-uimcu/README.md`](rack-uimcu/README.md) | ESP32-C3 UI firmware: pages, gestures, link protocol, build/flash |
-| [`tools/rack_panel.html`](tools/rack_panel.html) | Browser control panel for the rack build: CC 32 module switching (tabs), all CC maps, mod-engine bench mux (CC 33/34/35), optional Web Serial console |
+| [`tools/rack_panel.html`](tools/rack_panel.html) | Browser control panel for the rack build: CC 32 module switching (7 tabs), all CC maps, mod-engine bench mux (CC 33/34/35), optional Web Serial console |
+| [`tools/flash_rp2350.py`](tools/flash_rp2350.py) | **Windows-side RP2350 flash script**: the 1200-baud CDC touch → the BOOTSEL drive → the UF2 copy (the boards attach to Windows via usbipd; see the flash section) |
+| [`tools/bjdump_capture.py`](tools/bjdump_capture.py) | The benjolin device-output capture (the CC injection + the CDC dump) for the device-vs-host comparison |
 | [`tools/elements_panel.html`](tools/elements_panel.html) / [`tools/clouds_panel.html`](tools/clouds_panel.html) | Legacy single-module Web-MIDI panels (kept for reference) |
 | [`tools/syx2array.py`](tools/syx2array.py) | SysEx → C array converter |
-| `docs/superpowers/plans/` | Historical SDD plans (T1–T6, warps, combined) — context for the ledger |
+| `docs/superpowers/plans/` | Historical SDD plans (T1–T6, warps, combined, benjolin) — context for the ledger |
 
 ## Project layout
 
 ```
 rack-rp2350/
-├── platformio.ini        # ONE env: rack (RACK_BOOT_MODULE=4 → boots LIRA-8)
+├── platformio.ini        # ONE env: rack (RACK_BOOT_MODULE=6 → boots BENJOLIN)
 ├── memmap_rack.ld        # unified two-slot hot-code window + RACK_LMA region
 ├── src/
 │   ├── main.cpp          # core 0 control + core 1 audio/swap/chain pipeline
 │   ├── rack_arena.h      # unified 331,776 B SRAM pool + bump allocator
 │   ├── rack_window.h     # flash -> SRAM hot-code window copy
-│   ├── module_*.h        # six module adapters (elements/clouds/plaits/rings/lira8/dronecaster)
+│   ├── module_*.h        # seven module adapters (elements/clouds/plaits/rings/lira8/dronecaster/benjolin)
+│   ├── benjolin/         # benjolin engine (reference-exact \benjolis port, host-testable)
 │   ├── rack_dist.h       # shared 5-algo distortion (Rings + Elements pre-reverb insert; incl. the Swedish Chainsaw)
 │   ├── lira8/            # hand-ported LIRA-8 engine (pure C++, host-testable)
 │   ├── ui_link.h         # ESP32-C3 UI link (non-blocking TX ring)
-│   ├── preset.h          # T4a presets / autosave
+│   ├── preset.h          # T4a presets / autosave (blob v6: 7 modules)
 │   └── ...
+├── lib/                  # THE SOURCE OF TRUTH — vendored MI libs, edited directly:
 ├── lib/                  # THE SOURCE OF TRUTH — vendored MI libs, edited directly:
 │                         # elements (incl. warps) clouds plaits rings stmlib
 │                         # cmsis_dsp lira8_engine pio_usb
 └── test/                 # host test harness (plain g++, no MCU headers; run in WSL)
 
-rack-uimcu/               # ESP32-C3 UI firmware (ESP-IDF, tools/build_uimcu.bat)
+rack-pico/                # the Pico SDK build (benjolin-first scaffold replacing
+                          # Arduino/PlatformIO; CMake, the PIO I2S out, USB audio
+                          # capture is the next item — see rack-pico/README.md)
+rack-uimcu/               # ESP32-C3 UI firmware (ESP-IDF v6.1; the boards attach
+                          # to Windows via usbipd — see the flash section)
 ```
 
 ## Build, flash, monitor
@@ -83,12 +103,21 @@ rack-uimcu/               # ESP32-C3 UI firmware (ESP-IDF, tools/build_uimcu.bat
 ### Build
 
 ```sh
-# Rack (ACTIVE target, six modules, one unified firmware)
+# Rack (ACTIVE target, seven modules, one unified firmware)
 pio run -d rack-rp2350
 # → rack-rp2350/.pio/build/rack/firmware.uf2
 
+# Pico SDK build (the benjolin-first scaffold replacing Arduino/PlatformIO)
+export PATH=~/.local/bin:$PATH   # ninja (pip install --user ninja)
+PICO_SDK_PATH=~/.platformio/packages/framework-arduinopico/pico-sdk \
+  cmake -B rack-pico/build -S rack-pico -DPICO_BOARD=pico2 && \
+  cmake --build rack-pico/build
+# → rack-pico/build/rack_benjolin.uf2
+
 # Host tests (no g++ on Windows — run in WSL)
 cd rack-rp2350/test && make test
+# The benjolin gates (run the binary individually — see the ledger's canary note):
+cd rack-rp2350/test && make test_benjolin && ./build/test_benjolin
 ```
 
 ### RP2350 flash — 1200-baud touch → BOOTSEL mass storage → UF2
@@ -159,10 +188,17 @@ PY
 Rules:
 
 - Copy **firmware.uf2** only — the BOOTSEL drive does not accept `.bin`.
+- The boards attach to **Windows** via usbipd (`usbipd.exe attach --wsl
+  --busid <id>` — the RP2350 must be Shared first; the C3's JTAG is
+  pre-shared). The Windows-side flash script (COM ports + the drive letters)
+  avoids the WSL port juggling entirely:
+  `python \\wsl.localhost\Ubuntu\home\ubuntu\mi-rp2350\tools\flash_rp2350.py
+  \\wsl.localhost\...\rack-rp2350\.pio\build\rack\firmware.uf2 COM15`
+  (run from WSL via cmd.exe interop; see the script header).
 - Do **not** flash the C3 by copying a UF2 to that drive; C3 updates are
-  `idf.py` (Espressif USB-JTAG by-id):
-  `cd rack-uimcu && . /home/schrab/esp/esp-idf-v5.5.4/export.sh && idf.py -p <C3-ACM> flash`.
-  On Windows use `tools/build_uimcu.bat` (MSYSTEM/idf.py trap — see memory).
+  `idf.py` (Espressif USB-JTAG, the C3 attaches to WSL as /dev/ttyACM*):
+  `cd rack-uimcu && . /home/ubuntu/esp-idf-v6.1/export.sh && idf.py -p
+  /dev/ttyACM0 flash`. The sdkconfig is on esp-idf **v6.1**.
 - After a BOOTSEL flash the first console command can be garbled by stale
   bytes; send a newline (or retry `status`) before trusting the reply.
 - `stty` needs the port opened exclusively: one reader per port, ever.
