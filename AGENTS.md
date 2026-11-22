@@ -50,6 +50,7 @@ and hot-code token.
 
 | Document | What it holds |
 |---|---|
+| [`docs/HANDOFF-pico-phase2-2026-11-23.md`](docs/HANDOFF-pico-phase2-2026-11-23.md) | **The Pico SDK migration handoff** — the rack firmware on the Pico SDK + CMake, all 7 modules ear-accepted; the bring-up root causes (the core-1 harness, the i2s autopull, the I2S format, the silent-after-swap, the staging-ring drain), the phase-2 rig plan, the machine facts |
 | [`docs/HANDOFF-benjolin-2026-11-22.md`](docs/HANDOFF-benjolin-2026-11-22.md) | **The benjolin handoff** — what landed, the A/B rig usage, the device findings, the open items (the comparator/filter/budget/Pico migration), the gotchas |
 | [`PicoCollider/`](PicoCollider/README.md) | **Reusable SC DSP kit** (git submodule): 26 header-only UGens + a host gate (141 refs). Source of truth for all `sc::*` ports; firmware/host include it via `-I` roots. |
 | [`docs/ASSESSMENT-benjolin-port-2026-11-22.md`](docs/ASSESSMENT-benjolin-port-2026-11-22.md) | **The benjolin port assessment** — the pre-port audit (§1–§8) and the T6 device findings (§9: the port matches the NRT golden; norns is the live reference; the comparator/filter/budget plan) |
