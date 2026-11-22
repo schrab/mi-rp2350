@@ -142,6 +142,10 @@ __attribute__((constructor(101))) static void rack_pre_clock(void) {
 #include "pio_usb.h"             // Pico-PIO-USB (vendored in lib/pio_usb/)
 #endif
 
+// Shared-header time helper (rack-pico build parity — see its main.cpp):
+// the headers call rack_now_ms(); the Arduino arm maps it to millis().
+static inline uint32_t rack_now_ms() { return millis(); }
+
 #include "status_led.h"          // WS2812 status LED on GP22 (before midi.h)
 #include "midi.h"                // shared parser + telemetry externs + hooks
 #include "din_midi.h"            // T4 DIN 31250 byte parser -> 4-byte packets

@@ -1,0 +1,20 @@
+/* Rack memory regions (the memory_extra.incl override — this file exists in
+   the SDK as an empty hook whose documented purpose is adding extra memory
+   regions).
+
+   RACK_WINDOW  the two-slot module hot-code window at the top of main SRAM,
+                right below SCRATCH_X (0x20080000): the A-slot OVERLAY
+                members (elements/plaits/rings/lira8/dronecaster/benjolin)
+                start at ORIGIN, tc_clouds has its own B-slot section at
+                ORIGIN + RACK_CLOUDS_B_OFFSET (T6 chain mode — two module
+                images resident simultaneously).
+   RACK_LMA     reserved flash sub-region holding the tc_* flash copies
+                (overlay LMAs, assigned consecutively by explicit AT).
+                Top of flash minus the 4 KiB the Arduino build reserved for
+                EEPROM emulation at 0x103FF000 (parity layout; the Pico
+                build keeps presets on the C3 and does not use EEPROM). */
+MEMORY
+{
+    RACK_WINDOW(rwx) : ORIGIN = 0x20063000, LENGTH = 0x1D000
+    RACK_LMA(r) : ORIGIN = 0x10389000, LENGTH = 0x76000
+}

@@ -13,7 +13,8 @@
 #ifndef WARPS_DSP_RAM_CODE_H_
 #define WARPS_DSP_RAM_CODE_H_
 
-#if defined(ARDUINO_ARCH_RP2040) && defined(RACK_RP2350_TC)
+#if defined(RACK_RP2350_TC) && \
+    (defined(ARDUINO_ARCH_RP2040) || defined(RACK_PICO_BUILD))
 #define WARPS_RAM_CODE_PREFIX ".tc_elements.warps_"
 #define WARPS_RAM_CODE(token) \
   __attribute__((section(WARPS_RAM_CODE_PREFIX #token)))

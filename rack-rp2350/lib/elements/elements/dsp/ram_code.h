@@ -41,7 +41,7 @@
 #ifndef ELEMENTS_DSP_RAM_CODE_H_
 #define ELEMENTS_DSP_RAM_CODE_H_
 
-#if defined(ARDUINO_ARCH_RP2040)
+#if defined(ARDUINO_ARCH_RP2040) || defined(RACK_PICO_BUILD)
 #if defined(RACK_RP2350_TC)
 #define ELEMENTS_RAM_CODE_PREFIX ".tc_elements."
 #else

@@ -312,7 +312,7 @@ void ui_preset_apply_chunk(const uint8_t* pl, uint8_t len) {
 // ===================== autosave (core 0 loop, debounced) =================
 void preset_autosave_poll() {
   if (!g_preset_dirty) return;
-  if (millis() - g_preset_dirty_ms < 3000) return;
+  if (rack_now_ms() - g_preset_dirty_ms < 3000) return;
   g_preset_dirty = false;                    // settled — push once
   ui_preset_req_reply(0xFF);
 }
@@ -346,7 +346,7 @@ bool preset_collect_line(const char* line) {
     const int hi = hexval(*h++);
     const int lo = hexval(*h++);
     if (hi < 0 || lo < 0) {
-      Serial.printf("preset: row %u bad hex - aborting collect\r\n", row);
+      printf("preset: row %u bad hex - aborting collect\r\n", row);
       g_preset_collecting = false;
       g_preset_collect_have = 0;
       return true;
@@ -356,7 +356,7 @@ bool preset_collect_line(const char* line) {
   if (off + take > g_preset_collect_have) g_preset_collect_have = off + take;
   if (g_preset_collect_have >= kPresetSize) {
     g_preset_collecting = false;
-    Serial.printf("preset: blob collected (%u B, crc %04x) - 'preset load' "
+    printf("preset: blob collected (%u B, crc %04x) - 'preset load' "
                   "to apply\r\n", g_preset_collect_have,
                   preset_crc16(g_preset_collect, kPresetOffCrc));
   }
@@ -370,7 +370,7 @@ static void preset_cmd(const char* args) {
     if (g_chain.active)
       for (uint8_t p = 1; p <= 4; ++p)
         if (kPresetPairA[p] == g_chain.a) pair = p;
-    Serial.printf("preset: v%u, %u B, module=%s chain=%s pair=%u "
+    printf("preset: v%u, %u B, module=%s chain=%s pair=%u "
                   "bpm=%lu.%lu clk=%s dirty=%u seen=",
                   kPresetVersion, kPresetSize, kRackModules[g_active_module].name,
                   g_chain.active ? "on" : "off", pair,
@@ -384,15 +384,15 @@ static void preset_cmd(const char* args) {
         uint16_t v = g_ui_cc_seen[m][w];
         while (v) { seen_total += (v & 1); v >>= 1; }
       }
-    Serial.printf("%lu CCs\r\n", (unsigned long)seen_total);
-    Serial.println("preset: dump | load | apply | reload (bench: hex rows)");
+    printf("%lu CCs\r\n", (unsigned long)seen_total);
+    printf("%s\r\n", "preset: dump | load | apply | reload (bench: hex rows)");
     return;
   }
   if (strcasecmp(args, "dump") == 0) {
     uint8_t blob[kPresetBlobMax];
     const uint16_t n = preset_serialize(blob);
     const uint16_t rows = (uint16_t)((n + 23) / 24);
-    Serial.printf("preset: dump %u B in %u rows (paste into 'preset load')\r\n",
+    printf("preset: dump %u B in %u rows (paste into 'preset load')\r\n",
                   n, rows);
     for (uint16_t r = 0; r < rows; ++r) {
       const uint16_t off = (uint16_t)(r * 24);
@@ -402,27 +402,27 @@ static void preset_cmd(const char* args) {
       int p = snprintf(line, sizeof(line), "PR%02x:", (unsigned)r);
       for (uint16_t i = 0; i < take; ++i)
         p += snprintf(line + p, sizeof(line) - p, "%02x", blob[off + i]);
-      Serial.println(line);
+      printf("%s\r\n", line);
     }
     return;
   }
   if (strcasecmp(args, "collect") == 0) {
     g_preset_collecting = true;
     g_preset_collect_have = 0;
-    Serial.printf("preset: collecting - send %u PRxx rows "
+    printf("preset: collecting - send %u PRxx rows "
                   "(24 B each, 'preset dump' prints them)\r\n",
                   (kPresetSize + 23) / 24);
     return;
   }
   if (strcasecmp(args, "load") == 0) {
     if (g_preset_collecting) {
-      Serial.println("preset: already collecting - send PRxx rows");
+      printf("%s\r\n", "preset: already collecting - send PRxx rows");
       return;
     }
     if (g_preset_collect_have < kPresetSize) {
       g_preset_collecting = true;
       g_preset_collect_have = 0;
-      Serial.printf("preset: collecting - send %u PRxx rows "
+      printf("preset: collecting - send %u PRxx rows "
                     "(24 B each, 'preset dump' prints them)\r\n",
                     (kPresetSize + 23) / 24);
       return;
@@ -432,19 +432,19 @@ static void preset_cmd(const char* args) {
   }
   if (strcasecmp(args, "apply") == 0 || strcasecmp(args, "reload") == 0) {
     if (g_preset_collect_have < kPresetSize) {
-      Serial.println("preset: no collected blob (run 'preset load' + rows)");
+      printf("%s\r\n", "preset: no collected blob (run 'preset load' + rows)");
       return;
     }
     char why[64];
     if (!preset_validate(g_preset_collect, kPresetSize, why, sizeof(why))) {
-      Serial.printf("preset: REJECTED (%s) - 'preset collect' + fresh rows "
+      printf("preset: REJECTED (%s) - 'preset collect' + fresh rows "
                   "to retry\r\n", why);
       return;
     }
-    Serial.printf("preset: blob valid (%s) - applying\r\n", why);
+    printf("preset: blob valid (%s) - applying\r\n", why);
     preset_apply_blob(g_preset_collect);
     ui_link_send_telem(g_ui_active_page, kUiTelemFull, 0);
     return;
   }
-  Serial.println("preset: usage [status|dump|collect|load|apply|reload]");
+  printf("%s\r\n", "preset: usage [status|dump|collect|load|apply|reload]");
 }

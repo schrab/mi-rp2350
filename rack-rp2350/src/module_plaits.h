@@ -497,7 +497,7 @@ void button_trig(bool down) {
     s->pluck_restore = s->trig_latched;
     s->trig_latched = true;
     s->pending_trig_pulse = true;   // -> pending_trigger 1.0 (accent ceiling)
-    s->pluck_until_ms = millis() + kPluckWindowMs;
+    s->pluck_until_ms = rack_now_ms() + kPluckWindowMs;
     s->pluck_active = !s->pluck_restore;
   } else if (s->pluck_active) {
     s->trig_latched = false;
@@ -508,7 +508,7 @@ void button_trig(bool down) {
 // Core-1 render hook (top of render / chain_render_a): end the pluck window
 // on time — the drone returns without waiting for the button release.
 void pluck_poll() {
-  if (s->pluck_active && millis() >= s->pluck_until_ms) {
+  if (s->pluck_active && rack_now_ms() >= s->pluck_until_ms) {
     s->trig_latched = false;
     s->pluck_active = false;
   }

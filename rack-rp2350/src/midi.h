@@ -25,8 +25,13 @@
 #pragma once
 #include <stdint.h>
 
+#if defined(RACK_PICO_BUILD)
+#include <pico/stdlib.h>         // to_ms_since_boot for the stuck-gate watchdog
+#include "rack_i2s.h"            // extern RackI2sOut i2s below (rack-pico build)
+#else
 #include <Arduino.h>             // millis() for the stuck-gate watchdog
 #include <I2S.h>                 // extern I2S i2s below
+#endif
 
 // --- shared MIDI state (core0 writes, core1 reads; DEFINED in main.cpp) ---
 extern volatile float shared_note;         // top note + bend, semitones
@@ -56,7 +61,11 @@ extern volatile uint32_t i2s_stall_count;  // slow I2S write-block loops
 // main.cpp.
 extern volatile float g_render_gain;
 
+#if defined(RACK_PICO_BUILD)
+extern RackI2sOut i2s;                     // defined in rack_i2s.cpp (OUTPUT)
+#else
 extern I2S i2s;                            // defined in main.cpp (OUTPUT)
+#endif
 
 // --- module registry dispatch (DEFINED in main.cpp; the registry routes to
 // the ACTIVE adapter's hooks — all four adapters compile in every env) ---
@@ -200,7 +209,11 @@ static void applyNote() {
 inline void midiNoteOn(uint8_t note, uint8_t vel) {
   note_stack.push(note);          // retrigger: moves to top, no duplicate
   ++note_on_count;
+  #if defined(RACK_PICO_BUILD)
+  last_note_event_ms = to_ms_since_boot(get_absolute_time());
+#else
   last_note_event_ms = millis();
+#endif
   if (mod_arp_wants_midi_notes()) {
     // Rings VARG chord mode keeps the strum path alive; lira8 sensor pads
     // keep their own gate; everything else only transposes the ARP root.
@@ -222,7 +235,11 @@ inline void midiNoteOn(uint8_t note, uint8_t vel) {
 
 inline void midiNoteOff(uint8_t note) {
   note_stack.remove(note);
+  #if defined(RACK_PICO_BUILD)
+  last_note_event_ms = to_ms_since_boot(get_absolute_time());
+#else
   last_note_event_ms = millis();
+#endif
   if (mod_arp_wants_midi_notes()) {
     if (rack_rings_varg_chord_on()) {
       rack_module_note_off(note);

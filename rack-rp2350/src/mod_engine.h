@@ -2603,33 +2603,33 @@ void mod_engine_cmd_mod(const char* args) {
   const char* p = args;
   char tok[32];
   if (!mod_next_token(p, tok, sizeof(tok))) {
-    Serial.println("usage: mod <0-11|lfo1-4|eu1-2|gate1-2|adsr1-2|arp1-2> <param> <value>");
+    printf("%s\r\n", "usage: mod <0-11|lfo1-4|eu1-2|gate1-2|adsr1-2|arp1-2> <param> <value>");
     return;
   }
   const int8_t src = mod_parse_source(tok);
   if (src < 0) {
-    Serial.println("mod: unknown source (0-11 or lfo1-4 / eu1-2 / gate1-2 / adsr1-2 / arp1-2)");
+    printf("%s\r\n", "mod: unknown source (0-11 or lfo1-4 / eu1-2 / gate1-2 / adsr1-2 / arp1-2)");
     return;
   }
   if (!mod_next_token(p, tok, sizeof(tok))) {
-    Serial.println("mod: missing param (mod? lists every param per source)");
+    printf("%s\r\n", "mod: missing param (mod? lists every param per source)");
     return;
   }
   const int8_t param = mod_parse_param((uint8_t)src, tok);
   if (param < 0) {
-    Serial.printf("mod: unknown param for this source (try: %s..)\r\n",
+    printf("mod: unknown param for this source (try: %s..)\r\n",
                   kModParamNames[g_mod_engine.src[src].type][0]);
     return;
   }
   if (!mod_next_token(p, tok, sizeof(tok))) {
-    Serial.println("mod: missing value");
+    printf("%s\r\n", "mod: missing value");
     return;
   }
   if (!mod_set_param_console((uint8_t)src, (uint8_t)param, tok)) {
     const char* pname = (param < mod_param_count_of(g_mod_engine.src[src].type))
         ? kModParamNames[g_mod_engine.src[src].type][param]
         : (param == 10 ? "root" : (param == 11 ? "scale" : "mask"));
-    Serial.printf("mod: bad value '%s' for %s\r\n", tok, pname);
+    printf("mod: bad value '%s' for %s\r\n", tok, pname);
   }
 }
 
@@ -2638,22 +2638,22 @@ static void mod_print_dest_state(uint8_t src_idx) {
   ModEngine& e = g_mod_engine;
   const ModSource& s = e.src[src_idx];
   if (s.dest_cc == 0) {
-    Serial.print("dest=0(off)");
+    printf("dest=0(off)");
     return;
   }
   const RackModuleInfo& m = kRackModules[g_active_module];
   const RackModDestinations* d = m.mod_destinations;
   if (s.dest_cc == MOD_DEST_VOICE) {
-    Serial.printf("dest=127(voice on %s)", m.name);
+    printf("dest=127(voice on %s)", m.name);
     return;
   }
   if (g_active_module == RACK_MODULE_LIRA8 && (s.dest_cc == 25 || s.dest_cc == 26)) {
-    Serial.printf("dest=%u(lira8 group %s pitch on %s)", s.dest_cc,
+    printf("dest=%u(lira8 group %s pitch on %s)", s.dest_cc,
                   s.dest_cc == 25 ? "low" : "high", m.name);
     return;
   }
   if (mod_is_chain_b_dest(s.dest_cc)) {
-    Serial.printf("dest=%u(chain-B clouds on %s)", s.dest_cc, m.name);
+    printf("dest=%u(chain-B clouds on %s)", s.dest_cc, m.name);
     return;
   }
   const bool is_voice_pitch = (s.dest_cc == 1 || s.dest_cc == 42);
@@ -2675,7 +2675,7 @@ static void mod_print_dest_state(uint8_t src_idx) {
   else if (can_continuous && cont) snprintf(tag, sizeof(tag), "cont");
   else if (can_trigger && trig) snprintf(tag, sizeof(tag), "trig");
   else snprintf(tag, sizeof(tag), "INERT!");
-  Serial.printf("dest=%u(%s on %s)", s.dest_cc, tag, m.name);
+  printf("dest=%u(%s on %s)", s.dest_cc, tag, m.name);
 }
 
 static const char* mod_print_fixed(char* buf, size_t n, float v) {  // "x.yy"
@@ -2692,7 +2692,7 @@ void mod_engine_cmd_modq(const char* args) {
   char b1[16], b2[16], b3[16], b4[16], b5[16];  // distinct: snprintf evaluates
                                                 // every arg BEFORE printing
   const uint32_t bpm10 = (uint32_t)(e.bpm * 10.0f + 0.5f);
-  Serial.printf("mod: clock global=%s bpm=%lu.%lu | midi running=%u measured=%s bpm ticks=%lu stamps_dropped=%lu\r\n",
+  printf("mod: clock global=%s bpm=%lu.%lu | midi running=%u measured=%s bpm ticks=%lu stamps_dropped=%lu\r\n",
                 e.global_clock ? "midi" : "internal",
                 (unsigned long)(bpm10 / 10), (unsigned long)(bpm10 % 10),
                 (unsigned)e.midi_running,
@@ -2702,7 +2702,7 @@ void mod_engine_cmd_modq(const char* args) {
   for (uint8_t i = 0; i < MOD_SOURCE_COUNT; ++i) {
     const ModSource& s = e.src[i];
     static const char* const kClk[3] = {"global", "internal", "midi"};
-    Serial.printf("mod: %2u %-5s clk=%-8s div=%-5s ", i,
+    printf("mod: %2u %-5s clk=%-8s div=%-5s ", i,
                   s.type == MOD_LFO ? "LFO" : s.type == MOD_EUCLID ? "EU"
                   : s.type == MOD_GATE ? "GATE" : s.type == MOD_ADSR ? "ADSR" : "ARP",
                   kClk[s.clock_sel], kModDivisions[s.division].name);
@@ -2710,7 +2710,7 @@ void mod_engine_cmd_modq(const char* args) {
       case MOD_LFO: {
         static const char* const kWave[MOD_WAVE_SH_COUNT] = {
             "sine", "tri", "saw", "square", "sh"};
-        Serial.printf("mode=%-7s rate=%sHz wave=%-6s phase=%lu level=%s out=%s",
+        printf("mode=%-7s rate=%sHz wave=%-6s phase=%lu level=%s out=%s",
                       s.p.lfo.hz_mode ? "hz" : "clocked",
                       mod_print_fixed(b1, sizeof(b1), s.p.lfo.rate_hz),
                       kWave[s.p.lfo.wave],
@@ -2720,13 +2720,13 @@ void mod_engine_cmd_modq(const char* args) {
         break;
       }
       case MOD_EUCLID:
-        Serial.printf("steps=%u pulses=%u rot=%u mask=0x%08lx step=%u ticks=%lu",
+        printf("steps=%u pulses=%u rot=%u mask=0x%08lx step=%u ticks=%lu",
                       s.p.eu.steps, s.p.eu.pulses, s.p.eu.rot,
                       (unsigned long)s.p.eu.mask, s.p.eu.step,
                       (unsigned long)s.p.eu.ticks);
         break;
       case MOD_GATE:
-        Serial.printf("mode=%-4s dens=%2u sync=%3u%% mask=0x%04x glen=%s step=%u ticks=%lu out=%s",
+        printf("mode=%-4s dens=%2u sync=%3u%% mask=0x%04x glen=%s step=%u ticks=%lu out=%s",
                       kTrancePresetNames[s.p.gate.mode <= 18 ? s.p.gate.mode : 0],
                       s.p.gate.density,
                       (unsigned int)((s.p.gate.syncopation * 100 + 127) / 255),
@@ -2736,7 +2736,7 @@ void mod_engine_cmd_modq(const char* args) {
                       mod_print_fixed(b2, sizeof(b2), s.out));
         break;
       case MOD_ADSR:
-        Serial.printf("mode=%s atk=%sms dec=%sms sus=%s rel=%sms out=%s",
+        printf("mode=%s atk=%sms dec=%sms sus=%s rel=%sms out=%s",
                       s.p.adsr.retrig ? "retrig" : "gate",
                       mod_print_fixed(b1, sizeof(b1), s.p.adsr.a_s * 1000.0f),
                       mod_print_fixed(b2, sizeof(b2), s.p.adsr.d_s * 1000.0f),
@@ -2762,7 +2762,7 @@ void mod_engine_cmd_modq(const char* args) {
         const ModArpExt& ext = e.arp_ext[s.p.arp.ext_idx];
         const char* root_str = (s.p.arp.root_param < 16)
                              ? kRootNames[s.p.arp.root_param] : "fix";
-        Serial.printf("algo=%s(%uoct) root=%s scale=%s neo_op=%s oct=%+doct p1=%u p2=%u p3=%u p4=%u deg=%d note=%u step=%u out=%s",
+        printf("algo=%s(%uoct) root=%s scale=%s neo_op=%s oct=%+doct p1=%u p2=%u p3=%u p4=%u deg=%d note=%u step=%u out=%s",
                       kAlgo[s.p.arp.algo % MOD_ARP_ALGO_COUNT], s.p.arp.range,
                       root_str,
                       kSc[(s.p.arp.scale_idx & 0x3Fu) % SCALE_COUNT],
@@ -2777,18 +2777,18 @@ void mod_engine_cmd_modq(const char* args) {
           static const char* const kQual[varg::kQCount] = {
               "min", "maj", "pow", "dim", "aug", "add9"};
           const varg::State& v = ext.st.varg;
-          Serial.printf(" prog=%s chord=pc%u q=%s bar=%u shift=%u pool=[",
+          printf(" prog=%s chord=pc%u q=%s bar=%u shift=%u pool=[",
                         kProg[v.prog_idx % varg::kProgCount], v.root_pc,
                         kQual[v.quality % varg::kQCount], v.bars, v.key_shift);
-          for (uint8_t i = 0; i < v.pool_n; ++i) Serial.printf("%d,", v.pool[i]);
-          Serial.printf("]");
+          for (uint8_t i = 0; i < v.pool_n; ++i) printf("%d,", v.pool[i]);
+          printf("]");
         }
         break;
       }
     }
-    Serial.print(' ');
+    printf(" ");
     mod_print_dest_state(i);
-    Serial.print("\r\n");
+    printf("\r\n");
   }
 }
 
@@ -2796,49 +2796,48 @@ void mod_engine_cmd_bpm(const char* args) {
   const char* p = args;
   char tok[16];
   if (!mod_next_token(p, tok, sizeof(tok))) {
-    Serial.println("usage: bpm <20-300> (0.1 steps accepted)");
+    printf("%s\r\n", "usage: bpm <20-300> (0.1 steps accepted)");
     return;
   }
   const float v = (float)atof(tok);
   if (v < 20.0f || v > 300.0f) {
-    Serial.println("mod: bpm out of range (20-300)");
+    printf("%s\r\n", "mod: bpm out of range (20-300)");
     return;
   }
   g_mod_engine.bpm = roundf(v * 10.0f) / 10.0f;
   preset_mark_dirty();            // T4a: clock settings are persistent state
-  Serial.println("mod: bpm set (internal phase kept; no re-phase)");
+  printf("%s\r\n", "mod: bpm set (internal phase kept; no re-phase)");
 }
 
 void mod_engine_cmd_clock(const char* args) {
   const char* p = args;
   char tok[24];
   if (!mod_next_token(p, tok, sizeof(tok))) {
-    Serial.println("usage: clock <internal|midi> [source]  (source = 0-11 or name; "
-                   "clear overrides with 'mod <src> clk global')");
+    printf("%s\r\n", "usage: clock <internal|midi> [source] (source = 0-11 or name; " "clear overrides with 'mod <src> clk global')");
     return;
   }
   int8_t g = -1;
   if (!strcasecmp(tok, "internal") || !strcasecmp(tok, "i")) g = 0;
   else if (!strcasecmp(tok, "midi") || !strcasecmp(tok, "m")) g = 1;
   if (g < 0) {
-    Serial.println("mod: clock source must be internal|midi");
+    printf("%s\r\n", "mod: clock source must be internal|midi");
     return;
   }
   if (!mod_next_token(p, tok, sizeof(tok))) {
     g_mod_engine.global_clock = (uint8_t)g;
     preset_mark_dirty();          // T4a: clock settings are persistent state
-    Serial.printf("mod: GLOBAL clock = %s (per-source overrides unchanged)\r\n",
+    printf("mod: GLOBAL clock = %s (per-source overrides unchanged)\r\n",
                   g ? "midi" : "internal");
     return;
   }
   const int8_t src = mod_parse_source(tok);
   if (src < 0) {
-    Serial.println("mod: unknown source for per-source override");
+    printf("%s\r\n", "mod: unknown source for per-source override");
     return;
   }
   g_mod_engine.src[src].clock_sel = g ? MOD_CLK_MIDI : MOD_CLK_INTERNAL;
   preset_mark_dirty();            // T4a: per-source clock override persists
-  Serial.printf("mod: source %s clock override = %s\r\n",
+  printf("mod: source %s clock override = %s\r\n",
                 mod_src_name((uint8_t)src), g ? "midi" : "internal");
 }
 

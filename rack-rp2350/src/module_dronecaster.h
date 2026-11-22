@@ -167,7 +167,7 @@ void control_change(uint8_t cc, uint8_t val) {
       s->pending_drone = static_cast<int16_t>(id);
     } else if (static_cast<int16_t>(val) != s->last_bad_drone) {
       s->last_bad_drone = static_cast<int16_t>(val);
-      Serial.printf("dc: drone id %u not ported (keep current)\r\n",
+      printf("dc: drone id %u not ported (keep current)\r\n",
                     static_cast<unsigned>(val));
     }
     return;

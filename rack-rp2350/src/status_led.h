@@ -12,7 +12,11 @@
 // so colors latch reliably. Core 0 is blocked ~5% of the time (1 ms per
 // 20 ms poll) — negligible for USB MIDI, zero impact on core 1 audio.
 #pragma once
+#if defined(RACK_PICO_BUILD)
+#include <pico/stdlib.h>         // sleep_ms / to_ms_since_boot (SDK build)
+#else
 #include <Arduino.h>
+#endif
 
 #include "hardware/pio.h"
 #include "hardware/structs/resets.h"  // unreset_block_mask_wait_blocking, RESET_PIO2
@@ -83,9 +87,17 @@ class StatusLed {
     // Sanity flash: 3x bright white — confirms driver + PIO2 + wiring.
     for (int i = 0; i < 3; ++i) {
       showColor(120, 120, 120);
+#if defined(RACK_PICO_BUILD)
+      sleep_ms(150);
+#else
       delay(150);
+#endif
       showColor(0, 0, 0);
+#if defined(RACK_PICO_BUILD)
+      sleep_ms(150);
+#else
       delay(150);
+#endif
     }
     showColor(0, 0, 0);  // idle: dark
   }
@@ -99,7 +111,7 @@ class StatusLed {
 
   // USB-A MIDI host controller mounted: 3 green blinks, then resume normal.
   void NotifyControllerConnected() {
-    controller_blink_start_ms_ = millis();
+    controller_blink_start_ms_ = rack_now_ms();
     controller_blink_active_ = true;
   }
 
@@ -115,7 +127,7 @@ class StatusLed {
   // release tails.
   void Poll(bool gate, float exciter_level, float resonator_level) {
     if (!enabled_) return;
-    const uint32_t now = millis();
+    const uint32_t now = rack_now_ms();
     if (now - last_poll_ms_ < status_led::kPollIntervalMs) return;
     last_poll_ms_ = now;
 

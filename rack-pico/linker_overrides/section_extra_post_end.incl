@@ -1,0 +1,160 @@
+/* Rack hot-code window sections (the section_extra_post_end.incl override —
+   this SDK hook is included after section_end and exists for exactly this:
+   custom sections, symbols, and asserts).
+
+   Ported from rack-rp2350/memmap_rack.ld (the Arduino build's script):
+
+   - A slot: the OVERLAY at ORIGIN(RACK_WINDOW) — elements / plaits / rings /
+     lira8 / dronecaster / benjolin, mutually exclusive, ONE VMA, exactly one
+     image copied at a time (rack_window_copy() memcpy from flash at boot and
+     at every swap).
+   - B slot: tc_clouds' own section at ORIGIN + RACK_CLOUDS_B_OFFSET —
+     resident ALONGSIDE the A slot while a chain is engaged; also used alone
+     when clouds is the single active module.
+
+   LMAs are assigned from ORIGIN(RACK_LMA): tc_clouds takes the region start
+   (explicit AT), the overlay members continue consecutively after it (GNU ld
+   refuses `AT>` for OVERLAY members).  Explicit AT bypasses ld's region
+   accounting, so the ASSERTs below (not region checks) guarantee the
+   reserved region can never collide with the main image or overflow.
+
+   KEEP() so --gc-sections can never drop a marked section: the window size
+   must be deterministic, independent of the adapter call graph.
+
+   NOCROSSREFS is sound: the modules are independent; shared code (stmlib)
+   lives in .text/.data, never in a tc_* section. */
+RACK_CLOUDS_B_OFFSET = 0xEC00;
+
+SECTIONS
+{
+    tc_clouds ORIGIN(RACK_WINDOW) + RACK_CLOUDS_B_OFFSET :
+        AT (ORIGIN(RACK_LMA))
+    {
+        __tc_clouds_start = .;
+        KEEP(*(.tc_clouds.*))
+        . = ALIGN(4);
+        __tc_clouds_end = .;
+    } > RACK_WINDOW
+
+    OVERLAY ORIGIN(RACK_WINDOW) : NOCROSSREFS
+        AT (ORIGIN(RACK_LMA) + SIZEOF(tc_clouds))
+    {
+        tc_elements
+        {
+            __tc_elements_start = .;
+            KEEP(*(.tc_elements.*))
+            . = ALIGN(4);
+            __tc_elements_end = .;
+        }
+        tc_plaits
+        {
+            __tc_plaits_start = .;
+            KEEP(*(.tc_plaits.*))
+            . = ALIGN(4);
+            __tc_plaits_end = .;
+        }
+        tc_rings
+        {
+            __tc_rings_start = .;
+            KEEP(*(.tc_rings.*))
+            . = ALIGN(4);
+            __tc_rings_end = .;
+        }
+        tc_lira8
+        {
+            __tc_lira8_start = .;
+            KEEP(*(.tc_lira8.*))
+            . = ALIGN(4);
+            __tc_lira8_end = .;
+        }
+        tc_dronecaster
+        {
+            __tc_dronecaster_start = .;
+            KEEP(*(.tc_dronecaster.*))
+            . = ALIGN(4);
+            __tc_dronecaster_end = .;
+        }
+        tc_benjolin
+        {
+            __tc_benjolin_start = .;
+            KEEP(*(.tc_benjolin.*))
+            . = ALIGN(4);
+            __tc_benjolin_end = .;
+        }
+    } > RACK_WINDOW
+
+    /* Flash (LMA) extents of the hot sections — copy sources for
+       rack_window_copy(). */
+    __rack_flash_elements_start = LOADADDR(tc_elements);
+    __rack_flash_elements_end   = LOADADDR(tc_elements) + SIZEOF(tc_elements);
+    __rack_flash_clouds_start = LOADADDR(tc_clouds);
+    __rack_flash_clouds_end   = LOADADDR(tc_clouds) + SIZEOF(tc_clouds);
+    __rack_flash_plaits_start = LOADADDR(tc_plaits);
+    __rack_flash_plaits_end   = LOADADDR(tc_plaits) + SIZEOF(tc_plaits);
+    __rack_flash_rings_start = LOADADDR(tc_rings);
+    __rack_flash_rings_end   = LOADADDR(tc_rings) + SIZEOF(tc_rings);
+    __rack_flash_lira8_start = LOADADDR(tc_lira8);
+    __rack_flash_lira8_end   = LOADADDR(tc_lira8) + SIZEOF(tc_lira8);
+    __rack_flash_dronecaster_start = LOADADDR(tc_dronecaster);
+    __rack_flash_dronecaster_end   = LOADADDR(tc_dronecaster) + SIZEOF(tc_dronecaster);
+    __rack_flash_benjolin_start = LOADADDR(tc_benjolin);
+    __rack_flash_benjolin_end   = LOADADDR(tc_benjolin) + SIZEOF(tc_benjolin);
+    /* Last-placed member's flash end = total extent of the reserved
+       region's rack content (tc_clouds LMA = region start; the overlay
+       members follow it). */
+    __rack_flash_end = __rack_flash_benjolin_end;
+
+    /* Every member must fit the ONE shared window. */
+    ASSERT(SIZEOF(tc_elements) <= LENGTH(RACK_WINDOW),
+        "ERROR: elements hot section exceeds the rack SRAM window")
+    ASSERT(SIZEOF(tc_clouds) <= LENGTH(RACK_WINDOW),
+        "ERROR: clouds hot section exceeds the rack SRAM window")
+    ASSERT(SIZEOF(tc_plaits) <= LENGTH(RACK_WINDOW),
+        "ERROR: plaits hot section exceeds the rack SRAM window")
+    ASSERT(SIZEOF(tc_rings) <= LENGTH(RACK_WINDOW),
+        "ERROR: rings hot section exceeds the rack SRAM window")
+    ASSERT(SIZEOF(tc_lira8) <= LENGTH(RACK_WINDOW),
+        "ERROR: lira8 hot section exceeds the rack SRAM window")
+    ASSERT(SIZEOF(tc_dronecaster) <= LENGTH(RACK_WINDOW),
+        "ERROR: dronecaster hot section exceeds the rack SRAM window")
+    ASSERT(SIZEOF(tc_benjolin) <= LENGTH(RACK_WINDOW),
+        "ERROR: benjolin hot section exceeds the rack SRAM window")
+
+    /* Chain-residency invariants: the A-slot members must fit below the B
+       slot, and B must fit the window. */
+    ASSERT(SIZEOF(tc_elements) <= RACK_CLOUDS_B_OFFSET,
+        "ERROR: elements hot section overlaps the chain B slot (raise RACK_CLOUDS_B_OFFSET)")
+    ASSERT(SIZEOF(tc_rings) <= RACK_CLOUDS_B_OFFSET,
+        "ERROR: rings hot section overlaps the chain B slot (raise RACK_CLOUDS_B_OFFSET)")
+    ASSERT(SIZEOF(tc_plaits) <= RACK_CLOUDS_B_OFFSET,
+        "ERROR: plaits hot section overlaps the chain B slot (raise RACK_CLOUDS_B_OFFSET)")
+    ASSERT(SIZEOF(tc_lira8) <= RACK_CLOUDS_B_OFFSET,
+        "ERROR: lira8 hot section overlaps the chain B slot (raise RACK_CLOUDS_B_OFFSET)")
+    ASSERT(RACK_CLOUDS_B_OFFSET + SIZEOF(tc_clouds) <= LENGTH(RACK_WINDOW),
+        "ERROR: chain B slot (clouds) exceeds the rack SRAM window")
+
+    /* The dronecaster module claims the SRAM above its hot image (up to the
+       window end) as its DELAY-RING aux region via Engine::AttachAux — idle
+       whenever dronecaster is the resident module (it is standalone-only;
+       the A-slot members are mutually exclusive). */
+    __rack_window_aux_start = __tc_dronecaster_end;
+    __rack_window_aux_end = ORIGIN(RACK_WINDOW) + LENGTH(RACK_WINDOW);
+    ASSERT(__rack_window_aux_end - __rack_window_aux_start >= 108 * 1024,
+        "ERROR: dronecaster delay-ring aux region too small (hot image grew?)")
+
+    /* The window must end exactly where the scratch banks begin — RAM +
+       window + scratch partition the fixed 512 KiB main SRAM with no gap
+       and no overlap. */
+    ASSERT(ORIGIN(RACK_WINDOW) + LENGTH(RACK_WINDOW) == ORIGIN(SCRATCH_X),
+        "ERROR: RACK_WINDOW must end exactly at the SCRATCH_X origin")
+
+    /* Explicit AT() bypasses ld's region accounting: assert the flash copies
+       stay inside the reserved region. */
+    ASSERT(__rack_flash_end <= ORIGIN(RACK_LMA) + LENGTH(RACK_LMA),
+        "ERROR: rack module flash copies overflow RACK_LMA")
+
+    /* The main image (code, rodata AND the .data/.scratch flash copies)
+       must end below the reserved rack LMA region. */
+    ASSERT(__flash_binary_end <= ORIGIN(RACK_LMA),
+        "ERROR: main image collides with the reserved rack flash region")
+}

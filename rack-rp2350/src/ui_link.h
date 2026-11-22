@@ -73,8 +73,33 @@
 #include <stddef.h>
 #include <string.h>
 
-#include <Arduino.h>             // Serial1 (HW UART0 link), millis, Serial
+#if defined(RACK_PICO_BUILD)
 #include "pico/time.h"           // time_us_32 (echo turnaround timing)
+// SDK-native UART0 link transport (implementations in rack-pico/main.cpp):
+// an IRQ-fed 512 B SW RX ring + a 512 B SW TX ring drained lazily into the
+// 32-deep HW FIFO — the earlephilhower SerialUART behavior, re-implemented.
+int ui_uart_available();
+int ui_uart_read();              // -1 when empty
+bool ui_uart_overflow();         // true once per RX ring overflow event
+int ui_uart_available_for_write();  // free bytes in the SW TX ring
+void ui_uart_write_bytes(const uint8_t* buf, int n);  // non-blocking push
+void ui_uart_sdk_init();         // uart0 @ 921600 8N1 + RX IRQ
+#else
+#include <Arduino.h>             // Serial1 (HW UART0 link), millis, Serial
+// Arduino-build shims for the shared transport call sites below: the
+// RACK_PICO_BUILD arm declares SDK implementations (rack-pico/main.cpp);
+// here they map 1:1 onto the core's SerialUART.
+static inline int ui_uart_available() { return Serial1.available() > 0; }
+static inline int ui_uart_read() { return Serial1.read(); }
+static inline bool ui_uart_overflow() { return Serial1.overflow(); }
+static inline int ui_uart_available_for_write() {
+  return Serial1.availableForWrite();
+}
+static inline void ui_uart_write_bytes(const uint8_t* buf, int n) {
+  Serial1.write(buf, n);
+}
+static inline void ui_uart_sdk_init() { }
+#endif
 
 // ===================== protocol constants =====================
 static const uint8_t kUiFrameMark = 0x7E;
@@ -748,7 +773,7 @@ static volatile uint32_t g_preset_dirty_ms = 0;
 static volatile bool g_preset_dirty = false;
 void preset_mark_dirty() {
   g_preset_dirty = true;
-  g_preset_dirty_ms = millis();
+  g_preset_dirty_ms = rack_now_ms();
 }
 
 // T4a handlers live in preset.h (included by main.cpp after this header —
@@ -886,9 +911,13 @@ static void ui_link_uart_init() {
   // apply only while _running == false. 512 B SW ring: at 921600 baud max
   // (~92 KB/s) it rides out ~5.6 ms between drains — far beyond any loop()
   // stall (swap prints, LED poll ~1 ms, one TELEM write ~2.6 ms).
+#if defined(RACK_PICO_BUILD)
+  ui_uart_sdk_init();
+#else
   Serial1.setFIFOSize(512);
   Serial1.setPinout(kPinUiTx, kPinUiRx);
   Serial1.begin(921600, SERIAL_8N1);
+#endif
   ui_link_init_defaults();
 }
 
@@ -950,7 +979,7 @@ static bool ui_link_send_frame(uint8_t type, const uint8_t* payload,
 // hundred bytes per millisecond and the ring holds 4 KiB.
 static void ui_link_tx_pump() {
   while (g_ui_tx_count > 0) {
-    int space = Serial1.availableForWrite();
+    int space = ui_uart_available_for_write();
     if (space <= 0) return;
     // Leave a small margin: the core's TX ring can be drained concurrently
     // by its IRQ, but never write past what it reported as free.
@@ -960,7 +989,7 @@ static void ui_link_tx_pump() {
         : g_ui_tx_count;
     uint16_t n = (run < (uint16_t)space) ? run : (uint16_t)space;
     if (n > g_ui_tx_count) n = g_ui_tx_count;
-    Serial1.write(&g_ui_tx_ring[g_ui_tx_tail], n);
+    ui_uart_write_bytes(&g_ui_tx_ring[g_ui_tx_tail], n);
     g_ui_tx_tail = (uint16_t)((g_ui_tx_tail + n) % kUiTxRingSize);
     g_ui_tx_count = (uint16_t)(g_ui_tx_count - n);
   }
@@ -1209,7 +1238,7 @@ static void ui_link_status_tail(uint8_t* out) {
   // link: bit0 = the DIN parser has seen bytes since boot; bit1 = this UART
   // link verified a frame within the last 3 s.
   out[3] = (uint8_t)((din_parser.rx_bytes > 0 ? 0x01 : 0x00) |
-                     ((millis() - g_ui_last_rx_ms < 3000) ? 0x02 : 0x00));
+                     ((rack_now_ms() - g_ui_last_rx_ms < 3000) ? 0x02 : 0x00));
 }
 
 // Full TELEM snapshot (mode 0) or a 1-cell delta (mode 1, delta_cc = the
@@ -1450,7 +1479,7 @@ void ui_link_observe_cc(uint8_t cc, uint8_t val) {
   // from the MOD_SET / gesture ack paths instead).
   if (!g_ui_telem_deltas_en) return;
   static uint32_t last_delta_ms = 0;
-  const uint32_t now = millis();
+  const uint32_t now = rack_now_ms();
   if (g_chain.active && g_ui_active_page == kUiPageChainB &&
       rack_chain_wants_cc(cc)) {
     if (now - last_delta_ms < 50) return;
@@ -1781,7 +1810,7 @@ static void ui_link_feed(uint8_t b) {
     return;
   }
   ++g_ui_rx_frames;
-  g_ui_last_rx_ms = millis();   // status tail link bit (3 s freshness window)
+  g_ui_last_rx_ms = rack_now_ms();   // status tail link bit (3 s freshness window)
   ui_link_dispatch();
 }
 
@@ -1789,7 +1818,7 @@ static void ui_link_feed(uint8_t b) {
 // With the link absent this costs one ring-empty check per loop().
 static void ui_link_pump() {
   ui_link_tx_pump();                            // drain queued TX, never blocks
-  if (Serial1.overflow()) ++g_ui_rx_overflow;   // SW ring overflow (IRQ side)
+  if (ui_uart_overflow()) ++g_ui_rx_overflow;   // SW ring overflow (IRQ side)
   // Full-snapshot push on module/chain changes, gated by the C3's
   // full-snapshot toggle (UI_CMD sys id 1): the C3 re-renders without a
   // page request ("the firmware acks drive the UI"). Fires once per change
@@ -1804,8 +1833,8 @@ static void ui_link_pump() {
     last_chain = chain_now;
     ui_link_send_telem(g_ui_active_page, kUiTelemFull, 0);
   }
-  while (Serial1.available() > 0) {
-    const int c = Serial1.read();
+  while (ui_uart_available() > 0) {
+    const int c = ui_uart_read();
     if (c < 0) break;
     ui_link_feed((uint8_t)c);
   }

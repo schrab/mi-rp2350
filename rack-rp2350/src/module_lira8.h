@@ -230,7 +230,7 @@ void button_trig(bool down) {
   if (down) {
     set_sensor(0, true);
     s->pluck_active = true;
-    s->pluck_until_ms = millis() + kPluckWindowMs;
+    s->pluck_until_ms = rack_now_ms() + kPluckWindowMs;
   } else if (s->pluck_active) {
     set_sensor(0, false);
     s->pluck_active = false;
@@ -238,7 +238,7 @@ void button_trig(bool down) {
 }
 
 void pluck_poll() {
-  if (s->pluck_active && millis() >= s->pluck_until_ms) {
+  if (s->pluck_active && rack_now_ms() >= s->pluck_until_ms) {
     set_sensor(0, false);
     s->pluck_active = false;
   }
