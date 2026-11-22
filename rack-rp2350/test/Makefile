@@ -124,6 +124,6 @@ test_speaker_ir: test_speaker_ir.cc ../src/rack_dist.h ../src/speaker_ir.h | bui
 
 test_clouds_spectral: test_clouds_spectral.cc ../lib/clouds/clouds/dsp/granular_processor.cc ../lib/clouds/clouds/dsp/correlator.cc ../lib/clouds/clouds/dsp/mu_law.cc ../lib/clouds/clouds/resources.cc ../lib/clouds/clouds/dsp/pvoc/stft.cc ../lib/clouds/clouds/dsp/pvoc/phase_vocoder.cc ../lib/clouds/clouds/dsp/pvoc/frame_transformation.cc ../lib/cmsis_dsp/src/arm_rfft_fast_f32.c ../lib/cmsis_dsp/src/arm_rfft_fast_init_f32.c ../lib/cmsis_dsp/src/arm_cfft_f32.c ../lib/cmsis_dsp/src/arm_cfft_init_f32.c ../lib/cmsis_dsp/src/arm_cfft_radix8_f32.c ../lib/cmsis_dsp/src/arm_bitreversal2.c ../lib/cmsis_dsp/src/arm_common_tables.c ../lib/cmsis_dsp/src/arm_const_structs.c | build
 	$(CXX) $(CXXFLAGS) -I../lib/clouds -I../lib/stmlib -I../lib/cmsis_dsp/Include -Ihost_shim -Ihost_shim/cmsis -DARM_MATH_CM33 test_clouds_spectral.cc ../lib/clouds/clouds/dsp/granular_processor.cc ../lib/clouds/clouds/dsp/correlator.cc ../lib/clouds/clouds/dsp/mu_law.cc ../lib/clouds/clouds/resources.cc ../lib/clouds/clouds/dsp/pvoc/stft.cc ../lib/clouds/clouds/dsp/pvoc/phase_vocoder.cc ../lib/clouds/clouds/dsp/pvoc/frame_transformation.cc ../lib/cmsis_dsp/src/*.c -o $(BUILD)$@
-test_benjolin: test_benjolin.cc ../src/benjolin/benjolin_engine.h | $(BUILD)
+test_benjolin: test_benjolin.cc ../src/benjolin/benjolin_engine.h wav_io.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) -I../src/benjolin $< -o $(BUILD)$@
 

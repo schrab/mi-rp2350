@@ -102,8 +102,8 @@ struct Engine {
     tri1_.Init(sr, p_.freq1);
     tri2_.Init(sr, p_.freq2);
     // PulseDPW default width 0.5 (the SynthDef passes no width arg).
-    osc1_.Init(sr, DpwClamp(p_.freq1), 0.5f, 0);
-    osc2_.Init(sr, DpwClamp(p_.freq2), 0.5f, 0);
+    osc1_.InitAr(sr, DpwClamp(p_.freq1), 0.5f);
+    osc2_.InitAr(sr, DpwClamp(p_.freq2), 0.5f);
     // 8 register taps: DelayN.ar(in, 0.01, sr*k), k = 1..8. Constant delay.
     for (int k = 0; k < 8; ++k) {
       tap_delay_[k] = static_cast<float>(k + 1) / sr_;
@@ -113,19 +113,13 @@ struct Engine {
       else
         tap_[k].Init(sr, 0.01f, tap_delay_[k], 0.f, 0);
     }
-    // Ctor primes (§4.7): the pwm chain's ctor value is 0.0f — both LFTri
-    // outputs are 0 at phase 0, so (0 + 0) > 0 = 0. Prime each 2-pole filter
-    // with one n=1 block at ctor-time coefficients. ARBITRATED BY THE T4
-    // GOLDEN: if it shows a one-sample lead, the kit's NaN-freq ctor already
-    // folds the prime — remove this block.
+    // Ctor primes (§4.7): ARBITRATED BY THE T4 GOLDEN — the golden showed an
+    // ~8x head-ratio mismatch WITH the n=1 prime and none WITHOUT, so the
+    // core RLPF/RHPF ctors do NOT consume a sample the way the Hecker
+    // Select/XFade2-expanded chain did. The kit's NaN-freq ctor trick alone
+    // reproduces scsynth's startup.
     rlpf_.Init(sr, 3);
     rhpf_.Init(sr, 4);
-    {
-      const float z = 0.0f;
-      float sink;
-      rlpf_.ProcessBlock(&z, &sink, 1, p_.filt_freq, Rq());
-      rhpf_.ProcessBlock(&z, &sink, 1, p_.filt_freq, Rq());
-    }
     svf_.Init(sr, p_.filt_freq, p_.q, 1.f, 0.f, 0.f, 0.f, 0.f, 0.f);
     // Benjolin's DFM1: inputgain=gain, TYPE=1 (high-pass), noiselevel omitted
     // -> upstream default 0.0003 (assessment §4.3 correction). NO ctor prime:
@@ -220,7 +214,10 @@ struct Engine {
       for (int k = 0; k < 8; ++k) sh[k] = sh_buf_[k][i];
       raw_buf_[i] = RunglerDac(sh);
       hz_buf_[i] = sc::midicps_ar(raw_buf_[i] * 127.0f * p_.scale);
-      filt_freq_buf_[i] = in0_[i] * p_.rungler_f + p_.filt_freq;
+      // The graph's filter freq uses the CURRENT-BLOCK midicps'd DAC
+      // trajectory (rungler AFTER the midicps line), not the bus read —
+      // the bus read feeds only the oscillator FMs. (T4 golden finding.)
+      filt_freq_buf_[i] = hz_buf_[i] * p_.rungler_f + p_.filt_freq;
       // Mode B: explicit 8-bit register shifted on the latch edge; DAC and
       // midicps applied IMMEDIATELY (hardware law — no bus, no block delay).
       if (mode_ == FeedbackMode::kHardware && o2_buf_[i] > 0.0f &&
@@ -243,16 +240,17 @@ struct Engine {
     switch (type) {
       case 0:
         for (int i = 0; i < kBlock; ++i) {
-          float fo;
-          rlpf_.ProcessBlock(&pwm_buf_[i], &fo, 1, filt_freq_buf_[i], Rq());
-          filt_buf_[i] = fo * p_.gain;  // mul engine-side
+          // AR-freq law: scsynth runs RLPF_next_a on an ar freq wire — the
+          // coefficients recompute immediately per sample (StepA), not the
+          // k-law block ramp (T4 golden finding).
+          filt_buf_[i] = rlpf_.StepA(pwm_buf_[i], filt_freq_buf_[i], Rq()) *
+                         p_.gain;  // mul engine-side
         }
         break;
       case 1:
         for (int i = 0; i < kBlock; ++i) {
-          float fo;
-          rhpf_.ProcessBlock(&pwm_buf_[i], &fo, 1, filt_freq_buf_[i], Rq());
-          filt_buf_[i] = fo * p_.gain;
+          filt_buf_[i] = rhpf_.StepA(pwm_buf_[i], filt_freq_buf_[i], Rq()) *
+                         p_.gain;
         }
         break;
       case 2:
