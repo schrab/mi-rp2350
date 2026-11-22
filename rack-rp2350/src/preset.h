@@ -84,8 +84,9 @@ static const uint16_t kPresetOffCache =
 static const uint16_t kPresetOffCrc =
     kPresetOffCache + RACK_MODULE_COUNT * 128;                      // 1213
 static const uint16_t kPresetSize = kPresetOffCrc + 2;              // 1215
-// v5 (6 modules) is 1215 B — the cap must cover the serialize size.
-static const uint16_t kPresetBlobMax = 1216;
+// v6 (7 modules, benjolin added) is 1359 B — the cap must cover the
+// serialize size. The C3 side stores the blob opaquely (kMaxRp cap only).
+static const uint16_t kPresetBlobMax = 1360;
 static_assert(kPresetSize <= kPresetBlobMax,
               "preset blob exceeds kPresetBlobMax (raise it)");
 static const uint8_t kPresetChunkData = 252;   // PART payload data cap

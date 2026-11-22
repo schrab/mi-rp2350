@@ -49,6 +49,16 @@
 #include "sc_kit_sc3p_filter.h"
 #include "sc_kit_trig.h"
 
+// Hot-code section placement (the SRAM law, PORTING-HIGHLIGHTS §3): the
+// per-sample DSP must run from SRAM. The macro is empty on the host (the
+// tests stay plain g++); on the firmware it places the out-of-line emission
+// of these functions into the .tc_benjolin overlay (memmap_rack.ld).
+#if defined(RACK_RP2350_TC)
+#define BENJOLIN_ENGINE_TC(token) __attribute__((section(".tc_benjolin." #token)))
+#else
+#define BENJOLIN_ENGINE_TC(token)
+#endif
+
 namespace benjolin {
 
 // SynthDef arg defaults, verbatim from Engine_Benjolis.sc:26 (amp=0 silence;
@@ -153,6 +163,7 @@ struct Engine {
   }
 
   // One 16-sample host/device block; bursts 4:1 into the 64-grid.
+  BENJOLIN_ENGINE_TC(process16)
   void Process16(float* l, float* r) {
     if (stage_ == 0) Process64(stage_l_, stage_r_);
     const int off = stage_ * 16;
@@ -165,6 +176,7 @@ struct Engine {
 
   uint32_t reg() const { return reg_; }  // T4 mode-B scenario accessor
 
+  BENJOLIN_ENGINE_TC(process64)
   void Process64(float* out_l, float* out_r) {
     if (pending_set_) {
       p_ = pending_;

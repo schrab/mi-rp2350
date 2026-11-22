@@ -427,6 +427,13 @@ SECTIONS
             . = ALIGN(4);
             __tc_dronecaster_end = .;
         }
+        tc_benjolin
+        {
+            __tc_benjolin_start = .;
+            KEEP(*(.tc_benjolin.*))
+            . = ALIGN(4);
+            __tc_benjolin_end = .;
+        }
     } > RACK_WINDOW
 
     /* Flash (LMA) extents of the four hot sections — copy sources for
@@ -443,10 +450,12 @@ SECTIONS
     __rack_flash_lira8_end   = LOADADDR(tc_lira8) + SIZEOF(tc_lira8);
     __rack_flash_dronecaster_start = LOADADDR(tc_dronecaster);
     __rack_flash_dronecaster_end   = LOADADDR(tc_dronecaster) + SIZEOF(tc_dronecaster);
+    __rack_flash_benjolin_start = LOADADDR(tc_benjolin);
+    __rack_flash_benjolin_end   = LOADADDR(tc_benjolin) + SIZEOF(tc_benjolin);
     /* Last-placed member's flash end = total extent of the reserved
        region's rack content (tc_clouds LMA = region start; the overlay
        members follow it, dronecaster last). */
-    __rack_flash_end = __rack_flash_dronecaster_end;
+    __rack_flash_end = __rack_flash_benjolin_end;
 
     /* Every member must fit the ONE shared window. */
     ASSERT(SIZEOF(tc_elements) <= LENGTH(RACK_WINDOW),
@@ -461,6 +470,8 @@ SECTIONS
         "ERROR: lira8 hot section exceeds the rack SRAM window")
     ASSERT(SIZEOF(tc_dronecaster) <= LENGTH(RACK_WINDOW),
         "ERROR: dronecaster hot section exceeds the rack SRAM window")
+    ASSERT(SIZEOF(tc_benjolin) <= LENGTH(RACK_WINDOW),
+        "ERROR: benjolin hot section exceeds the rack SRAM window")
 
     /* T6/T8 chain-residency invariants (B slot must not reach the A slot, and
        both slots must fit the window). The asserts pin the chain A set to

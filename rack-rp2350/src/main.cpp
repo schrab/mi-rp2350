@@ -162,8 +162,8 @@ uint8_t pio_host_line_state(void);
 }
 #endif
 
-#if !defined(RACK_BOOT_MODULE) || RACK_BOOT_MODULE < 0 || RACK_BOOT_MODULE > 5
-#error "RACK_BOOT_MODULE must be defined in the env as 0 (elements), 1 (clouds), 2 (plaits), 3 (rings), 4 (lira8) or 5 (dronecaster)"
+#if !defined(RACK_BOOT_MODULE) || RACK_BOOT_MODULE < 0 || RACK_BOOT_MODULE > 6
+#error "RACK_BOOT_MODULE must be defined in the env as 0 (elements), 1 (clouds), 2 (plaits), 3 (rings), 4 (lira8), 5 (dronecaster) or 6 (benjolin)"
 #endif
 
 // Non-blocking core-0 diagnostic output (defined near loop()). The 2 s
@@ -229,6 +229,7 @@ void dbg_printf(const char* fmt, ...);
 // <= 7.8e-7). Standalone-only, 48 kHz, 16-sample host grid with 64-sample
 // internal bursts; the CC 51 catalog carries the T-D1 trio (22/23/29).
 #include "module_dronecaster.h"
+#include "module_benjolin.h"
 
 #include "module_registry.h"
 
@@ -332,6 +333,20 @@ const RackModuleInfo kRackModules[RACK_MODULE_COUNT] = {
      rack_modules::mod_dronecaster::note_on,
      rack_modules::mod_dronecaster::note_off,
      rack_modules::mod_dronecaster::control_change},
+    {"benjolin", RACK_MODULE_BENJOLIN,
+     rack_modules::mod_benjolin::kSampleRate,
+     (uint32_t)rack_modules::mod_benjolin::kBlockSize,
+     rack_modules::mod_benjolin::kBudgetUs,
+     rack_modules::mod_benjolin::kI2sBuffers,
+     rack_modules::mod_benjolin::kI2sWords,
+     rack_modules::mod_benjolin::kStallUs,
+     rack_modules::mod_benjolin::kCcMap,
+     &rack_modules::mod_benjolin::kModDestinations,
+     rack_modules::mod_benjolin::init,
+     rack_modules::mod_benjolin::render,
+     rack_modules::mod_benjolin::note_on,
+     rack_modules::mod_benjolin::note_off,
+     rack_modules::mod_benjolin::control_change},
 };
 
 // ===================== shared definitions =====================
@@ -513,6 +528,7 @@ static const size_t kChainABufferBytes[RACK_MODULE_COUNT] = {
     // (259,088 B needed) while 110 KB of the object arena sat idle.
     128016,
     0,        // dronecaster: standalone-only (not a chain A candidate)
+    0,        // benjolin: standalone-only (not a chain A candidate)
 };
 
 // Chain render block buffers (24 x 2 floats x 2 = 384 B in .bss — the
@@ -3338,8 +3354,9 @@ void loop() {
       }
       // T-D1 dronecaster: current drone + proc ewma + swaps + NaN block count.
       char dc_tail[80] = "";
-      if (g_active_module == RACK_MODULE_DRONECASTER) {
-        rack_modules::mod_dronecaster::report_dc(dc_tail, sizeof(dc_tail));
+      char bj_tail[80] = "";
+      if (g_active_module == RACK_MODULE_BENJOLIN) {
+        rack_modules::mod_benjolin::report_benjolin(bj_tail, sizeof(bj_tail));
       }
       // T2 piezo: peak since last report (raw 0-4095) + measured rate.
       const uint16_t pz_peak = rack_piezo::report_peak();
@@ -3411,7 +3428,8 @@ void loop() {
                     mod_field,
                     modeng_tail,
                     g_active_module == RACK_MODULE_PLAITS ? plaits_tail
-                        : (g_active_module == RACK_MODULE_DRONECASTER ? dc_tail : ""),
+                        : (g_active_module == RACK_MODULE_DRONECASTER ? dc_tail : "")
+                        : (g_active_module == RACK_MODULE_BENJOLIN ? bj_tail : ""),
                     elements_tail,
                     oc_tail);
 #else
@@ -3430,7 +3448,8 @@ void loop() {
                     modeng_tail,
                     g_active_module == RACK_MODULE_PLAITS ? plaits_tail
                         : (g_active_module == RACK_MODULE_LIRA8 ? lira8_tail
-                        : (g_active_module == RACK_MODULE_DRONECASTER ? dc_tail : "")),
+                        : (g_active_module == RACK_MODULE_DRONECASTER ? dc_tail
+                        : (g_active_module == RACK_MODULE_BENJOLIN ? bj_tail : ""))),
                     g_active_module == RACK_MODULE_ELEMENTS ? elements_tail : "",
                     oc_tail);
 #endif
