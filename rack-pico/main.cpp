@@ -3617,7 +3617,8 @@ void loop() {
                (unsigned long)g_chain_pipe_underruns);
       budget = kChainBudgetUs;
     } else {
-      snprintf(mod_field, sizeof(mod_field), "%s", m.name);
+      snprintf(mod_field, sizeof(mod_field), "%s c0=%u", m.name,
+               (unsigned)g_core0_loop_max_us);
       budget = m.budget_us;
     }
     // T9 oc bench: continuous XIP integrity check while a clock override is

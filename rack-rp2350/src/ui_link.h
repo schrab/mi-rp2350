@@ -1632,6 +1632,7 @@ static void ui_link_dispatch() {
       const uint8_t action = pl[0], arg = pl[1], arg2 = pl[2];
       if (action == kUiCmdPageRequest) {
         if (arg < kUiPageCount) {
+          dbg_printf("ui: page request %u -> full snapshot\r\n", arg);
           g_ui_active_page = arg;
           ui_link_send_telem(arg, kUiTelemFull, 0);   // full snapshot reply
         } else {
