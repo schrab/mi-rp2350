@@ -10,9 +10,12 @@
 // internal 64-sample buffer; the 8x16 I2S bank (~2.7 ms at 48 kHz) absorbs
 // the burst. Proc budget = the INTERNAL 64-sample period (1333 us at 48 kHz).
 //
-// CC map (all 14 continuous): 60 freq1 61 freq2 62 scale 63 rungler1
+// CC map (13 continuous): 60 freq1 61 freq2 62 scale 63 rungler1
 // 64 rungler2 65 runglerFilt 66 loop 67 filtFreq 68 q 69 gain 70 filterType
-// 71 outSignal 72 amp 73 pan. Standalone-only: never a chain A slot
+// 71 outSignal 72 amp. PAN (CC 73, the SynthDef's DelayL widening) is not
+// UI-exposed — a delay-based pan on a sustained drone only comb-filters —
+// but the firmware still accepts it and boots at the norns center (64 ->
+// 0.064 s: left delayed, right dry). Standalone-only: never a chain A slot
 // (kChainABufferBytes[6] = 0).
 #pragma once
 
@@ -60,10 +63,10 @@ static const uint32_t kStallUs = 900;        // >2x the 333 us write period
 static const char* const kCcMap =
     "60 freq1(log 1-500) 61 freq2(log .1-50) 62 scale 63 rungler1 64 rungler2 "
     "65 runglerFilt 66 loop 67 filtFreq(log 10-8k) 68 q 69 gain 70 filterType "
-    "(0-3) 71 outSignal (0-6) 72 amp 73 pan; standalone-only";
+    "(0-3) 71 outSignal (0-6) 72 amp; standalone-only";
 
 static const uint8_t kModContinuousCcs[] = {60, 61, 62, 63, 64, 65, 66, 67,
-                                            68, 69, 70, 71, 72, 73};
+                                            68, 69, 70, 71, 72};
 static const RackModDestinations kModDestinations = {
     "benjolin: continuous CC 60-73 (freqs/scale/rungler/loop/filter/amp/pan) "
     "| no triggers",
@@ -97,7 +100,7 @@ struct State {
       cc_scale(127.0f), cc_rungler1(41.0f), cc_rungler2(0.0f),
       cc_rungler_f(48.0f), cc_loop(0.0f), cc_filt_freq(26.0f), cc_q(105.0f),
       cc_gain(32.0f), cc_filter_type(0.0f), cc_out_signal(6.0f),
-      cc_amp(64.0f), cc_pan(0.0f), proc_avg_us(0), nan_blocks(0),
+      cc_amp(64.0f), cc_pan(64.0f), proc_avg_us(0), nan_blocks(0),
       render_heartbeat(0) {
     benjolin::Params p;   // SynthDef defaults with an audible amp
     p.amp = 0.5f;

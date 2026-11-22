@@ -542,6 +542,34 @@ const MODULES = [
   ],
 },
 {
+  name: 'LIRA8', key: 'lira8',
+  info: '32 kHz \u00B7 16-sample blocks \u00B7 budget 1451 \u00B5s \u00B7 LIRA-8 hand-ported echo synth (P1 of 3 banks \u2014 P2/P3 on the C3)',
+  ccMap: '1-4 tune \u00B7 9/10 fast \u00B7 21/22 fm-src \u00B7 87/83 mod/time-1 \u00B7 13/14 sharp \u00B7 17/18 mod \u00B7 25 pitch \u00B7 27 hold \u00B7 29 switch \u00B7 30 total-fb \u00B7 31 vibrato \u00B7 notes 24-31 = sensors \u00B7 trig 55-62',
+  knobs: [
+    { cc:9,  label:'FAST\u200912', variant:'white', def:0,
+      steps: { labels:['SLOW','FAST'], bytes:[0,127] } },
+    { cc:21, label:'FM\u2009SRC\u200912', variant:'white', def:0,
+      steps: { labels:['FM','OFF','LFO'], bytes:[0,1,2] } },
+    { cc:87, label:'MOD\u20091',   variant:'white', def:.5 },
+    { cc:83, label:'TIME\u20091',  variant:'white', def:.5 },
+    { cc:10, label:'FAST\u200934', variant:'white', def:0,
+      steps: { labels:['SLOW','FAST'], bytes:[0,127] } },
+    { cc:22, label:'FM\u2009SRC\u200934', variant:'white', def:0,
+      steps: { labels:['FM','OFF','LFO'], bytes:[0,1,2] } },
+    { cc:1,  label:'TUNE\u20091',  variant:'white', def:.5 },
+    { cc:2,  label:'TUNE\u20092',  variant:'white', def:.5 },
+    { cc:3,  label:'TUNE\u20093',  variant:'white', def:.5 },
+    { cc:4,  label:'TUNE\u20094',  variant:'white', def:.5 },
+    { cc:13, label:'SHARP\u200912', variant:'white', def:.5 },
+    { cc:17, label:'MOD\u200912',   variant:'white', def:.5 },
+    { cc:25, label:'PITCH\u20091234', variant:'white', def:.5 },
+    { cc:27, label:'HOLD\u20091234', variant:'white', def:0,
+      steps: { labels:['OFF','ON'], bytes:[0,127] } },
+    { cc:14, label:'SHARP\u200934', variant:'white', def:.5 },
+    { cc:18, label:'MOD\u200934',   variant:'white', def:.5 },
+  ],
+},
+{
   name: 'DRONECASTER', key: 'dronecaster',
   info: '48 kHz \u00B7 16-sample blocks \u00B7 budget 1333 \u00B5s \u00B7 Dronecaster: 14 live drones (over-budget ones flagged, not blocked)',
   ccMap: '51 drone(0-36) \u00B7 52 amp \u00B7 53 fade(atk=rel) \u00B7 54 hz-offset \u00B7 notes = re-hz \u00B7 PLAY 64 = recast',
@@ -579,7 +607,6 @@ const MODULES = [
     { cc:71, label:'OUTPUT', variant:'white', def: 6,
       steps: { labels:['TRI1','OSC1','TRI2','OSC2','PWM','COMP','FILT'], bytes:[0,1,2,3,4,5,6] } },
     { cc:72, label:'AMP', variant:'white', def: 64/127 },
-    { cc:73, label:'PAN', variant:'white', def: 0 },
   ],
 },
 ];
@@ -593,8 +620,9 @@ const MOD_DESTS = {
   clouds:   { cont: [40,41,42,43,44,45,46,47,48], trig: [65,66] },
   plaits:   { cont: [14,15,16,17,18,19,20,21,22,25], trig: [64] },
   rings:    { cont: [1,14,15,16,17,23], trig: [64] },
+  lira8:    { cont: [1,2,3,4,5,6,7,8,13,14,15,16,17,18,19,20,25,26,27,28,36,37,38,39,80,83,84,85,86,87,88], trig: [55,56,57,58,59,60,61,62] },
   dronecaster: { cont: [52,53,54], trig: [] },
-  benjolin:    { cont: [60,61,62,63,64,65,66,67,68,69,70,71,72,73], trig: [] },
+  benjolin:    { cont: [60,61,62,63,64,65,66,67,68,69,70,71,72], trig: [] },
 };
 const TRIG_CC_NAMES = { 64: 'TRIG/STRUM', 65: 'FREEZE (latch)', 66: 'TRIG' };
 

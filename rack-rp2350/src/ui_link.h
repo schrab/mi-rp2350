@@ -428,7 +428,7 @@ static const UiPageCell kUiPageBenjolinP1[] = {
     {70, "FILTER",     kUiColorWhite},
     {71, "OUTPUT",     kUiColorWhite},
     {72, "AMP",        kUiColorWhite},
-    {73, "PAN",        kUiColorWhite},
+    {0,  "",           kUiColorWhite}, // p14 (spare)
     {0,  "",           kUiColorWhite}, // p15 (spare)
     {0,  "",           kUiColorWhite}, // p16 (spare)
 };
