@@ -63,23 +63,16 @@ HOT_COMMON = [
     ("_ZN10RackI2sOut7write16Ess", True),          # RackI2sOut::write16(short, short)
     ("_ZN10RackI2sOut8handoff_Ev", True),          # the bank handoff (the pacing point)
     ("_ZN10RackI2sOut8dma_irq_Ev", True),          # the DMA completion IRQ
-    ("_ZN10RackI2sOut5beginEv", True),
-    ("_ZN10RackI2sOut3endEv", True),
     # The UI-link transport (the IRQ feeds the RX ring; the drain paces TX).
-    ("ui_uart_irq", True),
-    ("din_uart_irq", True),
+    ("_ZL11ui_uart_irqv", True),              # ui_uart_irq() (static)
+    ("_ZL12din_uart_irqv", True),            # din_uart_irq() (static)
     ("ui_uart_tx_drain", True),
     ("ui_uart_tx_service", True),
     # The console + diagnostics rings (drained every loop pass).
     ("dbg_ring_write", True),
-    ("_Z9dbg_pumpv", True),                        # dbg_pump()
-    ("_ZL9dbg_printfPKcz", True),                  # dbg_printf(char const*, ...)
     # The MIDI funnel + the mod engine (per-block on core 1).
-    ("_ZL21midiHandleEventPacketPKh", True),       # midiHandleEventPacket(unsigned char const*)
-    ("_ZL24mod_engine_process_blockh", True),      # mod_engine_process_block(unsigned char)
     # Core-1 audio loop + the swap/chain machinery it drives.
     ("_Z6setup1v", True),                          # setup1()
-    ("_Z5loop1v", True),                           # loop1()
     ("_Z16chain_render_blockv", True),             # chain_render_block()
     ("_Z22chain_render_block_pipev", True),        # chain_render_block_pipe()
     ("_Z14chain_b_workerv", True),                 # chain_b_worker()
@@ -88,8 +81,6 @@ HOT_COMMON = [
     ("_Z16rack_window_copyhPmS_", True),           # rack_window_copy(...)
     ("_Z15rack_checksum32PKvm", True),             # rack_checksum32(...)
     # The audio_ready poll + the capture feed (core 1, per block).
-    ("audio_ready_wait_ram", True),
-    ("_Z24usb_capture_push_stereoPKdS0_j", True),  # (float*, float*, uint32) — the double variant
     ("_Z24usb_capture_push_stereoPKsS0_j", True),  # (int16_t*, int16_t*, uint32_t) — the short variant
     ("_ZL17fill_audio_packetPh", True),            # fill_audio_packet(unsigned char*)
 ]

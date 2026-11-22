@@ -664,7 +664,7 @@ static volatile uint8_t din_ring[256];
 static volatile uint16_t din_ring_head = 0, din_ring_tail = 0;
 static volatile uint32_t din_ring_overflows = 0;
 
-static void din_uart_irq() {
+void __not_in_flash_func(din_uart_irq)() {
   while (uart_is_readable(uart1)) {
     const uint8_t c = static_cast<uint8_t>(uart_getc(uart1));
     // Skip break (all-zero after framing error) and 0xFE — the parser's
@@ -679,7 +679,7 @@ static void din_uart_irq() {
   }
 }
 
-static void din_uart_init() {
+void din_uart_init() {
   uart_init(uart1, 31250);           // MIDI 1.0: 31250 baud 8N1 (divisor is
                                      // exact at every clk_peri: 125/150/240
                                      // MHz / (16 * 31250) = 250/300/480)
@@ -696,13 +696,13 @@ static void din_uart_init() {
 }
 
 // Non-blocking ring reads for din_pump() (returns -1 when empty).
-static int din_uart_read() {
+int din_uart_read() {
   if (din_ring_tail == din_ring_head) return -1;
   const uint8_t c = din_ring[din_ring_tail];
   din_ring_tail = (din_ring_tail + 1u) & 0xFFu;
   return c;
 }
-static bool din_uart_overflow() {
+bool din_uart_overflow() {
   if (din_ring_overflows == 0) return false;
   --din_ring_overflows;              // report once per overflow event
   return true;
@@ -1910,7 +1910,7 @@ static uint16_t ui_tx_head = 0, ui_tx_tail = 0;
 // pushed into the UART HW FIFO).
 volatile uint32_t g_ui_tx_wire_bytes = 0;
 
-static void ui_uart_irq() {
+void __not_in_flash_func(ui_uart_irq)() {
   while (uart_is_readable(uart0)) {
     const uint8_t c = static_cast<uint8_t>(uart_getc(uart0));
     const uint16_t next = (ui_rx_head + 1u) % sizeof(ui_rx_ring);
