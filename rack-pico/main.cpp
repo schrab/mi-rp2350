@@ -393,6 +393,15 @@ volatile float g_render_gain = 1.0f;     // swap-mute ramp (see midi.h)
 // feeds the hardware watchdog ONLY when this advances, so a hung audio core
 // (e.g. a drone hard fault) resets the board instead of leaving it frozen.
 volatile uint32_t g_audio_hb = 0;
+// Core-1 audio-ready poll liveness (bench 2026-11-23): core 1 increments
+// while spinning on the audio_ready flag; the 2 s report prints it so a
+// frozen audio core is distinguishable from a visibility problem.
+volatile uint32_t g_core1_spins = 0;
+// Core-1 poll rate measurement (bench 2026-11-23): wall-clock stamps taken
+// by core 1 itself, printed in the report — measures how fast the spinning
+// core actually executes vs the shared microsecond timer.
+volatile uint32_t g_core1_poll_t0_us = 0;
+volatile uint32_t g_core1_poll_us = 0;
 // T6 chain grid overrides for the mod engine (declared in mod_engine.h):
 // nonzero while a chain is engaged — the engine's per-block pass then runs
 // the 32 kHz / 24-sample chain grid instead of the A slot's registry block.
@@ -992,6 +1001,7 @@ static volatile bool g_host_alarm_pool_ready = false;
 #endif
 
 void setup1() {
+  crumb1(1);   // audio core entered setup1
   // Flush-to-zero + default-NaN on the AUDIO CORE (2026-11-19): FPSCR is
   // per-core — setup()'s write covers core 0 only, and this core runs the
   // render. Without FZ the resonator/reverb/conv/biquad tails decay into
@@ -1009,7 +1019,25 @@ void setup1() {
   g_host_alarm_pool_ready = true;
 #endif
 
-  while (!audio_ready) { sleep_ms(1); }
+  crumb1(2);   // entering the audio_ready wait
+  // BUSY poll with an in-loop heartbeat crumb: distinguishes "polling and
+  // the flag write is never observed" (15) from "stopped right after (2)"
+  // (stale 2) — scratch survives the watchdog resets, so a stale value
+  // would otherwise confound the read (bench-caught 2026-11-23).
+  {
+    uint32_t spins = 0;
+    g_core1_poll_t0_us = time_us_32();
+    while (!audio_ready) {
+      tight_loop_contents();
+      ++g_core1_spins;
+      if (++spins == 50000u) {
+        spins = 0;
+        g_core1_poll_us = time_us_32();
+        crumb1(15);
+      }
+    }
+  }
+  crumb1(3);   // audio_ready observed
   // T8: take the I2S DMA IRQ on the AUDIO core. The AudioBufferManager's
   // list helpers use noInterrupts(), which is per-core: with the writer on
   // core 1 and the DMA IRQ on core 0 they were racing on _empty/_filled, and
@@ -1017,6 +1045,7 @@ void setup1() {
   // reload/reconfigure cleared). core 0 disables DMA_IRQ_0 right after
   // i2s.begin(); core 1 enables it here and around every runtime reconfig.
   irq_set_enabled(DMA_IRQ_0, true);
+  crumb1(4);   // DMA_IRQ_0 taken over by the audio core
 }
 
 // Swap-mute ramp depth: kSwapRampSteps render blocks with a linear gain ramp
@@ -1720,6 +1749,7 @@ static void do_chain_a_reinit() {
 }
 
 void loop1() {
+  crumb1(10);   // render loop entered
   // Pending swap first: consumed at the TOP of the render loop (strictly
   // between two Process() calls), max one swap per call. The T3 mod engine
   // shares this discipline: on a swap call it is SKIPPED exactly like the
@@ -1766,7 +1796,9 @@ void loop1() {
   // is never written by the swap path). While chained, g_active_module is
   // the A slot and the g_mod_chain_* overrides run the 32 kHz / 24-sample
   // chain grid — destinations bind to A (decision 4).
+  crumb1(11);   // entering the mod-engine block pass
   mod_engine_process_block(g_active_module);
+  crumb1(12);   // mod engine done, entering the render
   if (g_chain.active) {
     chain_render_block();
   } else {
@@ -1777,6 +1809,7 @@ void loop1() {
     proc_us_sum += time_us_32() - t0;
     ++proc_us_count;
   }
+  crumb1(13);   // render complete
   ++g_audio_hb;   // liveness for core-0's conditional watchdog feed
 }
 
@@ -2847,6 +2880,12 @@ static void cmd_crash(const char* args) {
                 (unsigned long)g_crashv2.fault_streak,
                 (unsigned long)g_crashv2.safe_mode);
 #if RACK_HANG_DEBUG
+  // LIVE scratch alongside the boot-saved statics: the statics are read-and-
+  // cleared at setup start, so a value written AFTER that (the audio core's
+  // in-loop heartbeat, the release crumbs) only shows here (bench 2026-11-23).
+  printf("crash: live s0=0x%08lx s1=0x%08lx (watchdog_hw scratch)\r\n",
+         (unsigned long)watchdog_hw->scratch[0],
+         (unsigned long)watchdog_hw->scratch[1]);
   printf("crash: hang0=%lu hang1=%lu (last stages before any hang)\r\n",
                 (unsigned long)g_hang0, (unsigned long)g_hang1);
 #endif
@@ -3178,7 +3217,12 @@ void setup() {
                 (unsigned)statusLed.Offset(),
                 (unsigned)pio_sm_is_claimed(pio2, 1), (unsigned)pio_sm_get_pc(pio2, 1));
 
+  crumb(20);   // about to release the audio core
+  __dmb();
   audio_ready = true;
+  __SEV();      // wake any event-sleeping core (M33: a plain store won't)
+  __dmb();
+  crumb(21);   // flag published
   dbg_printf("%s\r\n", window_line);          // deferred boot line (see fix note)
   // Crash record from the previous run (isr_hardfault): PC + fault status of
   // the fault that reset us. One line, then the magic is cleared so it prints
@@ -3589,7 +3633,7 @@ void loop() {
                     elements_tail,
                     oc_tail);
 #else
-      dbg_printf("max Process: %u us avg %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | mod=%s | %s | %s | %s%s\r\n",
+      dbg_printf("max Process: %u us avg %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | c1=%lu c1t=%lu | up=%lu tu=%lu | mod=%s | %s | %s | %s%s\r\n",
                     proc_us_max,
                     (unsigned)(proc_us_count ? proc_us_sum / proc_us_count : 0),
                     (unsigned)budget,
@@ -3600,6 +3644,10 @@ void loop() {
                     button_down_count,
                     pz_peak,
                     (unsigned long)pz_rate,
+                    (unsigned long)g_core1_spins,
+                    (unsigned long)(g_core1_poll_us - g_core1_poll_t0_us),
+                    (unsigned long)to_ms_since_boot(get_absolute_time()),
+                    (unsigned long)time_us_32(),
                     mod_field,
                     modeng_tail,
                     g_active_module == RACK_MODULE_PLAITS ? plaits_tail
