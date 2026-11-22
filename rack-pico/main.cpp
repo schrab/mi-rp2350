@@ -397,6 +397,10 @@ volatile uint32_t g_audio_hb = 0;
 // while spinning on the audio_ready flag; the 2 s report prints it so a
 // frozen audio core is distinguishable from a visibility problem.
 volatile uint32_t g_core1_spins = 0;
+// loop1 phase timing (bench 2026-11-23): the render hb delta per window +
+// the mod-engine block cost — separates mod-engine time from render time.
+volatile uint32_t g_hb_window = 0;
+volatile uint32_t g_mod_block_us = 0;
 // Setup-stage tracker (bench 2026-11-23): core 0 stamps its progress; the
 // 2 s report prints it live so the core-1 freeze time can be correlated
 // with the setup step that was running.
@@ -1816,7 +1820,12 @@ void loop1() {
   // the A slot and the g_mod_chain_* overrides run the 32 kHz / 24-sample
   // chain grid — destinations bind to A (decision 4).
   crumb1(11);   // entering the mod-engine block pass
-  mod_engine_process_block(g_active_module);
+  {
+    const uint32_t tmod = time_us_32();
+    mod_engine_process_block(g_active_module);
+    const uint32_t dmod = time_us_32() - tmod;
+    if (dmod > g_mod_block_us) g_mod_block_us = dmod;
+  }
   crumb1(12);   // mod engine done, entering the render
   if (g_chain.active) {
     chain_render_block();
@@ -1830,6 +1839,7 @@ void loop1() {
   }
   crumb1(13);   // render complete
   ++g_audio_hb;   // liveness for core-0's conditional watchdog feed
+  ++g_hb_window;
 }
 
 // ================= core 0: control =================
@@ -3703,7 +3713,7 @@ void loop() {
                     elements_tail,
                     oc_tail);
 #else
-      dbg_printf("max Process: %u us avg %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | c1=%lu c1t=%lu | up=%lu tu=%lu | st=%lu@%lu | mod=%s | %s | %s | %s%s\r\n",
+      dbg_printf("max Process: %u us avg %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | c1=%lu c1t=%lu | up=%lu tu=%lu | st=%lu@%lu | hbw=%lu mod=%luus | mod=%s | %s | %s | %s%s\r\n",
                     proc_us_max,
                     (unsigned)(proc_us_count ? proc_us_sum / proc_us_count : 0),
                     (unsigned)budget,
@@ -3720,6 +3730,8 @@ void loop() {
                     (unsigned long)time_us_32(),
                     (unsigned long)g_setup_stage,
                     (unsigned long)g_setup_stage_us,
+                    (unsigned long)g_hb_window,
+                    (unsigned long)g_mod_block_us,
                     mod_field,
                     modeng_tail,
                     g_active_module == RACK_MODULE_PLAITS ? plaits_tail
@@ -3739,6 +3751,8 @@ void loop() {
     rack_meter_a = 0.0f;            // max-since-report meters (see adapters)
     rack_meter_b = 0.0f;
     g_chain_b_us_max = 0;           // core-0 pipeline diagnostics
+    g_hb_window = 0;
+    g_mod_block_us = 0;
     g_core0_loop_max_us = 0;
     g_chain_pipe_underruns = 0;
   }

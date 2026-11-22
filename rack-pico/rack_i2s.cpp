@@ -92,7 +92,12 @@ bool RackI2sOut::begin() {
   pio_sm_config c = i2s_out_program_get_default_config(s_offset);
   sm_config_set_out_pins(&c, kPinData, 1);
   sm_config_set_sideset_pins(&c, kPinBck);
-  sm_config_set_out_shift(&c, true /* right = MSB first */, false, 32);
+  // AUTOPIULL REQUIRED: the i2s_out program has no explicit `pull`, so the
+  // OSR only refills automatically. With autopull=false the SM shifted out
+  // stale OSR bits forever, the TX FIFO never drained, the DMA transfer
+  // never completed (no completion IRQ) and the render stalled after the
+  // 8-buffer bank (bench-caught 2026-11-23: hb frozen at the bank depth+1).
+  sm_config_set_out_shift(&c, true /* right = MSB first */, true /* autopull */, 32);
   sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
   pio_gpio_init(s_pio, kPinData);
   pio_gpio_init(s_pio, kPinBck);
