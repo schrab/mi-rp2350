@@ -113,9 +113,22 @@ class Lira8Engine {
   volatile uint32_t dbg_voices = 0, dbg_delay = 0, dbg_lfo = 0,
                     dbg_master = 0, dbg_params = 0;
   // level = the press peak (1.0 for latches / PLAY, vel/127 for MIDI notes).
+  // Sensor events come from BOTH cores (core-0 MIDI/console/PLAY-button vs
+  // core-1 mod-engine triggers + preset replay) while the audio core consumes
+  // between internal blocks. A torn pair would apply one event's gate with
+  // another event's press level, so the {gate, level} pair is guarded by a
+  // per-voice spinlock that BOTH writers and the audio reader hold: hold is
+  // two plain stores/loads (the same class as the CC mailbox's ldrex
+  // retries), exclusion makes the snapshot always one writer's complete
+  // publication, and no counter/fence subtleties survive. The float level
+  // rides bit-exactly as its IEEE-754 pattern (same pun as the params).
   void set_sensor(int voice /*0..7*/, bool on, float level = 1.0f) {
-    pending_sensors_[voice] = on;
-    pending_sensor_levels_[voice] = level;
+    SensorMail& m = pending_sensor_mail_[voice];
+    while (__atomic_exchange_n(&m.wlock, 1u, __ATOMIC_ACQUIRE)) {
+    }
+    m.gate = on ? 1u : 0u;
+    m.level_bits = encode_param(level);
+    __atomic_store_n(&m.wlock, 0u, __ATOMIC_RELEASE);
   }
 
   // ARP-driven voice pitch (adapter side, between blocks): force one voice's
@@ -169,6 +182,14 @@ class Lira8Engine {
     return value;
   }
 
+  // One pending sensor event, guarded as a coherent {gate, level} pair (see
+  // set_sensor); wlock is held by writers AND the audio reader.
+  struct SensorMail {
+    uint32_t wlock = 0;                        // 0 = free, 1 = held
+    uint32_t gate = 0;                         // 1 = pressed
+    uint32_t level_bits = encode_param(1.0f);  // press peak, float bits
+  };
+
   void apply_defaults() {
     // parameters.txt defaults (spec §12; fractional values kept as floats)
     static const float def[kNumParams] = {
@@ -194,8 +215,7 @@ class Lira8Engine {
     for (int i = 0; i < 8; ++i) {
       sensor_state_[i] = false;
       sensor_levels_[i] = 1.0f;
-      pending_sensors_[i] = false;
-      pending_sensor_levels_[i] = 1.0f;
+      pending_sensor_mail_[i] = SensorMail{};
     }
     apply_params();
   }
@@ -266,10 +286,18 @@ class Lira8Engine {
       }
     }
     for (int v = 0; v < 8; ++v) {
-      if (pending_sensors_[v] != sensor_state_[v] ||
-          pending_sensor_levels_[v] != sensor_levels_[v]) {
-        sensor_state_[v] = pending_sensors_[v];
-        sensor_levels_[v] = pending_sensor_levels_[v];
+      // Take the per-voice lock (see set_sensor): exclusion makes the two
+      // words one writer's complete publication; hold is two plain loads.
+      SensorMail& m = pending_sensor_mail_[v];
+      while (__atomic_exchange_n(&m.wlock, 1u, __ATOMIC_ACQUIRE)) {
+      }
+      const uint32_t gate = m.gate;
+      const float level = decode_param(m.level_bits);
+      __atomic_store_n(&m.wlock, 0u, __ATOMIC_RELEASE);
+      const bool on = gate != 0u;
+      if (on != sensor_state_[v] || level != sensor_levels_[v]) {
+        sensor_state_[v] = on;
+        sensor_levels_[v] = level;
         pairs_[v / 2].set_sensor(v % 2, sensor_state_[v], sensor_levels_[v]);
       }
     }
@@ -419,9 +447,8 @@ class Lira8Engine {
 
   float params_[kNumParams];
   uint32_t pending_params_[kNumParams];
-  bool pending_sensors_[8];
+  SensorMail pending_sensor_mail_[8];
   bool sensor_state_[8];
-  float pending_sensor_levels_[8];
   float sensor_levels_[8];
   int src_[4];
   float switch_ = 0.f, total_fb_ = 0.f;

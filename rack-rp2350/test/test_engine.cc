@@ -31,6 +31,12 @@ struct Lira8EngineTestAccess {
   // render_delay leaves the final bus's compressor output here.
   static const float* second_chain(const Lira8Engine& e) { return e.chain_buf_; }
   static float param(const Lira8Engine& e, int i) { return e.params_[i]; }
+  static bool sensor_state(const Lira8Engine& e, int v) {
+    return e.sensor_state_[v];
+  }
+  static float sensor_level(const Lira8Engine& e, int v) {
+    return e.sensor_levels_[v];
+  }
 };
 }  // namespace l8pd
 
@@ -276,6 +282,52 @@ static void test_param_mailbox() {
         "empty slot leaves the applied fractional value unchanged");
 }
 
+// Two concurrent sensor writers on one voice with disjoint level ranges.
+// A coherent mailbox can only expose complete publications — (on, small) or
+// (off, huge) — so an applied pair that crosses the boundary proves the
+// gate/level snapshot tore. Consumer runs the real apply path via Process.
+static void test_sensor_mailbox() {
+  constexpr float sr = 32000.f, cap_ms = 20.f;
+  constexpr int n = Lira8Engine::kBlockSize;
+  constexpr float kAltLevel = 100000.f;
+  int16_t delay_mem[2 * (Lira8Engine::nsamps_for(cap_ms, sr) + 4)];
+  Lira8Engine eng(sr, cap_ms, delay_mem);
+  // Pre-seed one press: the engine's init pair is {off, level 1.0} (spec
+  // defaults), which is legal state but outside both stress writers' ranges
+  // — without this the consumer's first block can flag the init pair.
+  eng.set_sensor(0, true, 1.0f);
+  std::atomic<int> ready{0};
+  auto rendezvous = [&] {
+    ready.fetch_add(1);
+    while (ready.load() < 3) std::this_thread::yield();
+  };
+  std::thread press([&] {   // core-0-like: MIDI note presses with velocity
+    rendezvous();
+    for (int i = 0; i < 10000; ++i)
+      eng.set_sensor(0, true, 1.0f + i * 0.00001f);
+  });
+  std::thread trigger([&] {  // core-1-like: mod-engine trigger levels
+    rendezvous();
+    for (int i = 0; i < 10000; ++i) eng.set_sensor(0, false, kAltLevel + i);
+  });
+  bool coherent = true;
+  std::thread consumer([&] {  // audio core: applies between internal blocks
+    rendezvous();
+    float l[n], r[n];
+    for (int b = 0; b < 2000; ++b) {
+      eng.Process(l, r, n);
+      const bool on = Lira8EngineTestAccess::sensor_state(eng, 0);
+      const float level = Lira8EngineTestAccess::sensor_level(eng, 0);
+      if (!((on && level < kAltLevel) || (!on && level >= kAltLevel)))
+        coherent = false;
+    }
+  });
+  press.join();
+  trigger.join();
+  consumer.join();
+  CHECK(coherent, "applied sensor pairs stay complete publications");
+}
+
 static void test_lfo_rate_law() {
   const float sr = 32000.f;
   HyperLfo lfo(sr);
@@ -368,6 +420,7 @@ int main() {
   test_delay_bus_isolation();
   test_self_staging();
   test_param_mailbox();
+  test_sensor_mailbox();
   test_lfo_rate_law();
   test_master_laws();
   test_engine_basic();
