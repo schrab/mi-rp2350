@@ -1763,6 +1763,8 @@ static void cmd_vreg(const char* args);
 static void cmd_crash(const char* args);
 static void cmd_trig(const char* args);
 static void cmd_piezo(const char* args);
+// T6 bench: the benjolin device-output dump (the device-vs-host comparison).
+static void cmd_bjdump(const char* args);
 static void cmd_help(const char* args);
 // T3 mod-engine commands (defined in mod_engine.h, core 0 only).
 //   mod <src> <param> <value> | mod? | bpm <20-300> | clock <internal|midi> [src]
@@ -1811,6 +1813,7 @@ static const ConsoleCommand kConsoleCommands[] = {
     {"reboot",    cmd_reboot},
     {"trig",      cmd_trig},
     {"piezo",     cmd_piezo},
+    {"bjdump",    cmd_bjdump},
     {"help",      cmd_help},
 };
 static const uint8_t kConsoleCommandCount =
@@ -2262,6 +2265,37 @@ static void cmd_trig(const char* args) {
 // (min/max/peak since the last 2 s report — tap and read), the measured
 // sample rate and the digital gain. The gain scales the rectified samples
 // before the T3 Ears pipeline (stand-in for Ears' omitted 40 dB amp).
+// Bench: stream the benjolin's post-Clip16 output over CDC (the
+// device-vs-host comparison — the M33 soft-double/no-FMA arithmetic vs the
+// host build). Usage: bjdump <blocks 1-750>. Binary payload follows the
+// status line: blocks * 16 * 2 * int16 LE (L,R pairs).
+static void cmd_bjdump(const char* args) {
+  if (g_active_module != RACK_MODULE_BENJOLIN) {
+    Serial.println("bjdump: benjolin is not the active module");
+    return;
+  }
+  const uint32_t blocks = strtoul(args, nullptr, 10);
+  if (!rack_modules::mod_benjolin::dump_begin(blocks)) {
+    Serial.println("bjdump: bad count (1-750) or carve alloc failed");
+    return;
+  }
+  // Bounded wait for the core-1 capture (<= ~1 s at 750 blocks). Core 0
+  // stalls here; the audio runs on core 1 and the I2S bank absorbs.
+  for (int i = 0; i < 3000 && !rack_modules::mod_benjolin::dump_done(); ++i) {
+    delay(1);
+  }
+  if (!rack_modules::mod_benjolin::dump_done()) {
+    Serial.println("bjdump: capture timeout");
+    return;
+  }
+  Serial.printf("bjdump %u %u\r\n", blocks,
+                (unsigned)rack_modules::mod_benjolin::dump_bytes());
+  Serial.write(reinterpret_cast<const uint8_t*>(
+                   rack_modules::mod_benjolin::dump_data()),
+               rack_modules::mod_benjolin::dump_bytes());
+  Serial.println();
+}
+
 static void cmd_piezo(const char* args) {
   while (*args == ' ') ++args;
   if (strncasecmp(args, "gain", 4) == 0) {

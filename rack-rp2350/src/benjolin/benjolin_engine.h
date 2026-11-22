@@ -92,7 +92,10 @@ inline float RunglerDacBits(uint32_t reg) {
   return s;
 }
 
-inline float DpwClamp(float f) { return f < 1.0f ? 1.0f : f; }
+// The DPW divides by freq (scalefac) — guard only against 0/negative, which
+// the norns range (freq2 min 0.1 Hz) never produces. The old 1 Hz floor
+// BLOCKED the norns freq2 range's bottom octave (T6 spec audit).
+inline float DpwClamp(float f) { return f < 0.01f ? 0.01f : f; }
 
 struct Engine {
   static constexpr int kBlock = 64;  // the scsynth block grid

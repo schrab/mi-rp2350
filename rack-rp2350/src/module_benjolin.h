@@ -60,10 +60,43 @@ static const uint32_t kI2sBuffers = 8;       // 8 x 16 frames ~ 2.7 ms
 static const uint32_t kI2sWords = 16;
 static const uint32_t kStallUs = 900;        // >2x the 333 us write period
 
+// The parameter specs — the EXACT norns benjolis.lua ControlSpecs (the
+// ranges, the curves, the steps, the defaults; T6 user demand: "each
+// parameter should have the EXACT range as on benjolis and exact curve").
+// The CC map = the raw 0-127 over each spec's normalized travel.
+struct CcSpec {
+  float min, max, step;
+  bool exp;          // the norns "exp" warp: v = min*(max/min)^n
+  float def;         // the norns default
+};
+static const CcSpec kCcSpecs[14] = {
+    /* 60 freq1       */ {20.0f, 14000.0f, 0.0f, true, 70.0f},
+    /* 61 freq2       */ {0.1f, 14000.0f, 0.0f, true, 4.0f},
+    /* 62 scale       */ {0.0f, 1.0f, 0.0f, false, 1.0f},
+    /* 63 rungler1    */ {0.001f, 1.0f, 0.0f, false, 0.16f},
+    /* 64 rungler2    */ {0.001f, 1.0f, 0.0f, false, 0.001f},
+    /* 65 runglerFilt */ {0.01f, 9.0f, 0.0f, false, 1.0f},
+    /* 66 loop        */ {0.0f, 1.0f, 0.0f, false, 1.0f},
+    /* 67 filtFreq    */ {20.0f, 20000.0f, 0.0f, true, 40.0f},
+    /* 68 q           */ {0.001f, 1.0f, 0.0f, false, 0.02f},
+    /* 69 gain        */ {0.0f, 6.0f, 1.0f, false, 6.0f},
+    /* 70 filterType  */ {0.0f, 1.0f, 1.0f, false, 0.0f},
+    /* 71 outSignal   */ {0.0f, 6.0f, 1.0f, false, 6.0f},
+    /* 72 amp         */ {0.0f, 1.0f, 0.0f, false, 0.0f},
+    /* 73 pan         */ {-1.0f, 1.0f, 0.001f, false, 0.0f},
+};
+
+// The CC seeds = each norns DEFAULT mapped back to its raw CC (so the boot
+// state is exactly the norns benjolis default state: amp 0 — the SILENT
+// boot, like norns; raise AMP to hear it).
+static const uint8_t kCcSeeds[14] = {24, 40, 127, 20, 0, 14, 127,
+                                     13, 2, 127, 0, 127, 0, 64};
+
 static const char* const kCcMap =
-    "60 freq1(log 1-500) 61 freq2(log .1-50) 62 scale 63 rungler1 64 rungler2 "
-    "65 runglerFilt 66 loop 67 filtFreq(log 10-8k) 68 q 69 gain 70 filterType "
-    "(0-3) 71 outSignal (0-6) 72 amp; standalone-only";
+    "60 freq1 exp 20-14k 61 freq2 exp .1-14k 62 scale 63 rungler1 "
+    "64 rungler2 65 runglerFilt .01-9 66 loop 67 filtFreq exp 20-20k "
+    "68 q .001-1 69 gain 0-6 step1 70 filterType 0-1 71 outSignal 0-6 "
+    "72 amp 73 pan -1..1; standalone-only";
 
 static const uint8_t kModContinuousCcs[] = {60, 61, 62, 63, 64, 65, 66, 67,
                                             68, 69, 70, 71, 72};
@@ -72,6 +105,39 @@ static const RackModDestinations kModDestinations = {
     "| no triggers",
     sizeof(kModContinuousCcs), kModContinuousCcs, 0, nullptr, nullptr,
 };
+
+// CC (raw 0-127) -> the parameter value through the EXACT norns spec: the
+// "exp" warp = min*(max/min)^n, "lin" = min + (max-min)*n, then the step
+// quantization in value units (the norns ControlSpec semantics).
+static float SpecValue(const CcSpec& sp, float cc) {
+  const float n = cc * (1.0f / 127.0f);
+  float v = sp.exp ? sp.min * powf(sp.max / sp.min, n)
+                   : sp.min + (sp.max - sp.min) * n;
+  if (sp.step > 0.0f) {
+    v = sp.min + roundf((v - sp.min) / sp.step) * sp.step;
+    v = v < sp.min ? sp.min : (v > sp.max ? sp.max : v);
+  }
+  return v;
+}
+
+// The CC list order = the kCcSpecs order. The CC vars stay in the CC domain
+// end to end — the engine never sees raw CC values (T5 review C1).
+static void cc_to_params(const volatile float* cc, benjolin::Params* p) {
+  p->freq1 = SpecValue(kCcSpecs[0], cc[0]);
+  p->freq2 = SpecValue(kCcSpecs[1], cc[1]);
+  p->scale = SpecValue(kCcSpecs[2], cc[2]);
+  p->rungler1 = SpecValue(kCcSpecs[3], cc[3]);
+  p->rungler2 = SpecValue(kCcSpecs[4], cc[4]);
+  p->rungler_f = SpecValue(kCcSpecs[5], cc[5]);
+  p->loop = SpecValue(kCcSpecs[6], cc[6]);
+  p->filt_freq = SpecValue(kCcSpecs[7], cc[7]);
+  p->q = SpecValue(kCcSpecs[8], cc[8]);
+  p->gain = SpecValue(kCcSpecs[9], cc[9]);
+  p->filter_type = SpecValue(kCcSpecs[10], cc[10]);
+  p->out_signal = SpecValue(kCcSpecs[11], cc[11]);
+  p->amp = SpecValue(kCcSpecs[12], cc[12]);
+  p->pan = SpecValue(kCcSpecs[13], cc[13]);
+}
 
 struct State {
   benjolin::Engine eng;
@@ -83,27 +149,20 @@ struct State {
   // core-0 CC values (single-word atomic stores; core 1 snapshots them at
   // the block boundary — the lira8/dronecaster discipline, one float per
   // CC write so no torn multi-word state).
-  volatile float cc_freq1, cc_freq2, cc_scale, cc_rungler1, cc_rungler2;
-  volatile float cc_rungler_f, cc_loop, cc_filt_freq, cc_q, cc_gain;
-  volatile float cc_filter_type, cc_out_signal, cc_amp, cc_pan;
+  volatile float cc_val[14];
   // report mirrors (core 1 -> core 0)
   volatile uint32_t proc_avg_us;
   volatile uint32_t nan_blocks;         // blocks zeroed by the NaN guard
   volatile uint32_t render_heartbeat;   // core-1 liveness (stall watchdog)
-  // CC seeds = the SynthDef defaults expressed in RAW CC (0-127) so the
-  // boot sound is the golden scenario. Mapping back through cc_to_params:
-  // 40 Hz -> 127*ln40/ln500 = 75; 4 Hz -> 75; scale 1 -> 127; rungler1
-  // 0.16 -> 127*0.16/0.5 = 41; rungler_f 9 -> 127*9/24 = 48; filtFreq
-  // 40 Hz -> 127*ln4/ln800 = 26; q 0.82 -> 127*0.82/0.99 = 105; gain
-  // 1 -> 127*1/4 = 32; amp 0.5 -> 64.
-  explicit State() : eng(), tap_rings{}, cc_freq1(75.0f), cc_freq2(75.0f),
-      cc_scale(127.0f), cc_rungler1(41.0f), cc_rungler2(0.0f),
-      cc_rungler_f(48.0f), cc_loop(0.0f), cc_filt_freq(26.0f), cc_q(105.0f),
-      cc_gain(32.0f), cc_filter_type(0.0f), cc_out_signal(6.0f),
-      cc_amp(64.0f), cc_pan(64.0f), proc_avg_us(0), nan_blocks(0),
-      render_heartbeat(0) {
-    benjolin::Params p;   // SynthDef defaults with an audible amp
-    p.amp = 0.5f;
+  // The CC seeds = kCcSeeds (each norns default mapped back to its raw CC) —
+  // the boot state is EXACTLY the norns benjolis default state: amp 0, so
+  // the boot is SILENT until AMP is raised (like norns). The engine's Init
+  // params = the same values (the CC map applied once up front).
+  explicit State() : eng(), tap_rings{}, pan_rings{},
+      proc_avg_us(0), nan_blocks(0), render_heartbeat(0) {
+    for (int i = 0; i < 14; ++i) cc_val[i] = kCcSeeds[i];
+    benjolin::Params p;
+    cc_to_params(cc_val, &p);   // the norns default state through the same map
     eng.Init(static_cast<double>(kSampleRate),
              benjolin::FeedbackMode::kReferenceSc,
              1795055191,               // the golden DFM1 epoch (deterministic)
@@ -123,46 +182,9 @@ void init() {
   init_at(static_cast<uint8_t*>(rack_mem_alloc(state_size(), 8)));
 }
 
-// CC (raw 0-127) -> SC-unit scalings (the plan's CC table; log maps for the
-// wide ranges). The CC vars stay in the CC domain end to end — the engine
-// never sees raw CC values (T5 review C1: raw CCs reached Params, and
-// scale >= 13 overflowed midicps to inf -> permanent NaN).
-static void cc_to_params(benjolin::Params* p) {
-  p->freq1 = powf(500.0f, s->cc_freq1 / 127.0f);                       // 1..500
-  p->freq2 = 0.1f * powf(500.0f, s->cc_freq2 / 127.0f);                // .1..50
-  p->scale = s->cc_scale * (1.0f / 127.0f);                            // 0..1
-  p->rungler1 = s->cc_rungler1 * (0.5f / 127.0f);                      // 0..0.5
-  p->rungler2 = s->cc_rungler2 * (0.5f / 127.0f);                      // 0..0.5
-  p->rungler_f = s->cc_rungler_f * (24.0f / 127.0f);                   // 0..24
-  p->loop = s->cc_loop * (1.0f / 127.0f);                              // 0..1
-  p->filt_freq = 10.0f * powf(800.0f, s->cc_filt_freq / 127.0f);       // 10..8k
-  p->q = s->cc_q * (0.99f / 127.0f);                                   // 0..0.99
-  p->gain = s->cc_gain * (4.0f / 127.0f);                              // 0..4
-  p->filter_type = s->cc_filter_type;
-  p->out_signal = s->cc_out_signal;
-  p->amp = s->cc_amp * (1.0f / 127.0f);                                // 0..1
-  p->pan = s->cc_pan * (0.127f / 127.0f);  // the norns x0.001 law      // 0..0.127
-}
-
-// CC 60-73 -> 0..127 raw; helper for the direct control_change path.
+// CC 60-73 -> the kCcSpecs index (cc - 60); helper for the direct paths.
 static void set_cc_raw(uint8_t cc, float raw) {
-  switch (cc) {
-    case 60: s->cc_freq1 = raw; break;
-    case 61: s->cc_freq2 = raw; break;
-    case 62: s->cc_scale = raw; break;
-    case 63: s->cc_rungler1 = raw; break;
-    case 64: s->cc_rungler2 = raw; break;
-    case 65: s->cc_rungler_f = raw; break;
-    case 66: s->cc_loop = raw; break;
-    case 67: s->cc_filt_freq = raw; break;
-    case 68: s->cc_q = raw; break;
-    case 69: s->cc_gain = raw; break;
-    case 70: s->cc_filter_type = raw; break;
-    case 71: s->cc_out_signal = raw; break;
-    case 72: s->cc_amp = raw; break;
-    case 73: s->cc_pan = raw; break;
-    default: break;
-  }
+  if (cc >= 60 && cc <= 73) s->cc_val[cc - 60] = raw;
 }
 
 void note_on(uint8_t note, uint8_t vel) { (void)note; (void)vel; }
@@ -176,11 +198,33 @@ bool mod_set_cc_float(uint8_t cc, float v) {
   if (v < 0.0f) v = 0.0f;
   if (v > 1.0f) v = 1.0f;
   set_cc_raw(cc, v * 127.0f);
-  return true;   // all 14 CCs accept continuous modulation
+  return true;   // all CCs accept continuous modulation
 }
 bool mod_trigger_cc(uint8_t cc, bool high) { (void)cc; (void)high; return false; }
 
 uint32_t render_heartbeat() { return s ? s->render_heartbeat : 0; }
+
+// --- device-output capture (the device-vs-host comparison) ---
+// cmd_bjdump (core 0) carves a buffer and requests N blocks; render (core 1)
+// appends the post-Clip16 int16 pairs; core 0 streams the buffer when the
+// capture completes. Diagnostic only — allocation is transient (freed at the
+// next swap by rack_mem_reset).
+static int16_t* s_cap_data = nullptr;
+static volatile uint32_t s_cap_req = 0;    // blocks requested (0 = idle)
+static volatile uint32_t s_cap_have = 0;   // blocks captured
+
+static bool dump_begin(uint32_t blocks) {
+  if (blocks == 0 || blocks > 750) return false;
+  s_cap_data = static_cast<int16_t*>(
+      rack_mem_alloc(blocks * kBlockSize * 2 * sizeof(int16_t), 4));
+  if (s_cap_data == nullptr) return false;
+  s_cap_have = 0;
+  s_cap_req = blocks;      // the release signal — set LAST
+  return true;
+}
+static bool dump_done() { return s_cap_req != 0 && s_cap_have >= s_cap_req; }
+static const int16_t* dump_data() { return s_cap_data; }
+static uint32_t dump_bytes() { return s_cap_req * kBlockSize * 2 * sizeof(int16_t); }
 
 // The -O3 hot entry (the engine inlines into it; the SRAM token lives here).
 BENJOLIN_TC(process)
@@ -193,7 +237,7 @@ void render() {
   // CC values are single-word atomic stores (core 0) — snapshot at the block
   // boundary and apply (the lira8/dronecaster pending-intent discipline).
   benjolin::Params p;
-  cc_to_params(&p);
+  cc_to_params(s->cc_val, &p);
   s->eng.SetParams(p);
 
   uint32_t t0 = time_us_32();
@@ -221,15 +265,24 @@ void render() {
 
   const float gain = g_render_gain;
   uint32_t w0 = time_us_32();
-  // TRUE STEREO: the SynthDef's DelayL pan produces different L/R delays —
-  // writing l/r separately makes PAN (CC 73) audible (the dronecaster/lira8
-  // pattern writes mono, but their engines are mono-in-mono-out; the
-  // benjolin's graph is stereo by construction).
+  // TRUE STEREO + HEADROOM: the engine's output = the tanh-saturated square
+  // (±1) through LeakDC, whose edge response overshoots to ±2 — at the old
+  // ×32768 scale EVERYTHING above ±1.0 flat-topped in int16 (the user's
+  // "bit reduction" distortion; the float goldens held ±1.72 fine). Scale
+  // by 16384 = ±2.0 headroom; the AMP knob sets the level (like norns).
   for (size_t i = 0; i < kBlockSize; ++i) {
     const int16_t out_l = stmlib::Clip16(
-        static_cast<int32_t>(l[i] * 32768.0f * gain));
+        static_cast<int32_t>(l[i] * 16384.0f * gain));
     const int16_t out_r = stmlib::Clip16(
-        static_cast<int32_t>(r[i] * 32768.0f * gain));
+        static_cast<int32_t>(r[i] * 16384.0f * gain));
+    // The device-output capture (the device-vs-host comparison): the EXACT
+    // int16 pairs written to I2S, appended while a dump is in flight.
+    if (s_cap_req != 0 && s_cap_have < s_cap_req) {
+      const size_t idx = (s_cap_have * kBlockSize + i) * 2;
+      s_cap_data[idx] = out_l;
+      s_cap_data[idx + 1] = out_r;
+      if (i == kBlockSize - 1) ++s_cap_have;
+    }
     i2s.write16(out_l, out_r);
   }
   if (time_us_32() - w0 > kStallUs) ++i2s_stall_count;
