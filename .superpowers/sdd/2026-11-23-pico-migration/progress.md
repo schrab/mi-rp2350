@@ -46,6 +46,28 @@ combinations wedge at 307.2). Direct SDK rewrite, no Arduino shim layer.
   shims; the Arduino arms are byte-identical (pio build re-verified after
   every header edit).
 
+## C3 pairing (2026-11-23, later bench round)
+
+- C3 rebuilt + flashed with **esp-idf v6.1.1** on this machine
+  (~/esp/esp-idf-v6.1.1; the stale v5.5.4 CMake cache needed wiping) — the
+  handoff's open item 5 (preset blob capacity) is now closed on hardware.
+- The "---" flicker every ~3 s root-caused from the C3's own logs
+  (ESP_LOG over the JTAG console): RackLink's kOfflineAfterMs=4000 expired
+  (no RX bytes from the RP2350) -> offline -> page probe -> online; each
+  cycle clears s_fullArrived and the UI renders "---" until the probe's
+  TELEM snapshot refills. The echo replies flowed (1/s, 0 crc) but did not
+  satisfy the freshness timer. FIX (a1ac68d): the RP2350 sends a 1 s UI
+  heartbeat; wire-proven via a MIDI-frame diagnostic the C3 logs
+  unconditionally. Post-fix: 0 offline events in 15 s.
+- Console command output routed through the dbg ring (printf ->
+  cdc_out_chars -> dbg_ring_write): the drop-style writer truncated mod?
+  dumps past the 256 B CDC FIFO and a drain-spin variant wedged core 0
+  (watchdog starved from inside pumpConsole) — both bench-caught.
+- 1200-baud BOOTSEL watcher in the CDC console restored the documented
+  soft flash recipe against the Pico build.
+- Board stable across the session: renders ~3090 blocks/s, stalls 0,
+  cc 72 100 lifted in= 0->597 (engine->DAC).
+
 ## Known-open
 
 - Report carries temporary bench fields (c1/c1t/up/tu/st/hbw/mod) from the
