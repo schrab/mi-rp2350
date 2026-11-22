@@ -1,10 +1,10 @@
-# Benjolis (Benjolin) Port — Implementation Plan
+# Benjolin Port — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Port the SuperCollider Benjolin (`scazan/benjolis`, Alejandro Olarte SynthDef) to the rack as module id 6, reference-exact against an SC 3.14.1 full-SynthDef golden.
 
-**Architecture:** Three layers, gated in order: (1) PicoCollider kit lift (nova tanh + DFM1 SetParams extension + 8 gap goldens), (2) a host-testable `benjolis_engine.h` assembling kit UGens on the 64-sample scsynth block grid with the 2-channel LocalIn/LocalOut feedback bus (mode A) plus a hardware-faithful explicit shift-register mode (mode B), (3) the `module_benjolis.h` adapter following the `module_dronecaster.h` 16→64 burst pattern.
+**Architecture:** Three layers, gated in order: (1) PicoCollider kit lift (nova tanh + DFM1 SetParams extension + 8 gap goldens), (2) a host-testable `benjolin_engine.h` assembling kit UGens on the 64-sample scsynth block grid with the 2-channel LocalIn/LocalOut feedback bus (mode A) plus a hardware-faithful explicit shift-register mode (mode B), (3) the `module_benjolin.h` adapter following the `module_dronecaster.h` 16→64 burst pattern.
 
 **Tech Stack:** PicoCollider kit headers (submodule), plain-g++ host tests in `rack-rp2350/test/`, scsynth/sclang 3.14.1 + sc3-plugins (system-wide, `/usr/local/bin`), PlatformIO RP2350 firmware.
 
@@ -19,8 +19,8 @@
 - No per-sample libm on device. `midicps` is evaluated **once per 64-block** in double precision (see Task 3 law note) — that is the sanctioned exception.
 - Device DFM1 seed policy (decides §4.3's open question): seed `Dfm1::Init` with the golden epoch constant `1795055191` (`DFM1.seed.txt`) so device output is deterministic and golden-comparable. Never re-`Init` a live Dfm1 — re-seeding restarts the rnor stream.
 - All filter `gain`/`mul` scaling is applied **engine-side per block** (kit filter ports are UGen-only).
-- Module id **6** (`RACK_MODULE_BENJOLIS`); `kChainABufferBytes[6] = 0` (standalone-only, like dronecaster). Boot module set to 6 for acceptance, reverted at ledger time if the user prefers Elements boot.
-- Hot DSP in SRAM: the device wrapper carries a unique `.tc_benjolis` section token; verify with `nm` that symbols sit at `0x2000xxxx`.
+- Module id **6** (`RACK_MODULE_BENJOLIN`); `kChainABufferBytes[6] = 0` (standalone-only, like dronecaster). Boot module set to 6 for acceptance, reverted at ledger time if the user prefers Elements boot.
+- Hot DSP in SRAM: the device wrapper carries a unique `.tc_benjolin` section token; verify with `nm` that symbols sit at `0x2000xxxx`.
 - PicoCollider is a **git submodule**: every kit change = commit inside `PicoCollider/`, then a pointer-bump commit in the superproject.
 - Commits follow `[Add]/[Fix]/[Update]/[Remove] <scope>` on branch `rack-rp2350`.
 - `make test` aggregate is not fully trustworthy (Elements `test_reverb` ASLR canary) — always run the relevant test binary individually.
@@ -92,7 +92,7 @@ inline float NovaTanh(float x) {
 }
 ```
 
-Namespace `sc`, include guard `RACK_PICOCOLLIDER_SC_KIT_NOVA_H_` (kit style). **Do not** lift `NovaPow`/`NovaMidi2Freq` — benjolis uses the per-block double `midicps` law instead (Task 3; deviation from assessment §4.2, recorded there).
+Namespace `sc`, include guard `RACK_PICOCOLLIDER_SC_KIT_NOVA_H_` (kit style). **Do not** lift `NovaPow`/`NovaMidi2Freq` — benjolin uses the per-block double `midicps` law instead (Task 3; deviation from assessment §4.2, recorded there).
 
 - [ ] **Step 2: Extend `Dfm1::SetParams` (kit)**
 
@@ -106,7 +106,7 @@ with:
 
 ```cpp
   void SetParams(float freq, float res) { SetParams(freq, res, gain_); }
-  // Benjolis modulates inputgain live; upstream samples it at block rate
+  // Benjolin modulates inputgain live; upstream samples it at block rate
   // alongside freq/res (TJUGens wrapper). Never re-Init to change gain —
   // that would re-seed the rnor stream.
   void SetParams(float freq, float res, float input_gain) {
@@ -114,7 +114,7 @@ with:
   }
 ```
 
-(`type`/`noise_level` stay Init-time — benjolis fixes them at 1 / 0.0003.)
+(`type`/`noise_level` stay Init-time — benjolin fixes them at 1 / 0.0003.)
 
 - [ ] **Step 3: Write the failing unit checks (append to `test_kit.cc` main)**
 
@@ -152,8 +152,8 @@ Expected: all existing 133 golden refs still pass, new checks pass.
 - [ ] **Step 5: Commit (submodule, then pointer bump)**
 
 ```bash
-cd PicoCollider && git add include/picocollider/sc_kit_nova.h include/picocollider/sc_kit_dfm1.h test/test_kit.cc && git commit -m "[Add] nova tanh kit header + Dfm1 SetParams inputgain (benjolis prep)"
-cd .. && git add PicoCollider && git commit -m "[Update] PicoCollider: nova tanh + Dfm1 SetParams (benjolis prep)"
+cd PicoCollider && git add include/picocollider/sc_kit_nova.h include/picocollider/sc_kit_dfm1.h test/test_kit.cc && git commit -m "[Add] nova tanh kit header + Dfm1 SetParams inputgain (benjolin prep)"
+cd .. && git add PicoCollider && git commit -m "[Update] PicoCollider: nova tanh + Dfm1 SetParams (benjolin prep)"
 ```
 
 ---
@@ -173,7 +173,7 @@ cd .. && git add PicoCollider && git commit -m "[Update] PicoCollider: nova tanh
 Append to `entries` (keep the file's one-line style; RandSeed pinning already wraps every synth):
 
 ```supercollider
-        // ---- benjolis prep (2026-11-22): the .ar forms + params benjolis uses ----
+        // ---- benjolin prep (2026-11-22): the .ar forms + params benjolin uses ----
         ["Tanh",         { Out.ar(0, (SinOsc.ar(220) * 3).tanh.dup) }],
         ["Midicps",      { Out.ar(0, K2A.ar(LFNoise0.kr(10).range(0, 127)).midicps.dup) }],
         ["Latchar",      { Out.ar(0, Latch.ar(SinOsc.ar(220), Impulse.ar(100)).dup) }],
@@ -181,8 +181,8 @@ Append to `entries` (keep the file's one-line style; RandSeed pinning already wr
                             [DC.ar(0.1), SinOsc.ar(220), LFSaw.ar(110), DC.ar(0.5)]).dup) }],
         ["Clipar",       { Out.ar(0, LFNoise1.ar(400).range(-2, 2).clip(-0.5, 0.5).dup) }],
         ["PulseDPWar05", { Out.ar(0, PulseDPW.ar(220, 0.5).dup) }],
-        // DFM1 in the SHAPE benjolis uses: type=1 (high-pass), noiselevel =
-        // upstream default 0.0003, inputgain=1 (benjolis's live gain is
+        // DFM1 in the SHAPE benjolin uses: type=1 (high-pass), noiselevel =
+        // upstream default 0.0003, inputgain=1 (benjolin's live gain is
         // covered by the full-SynthDef golden, not a kit ref).
         ["DFM1hp",       { Out.ar(0, DFM1.ar(Saw.ar(220), 1000, 0.1, 1, 1, 0.0003)) }],
         // 2-channel LocalIn/LocalOut feedback: ch0 * 0.5 + osc, ch1 * 0.25 + osc;
@@ -205,7 +205,7 @@ Expected: 8 new WAVs in `ref/ugen_ref/` (+ `DFM1hp.seed.txt`); exit 139 from scs
 Each mirrors an existing check's shape (`ref_check(name, out.data(), 48000)`). Input laws:
 
 ```cpp
-  // ---- benjolis prep refs ----
+  // ---- benjolin prep refs ----
   // Tanh: kit SinOsc(220) * 3 -> NovaTanh per sample.
   // Midicps: kit LFNoise0.kr(10) block-held, .range law x*63.5f + 63.5f,
   //   then the ENGINE law per sample: (float)(440.0 * pow(2.0, (n-69.0)/12.0)).
@@ -232,27 +232,27 @@ Expected: 141 refs pass. If `Midicps` fails, the double-pow law assumption is wr
 - [ ] **Step 5: Commit (submodule + pointer bump)**
 
 ```bash
-cd PicoCollider && git add -A test/ref test/test_kit.cc && git commit -m "[Add] benjolis-prep goldens: ar forms, 2-ch LocalIO, DFM1hp, midicps law"
-cd .. && git add PicoCollider && git commit -m "[Update] PicoCollider: 8 benjolis-prep goldens"
+cd PicoCollider && git add -A test/ref test/test_kit.cc && git commit -m "[Add] benjolin-prep goldens: ar forms, 2-ch LocalIO, DFM1hp, midicps law"
+cd .. && git add PicoCollider && git commit -m "[Update] PicoCollider: 8 benjolin-prep goldens"
 ```
 
 ---
 
-### Task 3: Benjolis engine (host) — `benjolis_engine.h` + structural tests
+### Task 3: Benjolin engine (host) — `benjolin_engine.h` + structural tests
 
 **Files:**
-- Create: `rack-rp2350/src/benjolis/benjolis_engine.h`
-- Create: `rack-rp2350/test/test_benjolis.cc`
-- Modify: `rack-rp2350/test/Makefile` (add the `test_benjolis` rule mirroring `test_dronecaster`'s)
+- Create: `rack-rp2350/src/benjolin/benjolin_engine.h`
+- Create: `rack-rp2350/test/test_benjolin.cc`
+- Modify: `rack-rp2350/test/Makefile` (add the `test_benjolin` rule mirroring `test_dronecaster`'s)
 
 **Interfaces:**
 - Consumes: kit headers (`-I ../../PicoCollider/include/picocollider`), `sc::NovaTanh` (Task 1), `Dfm1::SetParams(freq,res,input_gain)` (Task 1).
-- Produces (Task 4 + 5 consume): `benjolis::Params` (SynthDef defaults), `benjolis::Engine::Init(double sr, FeedbackMode, int dfm1_epoch, const Params&, float* ext_tap_rings)`, `SetParams(const Params&)` (applied at next block), `Process64(float* l, float* r)`, `Process16(float* l, float* r)` (16-grid burst 4:1).
+- Produces (Task 4 + 5 consume): `benjolin::Params` (SynthDef defaults), `benjolin::Engine::Init(double sr, FeedbackMode, int dfm1_epoch, const Params&, float* ext_tap_rings)`, `SetParams(const Params&)` (applied at next block), `Process64(float* l, float* r)`, `Process16(float* l, float* r)` (16-grid burst 4:1).
 
 - [ ] **Step 1: Write the engine header**
 
 ```cpp
-// benjolis_engine.h — reference-exact port of the \benjolis SynthDef
+// benjolin_engine.h — reference-exact port of the \benjolis SynthDef
 // (Engine_Benjolis.sc, Alejandro Olarte / Scott Cazan) on the PicoCollider kit.
 // Host-testable: no MCU headers. See docs/ASSESSMENT-benjolin-port-2026-11-22.md.
 //
@@ -274,8 +274,8 @@ cd .. && git add PicoCollider && git commit -m "[Update] PicoCollider: 8 benjoli
 //    block — the kit filter ports are UGen-only.
 //  - DPW freq clamp: SawDPW divides by freq; SC would produce inf/NaN at
 //    freq <= 0. Engine clamps to >= 1 Hz (documented device-safety deviation).
-#ifndef RACK_SRC_BENJOLIS_BENJOLIS_ENGINE_H_
-#define RACK_SRC_BENJOLIS_BENJOLIS_ENGINE_H_
+#ifndef RACK_SRC_BENJOLIN_BENJOLIN_ENGINE_H_
+#define RACK_SRC_BENJOLIN_BENJOLIN_ENGINE_H_
 #include <cmath>
 #include <cstdint>
 
@@ -290,7 +290,7 @@ cd .. && git add PicoCollider && git commit -m "[Update] PicoCollider: 8 benjoli
 #include "sc_kit_lfo.h"        // ClipTo
 #include "sc_kit_nova.h"       // NovaTanh
 
-namespace benjolis {
+namespace benjolin {
 
 // SynthDef arg defaults, verbatim from Engine_Benjolis.sc:26 (amp=0 silence;
 // the caller SetParams before the first render). pan is the SC arg — the
@@ -351,7 +351,7 @@ struct Engine {
     rlpf_.ProcessBlock(&z, &sink, 1, p_.filt_freq, Rq());
     rhpf_.ProcessBlock(&z, &sink, 1, p_.filt_freq, Rq());
     svf_.Init(sr, p_.filt_freq, p_.q, 1.f, 0.f, 0.f, 0.f, 0.f, 0.f);
-    // Benjolis DFM1: inputgain=gain, TYPE=1 (high-pass), noiselevel omitted
+    // Benjolin DFM1: inputgain=gain, TYPE=1 (high-pass), noiselevel omitted
     // -> upstream default 0.0003 (see assessment §4.3 correction).
     dfm1_.Init(sr, dfm1_epoch, p_.filt_freq, p_.q, p_.gain, 1.0f, 0.0003f);
     // Lag.kr emulation (kit law: pass sr/64, call once per block).
@@ -516,21 +516,21 @@ struct Engine {
   // (bit 0 = sh1 = 1/256, bit 7 = sh8 = 1/2), and tap_delay_[k] = (k+1)/sr
   // filled in Init. reg() accessor for the Task 4 mode-B test.
 };
-}  // namespace benjolis
+}  // namespace benjolin
 #endif
 ```
 
-- [ ] **Step 2: Write failing structural tests (`test_benjolis.cc`)**
+- [ ] **Step 2: Write failing structural tests (`test_benjolin.cc`)**
 
 ```cpp
 // Structural gates before any golden exists (Task 4 adds golden compares).
 #include <cmath>
 #include <cstdio>
-#include "benjolis_engine.h"
+#include "benjolin_engine.h"
 int g_failures = 0;
 int main() {
-  benjolis::Params p; p.amp = 0.5f;
-  benjolis::Engine e; e.Init(48000.0, benjolis::FeedbackMode::kReferenceSc,
+  benjolin::Params p; p.amp = 0.5f;
+  benjolin::Engine e; e.Init(48000.0, benjolin::FeedbackMode::kReferenceSc,
                              1795055191, p);
   // 1 s render: finite everywhere.
   float l[48000], r[48000];
@@ -538,9 +538,9 @@ int main() {
   for (int i = 0; i < 48000; ++i)
     if (!std::isfinite(l[i]) || !std::isfinite(r[i])) { ++g_failures; break; }
   // Determinism: two engines, same seed/params -> bit-identical.
-  benjolis::Engine a, b;
-  a.Init(48000.0, benjolis::FeedbackMode::kReferenceSc, 1795055191, p);
-  b.Init(48000.0, benjolis::FeedbackMode::kReferenceSc, 1795055191, p);
+  benjolin::Engine a, b;
+  a.Init(48000.0, benjolin::FeedbackMode::kReferenceSc, 1795055191, p);
+  b.Init(48000.0, benjolin::FeedbackMode::kReferenceSc, 1795055191, p);
   bool same = true;
   for (int i = 0; i < 375; ++i) {
     float al[16], ar[16], bl[16], br[16];
@@ -551,9 +551,9 @@ int main() {
   }
   if (!same) ++g_failures;
   // Process16 burst == Process64 stream, bit-exact.
-  benjolis::Engine c, d;
-  c.Init(48000.0, benjolis::FeedbackMode::kReferenceSc, 1795055191, p);
-  d.Init(48000.0, benjolis::FeedbackMode::kReferenceSc, 1795055191, p);
+  benjolin::Engine c, d;
+  c.Init(48000.0, benjolin::FeedbackMode::kReferenceSc, 1795055191, p);
+  d.Init(48000.0, benjolin::FeedbackMode::kReferenceSc, 1795055191, p);
   bool burst_ok = true;
   for (int i = 0; i < 64; ++i) {
     float l16[16], r16[16], l64[64], r64[64];
@@ -566,21 +566,21 @@ int main() {
   if (!burst_ok) ++g_failures;
   // Rungler DAC law: bits 0..7 -> weights 1/256 .. 1/2, max 255/256.
   {
-    float all_on = benjolis::RunglerDacBits(0xffu);
+    float all_on = benjolin::RunglerDacBits(0xffu);
     if (std::abs(all_on - 255.0f / 256.0f) > 1e-6f) ++g_failures;
-    if (std::abs(benjolis::RunglerDacBits(0x01u) - 1.0f / 256.0f) > 1e-6f) ++g_failures;
+    if (std::abs(benjolin::RunglerDacBits(0x01u) - 1.0f / 256.0f) > 1e-6f) ++g_failures;
   }
-  printf(g_failures == 0 ? "benjolis structural: PASS\n" : "benjolis structural: FAIL %d\n", g_failures);
+  printf(g_failures == 0 ? "benjolin structural: PASS\n" : "benjolin structural: FAIL %d\n", g_failures);
   return g_failures == 0 ? 0 : 1;
 }
 ```
 
-Add the Makefile rule by mirroring `test_dronecaster`'s (same `-I` set, add `-I../src/benjolis`); run: `cd rack-rp2350/test && make test_benjolis && ./build/test_benjolis`. Expected: PASS (fix compile errors first — this step is where the engine compiles).
+Add the Makefile rule by mirroring `test_dronecaster`'s (same `-I` set, add `-I../src/benjolin`); run: `cd rack-rp2350/test && make test_benjolin && ./build/test_benjolin`. Expected: PASS (fix compile errors first — this step is where the engine compiles).
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add rack-rp2350/src/benjolis/benjolis_engine.h rack-rp2350/test/test_benjolis.cc rack-rp2350/test/Makefile && git commit -m "[Add] benjolis engine: reference-exact SynthDef graph, dual feedback modes"
+git add rack-rp2350/src/benjolin/benjolin_engine.h rack-rp2350/test/test_benjolin.cc rack-rp2350/test/Makefile && git commit -m "[Add] benjolin engine: reference-exact SynthDef graph, dual feedback modes"
 ```
 
 ---
@@ -588,24 +588,24 @@ git add rack-rp2350/src/benjolis/benjolis_engine.h rack-rp2350/test/test_benjoli
 ### Task 4: Full-SynthDef golden + engine golden/mode-B tests
 
 **Files:**
-- Create: `rack-rp2350/test/benjolis_ref/gen_benjolis_ref.scd`
-- Create: `rack-rp2350/test/benjolis_ref/run_benjolis_ref.sh`
-- Modify: `rack-rp2350/test/test_benjolis.cc` (golden + mode-B scenario checks)
+- Create: `rack-rp2350/test/benjolin_ref/gen_benjolin_ref.scd`
+- Create: `rack-rp2350/test/benjolin_ref/run_benjolin_ref.sh`
+- Modify: `rack-rp2350/test/test_benjolin.cc` (golden + mode-B scenario checks)
 
 **Interfaces:**
 - Consumes: Task 3 `Engine::Process64/Process16`, `FeedbackMode`; the DFM1 epoch sidecar.
-- Produces: `benjolis_ref/goldens/{default,loop1}.expected.wav` + `.seed.txt`; gates for Task 6 acceptance.
+- Produces: `benjolin_ref/goldens/{default,loop1}.expected.wav` + `.seed.txt`; gates for Task 6 acceptance.
 
 - [ ] **Step 1: Write the renderer**
 
-`gen_benjolis_ref.scd`: copy the SynthDef **verbatim** from `Engine_Benjolis.sc:25-89` (strip the norns `CroneEngine` wrapper; keep every line of the graph including the `//pwm = tri1 > tri2` comment-adjacent code exactly as shipped). Replace `context` plumbing with `Synth(\benjolis, [\out, 0, <scenario args>])` in a `Score`/`recordNRT` harness **copied from `PicoCollider/test/ref/gen_ugen_ref.scd`** (same RandSeed pin, `writeOSCFile`, `scsynth -N ... 48000 WAV float`, DFM1 epoch pinning block `:253-274` copied verbatim, seed written to `goldens/benjolis.seed.txt`).
+`gen_benjolin_ref.scd`: copy the SynthDef **verbatim** from `Engine_Benjolis.sc:25-89` (strip the norns `CroneEngine` wrapper; keep every line of the graph including the `//pwm = tri1 > tri2` comment-adjacent code exactly as shipped). Replace `context` plumbing with `Synth(\benjolis, [\out, 0, <scenario args>])` in a `Score`/`recordNRT` harness **copied from `PicoCollider/test/ref/gen_ugen_ref.scd`** (same RandSeed pin, `writeOSCFile`, `scsynth -N ... 48000 WAV float`, DFM1 epoch pinning block `:253-274` copied verbatim, seed written to `goldens/benjolin.seed.txt`).
 Scenarios: `default` = all SynthDef defaults + `amp: 0.5`; `loop1` = same + `loop: 0.9, rungler1: 0.3, freq2: 8` (loop closure exercised). Duration 1.0 s.
 
-`run_benjolis_ref.sh`: copy `PicoCollider/test/ref/run_ugen_ref.sh` verbatim, retarget the glob to `goldens/*.expected.wav` and the seed file name. Run it; expect 2 WAVs trimmed to 48,000 frames.
+`run_benjolin_ref.sh`: copy `PicoCollider/test/ref/run_ugen_ref.sh` verbatim, retarget the glob to `goldens/*.expected.wav` and the seed file name. Run it; expect 2 WAVs trimmed to 48,000 frames.
 
 - [ ] **Step 2: Golden compare tests (mode A)**
 
-In `test_benjolis.cc` add: read each scenario's params, `Engine::Init(48000, kReferenceSc, <epoch from benjolis.seed.txt>, p)`, render 30,000 Process16 blocks → 48,000 frames, compare with the WAV (reuse the WAV reader + gate helper used by `test_dronecaster.cc`): `max_abs ≤ 1e-6`, `corr ≥ 0.999999`. If the golden shows a **one-sample lead**, remove the Task 3 filter-prime block and re-render nothing (the golden is the arbiter, per the Task 3 NOTE). If `corr` is high but `max_abs` large on `loop1` only, suspect the LocalBus channel order (Review Focus 3) — verify ch0 carries the FM value before touching anything else.
+In `test_benjolin.cc` add: read each scenario's params, `Engine::Init(48000, kReferenceSc, <epoch from benjolin.seed.txt>, p)`, render 30,000 Process16 blocks → 48,000 frames, compare with the WAV (reuse the WAV reader + gate helper used by `test_dronecaster.cc`): `max_abs ≤ 1e-6`, `corr ≥ 0.999999`. If the golden shows a **one-sample lead**, remove the Task 3 filter-prime block and re-render nothing (the golden is the arbiter, per the Task 3 NOTE). If `corr` is high but `max_abs` large on `loop1` only, suspect the LocalBus channel order (Review Focus 3) — verify ch0 carries the FM value before touching anything else.
 
 - [ ] **Step 3: Mode-B scenario checks (law-only, §5.3 option B)**
 
@@ -613,13 +613,13 @@ With `FeedbackMode::kHardware` at defaults (`freq2 = 4`, `loop = 0`): instrument
 
 - [ ] **Step 4: Run**
 
-Run: `cd rack-rp2350/test && make test_benjolis && ./build/test_benjolis`
+Run: `cd rack-rp2350/test && make test_benjolin && ./build/test_benjolin`
 Expected: golden PASS ×2, mode-B PASS. Chaos caveat: if `loop1` corr degrades with everything else exact, dump the first divergent sample index and bisect by muting stages (`out_signal` selects) before touching DSP.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add rack-rp2350/test/benjolis_ref rack-rp2350/test/test_benjolis.cc && git commit -m "[Add] benjolis full-SynthDef goldens + mode-B scenario gates"
+git add rack-rp2350/test/benjolin_ref rack-rp2350/test/test_benjolin.cc && git commit -m "[Add] benjolin full-SynthDef goldens + mode-B scenario gates"
 ```
 
 ---
@@ -627,16 +627,16 @@ git add rack-rp2350/test/benjolis_ref rack-rp2350/test/test_benjolis.cc && git c
 ### Task 5: Firmware adapter + tables + panel
 
 **Files:**
-- Create: `rack-rp2350/src/module_benjolis.h`
-- Modify: `rack-rp2350/src/rack_window.h` (enum id 6 + `kSections` entry), `rack-rp2350/src/main.cpp` (include, `kRackModules` entry, `kChainABufferBytes[6] = 0`), `rack-rp2350/memmap_rack.ld` (`.tc_benjolis` overlay + `__rack_flash_benjolis_*` LMA region — mirror the dronecaster blocks verbatim), `rack-rp2350/platformio.ini` (`-DRACK_BOOT_MODULE=6` + comment), `tools/rack_panel.html` (7th tab + CC rows)
+- Create: `rack-rp2350/src/module_benjolin.h`
+- Modify: `rack-rp2350/src/rack_window.h` (enum id 6 + `kSections` entry), `rack-rp2350/src/main.cpp` (include, `kRackModules` entry, `kChainABufferBytes[6] = 0`), `rack-rp2350/memmap_rack.ld` (`.tc_benjolin` overlay + `__rack_flash_benjolin_*` LMA region — mirror the dronecaster blocks verbatim), `rack-rp2350/platformio.ini` (`-DRACK_BOOT_MODULE=6` + comment), `tools/rack_panel.html` (7th tab + CC rows)
 
 **Interfaces:**
-- Consumes: Task 3 `benjolis::Engine` (ext_tap_rings from the rack arena), Task 1 `SetParams(freq,res,input_gain)`.
+- Consumes: Task 3 `benjolin::Engine` (ext_tap_rings from the rack arena), Task 1 `SetParams(freq,res,input_gain)`.
 - Produces: module id 6 reachable via CC 32 / serial console; CC map below.
 
 - [ ] **Step 1: Write the adapter**
 
-Mirror `module_dronecaster.h` structure exactly: `namespace rack_modules::mod_benjolis`; `kSampleRate = 48000`, `kBlockSize = 16`, `kBudgetUs = 1333` (the 64-sample period), `kI2sBuffers = 8`, `kI2sWords = 16`, `kStallUs = 900`; arena-placed `State` (engine + 8×16-float tap rings + pending params + atomics); `init()` places state in the arena, `Engine::Init(48000.0, kReferenceSc, 1795055191, p, arena_tap_rings)`; `render()` = pending-intent landing at block boundary → `process_block_benjolis_o3(s->eng, l, r, kBlockSize)` (the `-O3` wrapper, `__attribute__((noinline, section(".tc_benjolis_process")))`, unique token — mirror the dronecaster wrapper declaration) → NaN/inf sweep → `Clip16` → I2S. Engine params are applied via `SetParams` when pending floats changed (single-word atomic stores, core-0 writer / core-1 reader — the lira8/dronecaster discipline).
+Mirror `module_dronecaster.h` structure exactly: `namespace rack_modules::mod_benjolin`; `kSampleRate = 48000`, `kBlockSize = 16`, `kBudgetUs = 1333` (the 64-sample period), `kI2sBuffers = 8`, `kI2sWords = 16`, `kStallUs = 900`; arena-placed `State` (engine + 8×16-float tap rings + pending params + atomics); `init()` places state in the arena, `Engine::Init(48000.0, kReferenceSc, 1795055191, p, arena_tap_rings)`; `render()` = pending-intent landing at block boundary → `process_block_benjolin_o3(s->eng, l, r, kBlockSize)` (the `-O3` wrapper, `__attribute__((noinline, section(".tc_benjolin_process")))`, unique token — mirror the dronecaster wrapper declaration) → NaN/inf sweep → `Clip16` → I2S. Engine params are applied via `SetParams` when pending floats changed (single-word atomic stores, core-0 writer / core-1 reader — the lira8/dronecaster discipline).
 
 CC map (panel + registry + console must agree; 7-bit CCs, SC-unit scaling noted):
 
@@ -659,22 +659,22 @@ CC map (panel + registry + console must agree; 7-bit CCs, SC-unit scaling noted)
 
 - [ ] **Step 2: Tables + linker + boot**
 
-`rack_window.h`: add `RACK_MODULE_BENJOLIS = 6`, `RACK_MODULE_COUNT = 7`, `kSections` entry `{"benjolis", __tc_benjolis_start, __tc_benjolis_end, __rack_flash_benjolis_start, __rack_flash_benjolis_end}`. `main.cpp`: `#include "module_benjolis.h"` after the dronecaster include, registry entry (exact `RackModuleInfo` field order as shown at `main.cpp:250-320`), `kChainABufferBytes` gains a 7th `0`. `memmap_rack.ld`: duplicate the dronecaster `tc_*` OVERLAY + flash region blocks renamed `benjolis`. `platformio.ini`: boot module comment line gains `6 benjolis`; set `-DRACK_BOOT_MODULE=6`.
+`rack_window.h`: add `RACK_MODULE_BENJOLIN = 6`, `RACK_MODULE_COUNT = 7`, `kSections` entry `{"benjolin", __tc_benjolin_start, __tc_benjolin_end, __rack_flash_benjolin_start, __rack_flash_benjolin_end}`. `main.cpp`: `#include "module_benjolin.h"` after the dronecaster include, registry entry (exact `RackModuleInfo` field order as shown at `main.cpp:250-320`), `kChainABufferBytes` gains a 7th `0`. `memmap_rack.ld`: duplicate the dronecaster `tc_*` OVERLAY + flash region blocks renamed `benjolin`. `platformio.ini`: boot module comment line gains `6 benjolin`; set `-DRACK_BOOT_MODULE=6`.
 
 - [ ] **Step 3: Panel tab**
 
-`tools/rack_panel.html`: copy the dronecaster tab block, rename benjolis, CC 32 value 6, add the 14 CC rows from the table above.
+`tools/rack_panel.html`: copy the dronecaster tab block, rename benjolin, CC 32 value 6, add the 14 CC rows from the table above.
 
 - [ ] **Step 4: Build + SRAM gate**
 
 Run: `pio run -d rack-rp2350` then
-`arm-none-eabi-nm .pio/build/rack/firmware.elf | grep -i benjolis` — every `tc_benjolis` symbol must sit at `0x2000xxxx` (SRAM), and `__tc_benjolis_start/end` must report the slot size (expect ≪ the 118,784 B window).
+`arm-none-eabi-nm .pio/build/rack/firmware.elf | grep -i benjolin` — every `tc_benjolin` symbol must sit at `0x2000xxxx` (SRAM), and `__tc_benjolin_start/end` must report the slot size (expect ≪ the 118,784 B window).
 Expected: SUCCESS; RAM% within the existing headroom (engine state ≈ 2 KB + rings).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A rack-rp2350 tools && git commit -m "[Add] benjolis module adapter: id 6, CC map, tc_benjolis window slot"
+git add -A rack-rp2350 tools && git commit -m "[Add] benjolin module adapter: id 6, CC map, tc_benjolin window slot"
 ```
 
 ---
@@ -692,6 +692,6 @@ git add -A rack-rp2350 tools && git commit -m "[Add] benjolis module adapter: id
 
 ## Non-goals
 
-- **C3 (ESP32-C3) UI page** for benjolis — the rack panel tab + CC 32 switching give full control; a C3 page is a separate `rack-uimcu` task after hardware acceptance.
+- **C3 (ESP32-C3) UI page** for benjolin — the rack panel tab + CC 32 switching give full control; a C3 page is a separate `rack-uimcu` task after hardware acceptance.
 - **Mode B via MIDI** — `kHardware` is compiled and host-tested but the device ships with `kReferenceSc` only; exposing B is a deliberate post-acceptance decision.
 - Presets beyond the lira8-pattern autosave struct (fold into Task 5 only if it drops in cleanly; otherwise a follow-up commit).
