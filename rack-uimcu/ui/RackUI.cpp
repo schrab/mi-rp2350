@@ -304,7 +304,11 @@ namespace CTAG {
                     if (cc == 51) return 10;
                     break;
                 case 6: // Benjolin
-                    if (cc == 70) return 4;   // FILTER: RLPF/RHPF/SVF/DFM1
+                    // The EXACT norns benjolis ranges: filterType 0-1
+                    // (RLPF/RHPF — the norns UI never exposes SVF/DFM1),
+                    // outSignal 0-6, gain 0-6 (all lin, step 1).
+                    if (cc == 69) return 7;   // GAIN: 0..6 (step 1)
+                    if (cc == 70) return 2;   // FILTER: RLPF/RHPF
                     if (cc == 71) return 7;   // OUTPUT: tri1/osc1/tri2/osc2/pwm/comp/filt
                     break;
                 case 4: // Lira8 (P1/P2/P3 tables)
@@ -1014,11 +1018,12 @@ namespace CTAG {
                             pName = (dispVal >= 0 && dispVal < 10)
                                         ? kDroneNames[dispVal] : "---";
                         } else if (modForPage == 6 && c.cc == 70) {
-                            // Benjolin FILTER: RLPF/RHPF/SVF/DFM1.
-                            static const char *const kBenjFilters[4] = {
-                                "RLPF", "RHPF", "SVF", "DFM1"
+                            // Benjolin FILTER: the norns UI exposes 0-1
+                            // (RLPF/RHPF — SVF/DFM1 are unreachable there).
+                            static const char *const kBenjFilters[2] = {
+                                "RLPF", "RHPF"
                             };
-                            pName = (dispVal >= 0 && dispVal < 4)
+                            pName = (dispVal >= 0 && dispVal < 2)
                                         ? kBenjFilters[dispVal] : "---";
                         } else if (modForPage == 6 && c.cc == 71) {
                             // Benjolin OUTPUT: the 7 SynthDef taps.

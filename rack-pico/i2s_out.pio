@@ -1,0 +1,28 @@
+; I2S output for the rack pin map: data = GP8, BCK = GP6, LRCLK = GP7.
+; 16-bit stereo, MSB first (left-justified variant — the PCM5102A accepts
+; LJ/I2S via its format strap; VERIFY the polarity/order at bring-up).
+;
+; Two instructions per bit (the data out on the BCK low, the bit clocked on
+; the BCK high), one extra instruction per half-frame for the LR flip — so
+; the instruction rate is not an integer multiple of BCK. The C side
+; computes the fractional clkdiv from the system clock (the DSPi integer-
+; divider purity at 307.2 MHz is a later refinement, not needed for the
+; scaffold: the PCM5102A's PLL absorbs the sub-cycle jitter).
+;
+; The FIFO word = (left int16 << 16) | (right int16 & 0xffff); the OSR
+; right-shifts, so the left MSB goes out first.
+
+.program i2s_out
+.side_set 2 opt
+
+public entry:
+    set x, 15          side 0b01     ; LR low (left), BCK high
+bitloop_l:
+    out pins, 1        side 0b00     ; BCK low, the data bit out
+    jmp x-- bitloop_l  side 0b01     ; BCK high (the bit clocks here)
+    set x, 15          side 0b11     ; LR high (right), BCK high
+bitloop_r:
+    out pins, 1        side 0b00
+    jmp x-- bitloop_r  side 0b01
+    set x, 15          side 0b01     ; LR low again — the next frame
+    jmp entry
