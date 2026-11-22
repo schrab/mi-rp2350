@@ -84,6 +84,7 @@ bool ui_uart_overflow();         // true once per RX ring overflow event
 int ui_uart_available_for_write();  // free bytes in the SW TX ring
 void ui_uart_write_bytes(const uint8_t* buf, int n);  // non-blocking push
 void ui_uart_sdk_init();         // uart0 @ 921600 8N1 + RX IRQ
+void ui_uart_tx_service();       // drain the SW TX ring into the HW FIFO
 #else
 #include <Arduino.h>             // Serial1 (HW UART0 link), millis, Serial
 // Arduino-build shims for the shared transport call sites below: the
@@ -99,6 +100,7 @@ static inline void ui_uart_write_bytes(const uint8_t* buf, int n) {
   Serial1.write(buf, n);
 }
 static inline void ui_uart_sdk_init() { }
+static inline void ui_uart_tx_service() { }  // Serial1.write self-drains
 #endif
 
 // ===================== protocol constants =====================
@@ -978,6 +980,10 @@ static bool ui_link_send_frame(uint8_t type, const uint8_t* payload,
 // loop iteration (ui_link_pump); 92 KB/s of wire traffic needs only a few
 // hundred bytes per millisecond and the ring holds 4 KiB.
 static void ui_link_tx_pump() {
+  // Service the staging ring FIRST, unconditionally: the app ring can be
+  // empty while the staging ring still holds a frame's stranded tail (the
+  // bench-caught page-update lag, 2026-11-23).
+  ui_uart_tx_service();
   while (g_ui_tx_count > 0) {
     int space = ui_uart_available_for_write();
     if (space <= 0) return;

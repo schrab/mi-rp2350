@@ -1905,6 +1905,10 @@ static volatile uint16_t ui_rx_head = 0, ui_rx_tail = 0;
 static volatile uint32_t ui_rx_overflows = 0;
 static uint8_t ui_tx_ring[512];      // SW TX staging (core 0 only)
 static uint16_t ui_tx_head = 0, ui_tx_tail = 0;
+// Wire-delivered byte counter (bench 2026-11-23: the snapshots leave the
+// handler but never parse on the C3 — this counts what the drain actually
+// pushed into the UART HW FIFO).
+volatile uint32_t g_ui_tx_wire_bytes = 0;
 
 static void ui_uart_irq() {
   while (uart_is_readable(uart0)) {
@@ -1931,12 +1935,17 @@ void ui_uart_sdk_init() {
   irq_set_enabled(UART0_IRQ, true);
 }
 
-// Move the SW TX ring into the HW FIFO while writable (lazy; called from the
-// availability/write helpers so every pump pass drains as far as possible).
-static void ui_uart_tx_drain() {
+// Move the SW TX ring into the HW FIFO while writable. Called lazily from
+// the availability/write helpers AND explicitly every loop pass — the lazy
+// path alone strands the staging ring's tail: a 135-B snapshot pushes 8
+// bytes into the UART FIFO and the pump (app ring empty) never services the
+// remaining 127 (bench-caught 2026-11-23: every full TELEM snapshot stuck,
+// the C3's page updates took seconds-to-never).
+void ui_uart_tx_service() {
   while (ui_tx_tail != ui_tx_head && uart_is_writable(uart0)) {
     uart_putc_raw(uart0, ui_tx_ring[ui_tx_tail]);
     ui_tx_tail = (ui_tx_tail + 1u) % sizeof(ui_tx_ring);
+    ++g_ui_tx_wire_bytes;
   }
 }
 
@@ -1958,7 +1967,7 @@ bool ui_uart_overflow() {
 }
 
 int ui_uart_available_for_write() {
-  ui_uart_tx_drain();
+  ui_uart_tx_service();
   // head==tail = empty convention: capacity 511, minus 8 the pump's margin.
   const uint16_t used = (uint16_t)((ui_tx_head - ui_tx_tail) % sizeof(ui_tx_ring));
   const int free_space =
@@ -1973,7 +1982,7 @@ void ui_uart_write_bytes(const uint8_t* buf, int n) {
     ui_tx_ring[ui_tx_head] = buf[i];
     ui_tx_head = next;
   }
-  ui_uart_tx_drain();
+  ui_uart_tx_service();
 }
 
 // T4a: presets (serialization + apply + autosave + console bench). Included
@@ -2516,14 +2525,16 @@ static void cmd_piezo(const char* args) {
 static void cmd_ui(const char* args) {
   (void)args;
   printf("ui: tx=%lu (dropped=%lu) rx=%lu crc_err=%lu rx_overflow=%lu "
-                "rtt=%lu us (echo turnaround) | page=%u | uart0 @921600 8N1: "
-                "TX GP%u (-> C3 RX), RX GP%u (<- C3 TX), irq + 512B ring\r\n",
+                "rtt=%lu us (echo turnaround) wire=%lu | page=%u | "
+                "uart0 @921600 8N1: TX GP%u (-> C3 RX), RX GP%u (<- C3 TX), "
+                "irq + 512B ring\r\n",
                 (unsigned long)g_ui_tx_frames,
                 (unsigned long)g_ui_tx_dropped,
                 (unsigned long)g_ui_rx_frames,
                 (unsigned long)g_ui_crc_errors,
                 (unsigned long)g_ui_rx_overflow,
                 (unsigned long)g_ui_last_rtt_us,
+                (unsigned long)g_ui_tx_wire_bytes,
                 g_ui_active_page, kPinUiTx, kPinUiRx);
 }
 
@@ -3470,15 +3481,16 @@ void loop() {
     if (now_us - last_ui_hb >= 1000000UL) {
       last_ui_hb = now_us;
       static uint16_t ui_hb_seq = 0;
-      // DIAGNOSTIC: a MIDI frame instead of an echo — the C3 logs every
-      // kTypeMidi frame unconditionally ("MIDI frame received"), so its log
-      // proves/disproves wire delivery of the small RP2350-originated
-      // frames (the echo/heartbeat frames vanish somewhere en route).
-      // 0xF8 = MIDI clock realtime — the C3's case only logs it; it does
-      // not feed the rack funnel.
-      const uint8_t p[4] = { 0x0F, 0xF8, 0x00, 0x00 };
-      (void)ui_hb_seq;
-      ui_link_send_frame(kUiTypeMidi, p, 4);
+      // 1 s echo heartbeat: keeps the C3's 4 s link-freshness timer happy
+      // (the C3 goes offline -> dashes -> probe without it). The echo is
+      // dispatched by the C3 without bouncing. The staging-ring drain fix
+      // (ui_uart_tx_service) is what actually un-blocked the snapshot
+      // delivery; this heartbeat is just the freshness tick.
+      const uint8_t p[3] = { kUiCmdEcho,
+                             static_cast<uint8_t>(ui_hb_seq >> 8),
+                             static_cast<uint8_t>(ui_hb_seq & 0xFF) };
+      ++ui_hb_seq;
+      ui_link_send_frame(kUiTypeUiCmd, p, 3);
     }
   }
 
