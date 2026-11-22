@@ -138,11 +138,16 @@ bool RackI2sOut::begin() {
     s_dma_claimed = true;
     s_inst = this;
     irq_set_exclusive_handler(DMA_IRQ_0, &RackI2sOut::dma_irq_);
-    dma_channel_set_irq0_enabled(s_dma, true);
     // NOTE: the ENABLE side of the handoff is core 1's (setup1:
     // irq_set_enabled(DMA_IRQ_0, true)); the IRQ stays masked through core
     // 0's begin(), so this first arm runs un-interrupted.
   }
+  // EVERY begin() re-arms the DMA completion IRQ: end() cleared the
+  // channel's INTE bit (dma_channel_set_irq0_enabled(false)) and the
+  // first-claim block above never runs again — without this re-enable the
+  // first module swap left the bank undrained (the DMA sat idle after its
+  // silence burst, every module silent; bench-caught 2026-11-23).
+  dma_channel_set_irq0_enabled(s_dma, true);
 
   // Arm the first silence repeat; real audio replaces it on the first
   // completed-buffer IRQ once the producer has handed off a buffer.

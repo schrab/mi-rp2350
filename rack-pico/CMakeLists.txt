@@ -88,7 +88,7 @@ target_include_directories(rack_engines PUBLIC
 target_compile_definitions(rack_engines PUBLIC
     RACK_RP2350_TC
     RACK_PICO_BUILD
-    RACK_HANG_DEBUG=0
+    RACK_HANG_DEBUG=1
     PLAITS_ENGINE_COUNT=98
     PLAITS_CORRECTED_SAMPLE_RATE=48000.0f
     PLAITS_HAS_USER_DATA_BANK=1
@@ -147,7 +147,7 @@ target_link_libraries(rack
 target_compile_definitions(rack PRIVATE
     RACK_RP2350_TC
     RACK_PICO_BUILD
-    RACK_HANG_DEBUG=0
+    RACK_HANG_DEBUG=1
     RACK_BOOT_MODULE=6
     PICO_RP2040_USB_FAST_IRQ=1
 )
