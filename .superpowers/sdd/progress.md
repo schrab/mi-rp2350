@@ -5825,3 +5825,76 @@ not dB-of-power.
 **Status: review only — no code changed, nothing flashed.** Fix order
 recommended: F1 → F2 (+HF bisection) → F7 → rest + fast-path equivalence
 test. Hardware acceptance unaffected (no firmware change).
+
+## 2026-11-21 — LIRA-8 approved DSP review repair — LANDED `4ee6dde` (2026-11-22)
+
+User approved `docs/superpowers/plans/2026-11-21-lira8-dsp-review-repair.md`;
+implementation base `b6c94ff`. Code commit `4ee6dde` on rack-rp2350
+(user requested commit/push after hardware acceptance).
+Full findings and repair/test mapping: `docs/REVIEW-lira8-dsp-2026-11-21.md`,
+section "Approved repair". Task reports/review artifacts remain in the
+plan-specific ignored `.superpowers/sdd/2026-11-21-lira8-dsp-review-repair/`.
+
+- **F1:** Pd power dB law/floor and ×2 expander slope corrected. Silence
+  target is **−64 dB, gain 0.000630957** (the original report's 0.063 was
+  arithmetic error); the old port's −48 dB at `P=1e-6` versus Pd unity
+  remains a valid separate comparison. Exact landmarks/curve/settled gain
+  regressions fail before and pass after repair.
+- **F2/F4:** per-bus hip~1/lop~4000 filter histories; SELF uses the newly
+  completed float writes on the following block. Tests exercise independent
+  filters, actual bus isolation, staging and actual reads over three blocks.
+- **F3/F5:** independent summed BLEP gates at overlap; 64-sample ramp ticks
+  at 32/44.1 kHz. Both prepared oscillator APIs match general rendering
+  bit-for-bit over 672,000 samples each. Ramp increment-first indexing is
+  preserved; Pd output-first remains documented. Base-coefficient vibrato
+  remains the existing deliberate approximation.
+- **F6:** lock-free 32-bit bit-preserving parameter slots, relaxed stores
+  and one consuming exchange; report mask lives in stable namespace storage,
+  resets atomically at both init sites, and uses atomic OR/AND and one report
+  snapshot (no arena lifetime dependency). TSAN reproduced two pre-fix
+  parameter races, then passed after repair. A mask-only production-snippet
+  stress with eight writers, 2,000 arena resets and a reader also passes TSAN.
+- **F7/F8:** LIRA-8 and Dronecaster output use the sibling Clip16/int32
+  convention (19 checks plus production-source/mutation guards). Golden
+  wrapper generation uniquely removes the delayed save edge inside gui.link,
+  rejects missing/duplicate anchors and additional save inlets, preserves loading;
+  nine Python checks pass. Parameters restored from pristine standalone;
+  two wrapper generations byte-identical. No reference WAV regeneration.
+
+**Combined verification:** all 15 host binaries built externally at
+`/tmp/rack-lira8-integrated.TMPSNh/`, 14 pass; only unchanged unrelated
+`test_reverb` fails (`first-20-block peak 0.015020 vs last-10-block peak
+0.630760`). Runtime cwd `/tmp/rack-lira8-suite-cwd.r7DCGt/` isolates relative
+output files. ASan+UBSan engine/voice pass in `/tmp/rack-lira8-asan.rwgN1G/`;
+TSAN engine passes in `/tmp/rack-lira8-tsan.RbQMuE/`; output UBSan plus
+float-cast-overflow passes. Existing host reorder/unused-variable and
+firmware macro/extern warnings remain.
+
+**Firmware:** final `pio run -d rack-rp2350` SUCCESS; RAM 382,372 B, flash
+1,647,996 B, tc_lira8 20,032 B at SRAM 0x20063000. Actual ELF mailbox/sensor
+exchange/RMW codegen is inline LDREX/STREX, stores STR, no atomic runtime
+helpers. All 32 existing test/build artifact hashes and
+the pre-existing tracked binary diff are unchanged; unrelated source
+snapshots preserved. `git diff --check` passes.
+
+**Hardware acceptance (2026-11-22, user):** UF2 flashed via the documented
+1200-baud touch → BOOTSEL → UF2 runbook; board booted clean on mod=lira8:
+439-447 µs / 1451 budget, i2s stalls 0, sens=0. User accepted by ear
+("ok, sounds good"). Still pending: wet-delay HF causality comparison and
+Pd reference rerender.
+
+**Additional pre-existing follow-up from final review:** engine sensor-event
+publication (`set_sensor` pending gate/level fields) remains non-atomic
+across core-0 MIDI and core-1 mod triggers. Approved F6 and its TSAN gate
+cover `set_param` slots and report mask only. Repair coherent sensor
+pair publication separately; do not read the parameter TSAN pass as proof
+of race freedom for all engine APIs.
+
+**Review closure:** independent Task 1/2 spec and quality checks passed.
+Task 3 review caught the arena-mask lifetime issue; stable namespace storage
+and atomic resets resolve it. Scoped re-review confirms that fix, stricter
+save-edge guards, and production clipping-source checks. Final broad review
+found no additional defects in the approved repairs; the sensor-event
+mailbox follow-up above remains separate. All approved implementation and
+verification tasks complete and committed (`4ee6dde`); hardware acceptance
+recorded 2026-11-22.

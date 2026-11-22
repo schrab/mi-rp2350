@@ -6,8 +6,8 @@ Read-only review of the rack-lira8 engine at HEAD `9044110` (branch
 tc-window integration, and the host harness — cross-checked against the
 pristine Pd patch in `/home/schrab/Projects/LIRA-8/LIRA-8_Pd_Standalone/`
 (v3.3) and the resolved dumps
-(`rack-rp2350/test/lira8_ref/delay_master.txt`, `comp.txt`). Nothing was
-edited; this document is the deliverable.
+(`rack-rp2350/test/lira8_ref/delay_master.txt`, `comp.txt`). The initial
+review was read-only; the approved repair and its validation are recorded below.
 
 Method: parallel audit agents + coordinator verification. Every load-bearing
 claim below was re-pinned by a probe run during the review (noted inline).
@@ -45,7 +45,10 @@ no change" A/B was flat.
 
 Tests enshrine both wrongs: `test/test_pd_primitives.cc:110-149` (env
 staircase) and `test/test_engine.cc:109` (the `(0−100+60)*0.8 = −32 dB`
-comment). On silence: pd target gain 0.063, port 0.025 (−8 dB more ducking).
+comment). Correction to the original review's arithmetic: on silence, the
+corrected Pd target is −64 dB, gain `0.000630957`; the old port target was
+−32 dB, gain `0.0251189`. At the separate `P=10^-6` boundary, the old port's
+−48 dB versus Pd's 0 dB comparison above remains valid.
 
 **Fix order**: correct `powtodb` to `100 + 10·log10`, add the ×2 slope, then
 re-pin both tests' expected values (they currently fail against a corrected
@@ -215,10 +218,75 @@ reference re-render was possible during this review.
 3. F7 one-line `stmlib::Clip16` convention (lira8 + dronecaster).
 4. F3/F4/F5/F6/F8 opportunistically; add the fast-path equivalence test.
 
+## Approved repair — 2026-11-21/22 — LANDED `4ee6dde`, hardware-accepted
+
+The user approved `docs/superpowers/plans/2026-11-21-lira8-dsp-review-repair.md`.
+The following fixes are implemented against base `b6c94ff` and committed as
+`4ee6dde` on `rack-rp2350` (2026-11-22, after the user's hardware
+acceptance). The findings above describe the pre-repair code.
+
+| Finding | Repair and regression evidence |
+|---|---|
+| F1 | `powtodb` uses `100+10*log10(power)` with the Pd power floor; expander slope includes ×2 and clamps ratios below one. Tests pin half-power 96.9897 dB, the envelope staircase, the unity threshold, silence target −64 dB/gain 0.000630957, and settled/exponential gain behavior. |
+| F2 | Each bus owns a `DelayFilterChain` (`hip~1` then `lop~4000`). Tests check fresh-state independence and actual engine bus isolation. The wet-delay HF hypothesis remains unverified. |
+| F3 | Both BLEP gates contribute when their windows overlap. The `dt=0.75` regression failed 12 checks before the fix and passes afterward. Both prepared paths match general rendering bit-for-bit across 14 × 48,000 samples per path at 32/44.1 kHz, varied PWM and block-boundary frequency changes. Base-tune coefficients with per-sample vibrato remain a deliberate approximation. |
+| F4 | SELF staging filters the current block's float writes at half amplitude after the bus consumes the preceding SELF block; obsolete staging buffers are removed. Three-block tests check the staged values and actual following-block delay reads. |
+| F5 | Positive ramp times floor to 64-sample ticks (minimum one); nonpositive times jump. Tests pin 23.22 ms → 1024/704 and 11 ms → 448/320 at 44.1/32 kHz. `Ramp::next()` retains increment-first indexing; Pd's output-first indexing remains a documented difference. |
+| F6 | Pending parameter slots preserve float bits in lock-free 32-bit atomic store/exchange slots with the −1 sentinel. Concurrent writers/render tests preserve fractional values. Sensor-mask updates use atomic OR/AND in stable namespace storage, with atomic resets at both init entry points; reporting counts one snapshot without touching arena mask storage. |
+| F7 | LIRA-8 and Dronecaster use the sibling `Clip16(static_cast<int32_t>(sample * 32768.0f * gain))` convention. Nineteen boundary/gain/truncation checks pass, including +1 → 32767 and −1 → −32768. |
+| F8 | Golden generation removes the unique delayed parameter-save edge inside uniquely identified `gui.link` bounds, rejects missing/duplicate anchors and any remaining live save inlet, and retains parameter loading. Nine Python tests pass; two generations are byte-identical. Saved parameters match the pristine standalone file; scenario init coverage is accurately described. No reference WAVs were rendered. |
+
+Validation of the combined changes:
+
+- Fresh external build `/tmp/rack-lira8-integrated.TMPSNh/`: all 15 host binaries
+  built; 14 passed. Only the unrelated, unchanged `test_reverb` failed:
+  `impulse response does not decay: first-20-block peak 0.015020 vs
+  last-10-block peak 0.630760`. The final nine Python fixture checks passed.
+  Binaries ran from `/tmp/rack-lira8-suite-cwd.r7DCGt/` so relative output
+  paths did not touch the repository's existing artifacts.
+- ThreadSanitizer caught two mailbox races before the fix (exit 66), then
+  passed `test_engine` with no race diagnostics in a fresh build
+  `/tmp/rack-lira8-tsan.RbQMuE/` (exit 0).
+- Combined `test_engine` and `test_voice` pass AddressSanitizer and
+  UndefinedBehaviorSanitizer in `/tmp/rack-lira8-asan.rwgN1G/`.
+  Output checks also pass UBSan plus float-cast-overflow. The output test
+  additionally checks both production statements and rejects a narrowing
+  mutation. A production-snippet mask harness with eight writers, 2,000
+  arena resets and a reader passes TSAN; it uses MCU-independent state
+  stubs and covers the report mask, not the engine's gate/level mailbox.
+- `pio run -d rack-rp2350` succeeds: RAM 382,372 B, flash 1,647,996 B;
+  `tc_lira8` is 20,032 B at SRAM `0x20063000`. Actual ELF inspection shows
+  mailbox exchange and sensor OR/AND use inline `ldrex`/`strex` retry loops,
+  publication uses `str`, and no atomic runtime helper symbols are linked.
+  Existing resource-macro/extern warnings remain; host builds retain the
+  pre-existing `MasterOut` member-order and unused `flips` warnings.
+- All 32 pre-existing `test/build` artifact hashes remain unchanged, and its
+  tracked binary diff is byte-identical to the initial state. No unrelated
+  snapshots were edited. `git diff --check` passes.
+
+The implementation tasks passed independent spec/quality review. Review
+caught the arena report-mask lifetime gap; the stable-storage fix, stricter
+fixture guard and production clipping checks passed scoped re-review.
+Final broad review found no additional defects in the approved repairs.
+
+**Hardware acceptance (2026-11-22, user):** the UF2 was flashed via the
+documented runbook; the board booted clean on `mod=lira8` (439-447 µs /
+1451 budget, i2s stalls 0, sens=0) and the user accepted by ear
+("ok, sounds good"). The wet-delay HF comparison and a Pd reference
+rerender remain pending. Final review also identified a pre-existing, separate
+sensor-event mailbox race: `set_sensor()` writes `pending_sensors_` and
+`pending_sensor_levels_` from both cores while rendering reads them. The
+approved F6 repair and TSAN stress cover parameter slots and the report
+mask; they do not establish race freedom for sensor-event publication.
+That path needs a separate coherent gate/level publication repair and
+concurrent sensor regression. The generated fixture SHA256 is
+`4131b5de9a8608d694de605411d78711307321bccf4aba2a80f0fbb14ef8e574`.
+
 ## Limits
 
-No device run — all on-device numbers cited are the ledger's; hardware
-acceptance remains the user's ears. ARM codegen claims (int16 wrap, FMA
+The original review ran with no device access; the repaired firmware was
+subsequently flashed and accepted by the user (2026-11-22, numbers in the
+"Hardware acceptance" note above). ARM codegen claims (int16 wrap, FMA
 contraction under `-ffast-math`-class fusion) are reasoning + x86 probes,
 not device-observed. Pd laws verified against pd 0.57.0 source + recorded
 probes; the `LiraOsc` samphold-on-wrap law and bus sort order were verified
