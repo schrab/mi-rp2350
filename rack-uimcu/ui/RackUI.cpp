@@ -1013,6 +1013,20 @@ namespace CTAG {
                             };
                             pName = (dispVal >= 0 && dispVal < 10)
                                         ? kDroneNames[dispVal] : "---";
+                        } else if (modForPage == 6 && c.cc == 70) {
+                            // Benjolin FILTER: RLPF/RHPF/SVF/DFM1.
+                            static const char *const kBenjFilters[4] = {
+                                "RLPF", "RHPF", "SVF", "DFM1"
+                            };
+                            pName = (dispVal >= 0 && dispVal < 4)
+                                        ? kBenjFilters[dispVal] : "---";
+                        } else if (modForPage == 6 && c.cc == 71) {
+                            // Benjolin OUTPUT: the 7 SynthDef taps.
+                            static const char *const kBenjOuts[7] = {
+                                "TRI1", "OSC1", "TRI2", "OSC2", "PWM", "COMP", "FILT"
+                            };
+                            pName = (dispVal >= 0 && dispVal < 7)
+                                        ? kBenjOuts[dispVal] : "---";
                         } else if (modForPage == 3) {
                             int ringMode = 0;
                             for (uint8_t i = 0; i < s_cur.count; ++i) {

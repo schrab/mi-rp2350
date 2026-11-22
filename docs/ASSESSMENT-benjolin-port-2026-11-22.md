@@ -449,3 +449,71 @@ The effort is concentrated in three places — the rungler feedback wiring, the
 nova-math helpers that live in the wrong header, and a new full-engine golden
 with its DFM1 epoch sidecar. None is a blocker; all are well-defined tasks with
 precedent in the Lira8 and Dronecaster work.
+
+---
+
+## 9. T6 device findings — the port matches the golden, the golden does not
+## match norns (2026-11-22, the user's hardware report)
+
+The port is **bit-faithful to an NRT render of the shipped SynthDef** (every
+stage golden-exact at 1e-6; the full graph tracks the golden sample-exact for
+24,008 samples before chaos cascades). The user's device report:
+
+1. **The budget**: worst blocks 1600–2000 µs vs the 1333 µs period; the
+   average (383 µs) hides bimodal wedges — **the max is the acceptance
+   metric**. Data point: rungler depths at 0 → ~1300 µs (the FM transitions
+   off). No I2S stalls observed (the 8×16 bank absorbs), but the wedges are
+   the suspected cause of harshness.
+2. **The sound: bit-reduction-like distortion; no clean filter
+   self-oscillation** — the RLPF at rq 0.18 should ring cleanly (as on
+   norns); on device = crackling. Closed filters crackle.
+3. **DFM1 completely wrong.**
+4. **COMP silent** — but on the user's norns COMP produces sound.
+
+### 9.1 The core discrepancy: the port matches the golden, not norns
+
+The engine == an NRT render of the **shipped** `Engine_Benjolis.sc`. The user
+ears-match **norns**, which differs. Hypotheses, in order of likelihood:
+
+- **The chaotic seed differs.** Norns runs REAL-TIME: the synth's block-0
+  local-bus read and ctor-time wire state are live memory (unpredictable),
+  while the NRT golden **gated the block-0 bus read to zero** (a documented
+  1-line renderer deviation) and the port is deterministic-clean. A different
+  chaotic seed = a different 8-bit register attractor = different sound from
+  the SAME laws. This explains "all variations give sound on norns" (every
+  boot seeds differently) vs the port's fixed trajectory.
+- **The shipped SynthDef's degenerate comparator.** `sh8 = 1` (the var
+  initializer) is captured at graph build before the DelayN assigns the
+  register UGen — the author's intended XOR comparator (register top bit vs
+  the threshold, the original Benjolin's signature audio) collapsed to
+  `sh0 = 1 − (osc1 > 0.5)` (a near-DC bit stream that the SynthDef's own
+  LeakDC silences). The lawprobe + the full-graph golden both confirm the
+  degenerate form **in this file** — but the user's ears say norns' COMP
+  produces sound, i.e. **what the user references is the intended
+  comparator, not the shipped bug**.
+- **The register-fill sweep.** At boot the latch sees osc2's initial high as
+  an edge, the register fills with 1s, and the midicps'd DAC sweeps the
+  FILTER FREQ to ~111.6 kHz — past Nyquist, degenerate coefficients
+  (`tan` of >6 rad). Crackling/closed-filter behavior is consistent with
+  living in this band; norns' garbage-seeded register may sit elsewhere.
+
+### 9.2 The plan (the user's order)
+
+1. **Restore the intended XOR comparator** (the author's intent, the user's
+   ears) — in the engine AND the renderer's SynthDef copy (a documented
+   deviation from the shipped file), re-render the goldens, re-arbitrate.
+2. **The filter investigation**: the DFM1 vs norns A/B at the user's
+   settings; the self-oscillation check (the coefficient/state laws at
+   degenerate freqs; scsynth's own freq clamps if any).
+3. **The budget**: optimize against the MAX metric — the dominant cost is
+   the M33's software double math (the kit laws are double; ~40 double
+   ops/sample). Options: float-state conversion where the chaotic gates
+   allow, per-UGen re-arbitration.
+4. **The C3 UI**: the 7-slot strip, the BENJOLIN page, the full labels, the
+   FILTER/OUTPUT name display — flashed 2026-11-22, awaiting the user's
+   eyes.
+
+The NRT-vs-live discrepancy also means **the golden WAVs pin the NRT
+behavior, not norns' live behavior** — the per-stage 1e-6 kit goldens remain
+the transcription evidence; norns itself is the final reference for the
+composition.
