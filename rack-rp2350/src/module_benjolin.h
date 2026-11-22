@@ -218,10 +218,16 @@ void render() {
 
   const float gain = g_render_gain;
   uint32_t w0 = time_us_32();
+  // TRUE STEREO: the SynthDef's DelayL pan produces different L/R delays —
+  // writing l/r separately makes PAN (CC 73) audible (the dronecaster/lira8
+  // pattern writes mono, but their engines are mono-in-mono-out; the
+  // benjolin's graph is stereo by construction).
   for (size_t i = 0; i < kBlockSize; ++i) {
-    const int16_t out = stmlib::Clip16(
+    const int16_t out_l = stmlib::Clip16(
         static_cast<int32_t>(l[i] * 32768.0f * gain));
-    i2s.write16(out, out);
+    const int16_t out_r = stmlib::Clip16(
+        static_cast<int32_t>(r[i] * 32768.0f * gain));
+    i2s.write16(out_l, out_r);
   }
   if (time_us_32() - w0 > kStallUs) ++i2s_stall_count;
 }

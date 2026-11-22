@@ -189,6 +189,7 @@ struct Engine {
     if (pending_set_) {
       p_ = pending_;
       pending_set_ = false;
+      raw_prev_ = -1.0f;   // the midicps memo: scale may have changed
     }
     float* inr[2] = {in0_, in1_};
     if (mode_ == FeedbackMode::kReferenceSc) {
@@ -233,7 +234,14 @@ struct Engine {
       float sh[8];
       for (int k = 0; k < 8; ++k) sh[k] = sh_buf_[k][i];
       raw_buf_[i] = RunglerDac(sh);
-      hz_buf_[i] = sc::midicps_ar(raw_buf_[i] * 127.0f * p_.scale);
+      // midicps memo: the DAC sum is constant except during the ~8-sample
+      // post-edge transitions — powf only when the input changes (the same
+      // float input gives the same float output; bit-identical stream).
+      if (raw_buf_[i] != raw_prev_) {
+        raw_prev_ = raw_buf_[i];
+        hz_prev_ = sc::midicps_ar(raw_prev_ * 127.0f * p_.scale);
+      }
+      hz_buf_[i] = hz_prev_;
       // The graph's filter freq uses the CURRENT-BLOCK midicps'd DAC
       // trajectory (rungler AFTER the midicps line), not the bus read —
       // the bus read feeds only the oscillator FMs. (T4 golden finding.)
@@ -347,6 +355,7 @@ struct Engine {
   sc::DelayLine dl_l_, dl_r_;
   sc::LeakDC leak_l_, leak_r_;
   float rungler_hz_, rungler_raw_, buf_, o2_prev_ = 0.0f;
+  float raw_prev_ = -1.0f, hz_prev_ = 0.0f;   // the midicps memo
   uint32_t reg_ = 0;
   float in0_[kBlock], in1_[kBlock];
   float tri_buf_[kBlock], tri2_buf_[kBlock], o1_buf_[kBlock], o2_buf_[kBlock];

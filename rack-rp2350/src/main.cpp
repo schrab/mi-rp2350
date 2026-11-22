@@ -1718,7 +1718,12 @@ void loop1() {
   if (g_chain.active) {
     chain_render_block();
   } else {
+    const uint32_t t0 = time_us_32();
     kRackModules[g_active_module].render();
+    // The standalone path never accumulated the report's avg (only the chain
+    // paths did) — every standalone module printed "avg 0 us".
+    proc_us_sum += time_us_32() - t0;
+    ++proc_us_count;
   }
   ++g_audio_hb;   // liveness for core-0's conditional watchdog feed
 }
