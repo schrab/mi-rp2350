@@ -397,6 +397,19 @@ volatile uint32_t g_audio_hb = 0;
 // while spinning on the audio_ready flag; the 2 s report prints it so a
 // frozen audio core is distinguishable from a visibility problem.
 volatile uint32_t g_core1_spins = 0;
+// Setup-stage tracker (bench 2026-11-23): core 0 stamps its progress; the
+// 2 s report prints it live so the core-1 freeze time can be correlated
+// with the setup step that was running.
+volatile uint32_t g_setup_stage_us = 0;
+volatile uint32_t g_setup_stage = 0;
+// Full stage history (id -> us at the stage boundary) — cmd_crash prints it
+// so a core-1 freeze time can be matched against the setup step in flight.
+static uint32_t g_setup_stage_hist[16];
+static inline void setup_stage(uint32_t id) {
+  g_setup_stage = id;
+  g_setup_stage_us = time_us_32();
+  if (id < 16) g_setup_stage_hist[id] = g_setup_stage_us;
+}
 // Core-1 poll rate measurement (bench 2026-11-23): wall-clock stamps taken
 // by core 1 itself, printed in the report — measures how fast the spinning
 // core actually executes vs the shared microsecond timer.
@@ -1000,6 +1013,8 @@ static alarm_pool_t* g_host_alarm_pool = nullptr;
 static volatile bool g_host_alarm_pool_ready = false;
 #endif
 
+// The audio_ready wait, RAM-resident (see the A/B note inside setup1).
+static void audio_ready_wait_ram(void);
 void setup1() {
   crumb1(1);   // audio core entered setup1
   // Flush-to-zero + default-NaN on the AUDIO CORE (2026-11-19): FPSCR is
@@ -1020,23 +1035,12 @@ void setup1() {
 #endif
 
   crumb1(2);   // entering the audio_ready wait
-  // BUSY poll with an in-loop heartbeat crumb: distinguishes "polling and
-  // the flag write is never observed" (15) from "stopped right after (2)"
-  // (stale 2) — scratch survives the watchdog resets, so a stale value
-  // would otherwise confound the read (bench-caught 2026-11-23).
-  {
-    uint32_t spins = 0;
-    g_core1_poll_t0_us = time_us_32();
-    while (!audio_ready) {
-      tight_loop_contents();
-      ++g_core1_spins;
-      if (++spins == 50000u) {
-        spins = 0;
-        g_core1_poll_us = time_us_32();
-        crumb1(15);
-      }
-    }
-  }
+  // A/B TEST (bench 2026-11-23): the poll ran full speed ~4 ms then FROZE
+  // solid (c1 frozen at 69,210 across 16 s, no fault, no crumb advance) —
+  // the freeze window matches setup()'s window copy (XIP -> SRAM memcpy).
+  // This core executes the poll FROM XIP; if the freeze is an XIP-fetch
+  // stall under concurrent XIP streaming, a RAM-resident poll survives.
+  audio_ready_wait_ram();
   crumb1(3);   // audio_ready observed
   // T8: take the I2S DMA IRQ on the AUDIO core. The AudioBufferManager's
   // list helpers use noInterrupts(), which is per-core: with the writer on
@@ -1046,6 +1050,21 @@ void setup1() {
   // i2s.begin(); core 1 enables it here and around every runtime reconfig.
   irq_set_enabled(DMA_IRQ_0, true);
   crumb1(4);   // DMA_IRQ_0 taken over by the audio core
+}
+
+__attribute__((__noinline__, __section__(".time_critical.audio_ready_wait_ram")))
+static void audio_ready_wait_ram(void) {
+  uint32_t spins = 0;
+  g_core1_poll_t0_us = time_us_32();
+  while (!audio_ready) {
+    tight_loop_contents();
+    ++g_core1_spins;
+    if (++spins == 50000u) {
+      spins = 0;
+      g_core1_poll_us = time_us_32();
+      crumb1(15);
+    }
+  }
 }
 
 // Swap-mute ramp depth: kSwapRampSteps render blocks with a linear gain ramp
@@ -2883,6 +2902,20 @@ static void cmd_crash(const char* args) {
   // LIVE scratch alongside the boot-saved statics: the statics are read-and-
   // cleared at setup start, so a value written AFTER that (the audio core's
   // in-loop heartbeat, the release crumbs) only shows here (bench 2026-11-23).
+  printf("setup stages: s1=%lu s2=%lu s3=%lu s4=%lu s5=%lu s6=%lu s7=%lu "
+         "s8=%lu s9=%lu s10=%lu s11=%lu s12=%lu\r\n",
+         (unsigned long)g_setup_stage_hist[1],
+         (unsigned long)g_setup_stage_hist[2],
+         (unsigned long)g_setup_stage_hist[3],
+         (unsigned long)g_setup_stage_hist[4],
+         (unsigned long)g_setup_stage_hist[5],
+         (unsigned long)g_setup_stage_hist[6],
+         (unsigned long)g_setup_stage_hist[7],
+         (unsigned long)g_setup_stage_hist[8],
+         (unsigned long)g_setup_stage_hist[9],
+         (unsigned long)g_setup_stage_hist[10],
+         (unsigned long)g_setup_stage_hist[11],
+         (unsigned long)g_setup_stage_hist[12]);
   printf("crash: live s0=0x%08lx s1=0x%08lx (watchdog_hw scratch)\r\n",
          (unsigned long)watchdog_hw->scratch[0],
          (unsigned long)watchdog_hw->scratch[1]);
@@ -3007,12 +3040,39 @@ static void cmd_vreg(const char* args) {
                 "E=1.25, F=1.30)\r\n", (unsigned long)v);
 }
 
+// The audio core's explicit separate 8 KB stack + its entry harness (the
+// launch happens in setup(), after the sys-clock raise — see the law note
+// at the launch site). THE HARNESS IS THE ARDUINO-CORE BEHAVIOR THE PORT
+// MUST REPRODUCE: setup1() once, then loop1() forever — the SDK's
+// multicore trampoline only runs the entry function and PARKS the core on
+// return (bench-caught 2026-11-23: without the loop the audio core went
+// silent right after setup1 — stage-4 crumb, hb stuck at 0).
+static uint32_t g_core1_stack[2048];   // 8 KB, 4-byte aligned (uint32 array)
+extern void setup1();
+extern void loop1();
+
+static void core1_main(void) {
+  setup1();
+  while (true) {
+    loop1();
+  }
+}
+
 void setup() {
   // --- 320 MHz build clock (the Arduino core applied F_CPU before setup();
   // here setup() raises it) — AFTER rack_pre_clock's VREG 1.25 V + QMI
   // CLKDIV 4 / RXDELAY 3 pinning (the constructor ran at the 150 MHz runtime
   // default, before any XIP-heavy work). Same clock, same order, same SCK.
   set_sys_clock_khz(320000, true);
+  setup_stage(1);   // 320 MHz applied
+  // CORE 1 LAUNCHES HERE, AFTER the sys-clock raise — the bench-caught law
+  // (2026-11-23): a core running during set_sys_clock_khz's glitchless PLL
+  // switch freezes solid (the audio core hung in its audio_ready poll with
+  // no fault; the spin counter froze exactly at the stage-1 timestamp on
+  // every build, flash- AND RAM-resident). The Arduino core launched core 1
+  // after its F_CPU setup too. setup1 waits on audio_ready as before.
+  multicore_launch_core1_with_stack(core1_main, g_core1_stack,
+                                    sizeof(g_core1_stack));
   // --- Crash forensics: capture the PREVIOUS boot's evidence FIRST ---
   // watchdog_enable() writes WATCHDOG_NON_REBOOT_MAGIC (0x6ab73121) into
   // scratch[4] -- so the boot-done marker MUST be read BEFORE it is called.
@@ -3103,10 +3163,12 @@ void setup() {
   // The copy is now the ABSOLUTE FIRST action of setup(), before
   // Serial.begin/LED/USB — crt0-like semantics. (T2: same copy, one shared
   // window; the swap repeats it at runtime.)
+  setup_stage(2);   // before the window copy
   static char window_line[128];
   {
     uint32_t src_sum = 0, dst_sum = 0;
     const uint32_t n = rack_window_copy(RACK_BOOT_MODULE, &src_sum, &dst_sum);
+    setup_stage(3);   // window copy done
     g_window_src_sum = src_sum;   // oc-bench flash-integrity oracle baseline
     const RackWindowSection& s = rack_window_section(RACK_BOOT_MODULE);
     snprintf(window_line, sizeof(window_line),
@@ -3127,9 +3189,11 @@ void setup() {
   // so starting the stack this early is IN the first configuration — no
   // re-enumeration needed (the 2026-11-04 T1 bring-up finding stands).
   // Product/serial strings come from usb_descriptors.cpp ("Rack RP2350").
+  setup_stage(4);   // before USB init
   usb_descriptors_init();
   usb_console_init();                        // the CDC stdio driver
   tud_init(0);
+  setup_stage(5);   // USB init done
 
     // Flush-to-zero + default-NaN on the M33 FPU (2026-11-19): the swede cab
   // FIR and FMV/biquad states decay into the denormal range on quiet input,
@@ -3141,9 +3205,11 @@ void setup() {
     fpscr |= (1u << 24) | (1u << 25);      // FZ | DN
     __set_FPSCR(fpscr);
   }
+  setup_stage(6);   // before engine/module init
   mod_engine_init();                       // T3: engine defaults (plain .bss,
                                            // independent of the modules)
   kRackModules[RACK_BOOT_MODULE].init();   // registry: boot module, arena-placed
+  setup_stage(7);   // engine/module init done
   // T4 DIN MIDI RX (UART1 @ 31250, GP5): hardware UART claims NO PIO, no DMA
   // channel and no alarm pool, so — unlike the PIO-USB/I2S/LED order law
   // above — its position here is unconstrained; it sits after the engine/
@@ -3153,7 +3219,9 @@ void setup() {
   // T5 stage 1 UI-MCU link (UART0 @ 921600, GP0/GP1): hardware UART as
   // well — same no-PIO argument, same unconstrained position, same no-print
   // rule. Absent/unwired link costs nothing (pump = one ring-empty check).
+  setup_stage(8);   // DIN uart up
   ui_link_uart_init();
+  setup_stage(9);   // UI uart up
   // T1 hardware PLAY button (GP2, internal pull-up, button -> GND): plain
   // GPIO — no PIO/DMA/alarm claims, so its position is unconstrained (same
   // class as the DIN/UI hardware UARTs). No print (boot-wedge law).
@@ -3195,6 +3263,7 @@ void setup() {
   // Boot module's native rate / block size / DMA bank depth (registry
   // fields — see the standalone ports for the sizing rationale).
   const RackModuleInfo& boot = kRackModules[RACK_BOOT_MODULE];
+  setup_stage(10);  // before i2s.begin
   i2s.setBitsPerSample(16);
   i2s.setBuffers(boot.i2s_buffers, boot.i2s_words);
   i2s.setFrequency(boot.sample_rate);
@@ -3208,6 +3277,7 @@ void setup() {
   // audio writer) so the AudioBufferManager's noInterrupts() actually covers
   // the DMA IRQ. setup1() re-enables it on core 1 after audio_ready.
   irq_set_enabled(DMA_IRQ_0, false);
+  setup_stage(12);  // DMA_IRQ_0 handed to core 1
 
   // Boot diagnostics are NON-BLOCKING: a console-less boot must never stall on
   // the USB CDC FIFO (bench-caught: a watchdog reboot with no reader attached
@@ -3633,7 +3703,7 @@ void loop() {
                     elements_tail,
                     oc_tail);
 #else
-      dbg_printf("max Process: %u us avg %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | c1=%lu c1t=%lu | up=%lu tu=%lu | mod=%s | %s | %s | %s%s\r\n",
+      dbg_printf("max Process: %u us avg %u us (budget %u us) | i2s stalls: %u (+%u) | in=%u out=%u notes=%u btn=%u | pz=%u pzr=%lu | c1=%lu c1t=%lu | up=%lu tu=%lu | st=%lu@%lu | mod=%s | %s | %s | %s%s\r\n",
                     proc_us_max,
                     (unsigned)(proc_us_count ? proc_us_sum / proc_us_count : 0),
                     (unsigned)budget,
@@ -3648,6 +3718,8 @@ void loop() {
                     (unsigned long)(g_core1_poll_us - g_core1_poll_t0_us),
                     (unsigned long)to_ms_since_boot(get_absolute_time()),
                     (unsigned long)time_us_32(),
+                    (unsigned long)g_setup_stage,
+                    (unsigned long)g_setup_stage_us,
                     mod_field,
                     modeng_tail,
                     g_active_module == RACK_MODULE_PLAITS ? plaits_tail
@@ -3694,14 +3766,7 @@ void loop() {
 //     loop1 harness. Here: an explicit 8 KB static stack for core 1 (the
 //     standalone ports' core 0 overran the shared 4 KB/4 KB split at USB
 //     attach and corrupted core 1 — the earlephilhower fix, re-made here).
-static uint32_t g_core1_stack[2048];   // 8 KB, 4-byte aligned (uint32 array)
-
-extern void setup1();
-extern void loop1();
-
 int main() {
-  multicore_launch_core1_with_stack(setup1, g_core1_stack,
-                                    sizeof(g_core1_stack));
   setup();
   while (true) {
     loop();
