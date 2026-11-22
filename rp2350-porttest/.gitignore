@@ -1,0 +1,4 @@
+build/
+*.uf2
+*.elf
+*.bin.map

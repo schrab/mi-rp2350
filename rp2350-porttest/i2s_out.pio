@@ -1,0 +1,23 @@
+; Standard I2S (Philips) for the soldered pin map:
+;   BCK  = GP19 (sideset bit 0, one bit only)
+;   DIN  = GP20 (OUT pin 0)
+;   LRCK = GP21 (OUT pin 1)
+; DIN and LRCK are consecutive, so `out pins, 2` drives both: each bit-slot
+; carries (LRCK << 1) | DIN, pre-interleaved by the C side per half-frame.
+;
+; Same timing as the ear-proven rack program: data changes on BCK low and is
+; sampled on BCK rising; LRCK flips on the last bit of each half-frame.
+; LEFT shift, autopull 32: one FIFO word = one 16-bit-pair half-frame.
+; y = bits - 2 (14), set by C via pio_encode_set.
+; 33 instructions per half-frame (mov + 15*2 + out + jmp) = 66 per frame.
+
+.program i2s_out
+.side_set 1              ; BCK only; no `set pins`, so 1 bit is enough
+
+entry:
+    mov x, y             side 0b1       ; BCK high
+loop:
+    out pins, 2          side 0b0       ; DIN+LRCK change on BCK falling
+    jmp x--, loop        side 0b1       ; DAC samples on BCK rising
+    out pins, 2          side 0b0       ; 16th (last) bit-slot of the half
+    jmp entry            side 0b1       ; re-arm; OSR autopulls the next word

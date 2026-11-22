@@ -1,0 +1,65 @@
+    .syntax unified
+    .section .rodata.orb_tables, "a", %progbits
+    .align 4
+
+    .global g_level
+    .type g_level, %object
+    .size g_level, 512
+g_level:
+    .incbin "@TABLES_DIR@/t.bin"
+
+    .align 4
+    .global g_pitch303
+    .type g_pitch303, %object
+    .size g_pitch303, 24576
+g_pitch303:
+    .incbin "@TABLES_DIR@/pitch303.bin"
+
+    .align 4
+    .global g_filt303
+    .type g_filt303, %object
+    .size g_filt303, 131072
+g_filt303:
+    .incbin "@TABLES_DIR@/filt303.bin"
+
+    .align 4
+    .global g_dist_w
+    .type g_dist_w, %object
+    .size g_dist_w, 32768
+g_dist_w:
+    .incbin "@TABLES_DIR@/dist_w.bin"
+
+    .align 4
+    .global g_smooth303
+    .type g_smooth303, %object
+    .size g_smooth303, 12
+g_smooth303:
+    .incbin "@TABLES_DIR@/smooth303.bin"
+
+    .align 4
+    .global g_pcf_lp
+    .type g_pcf_lp, %object
+    .size g_pcf_lp, 49152
+g_pcf_lp:
+    .incbin "@TABLES_DIR@/pcf_lp.bin"
+
+    .align 4
+    .global g_pcf_bp
+    .type g_pcf_bp, %object
+    .size g_pcf_bp, 49152
+g_pcf_bp:
+    .incbin "@TABLES_DIR@/pcf_bp.bin"
+
+    .align 4
+    .global g_smooth_pcf
+    .type g_smooth_pcf, %object
+    .size g_smooth_pcf, 12
+g_smooth_pcf:
+    .incbin "@TABLES_DIR@/smooth_pcf.bin"
+
+    .align 4
+    .global g_pcf_data
+    .type g_pcf_data, %object
+    .size g_pcf_data, 4336
+g_pcf_data:
+    .incbin "@TABLES_DIR@/pcf_data.bin"
