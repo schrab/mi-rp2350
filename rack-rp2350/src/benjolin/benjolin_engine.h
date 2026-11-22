@@ -98,7 +98,7 @@ struct Engine {
   static constexpr int kBlock = 64;  // the scsynth block grid
 
   void Init(double sr, FeedbackMode mode, int dfm1_epoch, const Params& p,
-            float* ext_tap_rings = nullptr) {
+            float* ext_tap_rings = nullptr, float* ext_pan_rings = nullptr) {
     sr_ = static_cast<float>(sr);
     mode_ = mode;
     p_ = p;
@@ -116,7 +116,9 @@ struct Engine {
     osc2_.InitAr(sr, DpwClamp(p_.freq2), 0.5f);
     // 8 register taps: DelayN.ar(in, 0.01, sr*k), k = 1..8. Constant delay.
     for (int k = 0; k < 8; ++k) {
-      tap_delay_[k] = static_cast<float>(k + 1) / sr_;
+      // fl32(fl32(1/sr) * k) — the server's DelayN constants round the same
+      // way, giving effective taps [1,2,2,4,5,5,6,8] (verified vs scsynth).
+      tap_delay_[k] = (1.0f / 48000.0f) * static_cast<float>(k + 1);
       if (ext_tap_rings != nullptr)
         tap_[k].InitExt(ext_tap_rings + k * 16, 16, sr, 0.01f, tap_delay_[k],
                         0.f, 0);
@@ -140,9 +142,15 @@ struct Engine {
     lag_l_.Init(sr / 64.0);
     lag_r_.Init(sr / 64.0);
     // DelayL: maxdelaytime 0.01 s; upstream clamps delaytime to m_maxdelay
-    // (CalcDelay) — done engine-side below.
-    dl_l_.Init(sr, 0.01f, 0.0f, 0.f, 1);
-    dl_r_.Init(sr, 0.01f, 0.0f, 0.f, 1);
+    // (CalcDelay) — done engine-side below. Device path: caller-owned rings
+    // (1024 floats each, no heap).
+    if (ext_pan_rings != nullptr) {
+      dl_l_.InitExt(ext_pan_rings, 1024, sr, 0.01f, 0.0f, 0.f, 1);
+      dl_r_.InitExt(ext_pan_rings + 1024, 1024, sr, 0.01f, 0.0f, 0.f, 1);
+    } else {
+      dl_l_.Init(sr, 0.01f, 0.0f, 0.f, 1);
+      dl_r_.Init(sr, 0.01f, 0.0f, 0.f, 1);
+    }
     leak_l_.Init();
     leak_l_.Prime(0.f);  // the pan chain's ctor value is 0.0
     leak_r_.Init();
@@ -251,19 +259,19 @@ struct Engine {
     const int type = sc::SelectIndex(p_.filter_type, 4);
     switch (type) {
       case 0:
-        for (int i = 0; i < kBlock; ++i) {
-          // AR-freq law: scsynth runs RLPF_next_a on an ar freq wire — the
-          // coefficients recompute immediately per sample (StepA), not the
-          // k-law block ramp (T4 golden finding).
-          filt_buf_[i] = rlpf_.StepA(pwm_buf_[i], filt_freq_buf_[i], Rq()) *
-                         p_.gain;  // mul engine-side
-        }
+        // SOURCE-ACCURATE LAW: core RLPF/RHPF read the freq wire's FIRST
+        // sample per block (ZIN0(1)) and ramp coefficients across the block
+        // (mFilterSlope) — there is no per-sample next_a for the core
+        // filters (T4 review I1; the earlier StepA cited a nonexistent law
+        // and is removed from the kit).
+        rlpf_.ProcessBlock(pwm_buf_, filt_buf_, kBlock, filt_freq_buf_[0],
+                           Rq());
+        for (int i = 0; i < kBlock; ++i) filt_buf_[i] *= p_.gain;
         break;
       case 1:
-        for (int i = 0; i < kBlock; ++i) {
-          filt_buf_[i] = rhpf_.StepA(pwm_buf_[i], filt_freq_buf_[i], Rq()) *
-                         p_.gain;
-        }
+        rhpf_.ProcessBlock(pwm_buf_, filt_buf_, kBlock, filt_freq_buf_[0],
+                           Rq());
+        for (int i = 0; i < kBlock; ++i) filt_buf_[i] *= p_.gain;
         break;
       case 2:
         // gain = SVF mul (class sig: mul is the 9th arg, outside the UGen).

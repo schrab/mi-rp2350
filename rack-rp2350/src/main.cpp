@@ -3355,6 +3355,9 @@ void loop() {
       // T-D1 dronecaster: current drone + proc ewma + swaps + NaN block count.
       char dc_tail[80] = "";
       char bj_tail[80] = "";
+      if (g_active_module == RACK_MODULE_DRONECASTER) {
+        rack_modules::mod_dronecaster::report_dc(dc_tail, sizeof(dc_tail));
+      }
       if (g_active_module == RACK_MODULE_BENJOLIN) {
         rack_modules::mod_benjolin::report_benjolin(bj_tail, sizeof(bj_tail));
       }
@@ -3428,8 +3431,9 @@ void loop() {
                     mod_field,
                     modeng_tail,
                     g_active_module == RACK_MODULE_PLAITS ? plaits_tail
-                        : (g_active_module == RACK_MODULE_DRONECASTER ? dc_tail : "")
-                        : (g_active_module == RACK_MODULE_BENJOLIN ? bj_tail : ""),
+                        : (g_active_module == RACK_MODULE_LIRA8 ? lira8_tail
+                        : (g_active_module == RACK_MODULE_DRONECASTER ? dc_tail
+                        : (g_active_module == RACK_MODULE_BENJOLIN ? bj_tail : ""))),
                     elements_tail,
                     oc_tail);
 #else

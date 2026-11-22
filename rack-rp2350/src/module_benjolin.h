@@ -28,6 +28,15 @@
 #include "rack_arena.h"
 #include "module_registry.h"         // RackModDestinations (T3 mod routing table)
 
+// The SRAM law (PORTING-HIGHLIGHTS §3): this TU compiles at the core's
+// effective -Os (the earlephilhower core appends -Os after the project
+// flags), which made GCC emit the kit UGen helpers out-of-line into FLASH
+// and call them through veneers ~8x/sample. O3 from this point makes the
+// kit calls inline into the SRAM-resident Process64. pop_options at the
+// bottom of the file restores the TU's original optimization level.
+#pragma GCC push_options
+#pragma GCC optimize("O3")
+
 // Hot-code section placement (SRAM law): the wrapper carries the token and
 // the engine inlines into it at -O3 (the dronecaster pattern). One unique
 // token per emitted function.
@@ -63,9 +72,11 @@ static const RackModDestinations kModDestinations = {
 
 struct State {
   benjolin::Engine eng;
-  // The 8 register-tap rings (8 x 16 floats = 512 B) live in the carve —
-  // the engine's device path (no heap).
+  // The 8 register-tap rings (8 x 16 floats = 512 B) and the 2 pan-delay
+  // rings (2 x 1024 floats = 8 KB) live in the carve — the engine's device
+  // path allocates NOTHING (the dronecaster no-heap contract).
   float tap_rings[8 * 16];
+  float pan_rings[2 * 1024];
   // core-0 CC values (single-word atomic stores; core 1 snapshots them at
   // the block boundary — the lira8/dronecaster discipline, one float per
   // CC write so no torn multi-word state).
@@ -76,18 +87,24 @@ struct State {
   volatile uint32_t proc_avg_us;
   volatile uint32_t nan_blocks;         // blocks zeroed by the NaN guard
   volatile uint32_t render_heartbeat;   // core-1 liveness (stall watchdog)
-  explicit State() : eng(), tap_rings{}, cc_freq1(40.0f), cc_freq2(4.0f),
-      cc_scale(1.0f), cc_rungler1(0.16f), cc_rungler2(0.0f),
-      cc_rungler_f(9.0f), cc_loop(0.0f), cc_filt_freq(40.0f), cc_q(0.82f),
-      cc_gain(1.0f), cc_filter_type(0.0f), cc_out_signal(6.0f),
-      cc_amp(0.5f), cc_pan(0.0f), proc_avg_us(0), nan_blocks(0),
+  // CC seeds = the SynthDef defaults expressed in RAW CC (0-127) so the
+  // boot sound is the golden scenario. Mapping back through cc_to_params:
+  // 40 Hz -> 127*ln40/ln500 = 75; 4 Hz -> 75; scale 1 -> 127; rungler1
+  // 0.16 -> 127*0.16/0.5 = 41; rungler_f 9 -> 127*9/24 = 48; filtFreq
+  // 40 Hz -> 127*ln4/ln800 = 26; q 0.82 -> 127*0.82/0.99 = 105; gain
+  // 1 -> 127*1/4 = 32; amp 0.5 -> 64.
+  explicit State() : eng(), tap_rings{}, cc_freq1(75.0f), cc_freq2(75.0f),
+      cc_scale(127.0f), cc_rungler1(41.0f), cc_rungler2(0.0f),
+      cc_rungler_f(48.0f), cc_loop(0.0f), cc_filt_freq(26.0f), cc_q(105.0f),
+      cc_gain(32.0f), cc_filter_type(0.0f), cc_out_signal(6.0f),
+      cc_amp(64.0f), cc_pan(0.0f), proc_avg_us(0), nan_blocks(0),
       render_heartbeat(0) {
     benjolin::Params p;   // SynthDef defaults with an audible amp
     p.amp = 0.5f;
     eng.Init(static_cast<double>(kSampleRate),
              benjolin::FeedbackMode::kReferenceSc,
              1795055191,               // the golden DFM1 epoch (deterministic)
-             p, &tap_rings[0]);
+             p, &tap_rings[0], &pan_rings[0]);
   }
 };
 
@@ -103,22 +120,25 @@ void init() {
   init_at(static_cast<uint8_t*>(rack_mem_alloc(state_size(), 8)));
 }
 
-// CC -> SC-unit scalings (the plan's CC table; log maps for the wide ranges).
+// CC (raw 0-127) -> SC-unit scalings (the plan's CC table; log maps for the
+// wide ranges). The CC vars stay in the CC domain end to end — the engine
+// never sees raw CC values (T5 review C1: raw CCs reached Params, and
+// scale >= 13 overflowed midicps to inf -> permanent NaN).
 static void cc_to_params(benjolin::Params* p) {
   p->freq1 = powf(500.0f, s->cc_freq1 / 127.0f);                       // 1..500
   p->freq2 = 0.1f * powf(500.0f, s->cc_freq2 / 127.0f);                // .1..50
-  p->scale = s->cc_scale;
-  p->rungler1 = s->cc_rungler1;
-  p->rungler2 = s->cc_rungler2;
-  p->rungler_f = s->cc_rungler_f;
-  p->loop = s->cc_loop;
+  p->scale = s->cc_scale * (1.0f / 127.0f);                            // 0..1
+  p->rungler1 = s->cc_rungler1 * (0.5f / 127.0f);                      // 0..0.5
+  p->rungler2 = s->cc_rungler2 * (0.5f / 127.0f);                      // 0..0.5
+  p->rungler_f = s->cc_rungler_f * (24.0f / 127.0f);                   // 0..24
+  p->loop = s->cc_loop * (1.0f / 127.0f);                              // 0..1
   p->filt_freq = 10.0f * powf(800.0f, s->cc_filt_freq / 127.0f);       // 10..8k
-  p->q = s->cc_q;
-  p->gain = s->cc_gain;
+  p->q = s->cc_q * (0.99f / 127.0f);                                   // 0..0.99
+  p->gain = s->cc_gain * (4.0f / 127.0f);                              // 0..4
   p->filter_type = s->cc_filter_type;
   p->out_signal = s->cc_out_signal;
-  p->amp = s->cc_amp;
-  p->pan = s->cc_pan;   // the SC arg (the norns x0.001 law is in the scaling)
+  p->amp = s->cc_amp * (1.0f / 127.0f);                                // 0..1
+  p->pan = s->cc_pan * (0.127f / 127.0f);  // the norns x0.001 law      // 0..0.127
 }
 
 // CC 60-73 -> 0..127 raw; helper for the direct control_change path.
@@ -216,3 +236,5 @@ void report_benjolin(char* buf, size_t n) {
 
 }  // namespace mod_benjolin
 }  // namespace rack_modules
+
+#pragma GCC pop_options

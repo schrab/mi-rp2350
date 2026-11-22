@@ -18,12 +18,14 @@ static const benjolin::Params& TestParams() {
 
 // Full-SynthDef golden compare — CHAOTIC GATES (the Lira8 precedent, T4
 // ruling): the rungler feedback loop amplifies sub-1e-6 rounding into full
-// decorrelation (the default scenario tracks the golden sample-exact for
-// ~45800 samples = 95% of the render, then one comparator-threshold event
-// cascades), so waveform equality is not the gate. Every STAGE is pinned by
-// the 141 kit goldens at 1e-6; the composition gates on: RMS +-1.5 dB,
-// 8-band log-spaced spectral envelope +-2 dB, finiteness. The divergence
-// onset is printed for the record.
+// decorrelation — the default scenario tracks the golden sample-exact for
+// 24008 samples (half the render) and then one comparator-threshold event
+// cascades. The seed is an ENVIRONMENTAL ulp: the golden renderer's
+// scsynth computes midicps(0) as 0x4102D013 while the host's powf gives
+// 0x4102D012 (verified with an NRT probe) — unfixable in the engine. The
+// STAGES are pinned by the 141 kit goldens at 1e-6; the composition gates
+// on: a Welch-averaged 10-band log-spaced spectral envelope +-2 dB and
+// finiteness. The divergence onset is printed for the record.
 static bool golden_check(const char* name, const float* l, const float* r,
                          long n) {
   char path[192];
@@ -227,9 +229,9 @@ int main() {
       printf("FAIL: mode-B register changes = %u (must be <= ~4/s)\n", changes);
       ++g_failures;
     }
-    for (int i = 0; i < 48000; ++i) { /* finiteness checked via l/r reuse */ }
   }
   // Full-SynthDef goldens (mode A vs scsynth NRT renders).
+  const int failures_before_goldens = g_failures;
   {
     {
       float l[48000], r[48000];
@@ -253,7 +255,12 @@ int main() {
       e.Init(48000.0, benjolin::FeedbackMode::kReferenceSc, 1795055191, p);
       for (int i = 0; i < 3000; ++i) e.Process16(l + i * 16, r + i * 16);
       golden_check("loop1", l, r, 48000);
-      g_failures = 0;  // known-divergent: report-only
+      // KNOWN-DIVERGENT: loop1's band report is informational — its own
+      // failures must not mask earlier failures, and earlier failures must
+      // not be wiped by the reset (T5 review I5).
+      const int loop1_failures = g_failures;
+      g_failures = failures_before_goldens;
+      (void)loop1_failures;
       printf("  (loop1: known-divergent, report-only — see ledger)\n");
     }
   }
@@ -281,7 +288,7 @@ int main() {
     const double db = 20.0 * log10(rms_b / rms_a);
     bool finite = true;
     for (int i = 0; i < 48000; ++i)
-      if (!std::isfinite(l[i])) { finite = false; break; }
+      if (!std::isfinite(l[i]) || !std::isfinite(r[i])) { finite = false; break; }
     printf("  MODEB rms_a=%.6g rms_b=%.6g delta=%.3f dB finite=%d\n", rms_a,
            rms_b, db, finite ? 1 : 0);
     if (!(db >= -1.5 && db <= 1.5)) { printf("FAIL: mode-B RMS delta\n"); ++g_failures; }
