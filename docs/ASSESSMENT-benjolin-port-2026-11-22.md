@@ -410,10 +410,16 @@ explicit design choice, not an accident.
 
 ## 7. Proposed port plan
 
+**Naming (user decision, 2026-11-22):** the port ships as **Benjolin** — module
+id 6, `benjolin` in every rack-side name (engine header, adapter, `tc_*`
+sections, CC map, tests). Upstream keeps its `benjolis` names
+(`Engine_Benjolis.sc`, the `\benjolis` SynthDef, `scazan/benjolis`); renderer
+and golden code must not rename upstream identifiers.
+
 1. **Lift nova math helpers** (`NovaTanh`, `NovaExpTanh`, `NovaPow`,
    `NovaMidi2Freq`) into a PicoCollider header; add a `Tanh` golden ref and a
    `midicps` ar ref. Do not include `drone_common.h` wholesale.
-2. **Engine** `rack-rp2350/src/benjolis/benjolis_engine.h` — header-only, no MCU
+2. **Engine** `rack-rp2350/src/benjolin/benjolin_engine.h` — header-only, no MCU
    headers, 16-sample host blocks accumulated into 64-sample internal blocks;
    assemble PicoCollider UGens; two feedback modes (A/B from §5.3); freq clamps.
 3. **Goldens** — render the full SynthDef with SC 3.14.1 + sc3-plugins, capture
@@ -422,7 +428,7 @@ explicit design choice, not an accident.
    per-UGen goldens, the targeted `.ar` law checks from §4.10, shift-register
    sequence, ctor-prime chain, 64-sample ramp, mode A/B equivalence scope.
    Run the binary individually, not via aggregate `make test`.
-5. **Adapter** — `rack-rp2350/src/module_benjolis.h` following
+5. **Adapter** — `rack-rp2350/src/module_benjolin.h` following
    `module_lira8.h`: arena-placed state, atomics/pending params, CC map,
    `Clip16` output, `-O3` wrapper with a unique SRAM token, window/registry
    tables, `RACK_BOOT_MODULE=6` (next free id), CC map in
