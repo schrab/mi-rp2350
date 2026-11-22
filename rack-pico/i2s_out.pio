@@ -1,28 +1,47 @@
-; I2S output for the rack pin map: data = GP8, BCK = GP6, LRCLK = GP7.
-; 16-bit stereo, MSB first (left-justified variant — the PCM5102A accepts
-; LJ/I2S via its format strap; VERIFY the polarity/order at bring-up).
+; I2S output for the rack pin map: data = GP8, BCK = GP6, LRCK = GP7.
+; 16-bit stereo, STANDARD I2S (Philips) format for the PCM5102A.
 ;
-; Two instructions per bit (the data out on the BCK low, the bit clocked on
-; the BCK high), one extra instruction per half-frame for the LR flip — so
-; the instruction rate is not an integer multiple of BCK. The C side
-; computes the fractional clkdiv from the system clock (the DSPi integer-
-; divider purity at 307.2 MHz is a later refinement, not needed for the
-; scaffold: the PCM5102A's PLL absorbs the sub-cycle jitter).
+; 2026-11-23: the first version of this program output LEFT-JUSTIFIED data
+; (the WCLK flipped at the frame start, before the first data bit). The
+; PCM5102A runs standard I2S: every sample arrived bit-rotated by 1, the
+; sign bit became the LSB, and the DAC output digital near-silence while
+; the engine meters showed healthy signal (bench-caught: "all plugins
+; silent" with in=597 — the meters sit BEFORE the I2S path).
 ;
-; The FIFO word = (left int16 << 16) | (right int16 & 0xffff); the OSR
-; right-shifts, so the left MSB goes out first.
+; This program mirrors the earlephilhower core's proven pio_i2s_out
+; (libraries/I2S/src/pio_i2s.pio, the format the accepted Arduino builds
+; used through the same DAC): the WCLK flips ON the last data bit of each
+; half-frame, which is the standard I2S 1-BCK delay before the next
+; channel's MSB. The data changes on the BCK falling edge and is sampled
+; by the DAC on the rising edge.
+;
+; The C side (rack_i2s.cpp):
+;   - y = bits - 2 (14 for 16-bit) via pio_encode_set
+;   - out shift: LEFT (MSB first), autopull, 32 bits — one FIFO word =
+;     one L+R pair, packed (left << 16) | (right & 0xffff)
+;   - instruction rate = FS * 64 (2 instrs per bit * 16 bits * 2 halves
+;     + the mov/last-bit overhead = 32 instrs per half-frame)
+;
+; FIFO word = (left int16 << 16) | (right int16 & 0xffff); the OSR
+; left-shifts, so the left MSB (bit 31) goes out first.
 
 .program i2s_out
-.side_set 2 opt
+.side_set 2   ; bit 0 = BCK (GP6), bit 1 = LRCK (GP7)
 
-public entry:
-    set x, 15          side 0b01     ; LR low (left), BCK high
-bitloop_l:
-    out pins, 1        side 0b00     ; BCK low, the data bit out
-    jmp x-- bitloop_l  side 0b01     ; BCK high (the bit clocks here)
-    set x, 15          side 0b11     ; LR high (right), BCK high
-bitloop_r:
-    out pins, 1        side 0b00
-    jmp x-- bitloop_r  side 0b01
-    set x, 15          side 0b01     ; LR low again — the next frame
-    jmp entry
+; y = bits - 2 (14 for 16-bit), set by the C init via pio_encode_set.
+; The left half: WCLK low. The first 15 data bits clock in the loop, the
+; 16th bit carries the WCLK flip (the standard I2S LR transition).
+    mov x, y         side 0b01 ; WCLK low (left), BCK high
+left1:
+    out pins, 1      side 0b00 ; BCK low, the data bit changes here
+    jmp x--, left1   side 0b01 ; BCK high (the DAC samples on this edge)
+    out pins, 1      side 0b10 ; the LAST left bit; WCLK flips per I2S spec
+
+; The right half: WCLK high; the same structure, the WCLK flips on the
+; last right bit (back to low for the next frame's left half).
+    mov x, y         side 0b11 ; WCLK high (right), BCK high
+right1:
+    out pins, 1      side 0b10
+    jmp x--, right1  side 0b11
+    out pins, 1      side 0b00 ; the LAST right bit; WCLK flips back
+    ; Loop back to the beginning (the mov re-arms the half-frame loop).

@@ -92,22 +92,29 @@ bool RackI2sOut::begin() {
   pio_sm_config c = i2s_out_program_get_default_config(s_offset);
   sm_config_set_out_pins(&c, kPinData, 1);
   sm_config_set_sideset_pins(&c, kPinBck);
-  // AUTOPIULL REQUIRED: the i2s_out program has no explicit `pull`, so the
-  // OSR only refills automatically. With autopull=false the SM shifted out
-  // stale OSR bits forever, the TX FIFO never drained, the DMA transfer
-  // never completed (no completion IRQ) and the render stalled after the
-  // 8-buffer bank (bench-caught 2026-11-23: hb frozen at the bank depth+1).
-  sm_config_set_out_shift(&c, true /* right = MSB first */, true /* autopull */, 32);
+  // The core's pio_i2s_out config: LEFT shift (bit 31 = the left MSB goes
+  // out first), autopull at 32 bits (one FIFO word = one L+R pair, packed
+  // (left << 16) | right). AUTOPIULL also REQUIRED: the program has no
+  // explicit `pull` — with it off the SM shifted stale OSR bits forever and
+  // the render stalled after the 8-buffer bank (bench-caught 2026-11-23).
+  sm_config_set_out_shift(&c, false /* left = bit 31 first */, true /* autopull */, 32);
   sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
   pio_gpio_init(s_pio, kPinData);
   pio_gpio_init(s_pio, kPinBck);
   pio_gpio_init(s_pio, kPinBck + 1);
   pio_sm_set_consecutive_pindirs(s_pio, s_sm, kPinData, 1, true);
   pio_sm_set_consecutive_pindirs(s_pio, s_sm, kPinBck, 2, true);
-  // The instruction rate = FS * 70 (2 halves * (2 + 2*16 + 1) instrs); the
-  // fractional clkdiv is exact on average with +-1 sys-cycle jitter.
+  pio_sm_set_set_pins(s_pio, s_sm, kPinData, 1);
+  pio_sm_set_set_pins(s_pio, s_sm, kPinBck, 2);
+  // y = bits - 2 (14 for 16-bit): the core's half-frame loop counter
+  // (15 loop bits + the last bit with the WCLK flip = 16 per half).
+  pio_sm_exec(s_pio, s_sm, pio_encode_set(pio_y, 14));
+  // The instruction rate = FS * 64 (32 instrs per half-frame: the mov +
+  // 15*2 loop instrs + the last bit; the core's bitClk = FS*bps*2ch*2edges
+  // = FS*64 for 16-bit stereo). The fractional clkdiv is exact on average
+  // with +-1 sys-cycle jitter — absorbed by the PCM5102A's PLL.
   const float div = static_cast<float>(clock_get_hz(clk_sys)) /
-                    (static_cast<float>(rate_) * 70.0f);
+                    (static_cast<float>(rate_) * 64.0f);
   sm_config_set_clkdiv(&c, div);
   pio_sm_init(s_pio, s_sm, s_offset, &c);
   pio_sm_set_enabled(s_pio, s_sm, true);
