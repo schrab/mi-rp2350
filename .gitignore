@@ -6,3 +6,4 @@ __pycache__/
 rack-rp2350/test/build/*.wav
 rack-rp2350/test/build/*
 rack-pico/build/*
+rack-pico/build-swd/*

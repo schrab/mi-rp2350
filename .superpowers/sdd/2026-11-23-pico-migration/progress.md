@@ -122,3 +122,26 @@ combinations wedge at 307.2). Direct SDK rewrite, no Arduino shim layer.
   ~/esp/esp-idf-v6.1.1) still owed.
 - AGENTS.md build/flash sections still describe the Arduino build; update
   at acceptance (the by-id pattern changed: usb-rack_Rack_RP2350_*).
+
+## Task 1 — loopback capture rig (2026-11-23, phase-2 plan)
+
+- The parked UAC1 driver activated: descriptors now CDC(0/1) + MIDI(2/3) +
+  capture AC(4)/AS(5), ITF_NUM_TOTAL 6, iso async IN EP 0x84, 2-ch 24-bit
+  packed, 52 frames x 6 B = 312 B (DSPi's ALSA-verified numbers), discrete
+  44.1/48 kHz, entity ids 3/4. Built with `RACK_PICO_USB_CAPTURE=1`
+  (default ON; `-DRACK_PICO_USB_CAPTURE=OFF` builds without it).
+- `usb_capture.cpp`: int16 DAC pairs -> 24-bit packed LE in the servo packet;
+  glitch counters zeroed on SET_INTERFACE(alt=1) so they describe the stream,
+  not idle time. Tap in `RackI2sOut::write16` (post-Clip16, module-agnostic).
+- `rack_engine_rate_hz` set next to every i2s.setFrequency (swap, chain, boot);
+  console `capture` command prints rate/overflow/underrun. Host tool
+  `tools/rig_capture.py`: arecord S24_3LE + WAV analysis + counter deltas.
+- Evidence on the bare Pico2 (SWD + USB, no C3 UI attached): `lsusb -t` shows
+  interfaces 4/5 bound to snd-usb-audio, ALSA card `RP2350`, 5/10 s captures
+  at 48 kHz parse as stereo 24-bit with RMS ~0.139 FS, peak ~0.24 FS;
+  underrun=0, overflow ~6.9k frames from the ~0.15 s arecord startup window
+  (constant across 3/5/10 s) — the tool allows 0.2 s of startup drops.
+- Rate follows swaps: elements -> 32000, benjolin -> 48000 (`capture` reply).
+- SWD flashing faulted mid-erase on this board (FAULT ACK/sector timeout
+  with the rack firmware running); BOOTSEL + UF2 copy was used instead.
+  SWD still works for halt/status and for the standalone porttest firmware.

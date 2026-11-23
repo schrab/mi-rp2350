@@ -9,7 +9,7 @@
 //       -> usb_capture_push_stereo() -> SPSC ring
 //           -> fill servo (nominal frames/frame + clamped P correction,
 //              prime before streaming)
-//               -> isochronous async IN EP 0x83 -> USB host
+//               -> isochronous async IN EP 0x84 (24-bit packed) -> USB host
 //
 // The capture is the clock master (no feedback EP): the host must select the
 // rate the engine runs at (GET_CUR reports it); a mismatched host rate plays

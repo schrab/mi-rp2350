@@ -91,6 +91,9 @@
 #include "usb_console.h"
 #include "usb_midi.h"
 #include "usb_descriptors.h"
+#ifdef RACK_PICO_USB_CAPTURE
+#include "usb_capture.h"
+#endif
 
 // ================= switchable hang breadcrumbs (PERSISTENT) =================
 // RACK_HANG_DEBUG (platformio.ini) keeps these in the tree permanently — set
@@ -1125,6 +1128,9 @@ static void serviceSwapI2s() {
                   i2s.setBuffers(m.i2s_buffers, m.i2s_words) &&
                   i2s.setFrequency(m.sample_rate) &&
                   i2s.begin();
+#ifdef RACK_PICO_USB_CAPTURE
+  rack_engine_rate_hz = m.sample_rate;
+#endif
   // T8: keep the DMA IRQ on the audio core (begin() enabled it here).
   irq_set_enabled(DMA_IRQ_0, false);
   g_swap_i2s_result = ok;
@@ -1239,6 +1245,9 @@ static void serviceChainI2s() {
                   i2s.setBuffers(g_chain_i2s_buffers, g_chain_i2s_words) &&
                   i2s.setFrequency(g_chain_i2s_rate) &&
                   i2s.begin();
+#ifdef RACK_PICO_USB_CAPTURE
+  rack_engine_rate_hz = g_chain_i2s_rate;
+#endif
   // T8: keep the DMA IRQ on the audio core (begin() enabled it here).
   irq_set_enabled(DMA_IRQ_0, false);
   g_chain_i2s_result = ok;
@@ -1856,6 +1865,9 @@ static void cmd_module(const char* args);
 static void cmd_chain(const char* args);
 static void cmd_route(const char* args);
 static void cmd_status(const char* args);
+#ifdef RACK_PICO_USB_CAPTURE
+static void cmd_capture(const char* args);
+#endif
 static void cmd_din(const char* args);
 static void cmd_dintest(const char* args);
 static void cmd_telemetry(const char* args);
@@ -2002,6 +2014,9 @@ static const ConsoleCommand kConsoleCommands[] = {
     {"clock",     mod_engine_cmd_clock},
     {"preset",    preset_cmd},
     {"status",    cmd_status},
+#ifdef RACK_PICO_USB_CAPTURE
+    {"capture",   cmd_capture},
+#endif
     {"din",       cmd_din},
     {"dintest",   cmd_dintest},
     {"telemetry", cmd_telemetry},
@@ -2286,6 +2301,18 @@ static void cmd_led(const char* args) {
     printf("%s\r\n", "usage: led on|off");
   }
 }
+
+#ifdef RACK_PICO_USB_CAPTURE
+// capture — UAC1 rig health: dropped/inserted frames since boot and the rate
+// the driver reports to the host (set next to i2s.setFrequency on swaps).
+static void cmd_capture(const char* args) {
+  (void)args;
+  printf("capture: rate=%lu overflow=%lu underrun=%lu\r\n",
+         (unsigned long)rack_engine_rate_hz,
+         (unsigned long)usb_capture_overflow_count(),
+         (unsigned long)usb_capture_underrun_count());
+}
+#endif
 
 // status — one-line bench summary (T4): active module, clock source/BPM,
 // swap count, DIN counters, uptime. The DIN counters also live in the 2 s
@@ -3288,6 +3315,9 @@ void setup() {
   i2s.setBitsPerSample(16);
   i2s.setBuffers(boot.i2s_buffers, boot.i2s_words);
   i2s.setFrequency(boot.sample_rate);
+#ifdef RACK_PICO_USB_CAPTURE
+  rack_engine_rate_hz = boot.sample_rate;
+#endif
   if (!i2s.begin()) {
     printf("%s\r\n", "I2S begin FAILED");
     statusLed.NotifyBootError();  // PANIC blink pattern

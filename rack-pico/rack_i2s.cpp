@@ -11,6 +11,9 @@
 #include "hardware/irq.h"
 #include "hardware/clocks.h"
 #include "i2s_out.pio.h"
+#ifdef RACK_PICO_USB_CAPTURE
+#include "usb_capture.h"
+#endif
 
 namespace {
 PIO s_pio = pio0;
@@ -210,6 +213,11 @@ void __not_in_flash_func(RackI2sOut::write16)(int16_t l, int16_t r) {
       (static_cast<uint32_t>(static_cast<uint16_t>(l)) << 16) |
       static_cast<uint32_t>(static_cast<uint16_t>(r));
   ++fill_pos_;
+#ifdef RACK_PICO_USB_CAPTURE
+  // Post-Clip16, post-gain, post-mute-ramp: exactly the DAC stream, captured
+  // module-agnostically (the tap sits before the bank, not in any module).
+  usb_capture_push_stereo(&l, &r, 1);
+#endif
 }
 
 RackI2sOut i2s;

@@ -164,18 +164,21 @@ static uint16_t __not_in_flash_func(fill_audio_packet)(uint8_t *buf) {
         return z;
     }
 
-    // Copy n stereo frames into the packet (int16 little-endian pairs).
+    // Copy n stereo frames into the packet: int16 -> 24-bit packed LE.
+    // The DAC samples are int16; the MSB byte carries the sign extension.
     uint32_t t = ring_tail;
     uint8_t *dst = buf;
     for (int i = 0; i < n; i++) {
         uint32_t idx = (t & CAP_RING_MASK) * 2u;
-        int16_t lv = cap_ring[idx];
-        int16_t rv = cap_ring[idx + 1];
+        int32_t lv = (int32_t)cap_ring[idx] << 8;
+        int32_t rv = (int32_t)cap_ring[idx + 1] << 8;
         t++;
         *dst++ = (uint8_t)(lv & 0xFF);
         *dst++ = (uint8_t)((lv >> 8) & 0xFF);
+        *dst++ = (uint8_t)((lv >> 16) & 0xFF);
         *dst++ = (uint8_t)(rv & 0xFF);
         *dst++ = (uint8_t)((rv >> 8) & 0xFF);
+        *dst++ = (uint8_t)((rv >> 16) & 0xFF);
     }
     __dmb();          // the slot reads must complete before tail advances
     ring_tail = t;
@@ -226,7 +229,10 @@ static bool cap_apply_alt(uint8_t rhport, uint8_t alt) {
         cap.ep_open = true;
 
         // Drop any stale audio so capture starts at "now", then re-prime.
+        // The glitch counters measure THIS stream, not idle time before it.
         ring_tail = ring_head;
+        ring_overflow_count = 0;
+        ring_underrun_count = 0;
         g_primed  = false;
         g_acc     = 0.0f;
 

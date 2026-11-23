@@ -107,12 +107,15 @@ target_link_libraries(rack_engines PUBLIC pico_stdlib_headers cmsis_core_headers
 # ----------------------------------------------------------------------------
 # The firmware target — platform layer (main.cpp, I2S DMA bank, USB composite)
 # ----------------------------------------------------------------------------
+option(RACK_PICO_USB_CAPTURE "UAC1 loopback capture function (device-vs-golden rig)" ON)
+
 add_executable(rack
     main.cpp
     rack_i2s.cpp
     usb_descriptors.cpp
     usb_console.cpp
     usb_midi.cpp
+    usb_capture.cpp
     i2s_out.pio
     ../rack-rp2350/src/ws2812.pio
 )
@@ -131,8 +134,8 @@ target_link_libraries(rack
     pico_multicore
     pico_unique_id
     tinyusb_device      # TinyUSB device stack: built-in CDC + MIDI drivers;
-                        # tusb_config.h is ours (audio capture is parked —
-                        # RACK_PICO_USB_CAPTURE phase-3 item)
+                        # the UAC1 capture app driver is usb_capture.cpp; —
+                        # tusb_config.h is ours)
     hardware_pio
     hardware_clocks
     hardware_uart
@@ -151,6 +154,9 @@ target_compile_definitions(rack PRIVATE
     RACK_BOOT_MODULE=6
     PICO_RP2040_USB_FAST_IRQ=1
 )
+if(RACK_PICO_USB_CAPTURE)
+  target_compile_definitions(rack PRIVATE RACK_PICO_USB_CAPTURE=1)
+endif()
 
 # RAM-place the TinyUSB rp2040-port IRQ path (the USB IRQ fires while core 1
 # renders).
