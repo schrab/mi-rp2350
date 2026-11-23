@@ -1,4 +1,4 @@
-# Rack RP2350 — six modules in one firmware, live-switchable
+# Rack RP2350 — eight modules in one firmware, live-switchable
 
 ONE firmware running the four accepted MI ports (Elements, Clouds, Plaits
 98-engine, Rings MiniElements) plus the hand-ported **LIRA-8** (module id 4,
@@ -11,8 +11,8 @@ with LIVE MODULE SWITCHING (T2 of the combined plan,
 
 ## Module selection (T2: boot-select + live swap)
 
-ONE PlatformIO env — all six module adapters compile into the same unified
-binary:
+ONE PlatformIO env — all eight module adapters compile into the same unified
+binary (the Pico SDK build in `rack-pico/` is the active target; see its README):
 
 ```sh
 pio run -d rack-rp2350
@@ -20,20 +20,19 @@ pio run -d rack-rp2350
 ```
 
 `RACK_BOOT_MODULE` (0 elements / 1 clouds / 2 plaits / 3 rings / 4 lira8 /
-5 dronecaster —
-new modules continue the ids) selects the boot module: `setup()` copies that
-module's flash image into the SRAM window (first action, crt0-like) and
-registry-Inits it; the build boots Elements. The module registry
+5 dronecaster / 6 benjolin / 7 openrb303) selects the boot module: `setup()`
+copies that module's flash image into the SRAM window (first action,
+crt0-like) and registry-Inits it. The Pico build boots id 7 (openrb303);
+openrb303 itself is XIP and has no SRAM-hot window. The module registry
 (`src/module_registry.h`, table in `src/main.cpp`) dispatches init / render /
 note / CC hooks, and any module can be swapped in at runtime (MIDI CC 32 /
 serial `switch <id|name>`).
 
 ### Live swap — MIDI CC 32 (Bank Select)
 
-**CC 32, value 0-5 = module id** (0 elements, 1 clouds, 2 plaits, 3 rings,
-4 lira8, 5 dronecaster; other values ignored, same id ignored). CC 32 is
-verified unused by
-all six modules' CC maps. Core 0 queues the request; core 1 executes the swap
+**CC 32, value 0-7 = module id** (0 elements, 1 clouds, 2 plaits, 3 rings,
+4 lira8, 5 dronecaster, 6 benjolin, 7 openrb303; other values ignored, same id
+ignored). CC 32 is verified unused by all eight modules' CC maps. Core 0 queues the request; core 1 executes the swap
 at the next block boundary (max one per call):
 
 1. **MUTE** — linear output-gain ramp-down over 4 render blocks, then the

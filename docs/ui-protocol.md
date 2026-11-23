@@ -67,7 +67,7 @@ Max frame = 259 bytes (`0x7E` + len + type + 255 payload + crc).
 | `0x05` | CHAIN_ROUTE | C3 -> RP2350 | `[a:u8][b:u8][engage:u8]`: engage 1 -> console `chain <a> <b>` path (pair validation, window math, acks); engage 0 -> `chain off`. |
 | `0x10` | TELEM | RP2350 -> C3 | telemetry, §5. |
 | `0x11` | PRESET_REQ | C3 -> RP2350 | `[slot:u8]` — "send me your current state part" (the C3 appends its own part and writes its flash bank). `slot` 0-15 = the bank slot the user is saving into (echoed in the PART reply for context); `0xFF` = the pull side of an autosave request. The RP2350 replies with a PRESET_PART burst. |
-| `0x12` | PRESET_PART | RP2350 -> C3 | `[slot:u8][seq:u8][total:u8][data <=252 B]` — chunks of the RP2350's serialized state blob (magic "RKPR", version byte, 1215 B (v5, 6 modules), crc16-CCITT; layout in `rack-rp2350/src/preset.h`). Sent on PRESET_REQ, or **unsolicited with `slot=0xFF` from the RP2350's autosave debounce** (3 s after the last persistent state change; the C3 writes its rotating autosave sectors). The C3 treats the blob as opaque. |
+| `0x12` | PRESET_PART | RP2350 -> C3 | `[slot:u8][seq:u8][total:u8][data <=252 B]` — chunks of the RP2350's serialized state blob (magic "RKPR", version byte, 1215 B (v5, 6 modules), crc16-CCITT; layout in `rack-rp2350/src/preset.h`). Now 1503 B (v8, 8 modules). Sent on PRESET_REQ, or **unsolicited with `slot=0xFF` from the RP2350's autosave debounce** (3 s after the last persistent state change; the C3 writes its rotating autosave sectors). The C3 treats the blob as opaque. |
 | `0x13` | PRESET_APPLY | C3 -> RP2350 | `[seq:u8][total:u8][data <=252 B]` — chunked blob (read from a bank slot; chunk cap MUST MATCH the RP2350's `kPresetChunkData`). The RP2350 reassembles, validates magic/version/crc, applies (clock bus + mod engine -> CC cache + seen -> module swap via the pending machinery -> chain via the pending machinery) and acks with a full TELEM snapshot. Rejects log a reason and never touch state. |
 
 Unknown types: logged + counted, never crash (both ends tolerate a peer
@@ -127,8 +127,9 @@ Payload (v2, stage 2-6):
 [mode 0 only: bpm:u8][clocksrc:u8][chain:u8][link:u8]   (status tail)
 ```
 
-- `page` = page id (§4), `module` = the RP2350's active module id (0-5:
-  elements / clouds / plaits / rings / lira8 / dronecaster).
+- `page` = page id (§4), `module` = the RP2350's active module id (0-7:
+  elements / clouds / plaits / rings / lira8 / dronecaster / benjolin /
+  openrb303).
 - `mode`: 0 = full snapshot (all cells of the page + status tail), 1 =
   single-cell delta — the **same cell/label format** with `count = 1` and
   NO status tail (the C3 keeps its last tail). The delta's `cc` names the
@@ -356,7 +357,7 @@ SYS — 16 cells (Row 0 module/chain, Row 1 BPM, CLKSRC & preset, Row 2 telemetr
 
 | row | pot | cell | value | label |
 |-----|-----|------|-------|-------|
-| 0 | 0 | 0 | ONE dual-purpose selector: not chained = the active module over 6 slots (ids 0-5); chained = the engaged pair over 4 slots (elements/plaits/rings/lira8 -> clouds) — the C3 renders the module/pair names | MODULE |
+| 0 | 0 | 0 | ONE dual-purpose selector: not chained = the active module over 8 slots (ids 0-7); chained = the engaged pair over 4 slots (elements/plaits/rings/lira8 -> clouds) — the C3 renders the module/pair names | MODULE |
 | 0 | 1-4 | 1-4 | blank (the old 4-pot module radio + CHAIN PR pot folded into cell 0) | (empty) |
 | 0 | 5 | 5 | 0 off / 127 engaged | CHAIN ON |
 | 1 | 6 | 6 | 20-300 master tempo (UI_CMD action 5 BPM) | BPM |

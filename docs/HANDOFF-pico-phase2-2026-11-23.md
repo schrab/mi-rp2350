@@ -8,15 +8,17 @@ Read this plus:
 ## What is working (all user-confirmed by ear, 2026-11-23)
 
 - **The full rack firmware runs on the Pico SDK + CMake** (`rack-pico/`,
-  target `rack`): 7 modules, the live swap, chain mode, the console, the
-  UI link, presets (blob v5/v6, pushed to the C3), the watchdog + crash
-  forensics, the 2 s report. Boot module = benjolin (RACK_BOOT_MODULE=6).
+  target `rack`): 8 modules (openrb303 id 7 integrated after acceptance),
+  the live swap, chain mode, the console, the
+  UI link, presets (blob v8 / 1503 B, pushed to the C3), the watchdog + crash
+  forensics, the 2 s report. Boot module = openrb303 (RACK_BOOT_MODULE=7).
 - **Audio verified by ear on every module** ("yes now all fine and benjolin
   sound is much cleaner"). Page switching works (~500 ms updates).
-- **All 7 modules sound after module switches.**
+- **All 7 original modules sound after module switches**; openrb303 id 7
+  integrated and bench-tested (UAC1 capture RMS 0.35 FS), user ear-check pending.
 - The C3 UI is paired and stable (esp-idf **v6.1.1** — this machine has
   `~/esp/esp-idf-v6.1.1`; the stale v5.5.4 CMake cache must be wiped before
-  a rebuild). The C3 preset blob (v6, 1359 B, 6 chunks) pushes/receives.
+  a rebuild). The C3 preset blob (v8, 1503 B, 7 chunks) pushes/receives.
 - The UI link delivers full snapshots: 12/12 one-per-second parses in the
   bench run; page-request replies land in ~100 ms.
 - `scripts/check_ram_placement.py` (rack-pico): VERDICT PASS (0 FAIL) —

@@ -1,10 +1,13 @@
-# rack-pico — the Pico SDK build (benjolin-first scaffold)
+# rack-pico — the active Pico SDK build
 
 The Pico SDK/CMake build of the rack, replacing the Arduino/PlatformIO
-stack. The DSP engines are included from `../rack-rp2350/src` (the single
+stack. All eight modules are included from `../rack-rp2350/src` (the single
 source of truth — nothing is copied). The platform layer (the I2S PIO, the
-USB CDC console, the clocks) is rewritten against the Pico SDK; the
-remaining modules migrate here one at a time once this proves out.
+USB CDC console + MIDI + UAC1 capture, the clocks) is rewritten against the
+Pico SDK. `RACK_BOOT_MODULE=7` boots the OpenRB-338 303/dist/PCF/comp chain
+(module id 7, XIP); the seven original modules remain available by CC 32.
+Use the system `arm-none-eabi-gcc` (13.2.1) — the PlatformIO GCC 16.1 cache
+fails at link with unresolved `__retarget_lock_*`.
 
 ## Why
 
@@ -22,17 +25,17 @@ remaining modules migrate here one at a time once this proves out.
 ## Build
 
 ```sh
-# One-time: the SDK (pico_sdk_import.cmake clones it if PICO_SDK_PATH is
-# unset; on this machine the PlatformIO-bundled SDK works):
-PICO_SDK_PATH=~/.platformio/packages/framework-arduinopico/pico-sdk \
-  cmake -B build -S . -G Ninja
-cmake --build build
-# → build/rack_benjolin.uf2
+export PATH=~/.local/bin:$PATH   # ninja
+cmake -B build-swd -S . -G Ninja -DPICO_BOARD=pico2 \
+  -DPICO_SDK_PATH=~/.platformio/packages/framework-arduinopico/pico-sdk \
+  -DCMAKE_C_COMPILER=/usr/bin/arm-none-eabi-gcc \
+  -DCMAKE_CXX_COMPILER=/usr/bin/arm-none-eabi-g++
+cmake --build build-swd
+# → build-swd/rack.uf2 (post-link RAM-placement gate must print VERDICT: PASS)
 ```
 
-The toolchain: `arm-none-eabi-gcc` (the PlatformIO one at
-`~/.platformio/packages/toolchain-rp2040-earlephilhower/bin` is on PATH for
-the pico-sdk's compiler checks if the system arm-none-eabi is absent).
+The post-link gate is `scripts/check_ram_placement.py`; host-only builds can
+skip it with `-DRACK_SKIP_PLACEMENT_CHECK=ON`.
 
 ## Pin map (docs/rp2350-board.md)
 
