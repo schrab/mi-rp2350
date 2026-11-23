@@ -5941,3 +5941,30 @@ base `4ee6dde` line; not yet committed at the time of writing.
   the audio path (the I2S DMA IRQ lives on core 1). No flash; hardware
   acceptance not claimed — the fix is event-coherence only (no DSP-law
   change), so the meaningful hardware check is the existing soak/behavior.
+
+## OpenRB-338 chain integrated as rack module id 7 (2026-11-23)
+
+- New `module_openrb303.h` + `src/openrb303/` (ported 303 Vintage/2.0,
+  distortion, PCF, compressor; bit-exact `.bin` tables linked as `.rodata`).
+  Runs XIP — `rack_window_copy(7)` is a no-op, no `tc_*` overlay member, so
+  the 118 KB SRAM window is untouched.
+- CC 90-105: 303 (90-95), distortion (96-97), PCF (98-103), comp (104-105).
+  Both switches (WAVE 95, PCF MODE 103) are bool127 on the wire and mapped
+  to 0/1 in the adapter. MIDI notes drive `orb_note_on/off`; the built-in
+  16-step acid line runs when no notes are played.
+- Registry/UI/preset/build bumped to 8 modules: `RACK_MODULE_COUNT=8`,
+  kRackModules 8th entry, C3 kModuleCount/kModuleSlots 8, preset blob v7
+  (1503 B, `kMaxRp=1504`), C3 UI page P1 mod=7 with 16 cells and seeds,
+  browser panel OPENRB303 tab + MOD_DESTS, bench_suite swap list.
+  Chain A rejects id 7; mod_engine dispatch handles id 7.
+- RACK_BOOT_MODULE=7 in the Pico SDK build for the user's test.
+- Hardware evidence (bare Pico2 + rack board, SWD/serial + UAC1):
+  `bench_suite.py --cases smoke,snapshot,swap` = VERDICT PASS on all 8
+  modules; preset v7/1503 B/124 CCs round-trips; `ccdump` shows the 16
+  seeded CCs; C3 `ui` shows `page P1 mod=7 cells=16`; UAC1 capture 48 kHz
+  stereo 24-bit, RMS 0.349 FS, underrun=0. DSP ~150 us/block (report tail),
+  full host block 1.33 ms; kStallUs raised to 2500 for the 64-frame pacing.
+- Elements budget metadata +256 us: the added 296 KB of flash tables raise
+  XIP cache pressure; its 2 s max now reaches ~515-628 us (was 496 budget).
+- NOT user ear-verified yet (AFK); the user must confirm the sound/UI.
+

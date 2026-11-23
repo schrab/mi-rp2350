@@ -460,6 +460,26 @@ static const UiPageCell kUiPageBenjolinP1[] = {
     {0,  "",           kUiColorWhite}, // p16 (spare)
 };
 
+// OpenRB-338 chain (id 7) — CC 90-105, one P1 page.
+static const UiPageCell kUiPageOpenrb303P1[] = {
+    {90, "CUTOFF",    kUiColorWhite},
+    {91, "RESO",      kUiColorWhite},
+    {92, "ENVMOD",    kUiColorWhite},
+    {93, "DECAY",     kUiColorWhite},
+    {94, "ACCENT",    kUiColorWhite},
+    {95, "WAVE",      kUiColorWhite},
+    {96, "DIST AMT",  kUiColorWhite},
+    {97, "DIST SHP",  kUiColorWhite},
+    {98, "PCF FREQ",  kUiColorWhite},
+    {99, "PCF RESO",  kUiColorWhite},
+    {100, "PCF AMT",  kUiColorWhite},
+    {101, "PCF WAVE", kUiColorWhite},
+    {102, "PCF DEC",  kUiColorWhite},
+    {103, "PCF MODE", kUiColorWhite},
+    {104, "CMP AMT",  kUiColorWhite},
+    {105, "CMP THR",  kUiColorWhite},
+};
+
 // [module][0 = P1, 1 = P2, 2 = P3]. Elements' P2 = MODEL/PLAY/VCA + the T9
 // warps cells (CC 36-40). Clouds, Plaits, and Rings have all parameters on
 // P1, so P2/P3 have count = 0 (no duplicate params). lira8's P2/P3 are REAL
@@ -486,6 +506,8 @@ static constexpr UiPageTable kUiPages[RACK_MODULE_COUNT][3] = {
       {nullptr, 0},        {nullptr, 0} },                               // dronecaster
     { {kUiPageBenjolinP1,    UI_PAGE_CELL_COUNT(kUiPageBenjolinP1)},
       {nullptr, 0},        {nullptr, 0} },                               // benjolin
+    { {kUiPageOpenrb303P1,   UI_PAGE_CELL_COUNT(kUiPageOpenrb303P1)},
+      {nullptr, 0},        {nullptr, 0} },                               // openrb303
 };
 
 // ===================== Dedicated Modulation & SYS aux cells =====================
@@ -922,6 +944,15 @@ static void ui_link_init_defaults() {
       24, 40, 127, 20, 0, 14, 11, 13, 2, 127, 0, 127, 0, 64};
   for (uint8_t i = 0; i < 14; ++i) {
     ui_link_set_cached_cc(RACK_MODULE_BENJOLIN, kBjCc[i], kBjSeed[i]);
+  }
+
+  // 8. OpenRB-338 chain (id 7) — CC 90-105 seeds from module_openrb303.h.
+  static const uint8_t kOrbCc[16] = {
+      90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105};
+  static const uint8_t kOrbSeed[16] = {
+      20, 90, 20, 100, 64, 0, 70, 60, 70, 64, 40, 24, 90, 127, 70, 64};
+  for (uint8_t i = 0; i < 16; ++i) {
+    ui_link_set_cached_cc(RACK_MODULE_OPENRB303, kOrbCc[i], kOrbSeed[i]);
   }
 }
 

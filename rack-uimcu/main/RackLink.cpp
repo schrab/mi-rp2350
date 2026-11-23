@@ -647,7 +647,7 @@ namespace CTAG {
         }
 
         bool RackLink::SendSwitch(uint8_t module_id) {
-            if (module_id > 6) return false;   // 0-6: elements/clouds/plaits/rings/lira8/dronecaster/benjolin
+            if (module_id > 7) return false;   // 0-7: ... benjolin/openrb303
             sendFrame(kTypeSwitch, &module_id, 1);
             return true;
         }
@@ -772,7 +772,7 @@ namespace CTAG {
         void RackLink::TelemLocalSysSwitch(uint8_t newMod) {
             // 7 module slots (elements/clouds/plaits/rings/lira8/dronecaster/
             // benjolin) — must match kModNames/kModuleCount in RackUI.cpp.
-            static constexpr uint8_t kModuleSlots = 7;
+            static constexpr uint8_t kModuleSlots = 8;
             if (newMod >= kModuleSlots) return;
             taskENTER_CRITICAL(&telemMux);
             s_telem.module = newMod;

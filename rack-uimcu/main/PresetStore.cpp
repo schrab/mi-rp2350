@@ -63,7 +63,7 @@ namespace CTAG {
                 uint8_t page = c3[1] < RackLink::kPageCount ? c3[1] : 0;
                 // The page must exist for the preset's module. P2 belongs to
                 // Elements/Lira8; P3 is Lira8-only.
-                const uint8_t mod = c3[2] < 6 ? c3[2] : 0;
+                const uint8_t mod = c3[2] < 8 ? c3[2] : 0;
                 if (page == RackLink::kPageP2 && mod != 0 && mod != 4)
                     page = RackLink::kPageP1;
                 if (page == 10 && mod != 4) page = RackLink::kPageP1;

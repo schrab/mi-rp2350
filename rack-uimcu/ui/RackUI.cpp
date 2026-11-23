@@ -224,8 +224,8 @@ namespace CTAG {
             "DIA", "SSTK", "WTCH", "WTSS", "SHAKER", "BRASS", "HELIX", "SKINS", "CZAP", "MTLW",
             "CLAP", "PERC", "FFRM", "BUBBLE", "ZXPH", "ZXPU", "ACID", "SSAW",
         };
-        static const char *kModNames[7] = { "ELEMENTS", "CLOUDS", "PLAITS", "RINGS", "LIRA8", "DRONECSTR", "BENJOLIN" };
-        static const uint8_t kModuleCount = 7;
+        static const char *kModNames[8] = { "ELEMENTS", "CLOUDS", "PLAITS", "RINGS", "LIRA8", "DRONECSTR", "BENJOLIN", "OPENRB303" };
+        static const uint8_t kModuleCount = 8;
         static inline uint8_t ModuleClamp(uint8_t mod) {
             return mod < kModuleCount ? mod : 0;
         }
@@ -324,6 +324,12 @@ namespace CTAG {
                     // The 4 hanging ids (14/20/24/30) stay reachable from the
                     // browser panel + serial `cc 51 <id>` for debugging.
                     if (cc == 51) return 10;
+                    break;
+                case 7: // OpenRB-338 chain: the two switches are bool127
+                    if (cc == 95 || cc == 103) {
+                        wireIsBool127 = true;
+                        return 2;
+                    }
                     break;
                 case 6: // Benjolin
                     // The EXACT norns benjolis ranges: filterType 0-1
@@ -1073,6 +1079,10 @@ namespace CTAG {
                             };
                             pName = (dispVal >= 0 && dispVal < 7)
                                         ? kBenjOuts[dispVal] : "---";
+                        } else if (modForPage == 7 && c.cc == 95) {
+                            pName = dispVal ? "SQR" : "SAW";
+                        } else if (modForPage == 7 && c.cc == 103) {
+                            pName = dispVal ? "LP" : "BP";
                         } else if (modForPage == 3) {
                             int ringMode = 0;
                             for (uint8_t i = 0; i < s_cur.count; ++i) {

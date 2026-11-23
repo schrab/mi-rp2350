@@ -43,7 +43,7 @@ using namespace CTAG::CTRL;
 #define portENTER_CRITICAL(...) ((void)0)
 #define portEXIT_CRITICAL(...) ((void)0)
 constexpr uint8_t NPOTS = 16;
-constexpr uint8_t kModuleCount = 6;
+constexpr uint8_t kModuleCount = 8;
 int64_t timeUs = 100000;
 extern "C" int64_t esp_timer_get_time() { return timeUs; }
 RackTelemPage s_telem{}, s_cur{};

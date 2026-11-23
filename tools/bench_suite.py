@@ -24,7 +24,7 @@ import time
 import serial
 
 DEFAULT_PORT_GLOB = "/dev/serial/by-id/usb-rack_Rack_RP2350_*-if00"
-MODULES = ["elements", "clouds", "plaits", "rings", "lira8", "dronecaster", "benjolin"]
+MODULES = ["elements", "clouds", "plaits", "rings", "lira8", "dronecaster", "benjolin", "openrb303"]
 REPORT_RE = re.compile(
     r"max Process:\s*(\d+)\s*us avg\s*(\d+)\s*us \(budget\s*(\d+)\s*us\)"
     r".*?i2s stalls:\s*(\d+)\s*\(\+(\d+)\)")

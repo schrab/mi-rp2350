@@ -623,6 +623,31 @@ const MODULES = [
       note: 'norns spec: 0-1 lin, default 0 — the SILENT boot is exact; raise AMP to hear it' },
   ],
 },
+{
+  name: 'OPENRB303', key: 'openrb303',
+  info: '48 kHz \u00B7 64-sample blocks \u00B7 budget 1000 \u00B5s \u00B7 OpenRB-338 TB-303 + distortion + PCF + compressor',
+  ccMap: '90 cutoff \u00B7 91 reso \u00B7 92 envmod \u00B7 93 dec \u00B7 94 accent \u00B7 95 wave \u00B7 96 distAmt \u00B7 97 distShape \u00B7 98 pcfFreq \u00B7 99 pcfReso \u00B7 100 pcfAmt \u00B7 101 pcfWave \u00B7 102 pcfDec \u00B7 103 pcfMode \u00B7 104 compAmt \u00B7 105 compThr',
+  knobs: [
+    { cc:90, label:'CUTOFF', variant:'white', def:20/127 },
+    { cc:91, label:'RESO', variant:'white', def:90/127 },
+    { cc:92, label:'ENVMOD', variant:'white', def:20/127 },
+    { cc:93, label:'DECAY', variant:'white', def:100/127 },
+    { cc:94, label:'ACCENT', variant:'white', def:64/127 },
+    { cc:95, label:'WAVE', variant:'white', def:0,
+      steps: { labels:['SAW','SQR'], bytes:[0,127] } },
+    { cc:96, label:'DIST AMT', variant:'white', def:70/127 },
+    { cc:97, label:'DIST SHP', variant:'white', def:60/127 },
+    { cc:98, label:'PCF FREQ', variant:'white', def:70/127 },
+    { cc:99, label:'PCF RESO', variant:'white', def:64/127 },
+    { cc:100, label:'PCF AMT', variant:'white', def:40/127 },
+    { cc:101, label:'PCF WAVE', variant:'white', def:24/127 },
+    { cc:102, label:'PCF DEC', variant:'white', def:90/127 },
+    { cc:103, label:'PCF MODE', variant:'white', def:1,
+      steps: { labels:['BP','LP'], bytes:[0,127] } },
+    { cc:104, label:'CMP AMT', variant:'white', def:70/127 },
+    { cc:105, label:'CMP THR', variant:'white', def:64/127 },
+  ],
+},
 ];
 
 /* mod-engine destination tables (the adapters' kModDestinations) */
@@ -637,6 +662,7 @@ const MOD_DESTS = {
   lira8:    { cont: [1,2,3,4,5,6,7,8,13,14,15,16,17,18,19,20,25,26,27,28,36,37,38,39,80,83,84,85,86,87,88], trig: [55,56,57,58,59,60,61,62] },
   dronecaster: { cont: [52,53,54], trig: [] },
   benjolin:    { cont: [60,61,62,63,64,65,66,67,68,69,70,71,72], trig: [] },
+  openrb303:   { cont: [90,91,92,93,94,96,97,98,99,100,101,102,104,105], trig: [] },
 };
 const TRIG_CC_NAMES = { 64: 'TRIG/STRUM', 65: 'FREEZE (latch)', 66: 'TRIG' };
 

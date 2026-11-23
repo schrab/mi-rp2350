@@ -55,7 +55,16 @@ file(GLOB RACK_RINGS_SRCS CONFIGURE_DEPENDS
 file(GLOB RACK_CMSIS_SRCS CONFIGURE_DEPENDS
     ../rack-rp2350/lib/cmsis_dsp/src/*.c)
 
+# OpenRB-338 chain tables (bit-exact DLL dumps) linked as .rodata, not in the
+# SRAM window — 296 KB of tables must stay in flash.
+set(TABLES_DIR "${CMAKE_CURRENT_LIST_DIR}/../rack-rp2350/src/openrb303/tables")
+configure_file(${CMAKE_CURRENT_LIST_DIR}/../rack-rp2350/src/openrb303/tables.S.in
+               ${CMAKE_CURRENT_BINARY_DIR}/orb_tables.S @ONLY)
+
 add_library(rack_engines STATIC
+    ${CMAKE_CURRENT_BINARY_DIR}/orb_tables.S
+    ../rack-rp2350/src/openrb303/orb303.cpp
+    ../rack-rp2350/src/openrb303/pcfcomp.cpp
     ../rack-rp2350/lib/elements/elements_all.cpp   # Part::Init/Process/Seed (part.inc)
     ${RACK_WARPS_SRCS}
     ${RACK_CLOUDS_SRCS}
@@ -73,6 +82,7 @@ target_include_directories(rack_engines PUBLIC
     ../rack-rp2350/src/dronecaster
     ../rack-rp2350/src/dronecaster/drones
     ../rack-rp2350/src/benjolin
+    ../rack-rp2350/src/openrb303
     ../rack-rp2350/lib/stmlib
     ../rack-rp2350/lib/elements
     ../rack-rp2350/lib/clouds
@@ -93,7 +103,7 @@ target_compile_definitions(rack_engines PUBLIC
     PLAITS_CORRECTED_SAMPLE_RATE=48000.0f
     PLAITS_HAS_USER_DATA_BANK=1
     RACK_PLAITS_RUNTIME_RATE
-    RACK_BOOT_MODULE=6
+    RACK_BOOT_MODULE=7
 )
 set_source_files_properties(${RACK_CMSIS_SRCS}
     PROPERTIES COMPILE_DEFINITIONS "ARM_MATH_CM33")
@@ -131,6 +141,7 @@ target_include_directories(rack PRIVATE
 target_link_libraries(rack
     rack_engines
     pico_stdlib
+    pico_double
     pico_multicore
     pico_unique_id
     tinyusb_device      # TinyUSB device stack: built-in CDC + MIDI drivers;
@@ -151,7 +162,7 @@ target_compile_definitions(rack PRIVATE
     RACK_RP2350_TC
     RACK_PICO_BUILD
     RACK_HANG_DEBUG=1
-    RACK_BOOT_MODULE=6
+    RACK_BOOT_MODULE=7
     PICO_RP2040_USB_FAST_IRQ=1
 )
 if(RACK_PICO_USB_CAPTURE)

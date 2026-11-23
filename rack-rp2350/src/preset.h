@@ -57,7 +57,7 @@ static void cmd_chain(const char* args);
 
 // ---- format ----
 static const uint8_t kPresetMagic[4] = {'R', 'K', 'P', 'R'};
-static const uint8_t kPresetVersion = 5;   // v5: 6 modules (dronecaster id 5, T-D1)
+static const uint8_t kPresetVersion = 7;   // v7: 8 modules (openrb303 id 7)
 //  [0..3]   magic "RKPR"
 //  [4]      version
 //  [5]      active module id
@@ -84,9 +84,9 @@ static const uint16_t kPresetOffCache =
 static const uint16_t kPresetOffCrc =
     kPresetOffCache + RACK_MODULE_COUNT * 128;                      // 1213
 static const uint16_t kPresetSize = kPresetOffCrc + 2;              // 1215
-// v6 (7 modules, benjolin added) is 1359 B — the cap must cover the
+// v7 (8 modules, openrb303 added) is 1503 B — the cap must cover the
 // serialize size. The C3 side stores the blob opaquely (kMaxRp cap only).
-static const uint16_t kPresetBlobMax = 1360;
+static const uint16_t kPresetBlobMax = 1504;
 static_assert(kPresetSize <= kPresetBlobMax,
               "preset blob exceeds kPresetBlobMax (raise it)");
 static const uint8_t kPresetChunkData = 252;   // PART payload data cap

@@ -178,8 +178,8 @@ uint8_t pio_host_line_state(void);
 }
 #endif
 
-#if !defined(RACK_BOOT_MODULE) || RACK_BOOT_MODULE < 0 || RACK_BOOT_MODULE > 6
-#error "RACK_BOOT_MODULE must be defined in the env as 0 (elements), 1 (clouds), 2 (plaits), 3 (rings), 4 (lira8), 5 (dronecaster) or 6 (benjolin)"
+#if !defined(RACK_BOOT_MODULE) || RACK_BOOT_MODULE < 0 || RACK_BOOT_MODULE > 7
+#error "RACK_BOOT_MODULE must be 0 (elements), 1 (clouds), 2 (plaits), 3 (rings), 4 (lira8), 5 (dronecaster), 6 (benjolin) or 7 (openrb303)"
 #endif
 
 // Non-blocking core-0 diagnostic output (defined near loop()). The 2 s
@@ -246,6 +246,7 @@ void dbg_printf(const char* fmt, ...);
 // internal bursts; the CC 51 catalog carries the T-D1 trio (22/23/29).
 #include "module_dronecaster.h"
 #include "module_benjolin.h"
+#include "module_openrb303.h"
 
 #include "module_registry.h"
 
@@ -363,6 +364,20 @@ const RackModuleInfo kRackModules[RACK_MODULE_COUNT] = {
      rack_modules::mod_benjolin::note_on,
      rack_modules::mod_benjolin::note_off,
      rack_modules::mod_benjolin::control_change},
+    {"openrb303", RACK_MODULE_OPENRB303,
+     rack_modules::mod_openrb303::kSampleRate,
+     (uint32_t)rack_modules::mod_openrb303::kBlockSize,
+     rack_modules::mod_openrb303::kBudgetUs,
+     rack_modules::mod_openrb303::kI2sBuffers,
+     rack_modules::mod_openrb303::kI2sWords,
+     rack_modules::mod_openrb303::kStallUs,
+     rack_modules::mod_openrb303::kCcMap,
+     &rack_modules::mod_openrb303::kModDestinations,
+     rack_modules::mod_openrb303::init,
+     rack_modules::mod_openrb303::render,
+     rack_modules::mod_openrb303::note_on,
+     rack_modules::mod_openrb303::note_off,
+     rack_modules::mod_openrb303::control_change},
 };
 
 // ===================== shared definitions =====================
@@ -574,6 +589,7 @@ static const size_t kChainABufferBytes[RACK_MODULE_COUNT] = {
     128016,
     0,        // dronecaster: standalone-only (not a chain A candidate)
     0,        // benjolin: standalone-only (not a chain A candidate)
+    0,        // openrb303: standalone-only (XIP chain, no chain A slot)
 };
 
 // Chain render block buffers (24 x 2 floats x 2 = 384 B in .bss — the
@@ -2181,6 +2197,10 @@ static void cmd_chain(const char* args) {
     printf("%s\r\n", "rack: chain: A cannot be clouds (no clouds->clouds pair)");
     return;
   }
+  if (a == RACK_MODULE_OPENRB303) {
+    printf("%s\r\n", "rack: chain: openrb303 cannot be a chain A (standalone-only; `chain off` first, then switch)");
+    return;
+  }
   if (a == RACK_MODULE_DRONECASTER) {
     // T-D2 crash fix: dronecaster is standalone-only. Its delay rings live
     // in the SRAM window tail (the aux region) — a chain would populate the
@@ -2689,7 +2709,9 @@ static void cmd_cc(const char* args) {
 static void cmd_ccdump(const char* args) {
   (void)args;
   printf("ccdump: mod=%u", (unsigned)g_active_module);
-  for (int cc = 60; cc <= 73; ++cc) {
+  const int cc_lo = g_active_module == RACK_MODULE_OPENRB303 ? 90 : 60;
+  const int cc_hi = g_active_module == RACK_MODULE_OPENRB303 ? 105 : 73;
+  for (int cc = cc_lo; cc <= cc_hi; ++cc) {
     printf(" %d=%u", cc, (unsigned)ui_link_cached_cc(g_active_module, cc));
   }
   printf("\r\n");
@@ -3720,6 +3742,10 @@ void loop() {
       // T-D1 dronecaster: current drone + proc ewma + swaps + NaN block count.
       char dc_tail[80] = "";
       char bj_tail[80] = "";
+      char orb_tail[80] = "";
+      if (g_active_module == RACK_MODULE_OPENRB303) {
+        rack_modules::mod_openrb303::report_openrb303(orb_tail, sizeof(orb_tail));
+      }
       if (g_active_module == RACK_MODULE_DRONECASTER) {
         rack_modules::mod_dronecaster::report_dc(dc_tail, sizeof(dc_tail));
       }
@@ -3798,7 +3824,8 @@ void loop() {
                     g_active_module == RACK_MODULE_PLAITS ? plaits_tail
                         : (g_active_module == RACK_MODULE_LIRA8 ? lira8_tail
                         : (g_active_module == RACK_MODULE_DRONECASTER ? dc_tail
-                        : (g_active_module == RACK_MODULE_BENJOLIN ? bj_tail : ""))),
+                        : (g_active_module == RACK_MODULE_BENJOLIN ? bj_tail
+                        : (g_active_module == RACK_MODULE_OPENRB303 ? orb_tail : "")))),
                     elements_tail,
                     oc_tail);
 #else
@@ -3826,7 +3853,8 @@ void loop() {
                     g_active_module == RACK_MODULE_PLAITS ? plaits_tail
                         : (g_active_module == RACK_MODULE_LIRA8 ? lira8_tail
                         : (g_active_module == RACK_MODULE_DRONECASTER ? dc_tail
-                        : (g_active_module == RACK_MODULE_BENJOLIN ? bj_tail : ""))),
+                        : (g_active_module == RACK_MODULE_BENJOLIN ? bj_tail
+                        : (g_active_module == RACK_MODULE_OPENRB303 ? orb_tail : "")))),
                     g_active_module == RACK_MODULE_ELEMENTS ? elements_tail : "",
                     oc_tail);
 #endif

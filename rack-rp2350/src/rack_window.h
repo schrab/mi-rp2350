@@ -36,7 +36,8 @@ enum RackModuleId {
   RACK_MODULE_LIRA8    = 4,
   RACK_MODULE_DRONECASTER = 5,
   RACK_MODULE_BENJOLIN  = 6,
-  RACK_MODULE_COUNT    = 7,
+  RACK_MODULE_OPENRB303 = 7,   // OpenRB-338 chain — XIP (no tc_* window)
+  RACK_MODULE_COUNT    = 8,
 };
 
 // Window capacity of THIS build — must equal LENGTH(RACK_WINDOW) in
@@ -94,6 +95,8 @@ inline const RackWindowSection& rack_window_section(int module_id) {
                    __rack_flash_dronecaster_start, __rack_flash_dronecaster_end},
       {"benjolin", __tc_benjolin_start, __tc_benjolin_end,
                    __rack_flash_benjolin_start, __rack_flash_benjolin_end},
+      // The OpenRB-338 chain runs from flash (XIP); no SRAM hot window.
+      {"openrb303", nullptr, nullptr, nullptr, nullptr},
   };
   return kSections[module_id];
 }
@@ -118,6 +121,11 @@ inline uint32_t rack_checksum32(const uint8_t* p, size_t n) {
 // its own flash image + the shared window destination).
 inline uint32_t rack_window_copy(int module_id, uint32_t* src_sum,
                                  uint32_t* dst_sum) {
+  if (module_id == RACK_MODULE_OPENRB303) {
+    if (src_sum) *src_sum = 0;
+    if (dst_sum) *dst_sum = 0;
+    return 0;                 // XIP module — nothing to copy into the window
+  }
   const RackWindowSection& s = rack_window_section(module_id);
   const size_t n = static_cast<size_t>(s.window_end - s.window_start);
   memcpy(s.window_start, s.flash_start, n);
