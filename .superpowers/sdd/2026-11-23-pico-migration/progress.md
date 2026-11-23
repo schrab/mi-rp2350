@@ -212,3 +212,12 @@ combinations wedge at 307.2). Direct SDK rewrite, no Arduino shim layer.
      Full snapshots now respect a 3 sRecentlyMovedFull window.
 - Both ends rebuilt and flashed (C3 via idf.py v6.1 JTAG, RP via BOOTSEL UF2).
   RP smoke suite still PASS. Ear/display verification is the user's gate.
+- User decision: LOOP's working range is **0-12** (the upstream norns spec is
+  0-1, but values above 1 sound better on the hardware). `kCcSpecs[6]` max is
+  now 12, default stays 1.0 -> raw CC 11; `kCcSeeds`/UI cache/panel updated.
+  Verified with the new console `ccdump`: `LOOP=11` (engine loop ~1.04);
+  CC 64 -> 6.0, CC 127 -> 12.0. Added `preset defaults` to restore the seeds.
+- Open finding: after an RP reboot the CC cache shows old values again (LOOP 0,
+  GAIN 32, OUTPUT 6) even though the C3 preset bank was cleared and the new
+  autosave was saved (seq increments). Something re-sends those bytes at boot;
+  `ccdump` + `preset defaults` identifies and fixes it for the session.

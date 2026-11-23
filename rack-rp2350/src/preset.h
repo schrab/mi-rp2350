@@ -385,7 +385,18 @@ static void preset_cmd(const char* args) {
         while (v) { seen_total += (v & 1); v >>= 1; }
       }
     printf("%lu CCs\r\n", (unsigned long)seen_total);
-    printf("%s\r\n", "preset: dump | load | apply | reload (bench: hex rows)");
+    printf("%s\r\n", "preset: dump | load | apply | reload | defaults (bench: hex rows)");
+    return;
+  }
+  if (strcasecmp(args, "defaults") == 0) {
+    // Bench recovery: a stored blob can carry stale values in the WRONG
+    // domain (e.g. norns indices 0..6 used as CC bytes). Re-seed every module
+    // from the authoritative CC seeds and replay the active one, then let
+    // autosave push the corrected blob to the C3.
+    ui_link_init_defaults();
+    preset_replay_module(g_active_module);
+    g_preset_dirty = true;
+    printf("%s\r\n", "preset: defaults restored (norns CC seeds replayed)");
     return;
   }
   if (strcasecmp(args, "dump") == 0) {

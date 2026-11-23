@@ -816,6 +816,10 @@ static volatile uint32_t g_ui_last_rtt_us = 0;
 static const uint8_t kPinUiTx = 0;    // UART0 TX — valid {0,2,12,14,16,18,28}
 static const uint8_t kPinUiRx = 1;    // UART0 RX — valid {1,3,13,15,17,19,29}
 
+static inline uint8_t ui_link_cached_cc(uint8_t mod, uint8_t cc) {
+  return (mod < RACK_MODULE_COUNT && cc < 128) ? g_ui_cc_cache[mod][cc] : 0;
+}
+
 static inline void ui_link_set_cached_cc(uint8_t mod, uint8_t cc, uint8_t val) {
   if (mod < RACK_MODULE_COUNT && cc < 128) {
     g_ui_cc_cache[mod][cc] = val;
@@ -915,7 +919,7 @@ static void ui_link_init_defaults() {
   static const uint8_t kBjCc[14] = {
       60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73};
   static const uint8_t kBjSeed[14] = {
-      24, 40, 127, 20, 0, 14, 127, 13, 2, 127, 0, 127, 0, 64};
+      24, 40, 127, 20, 0, 14, 11, 13, 2, 127, 0, 127, 0, 64};
   for (uint8_t i = 0; i < 14; ++i) {
     ui_link_set_cached_cc(RACK_MODULE_BENJOLIN, kBjCc[i], kBjSeed[i]);
   }

@@ -76,7 +76,7 @@ static const CcSpec kCcSpecs[14] = {
     /* 63 rungler1    */ {0.001f, 1.0f, 0.0f, false, 0.16f},
     /* 64 rungler2    */ {0.001f, 1.0f, 0.0f, false, 0.001f},
     /* 65 runglerFilt */ {0.01f, 9.0f, 0.0f, false, 1.0f},
-    /* 66 loop        */ {0.0f, 1.0f, 0.0f, false, 1.0f},
+    /* 66 loop        */ {0.0f, 12.0f, 0.0f, false, 1.0f},  // rack extension: 0-12 (norns spec 0-1)
     /* 67 filtFreq    */ {20.0f, 20000.0f, 0.0f, true, 40.0f},
     /* 68 q           */ {0.001f, 1.0f, 0.0f, false, 0.02f},
     /* 69 gain        */ {0.0f, 6.0f, 1.0f, false, 6.0f},
@@ -89,7 +89,8 @@ static const CcSpec kCcSpecs[14] = {
 // The CC seeds = each norns DEFAULT mapped back to its raw CC (so the boot
 // state is exactly the norns benjolis default state: amp 0 — the SILENT
 // boot, like norns; raise AMP to hear it).
-static const uint8_t kCcSeeds[14] = {24, 40, 127, 20, 0, 14, 127,
+// loop default 1.0 on the 0-12 rack scale -> raw CC round(127/12) = 11.
+static const uint8_t kCcSeeds[14] = {24, 40, 127, 20, 0, 14, 11,
                                      13, 2, 127, 0, 127, 0, 64};
 
 static const char* const kCcMap =

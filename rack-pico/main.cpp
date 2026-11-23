@@ -1881,6 +1881,7 @@ static void cmd_uitest(const char* args);
 static void cmd_uisend(const char* args);
 // Bench: inject a CC through the REAL funnel (T9 warps per-algorithm bench).
 static void cmd_cc(const char* args);
+static void cmd_ccdump(const char* args);
 // T9 clock diag: live QMI M0 flash timing decode.
 static void cmd_qmi(const char* args);
 // T9 bench: runtime overclock + crash record print/clear.
@@ -2014,6 +2015,7 @@ static const ConsoleCommand kConsoleCommands[] = {
     {"clock",     mod_engine_cmd_clock},
     {"preset",    preset_cmd},
     {"status",    cmd_status},
+    {"ccdump",    cmd_ccdump},
 #ifdef RACK_PICO_USB_CAPTURE
     {"capture",   cmd_capture},
 #endif
@@ -2680,6 +2682,17 @@ static void cmd_cc(const char* args) {
   // documented 2026-11-16 hang class (core 0 stalls -> watchdog). Warps makes
   // renders slower, so fast CC benches can back up the CDC FIFO.
   dbg_printf("cc: %u -> %u\r\n", (unsigned)cc, (unsigned)val);
+}
+
+// ccdump — the live UI CC cache for the active module (what the C3's TELEM
+// is built from). Used to see exactly which bytes the panel writes.
+static void cmd_ccdump(const char* args) {
+  (void)args;
+  printf("ccdump: mod=%u", (unsigned)g_active_module);
+  for (int cc = 60; cc <= 73; ++cc) {
+    printf(" %d=%u", cc, (unsigned)ui_link_cached_cc(g_active_module, cc));
+  }
+  printf("\r\n");
 }
 
 // qmi — read/write the LIVE QMI M0 flash timing (T9 clock diag). On RP2350
