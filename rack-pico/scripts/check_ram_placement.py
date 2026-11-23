@@ -81,7 +81,7 @@ HOT_COMMON = [
     ("_Z16rack_window_copyhPmS_", True),           # rack_window_copy(...)
     ("_Z15rack_checksum32PKvm", True),             # rack_checksum32(...)
     # The audio_ready poll + the capture feed (core 1, per block).
-    ("_Z24usb_capture_push_stereoPKsS0_j", True),  # (int16_t*, int16_t*, uint32_t) — the short variant
+    ("usb_capture_push_stereo", True),  # extern "C" — C symbol, not mangled
     ("_ZL17fill_audio_packetPh", True),            # fill_audio_packet(unsigned char*)
 ]
 
@@ -99,6 +99,10 @@ CORE1_ROOTS = ["_Z5loop1v", "_Z6setup1v"]
 # Flash literals in core-1 code that are provably init-time only.
 B2_LITERAL_WHITELIST = {
     "__VECTOR_TABLE", "__vectors",
+    # RAM-resident setup1() calls the flash-resident SDK irq_set_enabled();
+    # the linker emits a long-call veneer whose .word is a BRANCH TARGET,
+    # not a dereferenced data pointer. No swap-window read of flash occurs.
+    "irq_set_enabled",
 }
 
 # ---------------------------------------------------------------------------
@@ -225,6 +229,7 @@ def check_elf(elf, baseline):
     sec = load_sections(elf)
     sym_addr = {s["name"]: s["addr"] for s in syms}
     sym_by_addr = {s["addr"]: s for s in syms}
+    sorted_addrs = sorted((s["addr"], s["name"]) for s in syms)
 
     # --- Check A: the tc_* hot-code window placement ------------------------
     lines.append("[Check A] tc_* overlay members must sit at the RACK_WINDOW VMA")

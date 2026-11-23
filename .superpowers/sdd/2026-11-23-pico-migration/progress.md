@@ -145,3 +145,22 @@ combinations wedge at 307.2). Direct SDK rewrite, no Arduino shim layer.
 - SWD flashing faulted mid-erase on this board (FAULT ACK/sector timeout
   with the rack firmware running); BOOTSEL + UF2 copy was used instead.
   SWD still works for halt/status and for the standalone porttest firmware.
+
+## Task 2 — placement checker as a build gate (2026-11-23, phase-2 plan)
+
+- First clean VERDICT: `VERDICT: PASS (with warnings) (0 FAIL, 13 WARN)`
+  (`python3 scripts/check_ram_placement.py build-swd/rack.elf`) — heap slack
+  11,644 B >= 8,192 B gate, RAM closure 8 functions, 0 flash edges.
+- The first run found `setup1()` in FLASH: marked it `__not_in_flash_func`
+  (the RAM-resident core-1 harness entry), clearing check A2.
+- Checker bug fixed: `sorted_addrs` was used in B2 without being built; it is
+  now sorted from `load_symbols()` before the literal-pool scan. B2 then
+  flagged the linker's `__irq_set_enabled_veneer` (a BRANCH TARGET from the
+  RAM setup1 to flash `irq_set_enabled`, not a dereferenced data pointer) —
+  whitelisted `irq_set_enabled` with that rationale.
+- Stale symbol name corrected: `usb_capture_push_stereo` has C linkage, so the
+  expected name is the unmangled C symbol (it is RAM-resident at 0x20000680).
+  The remaining 13 WARNs are `static_ok` names not present (inlined/gone).
+- Gate wired as a POST_BUILD custom command on `rack`, skippable with
+  `-DRACK_SKIP_PLACEMENT_CHECK=ON`. Verified: a rebuild prints the checker's
+  summaries and `VERDICT: PASS` as part of `cmake --build build-swd`.

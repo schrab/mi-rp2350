@@ -181,3 +181,15 @@ pico_set_linker_script_var(rack RAM_LENGTH 0x63000)
 pico_set_linker_script(rack ${CMAKE_CURRENT_LIST_DIR}/memmap_rack_pico.ld)
 
 pico_add_extra_outputs(rack)
+
+# Phase-2 task 2: fail the build on a RAM-placement regression. The checker
+# is stdlib-only Python; host-only builds can opt out with
+# -DRACK_SKIP_PLACEMENT_CHECK=ON.
+option(RACK_SKIP_PLACEMENT_CHECK "Skip the post-link RAM placement gate" OFF)
+if(NOT RACK_SKIP_PLACEMENT_CHECK)
+  add_custom_command(TARGET rack POST_BUILD
+    COMMAND python3 ${CMAKE_CURRENT_LIST_DIR}/scripts/check_ram_placement.py
+            ${CMAKE_CURRENT_BINARY_DIR}/rack.elf
+    COMMENT "Checking RAM placement"
+    VERBATIM)
+endif()

@@ -1022,7 +1022,7 @@ static volatile bool g_host_alarm_pool_ready = false;
 
 // The audio_ready wait, RAM-resident (see the A/B note inside setup1).
 static void audio_ready_wait_ram(void);
-void setup1() {
+void __not_in_flash_func(setup1)() {
   crumb1(1);   // audio core entered setup1
   // Flush-to-zero + default-NaN on the AUDIO CORE (2026-11-19): FPSCR is
   // per-core — setup()'s write covers core 0 only, and this core runs the
