@@ -181,6 +181,10 @@ namespace CTAG {
             // (absorbs the RP2350's 50 ms TELEM delta throttle so fast turns
             // update at 60 fps and never miss the final trailing value).
             static void TelemLocalCellWrite(uint8_t slot, uint8_t value);
+            // Remember the exact CC byte a local pot sent. Returned TELEM for
+            // that cell is held back until it echoes this byte (or 5 s pass),
+            // so a stale snapshot cannot make the displayed value jump.
+            static void NoteLocalWireWrite(uint8_t slot, uint8_t wireVal);
             // Optimistic local update of a cell's routed mod source (0 = OFF,
             // 1..12 = LFO1..ADS2).
             static void TelemLocalAssignWrite(uint8_t slot, uint8_t srcIdxPlus1);

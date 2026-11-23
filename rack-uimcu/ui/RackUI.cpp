@@ -1667,6 +1667,7 @@ namespace CTAG {
                     if (s_lastWireSent[pot] != wireVal) {
                         s_lastWireSent[pot] = wireVal;
                         const uint8_t pkt[4] = { 0x0B, 0xB0, t.cc, wireVal };
+                        RackLink::NoteLocalWireWrite((uint8_t)pot, wireVal);
                         RackLink::SendMidi(pkt);
                     }
                     break;

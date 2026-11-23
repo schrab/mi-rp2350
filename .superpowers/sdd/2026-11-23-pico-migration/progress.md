@@ -221,3 +221,10 @@ combinations wedge at 307.2). Direct SDK rewrite, no Arduino shim layer.
   GAIN 32, OUTPUT 6) even though the C3 preset bank was cleared and the new
   autosave was saved (seq increments). Something re-sends those bytes at boot;
   `ccdump` + `preset defaults` identifies and fixes it for the session.
+- Drifting/jumping values after a pot turn (reported 3x): the RP echoes TELEM
+  deltas/snapshots back while a pot is moving; the C3's time-only echo guard
+  let a stale returned byte overwrite the fresher local value, so the display
+  jumped and settled seconds later. Fixed with an EXACT-WIRE echo guard in
+  RackLink: `NoteLocalWireWrite(slot, ccByte)` on every local pot send, and
+  `pendingHolds()` ignores returned TELEM for that cell until the RP echoes
+  the same byte (5 s timeout caps a lost echo). Soft-takeover untouched.

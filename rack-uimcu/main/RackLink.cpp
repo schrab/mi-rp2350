@@ -75,6 +75,25 @@ namespace CTAG {
             // reads — single core, guarded by a critical section) ----
             portMUX_TYPE telemMux = portMUX_INITIALIZER_UNLOCKED;
             RackTelemPage s_telem = {};
+
+            // Exact-wire echo guard. A local pot write is held on screen until
+            // the RP returns that same CC byte; any other returned value is a
+            // stale snapshot/echo and is ignored. 5 s caps a lost echo.
+            static uint8_t s_pendingWire[16] = {};
+            static bool s_pendingValid[16] = {};
+            static int64_t s_pendingUs[16] = {};
+            static bool pendingHolds(uint8_t slot, uint8_t incomingWire) {
+                if (slot >= 16 || !s_pendingValid[slot]) return false;
+                if (esp_timer_get_time() - s_pendingUs[slot] > 5000000) {
+                    s_pendingValid[slot] = false;
+                    return false;
+                }
+                if (incomingWire == s_pendingWire[slot]) {
+                    s_pendingValid[slot] = false;   // confirmed echo
+                    return false;
+                }
+                return true;                        // hold the local value
+            }
             volatile bool s_telem_dirty = false;
             volatile uint32_t s_last_midi_ms = 0;
 
@@ -219,7 +238,8 @@ namespace CTAG {
                     // If the user is actively turning this pot on any page,
                     // keep the fresher local value from TelemLocalCellWrite
                     // rather than snapping back to a throttled RP2350 echo.
-                    if (!RackPots::RecentlyMoved((uint8_t)idx)) {
+                    if (!RackPots::RecentlyMoved((uint8_t)idx) &&
+                        !pendingHolds((uint8_t)idx, pl[5])) {
                         c.value = RackUI::WireToPotValue(
                             page, mod, (uint8_t)idx, cc, pl[5]);
                     }
@@ -253,7 +273,8 @@ namespace CTAG {
                 for (uint8_t i = 0; i < count; i++) {
                     RackTelemCell &c = s_telem.cell[i];
                     c.cc = pl[4 + i * 4];
-                    if (!(samePageAndMod && RackPots::RecentlyMovedFull(i))) {
+                    if (!(samePageAndMod && RackPots::RecentlyMovedFull(i)) &&
+                        !pendingHolds(i, pl[5 + i * 4])) {
                         if (page == 3 && i == 15 && samePageAndMod &&
                             pl[5 + i * 4] == 0 && prevModBDiv != 0) {
                             c.value = prevModBDiv;
@@ -711,6 +732,13 @@ namespace CTAG {
         bool RackLink::TelemDirty() { return s_telem_dirty; }
 
         void RackLink::TelemClearDirty() { s_telem_dirty = false; }
+
+        void RackLink::NoteLocalWireWrite(uint8_t slot, uint8_t wireVal) {
+            if (slot >= 16) return;
+            s_pendingWire[slot] = wireVal;
+            s_pendingValid[slot] = true;
+            s_pendingUs[slot] = esp_timer_get_time();
+        }
 
         void RackLink::TelemLocalCellWrite(uint8_t slot, uint8_t value) {
             if (slot >= 16) return;
