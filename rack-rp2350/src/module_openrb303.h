@@ -87,14 +87,29 @@ static void set_cc_raw(uint8_t cc, uint8_t value) {
   const int idx = (int)(cc - 90);
   // The two switches are bool127 on the wire (<64 / >=64).
   if (idx == 5 || idx == 13) value = value >= 64 ? 1 : 0;
-  if (idx < 6) {
-    orb_set_303_param(idx, value);
-  } else if (idx == 6 || idx == 7) {
-    orb_set_dist_param(idx - 6, value);
-  } else if (idx < 14) {
-    pcfcomp_set_param(0, idx - 8, value);
-  } else {
-    pcfcomp_set_param(1, idx - 14, value);
+  // The adapter CCs are NOT the engine's live-parameter indices:
+  // orb303's live[0..8] = enabled, pattern, tune, cutoff, reso, envmod,
+  // decay, accent, waveform. pcfcomp's PCF indices are 0..6 (en, freq,
+  // reso, amount, wave, decay, mode) and comp's are 0..4 (en, amount,
+  // threshold, ...). The old direct idx mapping wrote CUTOFF into ENABLED
+  // and PCF FREQ into PCF ENABLED — hence "unwired" controls.
+  switch (idx) {
+    case 0: orb_set_303_param(3, value); break;  // cutoff
+    case 1: orb_set_303_param(4, value); break;  // resonance
+    case 2: orb_set_303_param(5, value); break;  // envmod
+    case 3: orb_set_303_param(6, value); break;  // decay
+    case 4: orb_set_303_param(7, value); break;  // accent
+    case 5: orb_set_303_param(8, value); break;  // waveform
+    case 6: orb_set_dist_param(1, value); break; // dist amount
+    case 7: orb_set_dist_param(2, value); break; // dist shape
+    case 8:  pcfcomp_set_param(0, 1, value); break; // PCF freq
+    case 9:  pcfcomp_set_param(0, 2, value); break; // PCF resonance
+    case 10: pcfcomp_set_param(0, 3, value); break; // PCF amount
+    case 11: pcfcomp_set_param(0, 4, value); break; // PCF wave
+    case 12: pcfcomp_set_param(0, 5, value); break; // PCF decay
+    case 13: pcfcomp_set_param(0, 6, value); break; // PCF mode
+    case 14: pcfcomp_set_param(1, 1, value); break; // comp amount
+    case 15: pcfcomp_set_param(1, 2, value); break; // comp threshold
   }
 }
 

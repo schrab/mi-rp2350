@@ -5966,5 +5966,14 @@ base `4ee6dde` line; not yet committed at the time of writing.
   full host block 1.33 ms; kStallUs raised to 2500 for the 64-frame pacing.
 - Elements budget metadata +256 us: the added 296 KB of flash tables raise
   XIP cache pressure; its 2 s max now reaches ~515-628 us (was 496 budget).
-- NOT user ear-verified yet (AFK); the user must confirm the sound/UI.
+- User reported CUTOFF/RESO and PCF FREQ "unwired": the adapter had mapped
+  CC indices straight onto engine live-parameter indices. In orb303 those
+  are enabled/pattern/tune/cutoff/reso/envmod/decay/accent/wave, so CC90
+  (cutoff) was writing ENABLED; PCF/comp indices were shifted by one too.
+  Fixed `set_cc_raw()` with an explicit CC->engine-field switch:
+  90->cutoff, 91->reso, ... 95->wave, 96/97->dist amount/shape, 98..103->
+  PCF freq/reso/amount/wave/decay/mode, 104/105->comp amount/threshold.
+  Verified by console CC sweeps on hardware: 2 s meter `in=` changes for
+  cutoff 1238->4012, reso 1263->2078, PCF freq 4293->2239, PCF reso
+  1024->2577, comp amount 2665->1545. Defaults restored after the test.
 
