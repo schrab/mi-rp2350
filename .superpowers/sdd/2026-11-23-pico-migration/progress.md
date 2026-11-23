@@ -228,3 +228,4 @@ combinations wedge at 307.2). Direct SDK rewrite, no Arduino shim layer.
   RackLink: `NoteLocalWireWrite(slot, ccByte)` on every local pot send, and
   `pendingHolds()` ignores returned TELEM for that cell until the RP echoes
   the same byte (5 s timeout caps a lost echo). Soft-takeover untouched.
+  USER-CONFIRMED 2026-11-23: "ok now fine" — the drift/jump is gone.
