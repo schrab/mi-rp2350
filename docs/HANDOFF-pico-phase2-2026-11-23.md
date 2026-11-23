@@ -157,5 +157,10 @@ Read this plus:
 - The DSPi reference clone: `/home/schrab/Projects/DSPi` (GPL-3.0 —
   pattern-reference only, keep the attribution comments).
 - The board by-id: `usb-rack_Rack_RP2350_D04E1EA073701924-if00` (the
-  composite CDC+MIDI device; the flash recipe in AGENTS.md works as-is
-  with the new pattern).
+  composite CDC+MIDI+UAC1 capture device; the flash recipe in AGENTS.md works
+  as-is with the new pattern).
+- **Debug topology (decided 2026-11-23):** the bare Pico2 test board has SWD
+  on the Debug Probe and is the board for hard cases (SWD halt/status, DWT,
+  flash experiments). The rack board has **no SWD pins populated** — use
+  only the serial console (`usb-rack_Rack_RP2350_*`) and the bench suite
+  there. Do not plan SWD diagnostics on the rack board.
