@@ -164,3 +164,17 @@ combinations wedge at 307.2). Direct SDK rewrite, no Arduino shim layer.
 - Gate wired as a POST_BUILD custom command on `rack`, skippable with
   `-DRACK_SKIP_PLACEMENT_CHECK=ON`. Verified: a rebuild prints the checker's
   summaries and `VERDICT: PASS` as part of `cmake --build build-swd`.
+
+## Task 3 — scripted device suite (2026-11-23, phase-2 plan)
+
+- `tools/bench_suite.py`: by-id CDC transport with the stale-byte protocol,
+  a 2 s-report liveness sentinel (`up=` continuity, max/budget, stall delta),
+  preset dump/load/dump snapshot identity, and a full seven-module swap pass.
+  Exit 0 = all cases pass, 1 = named failure, 2 = no port.
+- Bench run: `python3 tools/bench_suite.py --cases smoke,snapshot,swap` -> VERDICT PASS.
+  All seven modules swapped with zero stall deltas and within budget
+  (worst: lira8 825/1451 us, benjolin 827/1333 us); preset identity
+  v5/1359 B/105 CCs identical before and after the round-trip.
+- Both USB/IP attachments (probe 2-1 and rack 2-2) dropped out during an
+  early run; the suite now reconnects on serial I/O errors. With the devices
+  re-attached, the full pass completed unattended.
