@@ -1024,6 +1024,9 @@ namespace CTAG {
                             } else if (wireBool) {
                                 pName = dispVal ? "ON" : "OFF";
                             }
+                        } else if (modForPage == 7 && c.cc == 95) {
+                            // OpenRB-303 WAVE is a bool127 switch: SAW / SQR.
+                            pName = dispVal ? "SQR" : "SAW";
                         } else if (wireBool) {
                             pName = dispVal ? "ON" : "OFF";
                         } else if (s_page == 9 && (c.cc == 23 || c.cc == 49)) {
@@ -1080,8 +1083,6 @@ namespace CTAG {
                             };
                             pName = (dispVal >= 0 && dispVal < 7)
                                         ? kBenjOuts[dispVal] : "---";
-                        } else if (modForPage == 7 && c.cc == 95) {
-                            pName = dispVal ? "SQR" : "SAW";
                         } else if (modForPage == 7 && c.cc == 103) {
                             static const char *const kPcfModes[3] = {
                                 "OFF", "LP", "BP"
