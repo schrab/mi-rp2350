@@ -121,6 +121,30 @@ cd rack-rp2350/test && make test
 cd rack-rp2350/test && make test_benjolin && ./build/test_benjolin
 ```
 
+### Pico SDK build (rack-pico) — the active target
+
+The Arduino/PlatformIO stack is being retired; the Pico SDK + CMake build is
+the active firmware. Use the **system** `arm-none-eabi-gcc` (13.2.1), not the
+PlatformIO-bundled 16.1 (the latter fails at link with unresolved
+`__retarget_lock_*`). `ninja` is in `~/.local/bin`:
+
+```sh
+export PATH=~/.local/bin:$PATH
+cd rack-pico
+cmake -B build-swd -S . -G Ninja -DPICO_BOARD=pico2 \
+  -DPICO_SDK_PATH=~/.platformio/packages/framework-arduinopico/pico-sdk \
+  -DCMAKE_C_COMPILER=/usr/bin/arm-none-eabi-gcc \
+  -DCMAKE_CXX_COMPILER=/usr/bin/arm-none-eabi-g++
+cmake --build build-swd
+# -> build-swd/rack.elf / rack.uf2; a post-link RAM-placement gate must pass.
+# Host-only builds: -DRACK_SKIP_PLACEMENT_CHECK=ON
+```
+
+`scripts/check_ram_placement.py <elf>` (the post-link gate) prints
+`VERDICT: PASS` with 0 FAIL; `rack-pico/README.md` has the pin map and the
+bring-up root causes. The bench tools: `tools/rig_capture.py` (UAC1 loopback)
+and `tools/bench_suite.py` (smoke/swap/snapshot with exit codes).
+
 ### RP2350 flash — 1200-baud touch → BOOTSEL mass storage → UF2
 
 **/dev/ttyACM* numbering is NOT stable.** Two USB devices can be attached:
@@ -128,8 +152,11 @@ the RP2350 app CDC and the ESP32-C3's USB-Serial-JTAG (the C3 can take
 `ttyACM0` and push the RP2350 to `ttyACM1`, or vice versa). Always resolve
 the board by `/dev/serial/by-id/`, never by number:
 
-- RP2350: `usb-Raspberry_Pi_Rack_RP2350_<serial>-if00`
-- C3: `usb-Espressif_USB_JTAG_serial_debug_unit_<mac>-if00`
+- RP2350: `usb-rack_Rack_RP2350_<serial>-if00` (the composite CDC+MIDI+UAC1
+  capture device — the OLD `usb-Raspberry_Pi_Rack_RP2350_*` pattern is gone)
+- C3: `usb-Espressif_USB_JTAG_serial_debug_unit_<mac>-if00` (the C3's
+  USB-Serial-JTAG; `/dev/ttyACM0` carries its ESP logs, which backlog up to
+  ~76 s — never timestamp-compare against the log port directly)
 
 ```sh
 # Run from the repo root.

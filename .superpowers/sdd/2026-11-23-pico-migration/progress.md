@@ -178,3 +178,18 @@ combinations wedge at 307.2). Direct SDK rewrite, no Arduino shim layer.
 - Both USB/IP attachments (probe 2-1 and rack 2-2) dropped out during an
   early run; the suite now reconnects on serial I/O errors. With the devices
   re-attached, the full pass completed unattended.
+
+## Task 4 — closeout (partial, 2026-11-23)
+
+- 4b DONE: AGENTS.md gains the rack-pico CMake recipe (system GCC 13.2.1,
+  `-DPICO_BOARD=pico2`, the POST_BUILD placement gate and its skip option),
+  the NEW by-id `usb-rack_Rack_RP2350_*`, and the C3 JTAG log-port note.
+- 4e RECORDED (user decision 2026-11-23): "we are getting rid of arduino and
+  platformio" — the Arduino build is retired as the active target (it stays
+  as last-known-good source until the user retires the files). The Pico SDK
+  build with the system toolchain is active; the PlatformIO GCC 16.1 cache
+  failed at link with unresolved `__retarget_lock_*`.
+- Still owed: 4a (C3 preset persistence re-verify on final build — C3 UI not
+  attached on this bench), 4c (bench-diagnostic report-field revert — needs
+  the user's acceptance of the accepted field set), 4d (T4-T6 ear checkpoints
+  — user's ears are the gate).
