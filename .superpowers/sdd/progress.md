@@ -5976,4 +5976,14 @@ base `4ee6dde` line; not yet committed at the time of writing.
   Verified by console CC sweeps on hardware: 2 s meter `in=` changes for
   cutoff 1238->4012, reso 1263->2078, PCF freq 4293->2239, PCF reso
   1024->2577, comp amount 2665->1545. Defaults restored after the test.
+- Final UI ruling from the user (do not revisit): P1 positions/labels are
+  FIXED — no added cells, no moves, no renames. PCF MODE (CC103, slot 13) is
+  a 3-step value **OFF / LP / BP** (0=bypass via PCF enabled=0, 1=LP,
+  2=BP); 303 WAVE (CC95, slot 5) displays **SAW / SQR**. The temporary
+  BYPASS cell, shifted CCs and CC106 were reverted. Preset version bumped
+  to 8 to invalidate blobs saved with the shifted map; C3 bank cleared.
+  Verified: ccdump restored to seeds, C3 `ui` shows the original 16 labels
+  at their original slots, UAC1 RMS by mode = 2.08M (OFF) / 1.39M (LP) /
+  1.11M (BP). The built-in test pattern now advances one tick per 16 blocks
+  (~1 step/s); no internal-tempo coupling.
 

@@ -57,7 +57,7 @@ static void cmd_chain(const char* args);
 
 // ---- format ----
 static const uint8_t kPresetMagic[4] = {'R', 'K', 'P', 'R'};
-static const uint8_t kPresetVersion = 7;   // v7: 8 modules (openrb303 id 7)
+static const uint8_t kPresetVersion = 8;   // v8: 8 modules, final openrb303 CC map
 //  [0..3]   magic "RKPR"
 //  [4]      version
 //  [5]      active module id

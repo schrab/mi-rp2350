@@ -325,11 +325,12 @@ namespace CTAG {
                     // browser panel + serial `cc 51 <id>` for debugging.
                     if (cc == 51) return 10;
                     break;
-                case 7: // OpenRB-338 chain: the two switches are bool127
-                    if (cc == 95 || cc == 103) {
+                case 7: // OpenRB-338 chain: WAVE bool127, PCF MODE 3-step
+                    if (cc == 95) {
                         wireIsBool127 = true;
                         return 2;
                     }
+                    if (cc == 103) return 3;   // OFF / LP / BP
                     break;
                 case 6: // Benjolin
                     // The EXACT norns benjolis ranges: filterType 0-1
@@ -1082,7 +1083,11 @@ namespace CTAG {
                         } else if (modForPage == 7 && c.cc == 95) {
                             pName = dispVal ? "SQR" : "SAW";
                         } else if (modForPage == 7 && c.cc == 103) {
-                            pName = dispVal ? "LP" : "BP";
+                            static const char *const kPcfModes[3] = {
+                                "OFF", "LP", "BP"
+                            };
+                            pName = (dispVal >= 0 && dispVal < 3)
+                                        ? kPcfModes[dispVal] : "---";
                         } else if (modForPage == 3) {
                             int ringMode = 0;
                             for (uint8_t i = 0; i < s_cur.count; ++i) {

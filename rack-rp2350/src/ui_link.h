@@ -475,7 +475,7 @@ static const UiPageCell kUiPageOpenrb303P1[] = {
     {100, "PCF AMT",  kUiColorWhite},
     {101, "PCF WAVE", kUiColorWhite},
     {102, "PCF DEC",  kUiColorWhite},
-    {103, "PCF MODE", kUiColorWhite},
+    {103, "PCF MODE", kUiColorWhite},   // 3-way: OFF/LP/BP
     {104, "CMP AMT",  kUiColorWhite},
     {105, "CMP THR",  kUiColorWhite},
 };
@@ -950,7 +950,7 @@ static void ui_link_init_defaults() {
   static const uint8_t kOrbCc[16] = {
       90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105};
   static const uint8_t kOrbSeed[16] = {
-      20, 90, 20, 100, 64, 0, 70, 60, 70, 64, 40, 24, 90, 127, 70, 64};
+      20, 90, 20, 100, 64, 0, 70, 60, 70, 64, 40, 24, 90, 1, 70, 64};
   for (uint8_t i = 0; i < 16; ++i) {
     ui_link_set_cached_cc(RACK_MODULE_OPENRB303, kOrbCc[i], kOrbSeed[i]);
   }

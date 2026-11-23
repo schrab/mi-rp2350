@@ -28,6 +28,8 @@ static const uint32_t kI2sWords = 64;
 static const uint32_t kStallUs = 2500;   // 64-frame block = 1.33 ms pacing
 
 // CC 90-105: 303 (90-95), distortion (96-97), PCF (98-103), comp (104-105).
+// Positions/labels are FIXED — no added/moved/renamed P1 cells. PCF MODE
+// (CC103) is a 3-way selector: 0=OFF (bypass), 1=LP, 2=BP.
 static const mod_benjolin::CcSpec kCcSpecs[16] = {
     /* 90 cutoff   */ {0.0f, 127.0f, 0.0f, false, 20.0f},
     /* 91 reso     */ {0.0f, 127.0f, 0.0f, false, 90.0f},
@@ -42,18 +44,18 @@ static const mod_benjolin::CcSpec kCcSpecs[16] = {
     /*100 pcf amt  */ {0.0f, 127.0f, 0.0f, false, 40.0f},
     /*101 pcf wave */ {0.0f, 127.0f, 0.0f, false, 24.0f},
     /*102 pcf dec  */ {0.0f, 127.0f, 0.0f, false, 90.0f},
-    /*103 pcf mode */ {0.0f, 1.0f, 1.0f, false, 1.0f},
+    /*103 pcf mode */ {0.0f, 1.0f, 1.0f, false, 127.0f},
     /*104 comp amt */ {0.0f, 127.0f, 0.0f, false, 70.0f},
     /*105 comp thr */ {0.0f, 127.0f, 0.0f, false, 64.0f},
 };
 
 static const uint8_t kCcSeeds[16] = {
-    20, 90, 20, 100, 64, 0, 70, 60, 70, 64, 40, 24, 90, 127, 70, 64};
+    20, 90, 20, 100, 64, 0, 70, 60, 70, 64, 40, 24, 90, 1, 70, 64};
 
 static const char* const kCcMap =
     "90 cut 91 reso 92 envmod 93 dec 94 accent 95 wave 96 dist-amt 97 "
     "dist-shape 98 pcf-freq 99 pcf-reso 100 pcf-amt 101 pcf-wave 102 pcf-dec "
-    "103 pcf-mode 104 comp-amt 105 comp-thr";
+    "103 pcf-mode (0=OFF 1=LP 2=BP) 104 comp-amt 105 comp-thr";
 
 static const uint8_t kModContinuousCcs[] = {
     90, 91, 92, 93, 94, 96, 97, 98, 99, 100, 101, 102, 104, 105};
@@ -65,12 +67,14 @@ static volatile uint32_t g_render_heartbeat = 0;
 static volatile uint32_t g_proc_us_max = 0;
 static volatile uint32_t g_proc_avg_us = 0;
 static uint32_t g_tick = 0;
+static uint32_t g_seq_div = 0;   // test-only pattern: 1 tick / 16 blocks (~1 step/s)
 
 void init_at(uint8_t* obj_base) { (void)obj_base; }
 void init() {
   orb_init();
   pcfcomp_init();
   g_tick = 0;
+  g_seq_div = 0;
   g_render_heartbeat = 0;
   g_proc_us_max = 0;
   g_proc_avg_us = 0;
@@ -85,8 +89,10 @@ void note_off(uint8_t note) { (void)note; orb_note_off(); }
 static void set_cc_raw(uint8_t cc, uint8_t value) {
   if (cc < 90 || cc > 105) return;
   const int idx = (int)(cc - 90);
-  // The two switches are bool127 on the wire (<64 / >=64).
-  if (idx == 5 || idx == 13) value = value >= 64 ? 1 : 0;
+  // 303 WAVE is bool127 on the wire (<64 / >=64). PCF MODE (CC103) is a
+  // 3-step index 0/1/2 = OFF/LP/BP (see the case below).
+  if (idx == 5) value = value >= 64 ? 1 : 0;
+  if (idx == 13) value = value > 2 ? 2 : value;
   // The adapter CCs are NOT the engine's live-parameter indices:
   // orb303's live[0..8] = enabled, pattern, tune, cutoff, reso, envmod,
   // decay, accent, waveform. pcfcomp's PCF indices are 0..6 (en, freq,
@@ -107,7 +113,13 @@ static void set_cc_raw(uint8_t cc, uint8_t value) {
     case 10: pcfcomp_set_param(0, 3, value); break; // PCF amount
     case 11: pcfcomp_set_param(0, 4, value); break; // PCF wave
     case 12: pcfcomp_set_param(0, 5, value); break; // PCF decay
-    case 13: pcfcomp_set_param(0, 6, value); break; // PCF mode
+    case 13: {
+      // PCF MODE: 0 = OFF (enabled=0), 1 = LP, 2 = BP.
+      const uint8_t mode = value > 2 ? 2 : value;
+      pcfcomp_set_param(0, 0, mode == 0 ? 0 : 1); // enabled
+      pcfcomp_set_param(0, 6, mode == 2 ? 0 : 1); // LP unless BP
+      break;
+    }
     case 14: pcfcomp_set_param(1, 1, value); break; // comp amount
     case 15: pcfcomp_set_param(1, 2, value); break; // comp threshold
   }
@@ -129,7 +141,14 @@ void render() {
   ++g_render_heartbeat;
   const uint32_t t0 = time_us_32();
   OrbBlock bus;
-  orb_tick_step((int)g_tick++);
+  // The built-in acid line is a TEST aid, not a tempo-synced sequencer:
+  // one test tick every 16 rendered blocks (~1 step/s at 48 kHz). Future
+  // use drives notes from MIDI; no internal-tempo coupling.
+  if (++g_seq_div >= 16) {
+    g_seq_div = 0;
+    ++g_tick;
+  }
+  orb_tick_step((int)g_tick);
   orb_process(bus);                        // 303 vintage -> distortion
   pcfcomp_process(bus, (int)g_tick);       // PCF -> compressor
   const uint32_t dt = time_us_32() - t0;   // DSP only — write16 can block
