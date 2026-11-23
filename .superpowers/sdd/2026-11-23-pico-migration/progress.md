@@ -193,3 +193,22 @@ combinations wedge at 307.2). Direct SDK rewrite, no Arduino shim layer.
   attached on this bench), 4c (bench-diagnostic report-field revert — needs
   the user's acceptance of the accepted field set), 4d (T4-T6 ear checkpoints
   — user's ears are the gate).
+
+## Benjolin UI range/default fixes (2026-11-23, user-reported)
+
+- The user reported LOOP not following startup settings, OUTPUT/GAIN ranges
+  mismatched, and values snapping back before settling. Root causes traced:
+  1. `ui_link_init_defaults()` had no BENJOLIN seeds — the UI cache was all
+     zeros while the engine boots from `kCcSeeds` (LOOP/GAIN/OUTPUT 127).
+     Added the 14 CC60-73 seeds from `module_benjolin.h`.
+  2. C3's generic stepped mapping sent raw indices 0..N-1, but the RP's
+     `SpecValue()` maps a NORMALIZED byte 0..127 through the norns spec.
+     OUTPUT (71) and FILTER (70) now travel as normalized bytes
+     (index i -> round(i*127/(N-1))), matching the browser panel.
+     GAIN (69) is deliberately continuous 0-127 on the wire (the user wants
+     the full pot range; the RP spec applies 0-6 step 1).
+  3. A stale full TELEM snapshot built before our CC arrived could overwrite
+     the local value after the 500 ms echo window — the snap-back/wiggle.
+     Full snapshots now respect a 3 sRecentlyMovedFull window.
+- Both ends rebuilt and flashed (C3 via idf.py v6.1 JTAG, RP via BOOTSEL UF2).
+  RP smoke suite still PASS. Ear/display verification is the user's gate.

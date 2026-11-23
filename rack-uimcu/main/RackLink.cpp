@@ -253,7 +253,7 @@ namespace CTAG {
                 for (uint8_t i = 0; i < count; i++) {
                     RackTelemCell &c = s_telem.cell[i];
                     c.cc = pl[4 + i * 4];
-                    if (!(samePageAndMod && RackPots::RecentlyMoved(i))) {
+                    if (!(samePageAndMod && RackPots::RecentlyMovedFull(i))) {
                         if (page == 3 && i == 15 && samePageAndMod &&
                             pl[5 + i * 4] == 0 && prevModBDiv != 0) {
                             c.value = prevModBDiv;

@@ -78,6 +78,11 @@ namespace CTAG {
             static bool PickupPending(uint8_t pot, int8_t &dir);
             // True while the user has moved this pot within the echo window.
             static bool RecentlyMoved(uint8_t pot);
+            // A full TELEM snapshot can be built on the RP before our CC
+            // arrives and delivered after the short delta-echo window; keep
+            // protecting a locally turned pot until that late snapshot has
+            // certainly passed.
+            static bool RecentlyMovedFull(uint8_t pot);
             // True while a pot's mod assignment was just changed locally.
             static bool AssignRecentlyChanged(uint8_t pot);
             // Clear all 12 mod sources on the RP2350.

@@ -686,6 +686,13 @@ namespace CTAG {
             return (esp_timer_get_time() - lastSendPotUs[pot]) < ECHO_WINDOW_US;
         }
 
+        bool RackPots::RecentlyMovedFull(uint8_t pot) {
+            if (pot >= NPOTS || lastSendPotUs[pot] == 0) return false;
+            // 3 s covers the 2 s report cadence plus preset/boot-restore
+            // snapshot acks that are built before our CC is observed.
+            return (esp_timer_get_time() - lastSendPotUs[pot]) < 3000000;
+        }
+
         bool RackPots::AssignRecentlyChanged(uint8_t pot) {
             if (pot >= NPOTS || s_lastAssignUs[pot] == 0) return false;
             return (esp_timer_get_time() - s_lastAssignUs[pot]) < ECHO_WINDOW_US;

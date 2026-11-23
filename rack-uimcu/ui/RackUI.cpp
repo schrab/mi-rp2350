@@ -249,6 +249,28 @@ namespace CTAG {
             return page == 0 || page == 1 || page == 10;
         }
 
+        // Benjolin's tap selector (OUTPUT 71) and FILTER use normalized CC
+        // bytes for their stepped norns specs: index i travels as
+        // round(i*127/(N-1)). GAIN (69) is deliberately NOT here — it is a
+        // continuous 0-127 control, with the 0-6 range applied by the RP's
+        // ControlSpec.
+        static bool benjolinSpecCc(uint8_t mod, uint8_t cc, uint8_t &n) {
+            if (mod != 6) return false;
+            if (cc == 71) { n = 7; return true; }
+            if (cc == 70) { n = 2; return true; }
+            return false;
+        }
+        static uint8_t benjolinIdxToWire(uint8_t n, uint8_t idx) {
+            if (n <= 1) return 0;
+            if (idx >= n) idx = (uint8_t)(n - 1);
+            return (uint8_t)((((uint16_t)idx * 127) + (n - 1) / 2) / (n - 1));
+        }
+        static uint8_t benjolinWireToIdx(uint8_t n, uint8_t wire) {
+            if (n <= 1) return wire >= 64 ? 1 : 0;
+            uint16_t idx = (((uint16_t)wire * (n - 1)) + 63) / 127;
+            return idx >= n ? (uint8_t)(n - 1) : (uint8_t)idx;
+        }
+
         // Return discrete option count N (2..98) if (page, mod, slot, cc) is
         // a stepped selector on P1/P2 whose wire byte is 0..N-1 (or 0/127 for
         // 2-state triggers/toggles); 0 if continuous 0..127.
@@ -307,7 +329,8 @@ namespace CTAG {
                     // The EXACT norns benjolis ranges: filterType 0-1
                     // (RLPF/RHPF — the norns UI never exposes SVF/DFM1),
                     // outSignal 0-6, gain 0-6 (all lin, step 1).
-                    if (cc == 69) return 7;   // GAIN: 0..6 (step 1)
+                    // GAIN (69) is continuous 0-127 on the wire; the RP's
+                    // norns ControlSpec maps it to 0-6 step 1.
                     if (cc == 70) return 2;   // FILTER: RLPF/RHPF
                     if (cc == 71) return 7;   // OUTPUT: tri1/osc1/tri2/osc2/pwm/comp/filt
                     break;
@@ -346,6 +369,12 @@ namespace CTAG {
                 const uint8_t modForPage = (page == 9) ? 1 : mod;
                 bool wireBool = false;
                 const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
+                uint8_t bjN = 0;
+                if (benjolinSpecCc(modForPage, cc, bjN)) {
+                    // Pot space is the normalized CC byte itself; conversion
+                    // from/to the displayed index happens in render/put.
+                    return wireVal;
+                }
                 if (modForPage == 5 && cc == 51) {
                     // DRONE wire byte is a raw catalog id. Auditionable ids
                     // map to a 10-step pot; a hanging id selected elsewhere
@@ -394,6 +423,11 @@ namespace CTAG {
                 const uint8_t modForPage = (page == 9) ? 1 : mod;
                 bool wireBool = false;
                 const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
+                uint8_t bjN = 0;
+                if (benjolinSpecCc(modForPage, cc, bjN)) {
+                    uint8_t idx = (uint8_t)((((uint16_t)potVal * (bjN - 1)) + 63) / 127);
+                    return benjolinIdxToWire(bjN, idx);
+                }
                 if (modForPage == 5 && cc == 51) {
                     // DRONE: send the raw catalog id of one of the 10
                     // auditionable drones (no hanging id can be reached here).
@@ -436,6 +470,13 @@ namespace CTAG {
                 const uint8_t modForPage = (page == 9) ? 1 : mod;
                 bool wireBool = false;
                 const uint8_t n = p1p2DiscreteCount(page, modForPage, cc, wireBool);
+                uint8_t bjN = 0;
+                if (benjolinSpecCc(modForPage, cc, bjN)) {
+                    int idx = benjolinWireToIdx(bjN, potVal);
+                    barVal = idx;
+                    barMax = bjN - 1;
+                    return idx;
+                }
                 if (n > 1) {
                     int idx = (modForPage == 2 && cc == 23)
                                   ? RackUI::PotToWireValue(page, mod, slot, cc, potVal)

@@ -906,6 +906,19 @@ static void ui_link_init_defaults() {
   ui_link_set_cached_cc(RACK_MODULE_RINGS, 22, 0);    // CHORD TB (0 = Bryan)
   ui_link_set_cached_cc(RACK_MODULE_RINGS, 23, 0);    // CHORD (0)
   ui_link_set_cached_cc(RACK_MODULE_RINGS, 64, 0);    // STRUM = 0
+
+  // 7. Benjolin — kCcSeeds from module_benjolin.h: the norns benjolis
+  // DEFAULT mapped to raw CC bytes through the exact ControlSpecs. Without
+  // these the UI cache is all zeros while the engine boots at the spec
+  // defaults (LOOP/GAIN/OUTPUT = 127), so LOOP never reflected startup
+  // settings and every value looked range-mismatched.
+  static const uint8_t kBjCc[14] = {
+      60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73};
+  static const uint8_t kBjSeed[14] = {
+      24, 40, 127, 20, 0, 14, 127, 13, 2, 127, 0, 127, 0, 64};
+  for (uint8_t i = 0; i < 14; ++i) {
+    ui_link_set_cached_cc(RACK_MODULE_BENJOLIN, kBjCc[i], kBjSeed[i]);
+  }
 }
 
 static void ui_link_uart_init() {
